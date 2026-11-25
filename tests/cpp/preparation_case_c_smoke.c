@@ -90,6 +90,10 @@ static int check_uniform(void) {
     tpmshx_preparation_2d_uniform_case_release_v1(&result);
     tpmshx_preparation_2d_uniform_case_release_v1(NULL);
     result.abi_version = 1; result.struct_size = sizeof(result); before = result;
+    source = original; source.input.topology = 2;
+    CHECK(tpmshx_preparation_2d_uniform_prepare_case_v1(&source, NULL, NULL, &result, &failure,
+        error, sizeof(error)) == TPMSHX_PREPARATION_INVALID);
+    CHECK(strstr(error, "TPMS geometry supports Diamond and Gyroid only: 2") && !memcmp(&before, &result, sizeof(result)));
     source = original; source.input.abi_version = 99;
     CHECK(tpmshx_preparation_2d_uniform_prepare_case_v1(&source, NULL, NULL, &result, &failure, error, sizeof(error)) == TPMSHX_PREPARATION_INVALID);
     CHECK(!memcmp(&before, &result, sizeof(result)));

@@ -60,13 +60,19 @@ def test_bad_target_rejected_before_geometry_preparation(monkeypatch, bad):
         prepare_case(cfg, case_id='invalid')
 
 
-def test_resolved_speed_still_enforces_experimental_calibration():
+def test_resolved_speed_still_enforces_experimental_calibration(tmp_path):
+    from sjtu_tpmshx.file_io.config_io import load_config
+
     cfg = _config()
     cfg.df_mode = 'experimental'
     cfg.fluid_A = replace(cfg.fluid_A, u_mps=-1., mass_flow_kg_s=1e-12)
     cfg.validate()  # The inactive cached speed does not define this inlet.
+    path = tmp_path / 'deferred-flow.json'
+    cfg.to_json(path)
+    loaded = ComputeConfig.from_json(path)
+    assert loaded == load_config(path) == cfg
     with pytest.raises(ValueError, match='calibration'):
-        prepare_case(cfg, case_id='outside-calibration')
+        prepare_case(loaded, case_id='outside-calibration')
 
 
 def test_explicit_batch_flow_overrides_stored_input_without_mutating_it():

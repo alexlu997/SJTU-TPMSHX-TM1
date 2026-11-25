@@ -50,10 +50,16 @@ std::string fixed(double value,int precision) {
     stream<<std::fixed<<std::setprecision(precision)<<value;
     return stream.str();
 }
+bool is_diamond(Topology topology) {
+    switch (topology) {
+    case Topology::diamond: return true;
+    case Topology::gyroid: return false;
+    }
+    throw std::invalid_argument("TPMS geometry supports Diamond and Gyroid only: "+
+                                std::to_string(static_cast<int>(topology)));
+}
 const char* topology_name(Topology topology) {
-    if (topology==Topology::diamond) return "Diamond";
-    if (topology==Topology::gyroid) return "Gyroid";
-    throw std::invalid_argument("TPMS geometry supports Diamond and Gyroid only");
+    return is_diamond(topology) ? "Diamond" : "Gyroid";
 }
 const char* fluid_name(Fluid fluid) {
     switch (fluid) {
@@ -351,7 +357,7 @@ PhysicalGrid2D physical_grid(const GridInput2D& input,const std::array<InletInpu
 }
 
 const geometry::PhiIndex& geometry_index(Topology topology) {
-    if (topology==Topology::diamond) {
+    if (is_diamond(topology)) {
         static const auto index=geometry::PhiIndex::from_topology(Topology::diamond,128);return index;
     }
     static const auto index=geometry::PhiIndex::from_topology(Topology::gyroid,128);return index;

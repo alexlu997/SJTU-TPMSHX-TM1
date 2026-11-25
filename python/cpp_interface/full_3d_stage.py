@@ -19,6 +19,7 @@ from sjtu_tpmshx.run_control.run_warnings import current_warnings, merge_warning
 from sjtu_tpmshx.data_types.field_result import FieldResult, execution_record
 from sjtu_tpmshx.data_types.model_refs import freeze_value
 from sjtu_tpmshx.physical_models.df_surrogate import CFD_CAMPAIGN, CFD_SCOPE
+from sjtu_tpmshx.physical_models.nu_correlations import sco2_nu_parameters
 
 from sjtu_tpmshx.cpp_interface._native_result_stage import (Evidence, Input as Evaluation,
     detach_stage_fields, nu_observation, record, stage_closures, stage_ledger)
@@ -45,7 +46,7 @@ from .solver_library._thermal_abi import (
     _iteration_options,
 )
 from .preparation_host import borrow_ranges as _ranges
-from ._native_values import TOPOLOGIES, GridPort, grid_count, borrow_array as _array, borrow_text as _text, iteration_count
+from ._native_values import GridPort, grid_count, borrow_array as _array, borrow_text as _text, iteration_count
 from .run_state import NativeRun
 
 _U, _Z, _D = ct.c_uint32, ct.c_size_t, ct.c_double
@@ -225,6 +226,7 @@ def pack_input(cfg, prepared, grid, design, shape, cell_mm, nu, keepalive, *, me
         keepalive.append(value)
         return _Array(value.ctypes.data_as(ct.POINTER(ct.c_double)), value.size)
     data = _Input()
+    data.topology, sco2_multiplier = sco2_nu_parameters(cfg['tpms_type'], nu if nu.mode == 'experimental' else None)
     data.shape[:] = shape
     data.widths[:] = ([view(grid['d'+axis]) for axis in 'xyz'] if mesh is None else
                       [_Array(width.data, width.size) for width in mesh.solver_widths])
@@ -240,7 +242,6 @@ def pack_input(cfg, prepared, grid, design, shape, cell_mm, nu, keepalive, *, me
         data.area_density = _Array(mesh.solver_area.data, mesh.solver_area.size)
         data.hydraulic_diameter = _Array(mesh.solver_diameter.data, mesh.solver_diameter.size)
     data.reference_cell_length, data.reference_hydraulic_diameter = cell_mm*1e-3, prepared['geometry']['D_h']
-    data.topology = TOPOLOGIES.index(cfg['tpms_type'])
     data.spatial, data.asymmetric, data.solve_b = spatial, cfg.get('delta_levelset', 0.) != 0., cfg.get('fluid_B_cfg') is not None
     for s, label in enumerate('AB'):
         a = data.sides[s];axis = prepared['axes'][label];bc = cfg['fluid_'+label+'_cfg']
@@ -254,7 +255,7 @@ def pack_input(cfg, prepared, grid, design, shape, cell_mm, nu, keepalive, *, me
         correction = (cfg.get('df_application') or {}).get(label, {})
         a.permeability_scale, a.forchheimer_scale = correction.get('scale_K', 1.), correction.get('scale_F', 1.)
         a.dispersion = cfg.get('disp_C_'+label, 0.)
-        a.sco2_nusselt_multiplier = getattr(nu, 'alpha_D' if data.topology == 0 else 'alpha_G') if nu.mode == 'experimental' else 1.
+        a.sco2_nusselt_multiplier = sco2_multiplier
         a.heat_transfer_geometry[:] = thermal['side_geometry'][label] if data.asymmetric else (1.,1.,1.,1.)
     data.sources[:] = [view(cfg.get('mms_S_'+s+'_field', np.empty(0))) for s in ('A', 'B', 's')]
     return data

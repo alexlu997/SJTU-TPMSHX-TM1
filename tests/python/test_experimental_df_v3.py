@@ -30,6 +30,17 @@ def _air_cfg(**kwargs):
     return cfg
 
 
+@pytest.mark.parametrize('registered', [False, True])
+def test_experiment_scope_rejects_unsupported_topology(monkeypatch, registered):
+    from sjtu_tpmshx.cpp_interface import _native_df
+    from sjtu_tpmshx.cpp_interface._native_values import TOPOLOGY_CODES
+
+    if registered:
+        monkeypatch.setitem(TOPOLOGY_CODES, 'Primitive', 2)
+    with pytest.raises(ValueError, match='Primitive'):
+        _native_df.experiment_scope('Primitive', ('air', 'water'), 0, 7., .6, True, (.182, .042))
+
+
 def test_default_cfd_mode_keeps_production_predictor_values():
     cfg = ComputeConfig()
     before = _base("Gyroid", 7.0, 0.4)

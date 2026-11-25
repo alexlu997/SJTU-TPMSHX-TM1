@@ -70,6 +70,8 @@ def test_checker_resolves_relative_imports_and_allows_shared_models():
 
 @pytest.mark.parametrize('adapter, api', [
     ('cpp_interface.native_preparation', 'preprocess.api'),
+    ('cpp_interface.native_preparation', 'preprocess.two_d.preparation'),
+    ('preprocess.two_d.preparation', 'preprocess.api'),
     ('preprocess.three_d.preparation', 'preprocess.api'),
     ('cpp_interface.full_2d_stage', 'solvers.execution_record'),
     ('cpp_interface.full_3d_stage', 'solvers.execution_record'),
@@ -104,6 +106,13 @@ def test_implementation_imports_have_no_cycles(owner):
     }
     assert modules, owner
     check_cycles(modules)
+
+
+def test_configuration_and_native_properties_have_no_import_cycle():
+    names = ('data_types.compute_config', 'file_io.config_io', 'file_io.text_file',
+             'cpp_interface._native_df', 'cpp_interface._native_properties')
+    check_cycles({'sjtu_tpmshx.' + name: ROOT.joinpath(*name.split('.')).with_suffix('.py')
+                  for name in names})
 
 
 def test_checker_detects_cycle_across_solver_directories(tmp_path):

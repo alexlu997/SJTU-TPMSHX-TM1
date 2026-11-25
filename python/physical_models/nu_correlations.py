@@ -39,7 +39,7 @@ from sjtu_tpmshx.model_configs.model_parameters import load_model_parameters
 from sjtu_tpmshx.run_control.run_warnings import record_range, record_warning
 import numpy as np
 from sjtu_tpmshx.cpp_interface import _native_properties
-from sjtu_tpmshx.cpp_interface._native_values import TOPOLOGY_CODES
+from sjtu_tpmshx.cpp_interface._native_values import TOPOLOGY_CODES, geometry_topology
 
 # ── Constants ────────────────────────────────────────────────────────────
 
@@ -316,7 +316,19 @@ def warn_sco2_nu_evidence(*, side, stage, tpms_type, L_mm, t_mm, P_in):
         warnings.warn(message, stacklevel=2)
 
 
+def sco2_nu_parameters(tpms_type, settings=None):
+    """Return the native topology code and the sCO2 Nu multiplier."""
+    code = geometry_topology(tpms_type)
+    if code == 0:
+        return code, 1.0 if settings is None else settings.alpha_D
+    if code == 1:
+        return code, 1.0 if settings is None else settings.alpha_G
+    raise ValueError(f'unsupported sCO2 Nu topology {tpms_type!r} (code {code})')
+
+
 def _sco2_nu(tpms_type, Re, Pr_sco2, L_mm, D_h_mm, settings=None):
+    topology, alpha = sco2_nu_parameters(
+        tpms_type, settings if settings is not None and settings.mode != 'cfd_smooth' else None)
     if tpms_type not in SCO2_NU_COEFFS:
         raise NotImplementedError(
             f"sCO2 Nu fit only available for {sorted(SCO2_NU_COEFFS)} "
@@ -324,11 +336,7 @@ def _sco2_nu(tpms_type, Re, Pr_sco2, L_mm, D_h_mm, settings=None):
     prepared, extrema = _native_properties.nu_inputs(3, Re)
     if np.asarray(prepared).size:
         _warn_sco2_nu(float(extrema[0]), float(extrema[1]), tpms_type, Re)
-    alpha = 1.0
-    if settings is not None and settings.mode != 'cfd_smooth':
-        alpha = settings.alpha_D if tpms_type == 'Diamond' else settings.alpha_G
-    return _native_properties.nusselt(3, 0 if tpms_type == 'Diamond' else 1,
-                                      prepared, Pr_sco2, L_mm, D_h_mm, alpha=alpha)
+    return _native_properties.nusselt(3, topology, prepared, Pr_sco2, L_mm, D_h_mm, alpha=alpha)
 
 
 def nu_sco2_topo(tpms_type, Re, Pr_sco2, L_mm, D_h_mm):
@@ -338,7 +346,8 @@ def nu_sco2_topo(tpms_type, Re, Pr_sco2, L_mm, D_h_mm):
     ratio is unit-agnostic but both must be in the SAME unit (convention:
     mm, matching the FluidModel.nu signature).
 
-    Raises NotImplementedError for topologies without an sCO2 CFD fit.
+    An unknown topology raises ValueError. A missing CFD fit for a supported
+    topology raises NotImplementedError.
     Pr is the BULK Prandtl at (T_b, P) — no wall-property ratio by design.
     Validity/failure bands: see SCO2_NU_COEFFS block comment.
 

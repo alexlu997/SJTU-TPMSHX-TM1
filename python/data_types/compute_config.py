@@ -533,7 +533,7 @@ class ComputeConfig:
         already consumes, so production validate scripts can switch
         with a one-line change.
         """
-        from sjtu_tpmshx.file_io.config_io import read_json
+        from sjtu_tpmshx.file_io.text_file import read_json
         return cls.from_dict(read_json(path))
 
     def to_dict(self) -> dict[str, Any]:
@@ -545,7 +545,7 @@ class ComputeConfig:
 
     def to_json(self, path: Union[str, Path]) -> None:
         """Write the configuration archive as JSON."""
-        from sjtu_tpmshx.file_io.config_io import write_json
+        from sjtu_tpmshx.file_io.text_file import write_json
         write_json(path, self.to_dict())
 
     def validate_static_inputs(self, *, _native_preparation: bool = False) -> 'ComputeConfig':

@@ -91,7 +91,9 @@ The full matrix has 27 jobs, including the independent Linux result-library buil
 Use full CI for timing comparisons and the relevant numerical studies for research acceptance.
 Physical changes still require their extended numerical studies. Normal CI does not replace that evidence.
 
-The `[tool.mypy].files` setting in `pyproject.toml` explicitly lists 19 files. Coverage includes configuration, controllers, CLI, the common workflow, current envelope implementation, three-module contracts/APIs, and the postprocessing metric entry. Deleted forwarding modules are excluded. `pyproject.toml` validates unannotated bodies in four boundary implementation modules. This does not show strict typing across each solver.
+The `[tool.mypy].files` setting in `pyproject.toml` explicitly lists 19 files. Coverage includes configuration, controllers, CLI, the common workflow, current envelope implementation, three-module contracts/APIs, and the postprocessing metric entry. Deleted forwarding modules are excluded.
+Mypy checks function bodies without annotations in the envelope, the three stage APIs, and the postprocessing metric entry.
+It also checks the `_metadata` module that the preparation API imports.
 
 The `scope` job in `.github/workflows/ci.yml` runs `ruff check .` and `engineering.scripts.check_types` with `--platform darwin` and `--platform win32` one time for each change that is not in the `docs` tier. The pytest shards do not run ruff or mypy. Use the commands above for local checks.
 

@@ -59,8 +59,15 @@ def test_shared_scalar_array_nu_and_unchanged_other_fluids(topology, alpha):
     assert np.array_equal(fluid_props.get('sco2', sco2_nu=SYNTHETIC).nu(*args), alpha * base)
     for fluid in ('air', 'water'):
         assert fluid_props.get(fluid, sco2_nu=SYNTHETIC) is fluid_props.get(fluid)
-    with pytest.raises(NotImplementedError):
-        fluid_props.get('sco2', sco2_nu=SYNTHETIC).nu('Primitive', *args[1:])
+
+
+def test_selected_nu_rejects_unmapped_topology_with_fit(monkeypatch):
+    from sjtu_tpmshx.cpp_interface._native_values import TOPOLOGY_CODES
+
+    monkeypatch.setitem(TOPOLOGY_CODES, 'Primitive', 2)
+    monkeypatch.setitem(nu.SCO2_NU_COEFFS, 'Primitive', nu.SCO2_NU_COEFFS['Gyroid'])
+    with pytest.raises(ValueError, match='Primitive'):
+        fluid_props.get('sco2', sco2_nu=SYNTHETIC).nu('Primitive', 10000., .4, 7., 3., 1.2)
 
 
 @pytest.mark.parametrize('shape', [(2, 3), (2, 3, 2)])

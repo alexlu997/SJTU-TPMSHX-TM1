@@ -17,7 +17,8 @@ Use the [first run instructions](first-run.en.md) to run the application.
 | GUI, Quick Design and optimization | [GUI guide](gui-guide.en.md) |
 | Local checks, CI and acceptance records | [Verification guide](verification.en.md) |
 | Worked routes to add fluids, Nu closures, GUI panels, or topologies | [Contributor extension guide](extending.md) |
-| Module responsibilities, data flow and physical constraints | [Architecture](architecture.md) |
+| System map, package names, and cross-directory C++ edges | [Architecture](architecture.md) |
+| Detailed numerical, runtime, UI, and physical contracts | [Numerical and runtime contracts](numerical-contracts.md) |
 | C++ numerical backend, native ABI and builds | [C++ integration](cpp-migration.md) |
 | Independent C++ stage SDK and installed examples | [C++ stages](native-stages.md) |
 | Authorized steady single-phase solver design and task nodes | [Unified solver design](unified-solver.md) |
