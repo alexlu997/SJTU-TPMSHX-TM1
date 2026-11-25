@@ -1,26 +1,22 @@
-"""Tests for the ``domain.validator`` field-unit helpers added in
-audit C5 Phase 4 (L-b, 2026-05-28).
-
-Covers:
-
-- ``FIELD_UNITS`` / ``POSITIVE_FIELDS`` / ``COUNT_TOKEN_WHITELIST``
-  module constants — moved here from ``Main_Menu._FIELD_UNITS``.
-- ``format_unit_value`` — display formatter (count vs scientific
-  vs compact).
-- ``parse_field_value`` — one-shot lookup → conversion that the
-  unified ``_make_field_handler`` calls.
-"""
+"""Test GUI field units and portable scalar formatting."""
 from __future__ import annotations
 
 import pytest
 
-from sjtu_tpmshx.data_types.validator import (
+from sjtu_tpmshx.applications.gui.ui.window_config import (
     FIELD_UNITS,
     POSITIVE_FIELDS,
     COUNT_TOKEN_WHITELIST,
-    format_unit_value,
     parse_field_value,
 )
+from sjtu_tpmshx.data_types.validator import format_unit_value
+
+
+def test_portable_validator_keeps_widget_names_in_the_gui():
+    from sjtu_tpmshx.data_types import validator
+
+    widget_names = {'FIELD_UNITS', 'POSITIVE_FIELDS', 'COUNT_TOKEN_WHITELIST', 'parse_field_value'}
+    assert widget_names.isdisjoint(vars(validator))
 
 
 def test_field_units_covers_pipe_widgets():

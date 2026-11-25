@@ -5,6 +5,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 
+from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
+
 from .theme import get_theme, glass_surface
 from .responsive import ResponsiveRow
 
@@ -117,7 +119,7 @@ def result_metric_texts(window):
     is_3d = d.get('mode') == '3d'
     def value(number, digits):
         return f"{number:.{digits}f}" if number is not None and isfinite(number) else '—'
-    offset = 273.15 if getattr(window, '_temp_unit', 'K') == 'C' else 0.0
+    offset = CELSIUS_ZERO_K if getattr(window, '_temp_unit', 'K') == 'C' else 0.0
     temperatures = (d.get('T_out_A_K'), d.get('T_out_B_K'))
     return {
         'Q': value(d.get('Q_W'), 2 if is_3d else 1),

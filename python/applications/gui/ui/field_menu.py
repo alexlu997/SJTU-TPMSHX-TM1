@@ -9,6 +9,8 @@ from collections import deque
 
 from PySide6.QtWidgets import QApplication
 
+from .window_config import FIELD_UNITS
+
 
 def install_field_menus(window):
     """Wire right-click + focus-pop to every session LineEdit.
@@ -47,10 +49,7 @@ def _attach_context_menu(window, le, attr):
         act_revert.triggered.connect(
             lambda: _revert_field_to_default(window, le, attr))
 
-        # Copy as expression — pairs value with the stored unit from
-        # _FIELD_UNITS so a user pasting into a notebook gets context.
-        unit_family = window._FIELD_UNITS.get(attr, ('', ''))
-        family, target = unit_family
+        family, target = FIELD_UNITS.get(attr, ('', ''))
         unit_txt = (('°C' if window._temp_unit == 'C' else 'K')
                     if family == 'temp' else target or '')
         unit_label = f" [{unit_txt}]" if unit_txt else ""

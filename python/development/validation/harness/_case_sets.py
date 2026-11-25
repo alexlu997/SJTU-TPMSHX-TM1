@@ -8,6 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from sjtu_tpmshx.development.validation.harness._harness import SpecimenSpec
+from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
 
 _PKG_ROOT = Path(__file__).resolve().parents[3]     # Python package root
 _DATA = _PKG_ROOT.parent / 'data' / 'raw_data'
@@ -68,7 +69,7 @@ def shanghai_pipeline_config(ci, df, solver, *, port_wall_refine=False):
         ('air', 5, 28, 101325. + float(df.iloc[ci, 30]), spec.eps_A, bc_A),
         ('water', 7, 24, float(df['water_P_in_abs_Pa'].iloc[ci]), spec.eps - spec.eps_A, bc_B),
     ):
-        temperature = float(df.iloc[ci, temp_col]) + 273.15
+        temperature = float(df.iloc[ci, temp_col]) + CELSIUS_ZERO_K
         rho = float(get(kind).rho(temperature, pressure))
         velocity = float(df.iloc[ci, mass_col]) / (rho * eps * bc.in_w * depth)
         fluids.append(FluidConfig(type=kind, u_mps=velocity,

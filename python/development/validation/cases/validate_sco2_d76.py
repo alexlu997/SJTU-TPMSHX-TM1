@@ -36,6 +36,7 @@ import numpy as np
 import openpyxl
 from openpyxl.utils import column_index_from_string as ci
 
+from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
 from sjtu_tpmshx.physical_models import fluid_props, tpms_calc
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -104,8 +105,8 @@ def main():
     errs = []
     for cidx in GOLD_CASES:
         i = int(np.where(case == cidx)[0][0])
-        Th, Ph = ThI[i] + 273.15, PhI[i] * 1e6
-        Tc, Pc = TcI[i] + 273.15, PcI[i] * 1e6
+        Th, Ph = ThI[i] + CELSIUS_ZERO_K, PhI[i] * 1e6
+        Tc, Pc = TcI[i] + CELSIUS_ZERO_K, PcI[i] * 1e6
         # interstitial velocity each side
         uh = mh[i] / (m.rho(Th, Ph) * A_flow)
         uc = mc[i] / (m.rho(Tc, Pc) * A_flow)

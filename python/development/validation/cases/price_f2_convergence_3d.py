@@ -22,6 +22,7 @@ from sjtu_tpmshx.applications.result_adapter import compute_result
 from sjtu_tpmshx.data_types.compute_config import (ComputeConfig, FluidConfig,   # noqa: E402
                                    GeometryConfig, SolverConfig,
                                    PartialBCConfig, ExtrapPolicy)
+from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
 from sjtu_tpmshx.physical_models.tpms_calc import (air_density, water_density,       # noqa: E402
                                P_atm)
 from sjtu_tpmshx.development.validation.harness._case_sets import shanghai_spec, SHANGHAI_XLSX  # noqa: E402
@@ -37,10 +38,10 @@ SPEC = shanghai_spec()
 def _build_cfg(ci, df, Nx, Ny, Nz, *, mom_tol, mass_local_tol,
                mass_global_tol, max_outer=None):
     m_air = float(df.iloc[ci, 5])
-    T_Ain_K = float(df.iloc[ci, 28]) + 273.15
+    T_Ain_K = float(df.iloc[ci, 28]) + CELSIUS_ZERO_K
     P_Ain = P_atm + float(df.iloc[ci, 30])
     m_water = float(df.iloc[ci, 7])
-    T_Bin_K = float(df.iloc[ci, 24]) + 273.15
+    T_Bin_K = float(df.iloc[ci, 24]) + CELSIUS_ZERO_K
 
     rho_A = air_density(T_Ain_K, P_Ain)
     u_A = m_air / (rho_A * SPEC.a_flow_m2)

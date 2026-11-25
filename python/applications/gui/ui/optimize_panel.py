@@ -13,6 +13,7 @@ import numpy as np
 
 from sjtu_tpmshx.applications.gui.controllers.user_storage import optimization_output_dir
 from sjtu_tpmshx.data_types.compute_config import ComputeConfig, ZoneInputConfig
+from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
 from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.run_control.logutil import get_logger
 from sjtu_tpmshx.applications.gui.ui.theme import FIELD_CMAP, get_theme
@@ -948,7 +949,7 @@ def load_pareto_solution(window, x_decision):
         if cfg.is_3d:
             getattr(window, 'le_mass_flow' + side).setText(format(row[f'mass_flow_{side}_kg_s'], '.17g'))
             getattr(window, 'combo_inlet_mode' + side).setCurrentIndex(1)
-        temperature = fluid.T_in_K - (273.15 if getattr(window, '_temp_unit', 'K') == 'C' else 0.)
+        temperature = fluid.T_in_K - (CELSIUS_ZERO_K if getattr(window, '_temp_unit', 'K') == 'C' else 0.)
         for attr, value in ((f'le_Tin{side}', temperature), (f'le_Pin{side}', fluid.P_in_Pa),
                             (f'le_u{side}', fluid.u_mps)):
             getattr(window, attr).setText(format(value, '.17g'))
