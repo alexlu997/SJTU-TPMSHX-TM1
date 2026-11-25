@@ -13,6 +13,7 @@ import pytest
 from tests.python.test_native_prepare_adapter import _same
 from tests.python.native.shared_library import library_path
 from sjtu_tpmshx.preprocess.api import prepare_case
+from sjtu_tpmshx.run_control.cancellation import CancelledError
 from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.data_types.portable_data import mutable_data
 from sjtu_tpmshx.run_control.run_warnings import range_observations, warning_scope
@@ -626,7 +627,7 @@ def test_saved_3d_rejects_topology_without_a_nu_multiplier(monkeypatch):
     config.sco2_nu = sco2_effective_nu_config()
     case = prepare_case(config, case_id='unsupported-topology')
     params = dict(case.parameters, tpms_type='Primitive')
-    shape, cell_mm, _, nu = full_3d.validate_saved_case(case)
+    _, _, _, nu = full_3d.validate_saved_case(case)
     monkeypatch.setitem(TOPOLOGY_CODES, 'Primitive', 2)
     with pytest.raises(ValueError, match='Primitive'):
         full_3d.select_sco2_nu(params, nu)
@@ -765,3 +766,112 @@ def test_detached_result_survives_release_mutation_and_second_run(monkeypatch):
     for name, expected in reference.fields.items():
         np.testing.assert_array_equal(first.fields[name], expected, err_msg=name)
     assert first.field_metadata == reference.field_metadata
+
+
+def test_validate_saved_case_and_cancel_run_before_native_cpu_threads_and_emit_audit(monkeypatch):
+    config = native_stage_support.volume_configuration(('air', 'water'), 'uniform')
+    case = prepare_case(config, case_id='hook-order')
+
+    class OrderControl:
+        backend = 'cpp'
+        native_library = str(library_path())
+        native_table_directory = os.environ.get('TPMSHX_STAGE_TABLE_DIRECTORY')
+        cpu_threads = 1
+        cancel_check = None
+        iteration = None
+        outer_iteration = None
+
+        def __init__(self, events=None, fail_on_cancel=None):
+            self.events = events
+            self.fail_on_cancel = fail_on_cancel
+            self.cancel_calls = 0
+
+        def check_cancelled(self):
+            self.cancel_calls += 1
+            if self.events is not None:
+                self.events.append(f'check_cancelled:{self.cancel_calls}')
+            if self.fail_on_cancel == self.cancel_calls:
+                raise CancelledError('cancelled before native_cpu_threads')
+
+        def report_progress(self, progress):
+            pass
+
+        def native_cpu_threads(self):
+            if self.events is not None:
+                self.events.append('native_cpu_threads')
+                return 1
+            raise RuntimeError('native_cpu_threads called before validate_saved_case')
+
+    bad_params = dict(case.parameters)
+    bad_params.pop('thermal_geometry')
+    with pytest.raises(ValueError, match='incomplete prepared 3D execution data'):
+        full_3d.run_case(replace(case, parameters=bad_params), OrderControl())
+    with pytest.raises(ValueError, match='persisted physical grid axis order is invalid'):
+        full_3d.run_case(replace(case, grid={**case.grid, 'dimension': 2}), OrderControl())
+    with pytest.raises(CancelledError, match='cancelled before native_cpu_threads'):
+        full_3d.run_case(case, OrderControl(fail_on_cancel=2))
+
+    events = []
+    original_validate = full_3d.validate_saved_case
+    original_make_callbacks = full_3d_stage.make_callbacks
+    original_require_completed = full_3d_stage.require_completed
+
+    class TrackedAuditFlag(int):
+        def __bool__(self):
+            events.append('emit_audit')
+            return False
+
+    def tracked_validate(*args, **kwargs):
+        events.append('validate_saved_case')
+        return original_validate(*args, **kwargs)
+
+    def tracked_callbacks(*args, **kwargs):
+        events.append('make_callbacks')
+        return original_make_callbacks(*args, **kwargs)
+
+    def tracked_require_completed(*args, **kwargs):
+        events.append('require_completed')
+        return original_require_completed(*args, **kwargs)
+
+    monkeypatch.setattr(full_3d, 'validate_saved_case', tracked_validate)
+    monkeypatch.setattr(full_3d_stage, 'make_callbacks', tracked_callbacks)
+    monkeypatch.setattr(full_3d_stage, 'require_completed', tracked_require_completed)
+    tracked_case = replace(case, parameters={**case.parameters, '_emit_audit': TrackedAuditFlag(0)})
+    result = full_3d.run_case(tracked_case, OrderControl(events=events))
+    assert result.run_status['execution'] == 'completed'
+    assert events == [
+        'check_cancelled:1',
+        'validate_saved_case',
+        'check_cancelled:2',
+        'make_callbacks',
+        'native_cpu_threads',
+        'require_completed',
+        'emit_audit',
+        'check_cancelled:3',
+        'emit_audit',
+    ]
+
+
+@pytest.mark.parametrize('read_attr', ['_copy', 'copy_diagnostics'])
+def test_stop_iteration_at_native_read_propagates_with_cause_and_releases(monkeypatch, read_attr):
+    config = native_stage_support.volume_configuration(('air', 'water'), 'uniform')
+    case = prepare_case(config, case_id=f'stop-{read_attr}')
+    released = []
+    original_release = full_3d_stage.release_result
+
+    def track_release(library, result):
+        assert result.owner
+        original_release(library, result)
+        released.append(not result.owner)
+
+    cause = KeyError('root-cause')
+
+    def fail_read(*args, **kwargs):
+        raise StopIteration(f'stop-at-{read_attr}') from cause
+
+    monkeypatch.setattr(full_3d_stage, 'release_result', track_release)
+    monkeypatch.setattr(full_3d_stage, read_attr, fail_read)
+    with pytest.raises(StopIteration, match=f'stop-at-{read_attr}') as info:
+        run_case(case, _control())
+    assert info.value.__cause__ is cause
+    assert released == [True]

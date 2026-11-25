@@ -625,7 +625,7 @@ def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit, c
 
 
 def run_saved(case, library, abi, table_directory, execution_query, *,
-              mesh=None, cpu_threads,
+              mesh=None, native_cpu_threads,
               resume_state=None, checkpoint=None, checkpoint_due=None,
               checkpoint_phases=(1, 2, 6, 7, 8, 9, 10),
               error_types,
@@ -638,7 +638,6 @@ def run_saved(case, library, abi, table_directory, execution_query, *,
     query_bootstrap = bootstrap_query(library)
     shape, cell_mm, wall_mm, nu = validate_case(case, None if mesh is None else mesh.shape)
     cfg, prepared = case.parameters, case.parameters['prepared']
-    emit_audit = bool(cfg.get('_emit_audit', False))
     check_cancelled()
     complete = library.tpmshx_run_saved_case_3d_v3
     energy = energy_request(cfg)
@@ -658,6 +657,7 @@ def run_saved(case, library, abi, table_directory, execution_query, *,
     callbacks, errors = make_callbacks(
         cancel_check=cancel_check, report_progress=report_progress,
         iteration=iteration, outer_iteration=outer_iteration)
+    cpu_threads = native_cpu_threads()
     host = _Host(case.case_id.encode(), table_directory, cpu_threads, callbacks)
     result = None
     try:
@@ -679,6 +679,7 @@ def run_saved(case, library, abi, table_directory, execution_query, *,
                 result = run.take_result()
         bootstrap = bootstrap_traces(query_bootstrap, result.raw)
         require_completed(result.raw, bootstrap)
+        emit_audit = bool(cfg.get('_emit_audit', False))
         summary = copy_summary(library, result, emit_audit=emit_audit, copy_array=_copy)
         execution = executed_view(execution_query, result)
         report = completed_report(library, result)
@@ -705,6 +706,7 @@ def run_saved(case, library, abi, table_directory, execution_query, *,
             report=report,
             resolved=resolved,
             entry_version=entry_version,
+            cpu_threads=cpu_threads,
             summary=summary,
             bootstrap=bootstrap,
         )

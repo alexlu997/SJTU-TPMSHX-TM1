@@ -42,10 +42,9 @@ def run_case(case, control, *, resume_state=None, checkpoint=None, checkpoint_du
         validate_saved_axes(case)
     full_3d_stage.require_saved_stage(library)
     query = full_3d_stage.execution_view_query(library)
-    cpu_threads = control.native_cpu_threads()
     output = full_3d_stage.run_saved(
         case, library, abi, table_directory, query,
-        mesh=checked, cpu_threads=cpu_threads,
+        mesh=checked, native_cpu_threads=control.native_cpu_threads,
         resume_state=resume_state, checkpoint=checkpoint, checkpoint_due=checkpoint_due,
         checkpoint_phases=_CHECKPOINT_PHASES,
         error_types=_DOMAIN_ERRORS,
@@ -66,7 +65,7 @@ def run_case(case, control, *, resume_state=None, checkpoint=None, checkpoint_du
     report = output['report']
     detached.update({name: report[name] for name in
                      ('property_sampling', 'enthalpy_update_normalization', 'model_h_iterations')})
-    add_run_evidence(detached, output['resolved'], output['entry_version'], control, cpu_threads, resume_state)
+    add_run_evidence(detached, output['resolved'], output['entry_version'], control, output['cpu_threads'], resume_state)
     if 'temperature_evidence' in output:
         detached['temperature_evidence'] = output['temperature_evidence']
     if 'native_metadata' in output:

@@ -142,7 +142,8 @@ _QUICK_DTO_MODULES = {f"{package}.field_result" for package in _DTO_PACKAGES}
 _OTHER_STAGE_MODULES = {"full_2d_stage", "full_3d_stage", "run_state", "native_preparation",
                         "_native_preparation_3d", "_native_quick_prepare"}
 _FULL_3D_FORBIDDEN_SIBLINGS = {"full_2d_stage", "quick_design", "native_preparation", "inlet_properties",
-                               "_native_preparation_3d", "_native_quick_prepare", "quick_preparation"}
+                               "result_evaluation", "_native_preparation_3d", "_native_quick_prepare",
+                               "quick_preparation", "*"}
 _TYPE_GUARDS = {"typing.TYPE_CHECKING", "typing_extensions.TYPE_CHECKING"}
 _BINDING_NAMESPACES = {"sjtu_tpmshx", "sjtu_tpmshx.cpp_interface", "sjtu_tpmshx.shared", "shared", *_DTO_PACKAGES,
                        "typing", "typing_extensions", *_TYPE_GUARDS}
@@ -156,10 +157,14 @@ def _invalid_stage_target(host, target, binding, operations):
     if area == "shared" and module == "domain":
         area = "data_types"
         module, _, name = name.partition(".")
+    elif area == "shared" and module in {"result_display", "result_math"}:
+        area = "postprocess"
     if area == "data_types" and module == "range_policy":
         area = "physical_models"
+    elif host and area == "physical_models" and module.startswith("_native_"):
+        area = "cpp_interface"
     if binding == "full_3d_api":
-        return area == "cpp_interface" and module == "full_3d_stage"
+        return area == "cpp_interface" and module in {"full_3d_stage", "*"}
     if binding == "quick_design":
         if area == "solvers" and member.startswith("backends.cpp."):
             module, _, name = member.removeprefix("backends.cpp.").partition(".")
@@ -175,6 +180,8 @@ def _invalid_stage_target(host, target, binding, operations):
             module, _, name = member.removeprefix("backends.cpp.").partition(".")
             area = "solvers" if module == "full_3d_stage" else "cpp_interface"
         if area == "cpp_interface" and module in _FULL_3D_FORBIDDEN_SIBLINGS:
+            return True
+        if area == "shared" and module == "*":
             return True
         if area == "shared" and member.startswith(("_native_", "models._native_")) and (
                 member.removeprefix("models.").partition(".")[0] in _FULL_3D_FORBIDDEN_SIBLINGS):
@@ -448,7 +455,7 @@ def _stage_boundary_violations(path, tree, package):
     host = path.parent != PKG / "cpp_interface"
     for node in ast.walk(tree):
         targets = import_targets(node, package)
-        if (host and binding in {"quick_design", "full_3d_stage"}
+        if ((binding in {"full_3d_stage", "full_3d_api"} or (host and binding == "quick_design"))
                 and isinstance(node, ast.ImportFrom) and node.names[0].name == "*"):
             targets.append(targets[0] + ".*")
         forbidden = next((name for name in targets
