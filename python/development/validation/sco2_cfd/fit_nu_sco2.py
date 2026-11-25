@@ -5,8 +5,8 @@
 用法:
     python -m sjtu_tpmshx.development.validation.sco2_cfd.fit_nu_sco2
 
-数据基底：分段文件第 2/3 周期（入口段剔除），局部体物性由 CoolProp 在
-(P, T_b_local) 重取（`df_surrogate.load_sco2_cfd.load_segments`）。
+Use the second and third periods from the segment files. Exclude the entrance segments.
+`preprocess.offline.load_sco2_cfd.load_segments` calculates local bulk properties with CoolProp at (P, T_b_local).
 近临界工况 cp 尖峰在核心段 **内部** 穿越，整段平均会抹掉它，
 逐段是本数据的分辨率上限。
 
@@ -58,7 +58,7 @@ import pandas as pd
 _THIS = Path(__file__).resolve()
 _PKG_ROOT = _THIS.parents[3]
 
-from sjtu_tpmshx.physical_models.df_surrogate.load_sco2_cfd import LATTICES, load_segments  # noqa: E402
+from sjtu_tpmshx.preprocess.offline.load_sco2_cfd import LATTICES, load_segments  # noqa: E402
 
 from sjtu_tpmshx.preprocess.offline.nu_fit import fit_nu_sco2 as _fit
 

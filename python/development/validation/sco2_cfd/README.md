@@ -3,7 +3,7 @@
 [中文](README.md) | [English](README.en.md)
 
 当前数据位于 `data/raw_data/cfd/sco2/{Diamond,Gyroid}/`；统一读取器为
-`python/physical_models/df_surrogate/load_sco2_cfd.py`，保留拓扑、布局、压力/密度和原始字段守卫。
+`python/preprocess/offline/load_sco2_cfd.py`，保留拓扑、布局、压力/密度和原始字段守卫。
 
 `fit_nu_sco2.py` 保留 Nu 各变体拟合、几何/压力留一验证及
 `.cache/reports/sco2_cfd/nu_sco2_fit_coeffs.csv`、`nu_sco2_logo.csv` 输出。

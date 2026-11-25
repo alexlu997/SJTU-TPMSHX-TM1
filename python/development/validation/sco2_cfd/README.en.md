@@ -4,7 +4,7 @@
 
 [中文](README.md) | [English](README.en.md)
 
-Current data is under `data/raw_data/cfd/sco2/{Diamond,Gyroid}/`. The shared reader is `python/physical_models/df_surrogate/load_sco2_cfd.py`. It keeps topology, layout, pressure/density, and raw-field guards.
+Current data is under `data/raw_data/cfd/sco2/{Diamond,Gyroid}/`. The shared reader is `python/preprocess/offline/load_sco2_cfd.py`. It keeps topology, layout, pressure/density, and raw-field guards.
 
 `fit_nu_sco2.py` keeps Nu variant fits and leave-one-geometry/pressure-out validation. It writes `.cache/reports/sco2_cfd/nu_sco2_fit_coeffs.csv` and `nu_sco2_logo.csv`. Research refits do not automatically update current coefficients in `python/model_configs/model_parameters_v1.json`.
 

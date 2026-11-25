@@ -9,7 +9,7 @@ import pytest
 
 from sjtu_tpmshx.development.runs.tools import audit_import_graph as audit
 from sjtu_tpmshx.development.runs.tools.audit_import_graph import LAYERS, import_targets, target_unit, unit_of
-from tests.python.packaging_support import PUBLIC_NAME_CHECK
+from tests.python.packaging_support import PUBLIC_NAME_CHECK, df_package_identity_check
 
 REPO = Path(__file__).resolve().parents[3]
 ROOT = REPO / 'python'
@@ -130,6 +130,9 @@ def test_checker_detects_cycle_across_solver_directories(tmp_path):
     "import sjtu_tpmshx.physical_models.df_surrogate.predict\n"
     "bad = {'sjtu_tpmshx.physical_models.tpms_calc', 'sjtu_tpmshx.physical_models.tpms_props'} & set(sys.modules)\n"
     "assert not bad, f'df_surrogate pulled kernel modules: {bad}'",
+    "import sjtu_tpmshx.physical_models.df_surrogate.predict, sjtu_tpmshx.preprocess.api, sjtu_tpmshx.solvers.api\n"
+    "offline = ('sjtu_tpmshx.preprocess.offline', 'sjtu_tpmshx.development', 'CoolProp')\n"
+    "assert not any(name.startswith(offline) for name in sys.modules)",
     "import sjtu_tpmshx.physical_models.tpms_props\n"
     "bad = [m for m in sys.modules if m.startswith('sjtu_tpmshx.physical_models.df_surrogate')"
     " or m.startswith('sjtu_tpmshx.solvers') or m == 'sjtu_tpmshx.physical_models.tpms_calc']\n"
@@ -145,7 +148,8 @@ def test_checker_detects_cycle_across_solver_directories(tmp_path):
     "ComputeConfig(zones=ZoneInputConfig(enabled=True, axis='continuous', config=spec)).validate_static_inputs()\n"
     "validate_geometry(.1, .1, None, 7., .5)\n"
     "if 'sjtu_tpmshx.physical_models' in sys.modules: raise SystemExit('Geometry validation imported physical models')",
-], ids=['df-surrogate-below-kernel', 'tpms-props-leaf', 'preparation-without-controllers', 'geometry-validation'])
+], ids=['df-surrogate-below-kernel', 'runtime-without-offline', 'tpms-props-leaf',
+        'preparation-without-controllers', 'geometry-validation'])
 def test_lower_modules_import_without_upper_modules(probe):
     result = subprocess.run([sys.executable, '-c', 'import sys\n' + probe], cwd=REPO,
                             capture_output=True, text=True, timeout=300)
@@ -199,6 +203,73 @@ def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monke
     ('domain/probe.py', 'from sjtu_tpmshx import io', 'domain -> io', 1),
     ('preprocess/probe.py', 'from sjtu_tpmshx.compute import compute', 'preprocess -> compute', 1),
     ('compute.py', 'from sjtu_tpmshx.preprocess.api import prepare_case', 'compute -> preprocess', 0),
+    ('postprocess/api.py', 'def evaluate():\n    from ..cpp_interface import _native_result_stage as old',
+     'independent result boundary -> sjtu_tpmshx.cpp_interface._native_result_stage', 1),
+    ('postprocess/evaluation.py', 'from ..cpp_interface._native_result_stage import evaluate_applicability',
+     'independent result boundary -> sjtu_tpmshx.cpp_interface._native_result_stage', 1),
+    ('postprocess/evaluation.py', 'from ..cpp_interface.result_evaluation import _Evidence as raw',
+     'independent result boundary -> sjtu_tpmshx.cpp_interface.result_evaluation._Evidence', 1),
+    ('postprocess/evaluation.py', 'from ..cpp_interface import result_evaluation as wire\nwire._Evidence()',
+     'independent result boundary -> sjtu_tpmshx.cpp_interface.result_evaluation._Evidence', 1),
+    ('postprocess/evaluation.py', 'from ..cpp_interface import result_evaluation\n'
+     'def source_ids(reports):\n    return [result_evaluation.source_result_id for result_evaluation in reports]',
+     None, 0),
+    ('postprocess/evaluation.py', 'from ..cpp_interface import result_evaluation as wire\n'
+     'def reports():\n    return [wire.source_result_id for wire in wire._Evidence()]',
+     'independent result boundary -> sjtu_tpmshx.cpp_interface.result_evaluation._Evidence', 1),
+    ('postprocess/evaluation.py', 'from ..cpp_interface import result_evaluation as wire\n'
+     'def ids(reports):\n    wire = reports[0]\n    return (lambda wire: wire.source_result_id)(wire)',
+     None, 0),
+    ('postprocess/api.py', 'from sjtu_tpmshx.shared import _native_result_stage',
+     'independent result boundary -> sjtu_tpmshx.shared._native_result_stage', 1),
+    ('cpp_interface/result_evaluation.py',
+     'def assemble_record(provider=None):\n    from ..data_types import performance_result\n'
+     '    records = performance_result if provider is None else provider\n'
+     '    return records.PerformanceResult("new", "saved")',
+     'result_evaluation.py:2: independent result boundary -> sjtu_tpmshx.data_types.performance_result', 1),
+    ('cpp_interface/result_evaluation.py',
+     'from sjtu_tpmshx import data_types as dto\ndto.performance_result.PerformanceResult()',
+     'independent result boundary -> sjtu_tpmshx.data_types.performance_result', 1),
+    ('cpp_interface/result_evaluation.py',
+     'from itertools import starmap\nfrom ..data_types.performance_result import MetricValue\n'
+     'def records(rows):\n    return tuple(starmap(MetricValue, rows))',
+     'result_evaluation.py:2: independent result boundary -> sjtu_tpmshx.data_types.performance_result.MetricValue', 1),
+    ('cpp_interface/result_evaluation.py',
+     'from ..data_types.performance_result import PerformanceResult as BuildReport\n'
+     'from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from ._native_result_stage import Output as BuildReport\n'
+     'BuildReport("new", "saved")',
+     'result_evaluation.py:1: independent result boundary -> sjtu_tpmshx.data_types.performance_result.PerformanceResult', 1),
+    ('cpp_interface/_native_result_stage.py', 'import sjtu_tpmshx.data_types.metric_spec as specs',
+     'independent result boundary -> sjtu_tpmshx.data_types.metric_spec', 1),
+    ('cpp_interface/result_evaluation.py', 'from ..shared.domain.performance_result import *',
+     'independent result boundary -> sjtu_tpmshx.shared.domain.performance_result', 1),
+    ('cpp_interface/_native_result_stage.py', 'from ..data_types.metric_spec import full_metric_version',
+     'independent result boundary -> sjtu_tpmshx.data_types.metric_spec.full_metric_version', 1),
+    ('cpp_interface/result_evaluation.py', 'from ..data_types import MetricValue as Row',
+     'independent result boundary -> sjtu_tpmshx.data_types.MetricValue', 1),
+    ('cpp_interface/_native_result_stage.py',
+     'from ..data_types.metric_spec import MetricSpec\n'
+     'def check(item: MetricSpec):\n    return isinstance(item, MetricSpec)',
+     '_native_result_stage.py:1: independent result boundary -> sjtu_tpmshx.data_types.metric_spec.MetricSpec', 1),
+    ('cpp_interface/_native_result_stage.py',
+     'from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from ..data_types.metric_spec import MetricSpec\n'
+     'def pack(spec: "MetricSpec"):\n    return spec.name',
+     'native_values -> domain', 0),
+    ('cpp_interface/result_evaluation.py',
+     'import typing as t\nif t.TYPE_CHECKING:\n    from ..data_types import performance_result as output_types\n'
+     'else:\n    from ._native_result_stage import Output\nOutput()',
+     'native_values -> domain', 0),
+    ('cpp_interface/result_evaluation.py',
+     'from typing import TYPE_CHECKING as checking\n'
+     'def pack(checking):\n    if checking:\n        from ..data_types import metric_spec as local',
+     'result_evaluation.py:4: independent result boundary -> sjtu_tpmshx.data_types.metric_spec', 1),
+    ('cpp_interface/_native_result_stage.py', 'from ..data_types import portable_data',
+     'native_values -> domain', 0),
+    ('cpp_interface/result_evaluation.py', 'from ..physical_models import fluid_props',
+     'independent result boundary -> sjtu_tpmshx.physical_models', 1),
+    ('postprocess/evaluation.py', 'from ..cpp_interface.result_evaluation import query_result as run\nrun()', None, 0),
+    ('postprocess/evaluation.py', 'import sjtu_tpmshx.cpp_interface.result_evaluation as wire\nwire.query_result()', None, 0),
+    ('postprocess/result_math.py', 'from ..cpp_interface import _native_result_checks', None, 0),
 ])
 def test_layer_audit_applies_policy_to_each_import_spelling(tmp_path, monkeypatch, capsys,
                                                            filename, source, edge, exit_code):
@@ -236,9 +307,24 @@ def test_checkout_keeps_published_submodule_identity():
                     + PUBLIC_NAME_CHECK], cwd=REPO, check=True, timeout=60)
 
 
-def test_published_workbook_module_help_uses_strict_cp1252_output(monkeypatch):
+@pytest.mark.parametrize('shared_first', [False, True], ids=['canonical-first', 'shared-first'])
+def test_checkout_keeps_df_package_identity(shared_first):
+    subprocess.run([sys.executable, '-c', df_package_identity_check(shared_first)],
+                   cwd=REPO, check=True, timeout=60)
+
+
+def test_published_sco2_reader_runs_in_a_fresh_interpreter():
+    subprocess.run([sys.executable, '-m', 'sjtu_tpmshx.shared.df_surrogate.load_sco2_cfd'],
+                   cwd=REPO, check=True, timeout=60)
+
+
+@pytest.mark.parametrize('module', [
+    'sjtu_tpmshx.shared.df_surrogate.ingest_cfd_kappa',
+    'sjtu_tpmshx.development.runs.cfd_asym.ingest_cfd_kappa',
+])
+def test_published_workbook_module_help_uses_strict_cp1252_output(monkeypatch, module):
     monkeypatch.setenv('PYTHONIOENCODING', 'cp1252:strict')
-    result = subprocess.run([sys.executable, '-m', 'sjtu_tpmshx.shared.df_surrogate.ingest_cfd_kappa', '--help'],
+    result = subprocess.run([sys.executable, '-m', module, '--help'],
                             cwd=REPO, capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
     assert 'usage:' in result.stdout

@@ -7,6 +7,9 @@ import sys
 _PACKAGES = {"configs": "model_configs", "domain": "data_types", "models": "physical_models",
              "df_surrogate": "physical_models.df_surrogate", "io": "file_io"}
 _MOVED = {
+    "df_surrogate.ingest_cfd_kappa": "development.runs.cfd_asym.ingest_cfd_kappa",
+    "df_surrogate.kappa_asym": "development.runs.cfd_asym.kappa_asym",
+    "df_surrogate.load_sco2_cfd": "preprocess.offline.load_sco2_cfd",
     "domain.range_policy": "physical_models.range_policy",
     "io.cli_options": "applications.cli.cli_options",
     "io.yaml_config": "file_io.config_io",
@@ -19,8 +22,15 @@ _MOVED = {
 _SEARCH_PATH = __file__
 
 
+def _df_child(name):
+    relative = f"df_surrogate.{name}"
+    if relative in _MOVED:
+        return import_module(f"{__name__}.{relative}")
+    raise AttributeError(f"module '{__package__}.{_PACKAGES['df_surrogate']}' has no attribute {name!r}")
+
+
 class _SharedNames:
-    """Expose one module object for each old and current spelling."""
+    """Resolve published modules to their current owners."""
 
     def _shared_target(self, fullname):
         prefix = __name__ + "."
@@ -31,6 +41,8 @@ class _SharedNames:
             parent, _, child = fullname.rpartition(".")
             owner = next((key for key, value in _PACKAGES.items()
                           if parent == __package__ + "." + value), None)
+            if owner == "df_surrogate":
+                return None
             relative = f"{owner}.{child}"
             if relative not in _MOVED and not relative.startswith("models._native_"):
                 return None
@@ -76,6 +88,9 @@ class _SharedNames:
         canonical = import_module(module.__spec__.loader_state)
         if hasattr(canonical, "__path__") and _SEARCH_PATH not in canonical.__path__:
             canonical.__path__.insert(0, _SEARCH_PATH)
+        if module.__name__ == __name__ + ".df_surrogate":
+            # A from-import looks up the published child on this package object.
+            canonical.__getattr__ = _df_child
         sys.modules[module.__name__] = canonical
 
 
