@@ -319,10 +319,12 @@ def evaluate_compact_condition_batch(
     continue that record in place. The saved inputs, member identities and Nu Re
     policy must agree with the request. Completed members are checked and reused.
     Failed members keep their saved evidence and do not run again. Other members
-    continue from a saved checkpoint or prepared case. If ``output_dir`` has no
-    ``batch.json``, the call starts a new batch.
+    continue from a saved checkpoint or prepared case. A member without either
+    file starts a new preparation. If ``output_dir`` has no ``batch.json``, the
+    call starts a new batch.
     """
-    root = Path(output_dir)
+    # The record keeps this path as ``resumed_from``.
+    root = Path(output_dir).resolve()
     recovery = {}
     if resume_saved and (root / 'batch.json').exists():
         record = json.loads((root / 'batch.json').read_text(encoding='utf-8'))

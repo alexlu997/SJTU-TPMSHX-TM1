@@ -879,9 +879,11 @@ def test_compact_continuation_keeps_failed_members_without_new_solves(tmp_path, 
             on_update=lambda states: stop.append(True) if states[0]['status'] == 'failed' else None)
     saved = _manifest(source)['conditions']
     assert [row['status'] for row in saved] == ['failed', 'not_run', 'not_run']
-    result = batch.evaluate_compact_condition_batch(conditions, output_dir=source, workers=1,
+    monkeypatch.chdir(tmp_path)
+    result = batch.evaluate_compact_condition_batch(conditions, output_dir='source', workers=1,
                                                     control=native_control, resume_saved=True)
     assert solved == ['low', 'mid', 'high']
+    assert result['resumed_from'] == str(source.resolve())
     assert result['status'] == 'failed' and result['objectives'] is None
     rows = result['conditions']
     assert [row['status'] for row in rows] == ['failed', 'completed', 'completed']
