@@ -13,7 +13,8 @@ C++ 数值实现按计算阶段放在根目录，Python 应用集中在 [python/
 | 运行桌面界面、快速设计与优化 | [界面操作指南](gui-guide.md) |
 | 本地检查、CI 与验收记录 | [验证指南](verification.md) |
 | 新增流体、Nu 闭合、GUI 面板与拓扑的扩展路线 | [贡献者扩展指南](extending.zh-CN.md) |
-| 模块职责、调用关系和物理约束 | [architecture.zh-CN.md](architecture.zh-CN.md) |
+| 系统地图、包名映射与跨目录 C++ 依赖边 | [架构说明](architecture.zh-CN.md) |
+| 详细数值、运行、界面与物理契约 | [数值与运行契约](numerical-contracts.zh-CN.md) |
 | C++ 数值后端、原生 ABI 与构建 | [C++ 接入说明](cpp-migration.zh-CN.md) |
 | 独立 C++ 阶段 SDK 与安装后示例 | [C++ 阶段接口](native-stages.zh-CN.md) |
 | 已授权的稳态单相求解器设计与任务节点 | [统一求解器设计](unified-solver.zh-CN.md) |
