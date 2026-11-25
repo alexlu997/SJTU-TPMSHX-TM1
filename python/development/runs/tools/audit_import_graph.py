@@ -80,13 +80,7 @@ SANCTIONED = {
         "TM1 extraction preserves the previously sanctioned closure boundary. "
         "No numerical backend is imported by the model entry points.",
     ("solvers", "df_surrogate"):
-        "closure boundary: solvers consume predict_K_cF* and the _domain "
-        "training-hull constants. The shared DF closure does not import "
-        "the numerical backend; this accepted edge preserves that direction.",
-    ("domain", "df_surrogate"):
-        "df_surrogate/_domain.py is a leaf constants module (training-grid "
-        "nodes); domain/validator reads the single source. Direction is "
-        "nominal, no behavior coupling.",
+        "The 3D stage reads the CFD campaign and scope labels from the D-F model for result metadata.",
 }
 
 

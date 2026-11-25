@@ -15,7 +15,7 @@ import math
 from numbers import Integral
 from typing import Any, Dict, List, Optional, Tuple, cast
 
-from sjtu_tpmshx.physical_models.df_surrogate._domain import TRAIN_L_NODES, TRAIN_T_NODES
+from sjtu_tpmshx.model_configs.df_domain import TRAIN_L_NODES, TRAIN_T_NODES
 
 
 # ---------------------------------------------------------------- types

@@ -130,15 +130,21 @@ def test_checker_detects_cycle_across_solver_directories(tmp_path):
     "bad = {'sjtu_tpmshx.physical_models.tpms_calc', 'sjtu_tpmshx.physical_models.tpms_props'} & set(sys.modules)\n"
     "assert not bad, f'df_surrogate pulled kernel modules: {bad}'",
     "import sjtu_tpmshx.physical_models.tpms_props\n"
-    "allowed = {'sjtu_tpmshx.physical_models.df_surrogate', 'sjtu_tpmshx.physical_models.df_surrogate._domain'}\n"
-    "bad = [m for m in sys.modules if (m.startswith('sjtu_tpmshx.physical_models.df_surrogate') and m not in allowed)"
+    "bad = [m for m in sys.modules if m.startswith('sjtu_tpmshx.physical_models.df_surrogate')"
     " or m.startswith('sjtu_tpmshx.solvers') or m == 'sjtu_tpmshx.physical_models.tpms_calc']\n"
-    "assert not bad, f'tpms_props is not a leaf: {bad}'",
+    "if bad: raise SystemExit(f'tpms_props imported upper modules: {bad}')",
     "import sjtu_tpmshx.preprocess.api, sjtu_tpmshx.solvers.api\n"
     "import sjtu_tpmshx.preprocess.two_d.preparation, sjtu_tpmshx.preprocess.three_d.preparation\n"
     "bad = [m for m in sys.modules if m.startswith('sjtu_tpmshx.applications.gui.controllers')]\n"
     "assert not bad, f'preparation pulled controllers: {bad}'",
-], ids=['df-surrogate-below-kernel', 'tpms-props-leaf', 'preparation-without-controllers'])
+    "from sjtu_tpmshx.data_types.compute_config import ComputeConfig, ZoneInputConfig\n"
+    "from sjtu_tpmshx.data_types.validator import validate_geometry\n"
+    "spec = dict(n_ctrl_x=1, n_ctrl_y=1, spline_order=1, symmetric_y=False,\n"
+    "            x_decision=[7., .5], L_bounds=[4., 8.], t_bounds=[.3, .6])\n"
+    "ComputeConfig(zones=ZoneInputConfig(enabled=True, axis='continuous', config=spec)).validate_static_inputs()\n"
+    "validate_geometry(.1, .1, None, 7., .5)\n"
+    "if 'sjtu_tpmshx.physical_models' in sys.modules: raise SystemExit('Geometry validation imported physical models')",
+], ids=['df-surrogate-below-kernel', 'tpms-props-leaf', 'preparation-without-controllers', 'geometry-validation'])
 def test_lower_modules_import_without_upper_modules(probe):
     result = subprocess.run([sys.executable, '-c', 'import sys\n' + probe], cwd=REPO,
                             capture_output=True, text=True, timeout=300)

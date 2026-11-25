@@ -5,7 +5,7 @@ from math import isfinite
 from pathlib import Path
 import sys
 
-from sjtu_tpmshx.physical_models.df_surrogate._domain import TRAIN_L_NODES, TRAIN_T_NODES
+from sjtu_tpmshx.model_configs.df_domain import TRAIN_L_NODES, TRAIN_T_NODES
 from sjtu_tpmshx.run_control.module_ports import RunControl
 
 _ENERGY_COLUMNS = ['构型', '工况', '热侧 Q [W]', '冷侧 Q [W]', '能量不平衡 [%]',

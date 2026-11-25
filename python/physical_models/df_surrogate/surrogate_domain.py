@@ -11,8 +11,10 @@ from __future__ import annotations
 from typing import List
 
 from sjtu_tpmshx.physical_models.tpms_props import geometry as _geom
-
-from ._domain import TRAIN_L_NODES as _SURROGATE_L_MM, TRAIN_T_NODES as _SURROGATE_T_MM
+from sjtu_tpmshx.model_configs.df_domain import (
+    TRAIN_L_NODES as _SURROGATE_L_MM,
+    TRAIN_T_NODES as _SURROGATE_T_MM,
+)
 
 
 def check_surrogate_domain_at_point(tpms_type: str,
