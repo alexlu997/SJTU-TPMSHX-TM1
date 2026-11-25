@@ -4,6 +4,8 @@
 #include "tpmshx/fluid_properties.hpp"
 #include "tpmshx/model_coefficients.hpp"
 
+#include <stdexcept>
+
 namespace tpmshx::closure_ranges {
 
 inline const char* fluid_name(Fluid fluid) {
@@ -21,11 +23,16 @@ inline RangeObservation property(Fluid fluid,const char* name,std::size_t side,
 inline RangeObservation nu(Fluid fluid,Topology topology,std::size_t side,
                            const char* source,const char* stage,const char* layout,
                            std::vector<std::size_t> shape) {
+    const char* name;
+    switch (topology) {
+    case Topology::diamond: name="Diamond"; break;
+    case Topology::gyroid: name="Gyroid"; break;
+    default: throw std::invalid_argument("unsupported Nu range topology "+std::to_string(static_cast<int>(topology)));
+    }
     const auto bounds=fluid==Fluid::air?model_coefficients::air_nu_re_range:
         fluid==Fluid::water?model_coefficients::water_nu_re_range:
         fluid==Fluid::co2?model_coefficients::co2_nu_re_range:model_coefficients::sco2_nu_re_range;
-    return {source,fluid_name(fluid),topology==Topology::diamond?"Diamond":"Gyroid",
-            stage,layout,side,std::move(shape),bounds};
+    return {source,fluid_name(fluid),name,stage,layout,side,std::move(shape),bounds};
 }
 
 } // namespace tpmshx::closure_ranges

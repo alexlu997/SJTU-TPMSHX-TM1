@@ -62,8 +62,14 @@ def test_sco2_nu_gyroid_supported():
 
 def test_sco2_nu_unknown_topology_raises():
     """No silent borrowing of coefficients for unfitted topologies."""
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(ValueError, match='Primitive'):
         nu_sco2_topo('Primitive', 20000.0, 0.85, 5.0, 2.0)
+
+
+def test_supported_sco2_topology_requires_its_own_fit(monkeypatch):
+    monkeypatch.delitem(SCO2_NU_COEFFS, 'Gyroid')
+    with pytest.raises(NotImplementedError, match='Gyroid'):
+        nu_sco2_topo('Gyroid', 20000.0, 0.85, 5.0, 2.0)
 
 
 # ── FluidModel primitives (CoolProp) ────────────────────────────────

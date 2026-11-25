@@ -1,6 +1,7 @@
 #include "tpmshx/full_2d.hpp"
 #include "tpmshx/full_3d.hpp"
 #include "tpmshx/model_coefficients.hpp"
+#include "../../solver/closure_ranges.hpp"
 
 #include <cmath>
 #include <limits>
@@ -55,6 +56,12 @@ void energy_model_cases() {
 
 int main() {
     energy_model_cases();
+    try {
+        closure_ranges::nu(Fluid::air,static_cast<Topology>(2),0,"nu","inlet","scalar",{});
+        throw std::runtime_error("Nu range accepted topology 2");
+    } catch (const std::invalid_argument& error) {
+        require(std::string(error.what()).find("topology 2")!=std::string::npos);
+    }
     require(Full3DControl{}.simple.gas_constant==model_coefficients::envelope_r_air);
     const std::array<Fluid,4> fluids{Fluid::air,Fluid::water,Fluid::sco2,Fluid::co2};
     for(auto a:fluids) for(auto b:fluids) {
