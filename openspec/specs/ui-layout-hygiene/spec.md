@@ -34,7 +34,7 @@
 - **THEN** 0 failed
 
 ### Requirement: Main_Menu UI ownership
-`Main_Menu` 的快捷键与 IO 动作分别由 `python/applications/gui/ui/mixins/shortcuts.py`、
+`Main_Menu` 由 `python/applications/gui/ui/main_window.py` 维护，`python/applications/gui/main.py` 保留启动入口。`Main_Menu` 的快捷键与 IO 动作分别由 `python/applications/gui/ui/mixins/shortcuts.py`、
 `io_actions.py` 维护。场结果图表和导出直接读取 `ResultCache`，不使用旧属性桥；
 Pareto 图像依据自身画布和优化结果就绪，不依赖单点计算的场缓存。
 底部结果摘要在 `python/applications/gui/ui/builders_sidebar.py`，读取已发布的本次标量结果；

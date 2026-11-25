@@ -21,7 +21,7 @@ def _wait_for(predicate, timeout=10):
 @pytest.fixture
 def win(tmp_path, monkeypatch):
     from sjtu_tpmshx.applications.gui.controllers.session_manager import SessionManager
-    from sjtu_tpmshx.applications.gui.main import Main_Menu
+    from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
 
     original_init = SessionManager.__init__
     monkeypatch.setattr(SessionManager, '__init__',

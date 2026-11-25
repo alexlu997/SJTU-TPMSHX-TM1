@@ -41,7 +41,7 @@ def _smoke_window():
                    return_value=state_dir), \
              patch.dict(os.environ, {'QT_REDUCED_MOTION': '1'}), \
              patch.object(sys, 'excepthook', hook):
-            from sjtu_tpmshx.applications.gui.main import Main_Menu
+            from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
             win = Main_Menu()
             try:
                 win.resize(1600, 1000)

@@ -2,7 +2,7 @@
 
 Extracted verbatim from main.py (openspec arch-b-c-e batch E, 2026-07-02).
 Mixed into Main_Menu; methods keep their exact names and behaviour.
-closeEvent (which calls _save_session) stays in main.py — window lifecycle.
+closeEvent (which calls _save_session) stays in main_window.py — window lifecycle.
 """
 from __future__ import annotations
 
