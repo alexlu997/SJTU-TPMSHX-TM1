@@ -9,11 +9,11 @@ from sjtu_tpmshx.data_types.compute_config import FluidConfig
 from sjtu_tpmshx.run_control.run_warnings import (
     current_warnings, record_warning, warning_messages, warning_scope,
 )
-from sjtu_tpmshx.preprocess import api
+from sjtu_tpmshx.preprocess import _metadata, api
 
 
 @pytest.mark.parametrize('entry,module,is_3d', [
-    ('prepare_case', 'cpp_interface.native_preparation', False),
+    ('prepare_case', 'preprocess.two_d.preparation', False),
     ('prepare_case', 'preprocess.three_d.preparation', True),
     ('prepare_quick_design', 'cpp_interface._native_quick_prepare', False),
 ])
@@ -50,7 +50,7 @@ def test_public_preparation_keeps_metadata_and_warning_ownership(monkeypatch, en
             raise failure
         return original
 
-    monkeypatch.setattr(api, 'source_context', source_context)
+    monkeypatch.setattr(_metadata, 'source_context', source_context)
     monkeypatch.setattr(import_module('sjtu_tpmshx.' + module), entry, prepare)
     with warning_scope(parent):
         result = getattr(api, entry)(*args, **kwargs)

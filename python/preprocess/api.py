@@ -1,31 +1,11 @@
 """Public physical preparation entries and portable CaseData assembly."""
-from contextlib import ExitStack
 from dataclasses import replace
 from copy import deepcopy
 from math import isfinite
 
 from sjtu_tpmshx.data_types.case_data import CaseData
 from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-from sjtu_tpmshx.run_control.run_warnings import warning_scope, warning_messages, range_observations
-from sjtu_tpmshx.run_control.provenance import source_context
-
-
-def _finish_metadata(case, provenance, records) -> CaseData:
-    warnings = tuple(dict.fromkeys((*case.metadata.get('warnings', ()),
-                                    *warning_messages(records))))
-    inlets = {side: case.config_snapshot.get('fluid_' + side, {}) for side in 'AB'}
-    if any(fluid.get('mass_flow_kg_s') is not None for fluid in inlets.values()):
-        case = replace(case, parameters={**case.parameters, 'inlet_inputs': {
-            side: {name: fluid[name] for name in ('u_mps', 'mass_flow_kg_s')}
-            for side, fluid in inlets.items()}})
-    return replace(case, metadata={**case.metadata, 'provenance': provenance,
-                                   'warnings': warnings, 'applicability_inputs': range_observations(records)})
-
-
-def _prepare_with_metadata(prepare, *args, **kwargs) -> CaseData:
-    provenance = source_context()
-    with warning_scope({}) as records:
-        return _finish_metadata(prepare(*args, **kwargs), provenance, records)
+from . import _metadata
 
 
 def prepare_case(config: ComputeConfig, *, case_id: str) -> CaseData:
@@ -36,9 +16,9 @@ def prepare_case(config: ComputeConfig, *, case_id: str) -> CaseData:
     if config.is_3d:
         from .three_d.preparation import prepare_case as prepare
     else:
-        from sjtu_tpmshx.cpp_interface.native_preparation import prepare_case as prepare
+        from .two_d.preparation import prepare_case as prepare
     try:
-        return _prepare_with_metadata(prepare, config, case_id=case_id)
+        return _metadata.prepare_with_metadata(prepare, config, case_id=case_id)
     except (ValueError, TypeError, ArithmeticError):
         if isinstance(config, ComputeConfig):
             config.validate()
@@ -53,7 +33,7 @@ def prepare_inlet_mass_capacities(config: ComputeConfig) -> dict[str, float]:
     """
     config = deepcopy(config).validate_static_inputs()
     if not config.is_3d:
-        from sjtu_tpmshx.cpp_interface import native_preparation as preparation
+        from .two_d import preparation
         return preparation.capacities(config)
     from .three_d.preparation import capacities
     return capacities(config)
@@ -86,25 +66,10 @@ def prepare_fixed_mass_flow_case(
 
 def _prepare_mass_flow_case(config, targets, *, case_id):
     if config.is_3d:
-        from .three_d.preparation import prepare_mass_flow_case as prepare
-    else:
-        from sjtu_tpmshx.cpp_interface.native_preparation import prepare_mass_flow_case as prepare
-    return _prepare_fixed_flow_with_metadata(prepare, config, targets, case_id=case_id)
-
-
-def _prepare_fixed_flow_with_metadata(prepare, config, targets, *, case_id) -> CaseData:
-    with ExitStack() as scopes:
-        provenance: dict
-        records: dict
-
-        # Start collection at the adapter's existing input check boundary.
-        def start_observations():
-            nonlocal provenance, records
-            provenance = source_context()
-            records = scopes.enter_context(warning_scope({}))
-
-        case = prepare(config, targets, case_id=case_id, start_observations=start_observations)
-        return _finish_metadata(case, provenance, records)
+        from .three_d.preparation import prepare_mass_flow_case as prepare_3d
+        return _metadata.prepare_fixed_flow_with_metadata(prepare_3d, config, targets, case_id=case_id)
+    from .two_d.preparation import prepare_mass_flow_case as prepare
+    return prepare(config, targets, case_id=case_id)
 
 
 def resolve_fixed_mass_flow_config(
@@ -113,7 +78,7 @@ def resolve_fixed_mass_flow_config(
     """Resolve inlet velocities from the actual geometry, then validate them."""
     config, targets = _fixed_mass_flow_inputs(config, mass_flow_A_kg_s, mass_flow_B_kg_s)
     if not config.is_3d:
-        from sjtu_tpmshx.cpp_interface import native_preparation as preparation
+        from .two_d import preparation
         return preparation.resolve(config, targets=tuple(targets[side] for side in 'AB'))
     from .three_d.preparation import resolve
     return resolve(config, targets=tuple(targets[side] for side in 'AB'))
@@ -126,7 +91,7 @@ def resolve_inlet_flow_config(config: ComputeConfig) -> ComputeConfig:
     if not targets:
         return config
     if not config.is_3d:
-        from sjtu_tpmshx.cpp_interface import native_preparation as preparation
+        from .two_d import preparation
         return preparation.resolve(config)
     from .three_d.preparation import resolve
     return resolve(config)
@@ -152,4 +117,4 @@ def _fixed_mass_flow_inputs(config, flow_a, flow_b):
 def prepare_quick_design(*args, **kwargs) -> CaseData:
     """Explicit prescribed-velocity design mode; no SIMPLE substitution."""
     from sjtu_tpmshx.cpp_interface._native_quick_prepare import prepare_quick_design as prepare
-    return _prepare_with_metadata(prepare, *args, **kwargs)
+    return _metadata.prepare_with_metadata(prepare, *args, **kwargs)

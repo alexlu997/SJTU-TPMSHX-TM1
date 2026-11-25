@@ -70,6 +70,8 @@ def test_checker_resolves_relative_imports_and_allows_shared_models():
 
 @pytest.mark.parametrize('adapter, api', [
     ('cpp_interface.native_preparation', 'preprocess.api'),
+    ('cpp_interface.native_preparation', 'preprocess.two_d.preparation'),
+    ('preprocess.two_d.preparation', 'preprocess.api'),
     ('preprocess.three_d.preparation', 'preprocess.api'),
     ('cpp_interface.full_2d_stage', 'solvers.execution_record'),
     ('cpp_interface.full_3d_stage', 'solvers.execution_record'),

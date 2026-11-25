@@ -105,7 +105,8 @@ main 推送中仅纯文档变更使用 `docs`，手动触发始终使用 `full`�
 
 `pyproject.toml` 的 `[tool.mypy].files` 显式列出 19 个类型检查文件：覆盖配置、控制器、CLI、统一工作流、当前
 envelope 实现、三模块数据契约与公共 API、后处理指标入口；已删除的转发模块不再列入。
-`pyproject.toml` 还对四个边界实现模块启用无注解函数体检查；这不等于全求解器严格类型覆盖。
+mypy 检查 envelope、三个阶段 API 和后处理指标入口中的无注解函数体。
+前处理 API 导入的 `_metadata` 模块也使用这项检查。
 `.github/workflows/ci.yml` 的 `scope` 作业对每个非 `docs` 层级的变更执行一次 `ruff check .`，
 并以 `--platform darwin` 和 `--platform win32` 执行 `engineering.scripts.check_types`。
 pytest 分片不执行 ruff 或 mypy。本地检查使用上面的命令。

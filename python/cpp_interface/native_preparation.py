@@ -300,8 +300,7 @@ def _case(result, config, case_id, side_geometry=None, extrap_reasons=()):
             model_roles={'fluid_A': 0, 'fluid_B': 1, 'geometry': 2, 'darcy_forchheimer': 3}))
 
 
-def _execute(config, operation, *, targets=None, case_id=None, start_observations=None):
-    from sjtu_tpmshx.preprocess.two_d.preparation import _nominal_grid_warning
+def _execute(config, operation, *, nominal_grid_warning, targets=None, case_id=None, start_observations=None):
     from sjtu_tpmshx.run_control.run_environment import _resolve_chi_s
     # Preserve the original physical guard before object-key checks.
     for side in 'AB':
@@ -367,7 +366,7 @@ def _execute(config, operation, *, targets=None, case_id=None, start_observation
                      geometry_cache=geometry_cache, inlet_cache=inlet_cache,
                      observe_range=bridge.observe_range, observe_notice=bridge.observe_notice)
     with host.operation(operation, source, options, host_input,
-                          nominal_grid_warning=_nominal_grid_warning, **hooks) as result:
+                          nominal_grid_warning=nominal_grid_warning, **hooks) as result:
         flow = result.flow
         if operation == 'prepare_inlet_mass_capacities':
             return {side: flow.capacities[index] for index, side in enumerate('AB')}
@@ -384,24 +383,25 @@ def _execute(config, operation, *, targets=None, case_id=None, start_observation
         return _case(result, resolved, case_id, side_geometry, bridge.extrap_reasons)
 
 
-def prepare_case(config, *, case_id):
+def prepare_case(config, *, case_id, nominal_grid_warning):
     config = ComputeConfig.from_dict(asdict(config), _native_preparation=True)
     if config.is_3d:
         raise ValueError('2D preparation requires solver.Nz == 1')
-    return _execute(config, 'prepare_flow_case', case_id=case_id)
+    return _execute(config, 'prepare_flow_case', case_id=case_id, nominal_grid_warning=nominal_grid_warning)
 
 
-def prepare_mass_flow_case(config, targets, *, case_id, start_observations):
+def prepare_mass_flow_case(config, targets, *, case_id, start_observations, nominal_grid_warning):
     config = deepcopy(config).validate_static_inputs()
     explicit = (tuple(targets[side] for side in 'AB')
                 if all(getattr(config, 'fluid_' + side).mass_flow_kg_s is None for side in 'AB') else None)
     return _execute(config, 'prepare_flow_case', targets=explicit, case_id=case_id,
-                    start_observations=start_observations)
+                    start_observations=start_observations, nominal_grid_warning=nominal_grid_warning)
 
 
-def capacities(config):
-    return _execute(config, 'prepare_inlet_mass_capacities')
+def capacities(config, *, nominal_grid_warning):
+    return _execute(config, 'prepare_inlet_mass_capacities', nominal_grid_warning=nominal_grid_warning)
 
 
-def resolve(config, *, targets=None):
-    return _execute(deepcopy(config).validate_static_inputs(), 'resolve_inlet_flow', targets=targets)
+def resolve(config, *, targets=None, nominal_grid_warning):
+    return _execute(deepcopy(config).validate_static_inputs(), 'resolve_inlet_flow',
+                    targets=targets, nominal_grid_warning=nominal_grid_warning)
