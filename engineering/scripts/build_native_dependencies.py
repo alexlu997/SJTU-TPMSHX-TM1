@@ -790,15 +790,13 @@ def check_stages(cache: Path, host: str, python: Path, lock: Path, component: st
     check_environment(cache, python, lock)
     cmake = cmake_path(cache, host)
     stage_build = cache / "build" / f"stages-{host}"
-    solver_build = cache / "build" / f"pilot-{host}"
+    solver_build = stage_build / "solver"
     log = cache / "logs" / f"check-stages-{host}.log"
     components = ["result"] if component == "result" else ["geometry", "preparation", "solver", "result"]
     options = [f"-DTPMSHX_COMPONENTS={';'.join(components)}",
                f"-DTPMSHX_NATIVE_DEPS_ROOT={cache}", f"-DTPMSHX_MODEL_INCLUDE_DIR={cache / 'generated'}"]
     for name in components:
-        if name != "geometry":
-            directory = solver_build if name == "solver" else cache / "build" / f"{name}-{host}"
-            options.append(f"-DTPMSHX_{name.upper()}_BUILD_DIR={directory}")
+        options.append(f"-DTPMSHX_{name.upper()}_BUILD_DIR={stage_build / name}")
     if component == "all":
         query = solver_build / ".cmake/api/v1/query"
         query.mkdir(parents=True, exist_ok=True)
@@ -843,7 +841,7 @@ def check_stages(cache: Path, host: str, python: Path, lock: Path, component: st
                  f"-DCMAKE_PREFIX_PATH={prefix}"], log, cwd=independent)
             run([cmake, "--build", build_dir, "--config", "Release", "--parallel", "2"],
                 log, cwd=independent)
-            run([ctest, "--test-dir", build_dir, "-C", "Release", "--output-on-failure"],
+            run([ctest, "--test-dir", build_dir, "-C", "Release", "--output-on-failure", "--no-tests=error"],
                 log, cwd=independent, env=env)
             if source == "tests/stages":
                 for name in ("stage-result", "quick-design-stage-result"):

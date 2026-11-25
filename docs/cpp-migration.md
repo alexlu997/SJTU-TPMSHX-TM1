@@ -270,6 +270,7 @@ This builds `.cache/native/libtpmshx_thermal.a` (or `tpmshx_thermal.lib`) with `
 When you configure a native component directly, `TPMSHX_BUILD_QUALIFICATION` defaults to `ON`.
 It enables the component's test callers. The solver also builds Python test libraries, including the libraries that record model-h history.
 The native dependency build enables qualification. The top-level SDK disables it for each component, including previously configured build directories.
+`check-stages` uses separate SDK component directories under `build/stages-<host>/` in the selected cache.
 
 Use the interpreter from `.venv-path` after passing environment checks:
 

@@ -251,7 +251,7 @@ Build and test the installed SDK examples under `examples/cpp/` (`air_2d.cpp`, `
 "$CMAKE" -S examples/cpp -B .cache/stages-sdk/examples \
   -DCMAKE_PREFIX_PATH="$PWD/.cache/stages-sdk/install"
 "$CMAKE" --build .cache/stages-sdk/examples --config Release
-"$CTEST" --test-dir .cache/stages-sdk/examples -C Release --output-on-failure
+"$CTEST" --test-dir .cache/stages-sdk/examples -C Release --output-on-failure --no-tests=error
 ```
 
 To run the automated out-of-tree SDK check after a dependency build:
