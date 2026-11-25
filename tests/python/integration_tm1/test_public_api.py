@@ -86,7 +86,7 @@ def test_real_application_mapping_and_offline_readback(monkeypatch, tmp_path, di
             expected.append(lambda: _finalize_cfg(legacy, parsed))
             return result
     else:
-        from sjtu_tpmshx.cpp_interface import full_3d_stage as result_capture
+        from sjtu_tpmshx.solvers import full_3d as result_capture
         from tests.python.integration_tm1.legacy_result_mapping import _finalize_3d_cfg
         capture = result_capture.capture_result
         def checked_capture(case, cfg, prepared, native, abi):

@@ -82,7 +82,7 @@ SANCTIONED = {
         "TM1 extraction preserves the previously sanctioned closure boundary. "
         "No numerical backend is imported by the model entry points.",
     _SOLVER_DF_EDGE:
-        "The 3D stage reads the CFD campaign and scope labels from the D-F model for result metadata.",
+        "The 3D solver host reads the CFD campaign and scope labels from the D-F model for result metadata.",
 }
 
 
@@ -141,6 +141,8 @@ _RESULT_DTO_MODULES = {f"{package}.{module}" for package in _DTO_PACKAGES
 _QUICK_DTO_MODULES = {f"{package}.field_result" for package in _DTO_PACKAGES}
 _OTHER_STAGE_MODULES = {"full_2d_stage", "full_3d_stage", "run_state", "native_preparation",
                         "_native_preparation_3d", "_native_quick_prepare"}
+_FULL_3D_FORBIDDEN_SIBLINGS = {"full_2d_stage", "quick_design", "native_preparation", "inlet_properties",
+                               "_native_preparation_3d", "_native_quick_prepare", "quick_preparation"}
 _TYPE_GUARDS = {"typing.TYPE_CHECKING", "typing_extensions.TYPE_CHECKING"}
 _BINDING_NAMESPACES = {"sjtu_tpmshx", "sjtu_tpmshx.cpp_interface", "sjtu_tpmshx.shared", "shared", *_DTO_PACKAGES,
                        "typing", "typing_extensions", *_TYPE_GUARDS}
@@ -151,6 +153,11 @@ def _invalid_stage_target(host, target, binding, operations):
         return False
     area, _, member = target.removeprefix("sjtu_tpmshx.").partition(".")
     module, _, name = member.partition(".")
+    if area == "shared" and module == "domain":
+        area = "data_types"
+        module, _, name = name.partition(".")
+    if area == "data_types" and module == "range_policy":
+        area = "physical_models"
     if binding == "quick_design":
         if area == "solvers" and member.startswith("backends.cpp."):
             module, _, name = member.removeprefix("backends.cpp.").partition(".")
@@ -160,6 +167,17 @@ def _invalid_stage_target(host, target, binding, operations):
             return True
         if area == "shared" and member.startswith(("_native_", "models._native_")) and (
                 member.removeprefix("models.").partition(".")[0] in _OTHER_STAGE_MODULES):
+            return True
+    elif binding == "full_3d_stage":
+        if area == "solvers" and member.startswith("backends.cpp."):
+            module, _, name = member.removeprefix("backends.cpp.").partition(".")
+            if module != "full_3d_stage" and module in _FULL_3D_FORBIDDEN_SIBLINGS:
+                return True
+            area = "solvers" if module == "full_3d_stage" else "cpp_interface"
+        if area == "cpp_interface" and module in _FULL_3D_FORBIDDEN_SIBLINGS:
+            return True
+        if area == "shared" and member.startswith(("_native_", "models._native_")) and (
+                member.removeprefix("models.").partition(".")[0] in _FULL_3D_FORBIDDEN_SIBLINGS):
             return True
     if host:
         if area == "shared":
@@ -409,8 +427,20 @@ class _StageImportAudit(ast.NodeVisitor):
 
 
 def _stage_boundary_violations(path, tree, package):
+    if path == PKG / "solvers/api.py":
+        for node in ast.walk(tree):
+            for target in import_targets(node, package):
+                if target == "sjtu_tpmshx.cpp_interface.full_3d_stage" or target.startswith(
+                        "sjtu_tpmshx.cpp_interface.full_3d_stage."):
+                    yield f"{path.relative_to(REPO)}:{node.lineno}: full 3D solve boundary -> {target}"
+        return
     if path in (PKG / "solvers/quick_design.py", PKG / "cpp_interface/quick_design.py"):
         label, binding, operations = "Quick solve", "quick_design", {"", "QuickSolver"}
+        modules, types = _QUICK_DTO_MODULES, {"FieldResult"}
+    elif path in (PKG / "solvers/full_3d.py", PKG / "cpp_interface/full_3d_stage.py"):
+        label, binding = "full 3D solve", "full_3d_stage"
+        operations = {"", "open_library", "borrow_mesh", "require_saved_stage",
+                      "execution_view_query", "run_saved", "link_execution"}
         modules, types = _QUICK_DTO_MODULES, {"FieldResult"}
     elif (path.parent == PKG / "postprocess" and path.stem in {"api", "evaluation"}
           or path.parent == PKG / "cpp_interface" and path.stem in {"_native_result_stage", "result_evaluation"}):
@@ -422,7 +452,8 @@ def _stage_boundary_violations(path, tree, package):
     host = path.parent != PKG / "cpp_interface"
     for node in ast.walk(tree):
         targets = import_targets(node, package)
-        if host and binding == "quick_design" and isinstance(node, ast.ImportFrom) and node.names[0].name == "*":
+        if (host and binding in {"quick_design", "full_3d_stage"}
+                and isinstance(node, ast.ImportFrom) and node.names[0].name == "*"):
             targets.append(targets[0] + ".*")
         forbidden = next((name for name in targets
                           if _invalid_stage_target(host, name, binding, operations)), None)
@@ -438,7 +469,7 @@ def _is_sanctioned(edge: tuple[str, str], path: Path, node: ast.AST, module: str
     if edge != _SOLVER_DF_EDGE:
         return edge in SANCTIONED
     return (
-        path == PKG / 'cpp_interface/full_3d_stage.py'
+        path == PKG / 'solvers/full_3d.py'
         and isinstance(node, ast.ImportFrom)
         and module == 'sjtu_tpmshx.physical_models.df_surrogate'
         and sorted(alias.name for alias in node.names) == ['CFD_CAMPAIGN', 'CFD_SCOPE']

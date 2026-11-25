@@ -19,6 +19,7 @@ from sjtu_tpmshx.run_control.run_warnings import range_observations, warning_sco
 from sjtu_tpmshx.file_io.case_io import load_case, save_case
 from sjtu_tpmshx.file_io.result_io import load_result, save_result
 from sjtu_tpmshx.solvers.api import run_case
+from sjtu_tpmshx.solvers import full_3d
 from sjtu_tpmshx.cpp_interface import full_3d_stage
 from tests.python import native_stage_support
 from tests.python.test_native_run_adapter import _hdf_scalars
@@ -52,12 +53,12 @@ def _run(case, *, library=None, checkpoint=None):
     with warning_scope({}) as records, warnings.catch_warnings(record=True) as caught, \
             pytest.MonkeyPatch.context() as patch:
         warnings.simplefilter('always')
-        capture = full_3d_stage.capture_result
+        capture = full_3d.capture_result
         def keep(case, cfg, prepared, raw, abi, **options):
             captured.append(raw)
             return capture(case, cfg, prepared, raw, abi, **options)
-        patch.setattr(full_3d_stage, 'capture_result', keep)
-        result = full_3d_stage.run_case(case, control, checkpoint=checkpoint)
+        patch.setattr(full_3d, 'capture_result', keep)
+        result = full_3d.run_case(case, control, checkpoint=checkpoint)
         raw, = captured
     shown.extend((str(item.message), item.category.__name__) for item in caught)
     return raw, result, events, shown, range_observations(records), range_observations(records, last=True)
@@ -302,7 +303,7 @@ def test_capture_failure_releases_same_stage_owner(monkeypatch, failure):
     elif failure == 'decode':
         monkeypatch.setattr(full_3d_stage, '_detach', fail)
     else:
-        monkeypatch.setattr(full_3d_stage, 'replay_sco2_notices', fail)
+        monkeypatch.setattr(full_3d, 'replay_sco2_notices', fail)
     with pytest.raises(RuntimeError) as caught:
         run_case(case, _control())
     assert caught.value is sentinel
@@ -463,7 +464,7 @@ def _compare_public_applicability(case, monkeypatch, tmp_path, *, control=None):
     from sjtu_tpmshx.cpp_interface import full_2d_stage
     from sjtu_tpmshx.postprocess.api import evaluate
     control = _control() if control is None else control
-    stage = full_2d_stage if case.grid['dimension'] == 2 else full_3d_stage
+    stage = full_2d_stage if case.grid['dimension'] == 2 else full_3d
     original, kept = stage.run_case, []
     def keep(*args, **kwargs):
         kept.append(original(*args, **kwargs))
@@ -625,11 +626,10 @@ def test_saved_3d_rejects_topology_without_a_nu_multiplier(monkeypatch):
     config.sco2_nu = sco2_effective_nu_config()
     case = prepare_case(config, case_id='unsupported-topology')
     params = dict(case.parameters, tpms_type='Primitive')
-    shape, cell_mm, _, nu = full_3d_stage.validate_saved_case(case)
+    shape, cell_mm, _, nu = full_3d.validate_saved_case(case)
     monkeypatch.setitem(TOPOLOGY_CODES, 'Primitive', 2)
     with pytest.raises(ValueError, match='Primitive'):
-        full_3d_stage.pack_input(params, params['prepared'], case.grid, case.design_fields,
-                                 shape, cell_mm, nu, [])
+        full_3d.select_sco2_nu(params, nu)
 
 
 def test_saved_opening_preserves_solver_roundoff_tolerance():
@@ -675,3 +675,93 @@ def test_scalar_wall_and_stored_resolution_use_actual_grid():
     params = dict(case.parameters, _input_resolution={'grid_shape': [1, 1, 1]})
     result = run_case(replace(case, design_fields=design, parameters=params), _control())
     assert tuple(result.metadata['input_resolution']['grid_shape']) == design['L_field_m'].shape
+
+
+def test_unscoped_sco2_notice_emits_from_solver_host():
+    config = native_stage_support.volume_configuration(('sco2', 'air'), 'xyz')
+    case = prepare_case(config, case_id='unscoped-sco2-warning')
+    with warnings.catch_warnings(record=True) as unscoped:
+        warnings.simplefilter('always')
+        direct = full_3d.run_case(case, _control())
+    assert len(unscoped) == 1
+    assert unscoped[0].category is UserWarning
+    assert '[sCO2 Nu evidence] 3D h_v property refresh, side=A,' in str(unscoped[0].message)
+    assert unscoped[0].filename.replace('\\', '/').endswith('/solvers/full_3d.py')
+    with warnings.catch_warnings(record=True) as scoped:
+        warnings.simplefilter('always')
+        public = run_case(case, _control())
+    assert scoped == []
+    assert str(unscoped[0].message) in public.metadata['diagnostics']['warnings_list']
+    assert str(unscoped[0].message) in public.metadata['applicability_evidence']['scope_notes']
+    assert direct.fields.keys() == public.fields.keys()
+
+
+def test_saved_3d_run_uses_only_solver_image(monkeypatch, tmp_path):
+    config = native_stage_support.volume_configuration(('air', 'water'), 'uniform')
+    case = prepare_case(config, case_id='solver-image-only')
+    case_path = tmp_path / 'case.h5'
+    save_case(case, case_path)
+    script = """import os, sys
+from sjtu_tpmshx.file_io.case_io import load_case
+from sjtu_tpmshx.run_control.module_ports import RunControl
+from sjtu_tpmshx.solvers.api import run_case
+result = run_case(
+    load_case(sys.argv[1]),
+    RunControl(cpu_threads=1, native_library=sys.argv[2],
+               native_table_directory=os.environ.get('TPMSHX_STAGE_TABLE_DIRECTORY')),
+)
+assert result.run_status['execution'] == 'completed'
+assert result.fields['Ta'].shape == result.fields['K_ss'].shape
+"""
+    missing = str(tmp_path / 'unavailable-library')
+    env = dict(
+        os.environ,
+        TPMSHX_PREPARATION_LIBRARY=missing,
+        TPMSHX_RESULT_LIBRARY=missing,
+        TPMSHX_GEOMETRY_LIBRARY=missing,
+    )
+    process = subprocess.run(
+        [sys.executable, '-c', script, str(case_path), str(library_path())],
+        env=env, capture_output=True, text=True, check=True,
+    )
+    assert process.returncode == 0
+
+
+def test_detached_result_survives_release_mutation_and_second_run(monkeypatch):
+    config = native_stage_support.volume_configuration(('air', 'water'), 'uniform')
+    case = prepare_case(config, case_id='detached-ownership')
+    reference = run_case(case, _control())
+    original_release = full_3d_stage.release_result
+    mutated = []
+
+    def poison_before_release(library, result):
+        assert result.owner
+        for item in result.evidence.fields[:result.evidence.field_count]:
+            name = item.name.decode()
+            if name == 'K_ss':
+                continue
+            count = int(np.prod(tuple(item.value.shape[:item.value.rank])))
+            if count and item.value.data:
+                view = np.ctypeslib.as_array(
+                    ct.cast(item.value.data, ct.POINTER(ct.c_double)), shape=(count,))
+                view[:] = np.nan
+                mutated.append(name)
+        original_release(library, result)
+        assert not result.owner
+
+    monkeypatch.setattr(full_3d_stage, 'release_result', poison_before_release)
+    first = run_case(case, _control())
+    assert 'Ta' in mutated and 'P_report_A' in mutated
+    assert np.shares_memory(first.fields['K_ss'], case.design_fields['K_ss'])
+    assert not first.fields['K_ss'].flags.writeable
+    for name, expected in reference.fields.items():
+        np.testing.assert_array_equal(first.fields[name], expected, err_msg=name)
+    assert first.field_metadata == reference.field_metadata
+
+    other_params = mutable_data(case.parameters)
+    other_params['T_inA'] = other_params['T_inA'] + 15.0
+    second = run_case(replace(case, parameters=other_params), _control())
+    assert not np.array_equal(second.fields['Ta'], first.fields['Ta'])
+    for name, expected in reference.fields.items():
+        np.testing.assert_array_equal(first.fields[name], expected, err_msg=name)
+    assert first.field_metadata == reference.field_metadata

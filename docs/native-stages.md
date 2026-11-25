@@ -185,7 +185,7 @@ Confirm `tpmshx_stage_run_3d_abi_version() == 3` and `tpmshx_stage_capture_3d_ab
 C status codes are 0 (result transferred), 1 (invalid input), 2 (water state error), 3 (arithmetic error), and 4 (native failure).
 Status 0 does not imply convergence.
 A cancelled result keeps raw diagnostics with `raw.stop = 2` and no completed evaluation evidence.
-Python full 3D execution binds this lifecycle exclusively in `python/cpp_interface/full_3d_stage.py`.
+Python full 3D execution validates saved cases and builds `FieldResult` in `python/solvers/full_3d.py`, and binds this lifecycle exclusively in `python/cpp_interface/full_3d_stage.py`.
 
 ## Quick Design stage
 
