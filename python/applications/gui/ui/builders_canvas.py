@@ -635,7 +635,7 @@ def _build_optimize_panel(window, card_lay, t, theme):
     # values are unreachable; _gather_cfg clamps again defensively),
     # control-point grid, Y-mirror toggle, field preview.
     space_card, space_lay = _opt_card("搜索空间 (连续场)", 250)
-    from sjtu_tpmshx.physical_models.df_surrogate._domain import (
+    from sjtu_tpmshx.model_configs.df_domain import (
         TRAIN_L as _hull_L, TRAIN_T as _hull_T,
     )
     window._opt_space_params = {}

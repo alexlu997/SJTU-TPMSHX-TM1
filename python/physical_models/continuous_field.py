@@ -34,7 +34,7 @@ DEFAULT_N_CTRL_Y = 4
 DEFAULT_SYMMETRIC_Y = True
 
 # Geometry bounds [mm]; independent of per-fluid Nu applicability.
-from sjtu_tpmshx.physical_models.df_surrogate._domain import TRAIN_L as DEFAULT_L_BOUNDS, TRAIN_T as DEFAULT_T_BOUNDS
+from sjtu_tpmshx.model_configs.df_domain import TRAIN_L as DEFAULT_L_BOUNDS, TRAIN_T as DEFAULT_T_BOUNDS
 
 
 def decision_dim(n_ctrl_x: int = DEFAULT_N_CTRL_X,

@@ -16,7 +16,7 @@ from sjtu_tpmshx.cpp_interface import _native_lut
 from sjtu_tpmshx.cpp_interface import _native_geometry, _native_grid, _native_sigmoid
 from .tpms_props import _resolve_chi_s
 from .tpms_calc import (air_density, air_viscosity, air_conductivity)
-from sjtu_tpmshx.physical_models.df_surrogate._domain import TRAIN_L, TRAIN_T
+from sjtu_tpmshx.model_configs.df_domain import TRAIN_L, TRAIN_T
 
 from sjtu_tpmshx.run_control.logutil import get_logger
 

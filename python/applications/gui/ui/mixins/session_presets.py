@@ -273,7 +273,7 @@ class SessionPresetsMixin:
             self._opt_method.setCurrentIndex(self._opt_method.findData('qlognehvi'))
         for axis, edit in self._opt_controls.items():
             edit.setValue(preset.get('optimization_controls', {}).get(axis, 3))
-        from sjtu_tpmshx.physical_models.df_surrogate._domain import TRAIN_L, TRAIN_T
+        from sjtu_tpmshx.model_configs.df_domain import TRAIN_L, TRAIN_T
         bounds = preset.get('optimization_bounds', {'L': TRAIN_L, 't': TRAIN_T})
         for name in ('L', 't'):
             for end, value in zip(('min', 'max'), bounds[name]):

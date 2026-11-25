@@ -78,7 +78,7 @@ def test_diamond_path_also_works():
 
 @pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
 def test_batch_preserves_nodes_and_asymmetric_tolerance(topology):
-    from sjtu_tpmshx.physical_models.df_surrogate._domain import TRAIN_L_NODES, TRAIN_T_NODES
+    from sjtu_tpmshx.model_configs.df_domain import TRAIN_L_NODES, TRAIN_T_NODES
     from tests.python.df_reference import FullCore3CellFixedDFV2, METHOD
     from sjtu_tpmshx.physical_models.df_surrogate.predict import predict_K_cF_vec
 
