@@ -17,7 +17,7 @@
 <details>
 <summary>改模型或求解流程</summary>
 
-局部 Re 和 Nu 取用的速度见[二维](full_2d.cpp#L539)和[三维](full_3d.cpp#L877)实现。改 Nu 关联式时，读共用的 [nu_point](../numerics/fluid_properties.cpp#L371)。
+局部 Re 和 Nu 取用的速度见[二维](full_2d.cpp#L539)和[三维](full_3d.cpp#L877)实现。改 Nu 关联式时，读共用的 [nu_point](../numerics/fluid_properties.cpp#L364)。
 
 - 完整求解的迭代顺序
   - [full_2d.cpp](full_2d.cpp) · [full_3d.cpp](full_3d.cpp)

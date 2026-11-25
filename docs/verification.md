@@ -85,10 +85,9 @@ Windows 使用 `dumpbin`，须在 Visual Studio 开发者 shell 中运行。
 `WARNING: dirty build` 行表示该镜像构建时源 checkout 有已跟踪的修改。
 源提交不同、脏构建、构建记录缺失或无法读取，都不会使检查失败。
 
-镜像缺失或其 C 导出与清单不同时，检查失败；它也执行构建验证中的导入和动态依赖检查。清单为 `solver/solver.exports`、
-`preprocess/preparation.exports` 和 `postprocess/result.exports`。
+镜像缺失或其 C 导出与清单不同时，检查失败；它也执行构建验证中的导入和动态依赖检查。清单为 `geometry/geometry.exports`、`preprocess/preparation.exports`、
+`solver/solver.exports` 和 `postprocess/result.exports`。
 Windows 求解器镜像不导出 6 个 macOS SuperLU 钩子，检查沿用这一例外。
-几何库没有导出清单；检查打印几何构建记录，不比较其导出。
 用 `--component geometry`、`preparation` 或 `result` 只检查一个镜像；Linux 上使用 `--component result`。
 
 ## CI 检查范围与分片

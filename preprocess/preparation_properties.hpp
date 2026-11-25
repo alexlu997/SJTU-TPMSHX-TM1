@@ -1,6 +1,6 @@
 #pragma once
 
-#include "tpmshx/fluid_properties.hpp"
+#include "../numerics/property_kernels.hpp"
 #include "tpmshx/finite_volume.hpp"
 #include "tpmshx/preparation_c_api.h"
 #include <array>
@@ -12,20 +12,18 @@
 
 namespace tpmshx::preparation {
 
-constexpr std::size_t property_event_count=TPMSHX_PREPARATION_FP_EVENT_COUNT;
-enum class Empirical : std::uint32_t {
-    air_viscosity,air_conductivity,air_density,air_cp,
-    water_density,water_viscosity,water_conductivity,water_cp
-};
+using tpmshx::Empirical;
+using tpmshx::NuRoute;
+using tpmshx::RoughnessQuantity;
+using tpmshx::property_event_count;
+static_assert(property_event_count == TPMSHX_PREPARATION_FP_EVENT_COUNT);
+
 struct EmpiricalRange {
     const char* label;
     std::array<double,2> bounds;
 };
-enum class NuRoute : std::uint32_t {air_direct,air_vector,water,sco2,co2};
-enum class RoughnessQuantity : std::uint32_t {petukhov,haaland,height_ratio,friction_gain,extra_nu,identity};
 // Inputs are broadcast float64 buffers. Results keep one event word for each operation.
 struct PropertyInput {ArrayView<const double> values;};
-using PropertyNumber=double;
 struct PropertyResult {
     std::vector<double> values;
     std::array<std::uint32_t,property_event_count> events{};
@@ -50,35 +48,6 @@ public:
     PropertyFailure failure;
 };
 
-// Fixed property and pressure expressions share float64 arithmetic and FP events.
-// Event bits 0..3 are invalid, divide, overflow and underflow; bits 8..15 name the operation.
-class PropertyArithmetic {
-public:
-    explicit PropertyArithmetic(std::array<std::uint32_t,property_event_count>& events,bool observe=true);
-    PropertyNumber add(PropertyNumber first,PropertyNumber second);
-    PropertyNumber subtract(PropertyNumber first,PropertyNumber second);
-    PropertyNumber multiply(PropertyNumber first,PropertyNumber second);
-    PropertyNumber divide(PropertyNumber first,PropertyNumber second);
-    PropertyNumber power(PropertyNumber first,PropertyNumber second);
-    PropertyNumber logarithm(PropertyNumber value);
-    PropertyNumber logarithm10(PropertyNumber value);
-    PropertyNumber exponential(PropertyNumber value);
-private:
-    template<class Function> PropertyNumber apply(std::uint32_t operation,Function function);
-    std::array<std::uint32_t,property_event_count>& events_;
-    std::size_t node_=0;
-    bool observe_;
-};
-
-// The point formulas are owned by fluid_properties.cpp.
-PropertyNumber empirical_point(Empirical getter,PropertyNumber temperature,PropertyNumber pressure,
-    std::array<std::uint32_t,property_event_count>& events,bool observe=true);
-PropertyNumber nu_point(NuRoute route,Topology topology,PropertyNumber re,PropertyNumber pr,
-    PropertyNumber cell,PropertyNumber diameter,PropertyNumber alpha,
-    std::array<std::uint32_t,property_event_count>& events,bool observe=true);
-PropertyNumber roughness_point(RoughnessQuantity quantity,PropertyNumber first,PropertyNumber second,
-    std::array<std::uint32_t,property_event_count>& events,bool observe=true);
-double native_roughness_factor(double re,double roughness_m,double diameter_m);
 PropertyNumber reynolds_point(PropertyNumber rho,PropertyNumber speed,PropertyNumber diameter,
     PropertyNumber mu,std::array<std::uint32_t,property_event_count>& events);
 PropertyNumber prandtl_point(PropertyNumber mu,PropertyNumber cp,PropertyNumber conductivity,

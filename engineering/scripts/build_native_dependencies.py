@@ -565,8 +565,9 @@ def verify(cache: Path, host: str, component: str = "all") -> None:
             return
     for caller in ("geometry_c_static", "geometry_c_shared", "geometry_kernel_smoke"):
         run([build_dir / f"{caller}{suffix}"], log)
+    verify_model_exports(build_dir, host, "geometry", log)
     if geometry_only:
-        print(f"PASS: {host} locked CMake and independent geometry callers", flush=True)
+        print(f"PASS: {host} locked CMake, independent geometry callers and geometry exports", flush=True)
         return
     preparation_dir = cache / "build" / f"preparation-{host}"
     for caller in PREPARATION_CALLERS:
@@ -766,9 +767,6 @@ def verify_published(directory: Path, host: str, component: str, log: Path) -> N
         if not library.is_file():
             failures.append(kind)
             print("  exports: FAIL: the published image is missing", flush=True)
-            continue
-        if kind == "geometry":
-            print("  exports: not compared (geometry has no export manifest)", flush=True)
             continue
         try:
             verify_model_exports(directory, host, kind, log)

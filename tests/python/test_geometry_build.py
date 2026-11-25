@@ -1,5 +1,6 @@
 """Independent geometry builds retain environment gates and avoid solver inputs."""
 import sys
+from unittest.mock import Mock
 
 import pytest
 
@@ -28,6 +29,7 @@ def geometry_build(request, tmp_path, monkeypatch):
 
     for name in ('verify_sources', 'apply_lu_patch', 'verify_lu_patch', 'fetch_source'):
         monkeypatch.setattr(native, name, forbidden)
+    monkeypatch.setattr(native, 'verify_model_exports', Mock())
     commands = []
 
     def run(command, *args, **kwargs):
@@ -77,7 +79,7 @@ def test_failed_geometry_environment_check_stops_before_generation(geometry_buil
     assert not any('engineering.scripts.generate_native_model_coefficients' in command for command in commands)
 
 
-def test_geometry_verify_runs_only_the_three_independent_callers(geometry_build):
+def test_geometry_verify_checks_the_callers_and_image(geometry_build):
     host, _, cache, _, _, cmake, commands = geometry_build
     native.verify(cache, host, 'geometry')
     suffix = '.exe' if host == 'windows-x64' else ''
@@ -85,6 +87,8 @@ def test_geometry_verify_runs_only_the_three_independent_callers(geometry_build)
     assert commands[0] == (str(cmake), '--version')
     assert set(commands[1:]) == {(str(build / (name + suffix)),) for name in (
         'geometry_c_static', 'geometry_c_shared', 'geometry_kernel_smoke')}
+    native.verify_model_exports.assert_called_once_with(
+        build, host, 'geometry', cache / 'logs' / f'verify-geometry-{host}.log')
 
 
 def test_geometry_verify_cli_checks_the_selected_lock_first(geometry_build, monkeypatch):
