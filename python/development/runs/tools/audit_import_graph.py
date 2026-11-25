@@ -155,6 +155,12 @@ def _invalid_stage_target(host, target, binding, operations):
         return False
     area, _, member = target.removeprefix("sjtu_tpmshx.").partition(".")
     module, _, name = member.partition(".")
+    # The shared resolver exposes the physical range policy through both domain packages.
+    if area == "shared" and module == "domain":
+        area = "data_types"
+        module, _, name = name.partition(".")
+    if area == "data_types" and module == "range_policy":
+        area = "physical_models"
     if binding in {"quick_design", "quick_preparation"}:
         if area == "solvers" and member.startswith("backends.cpp."):
             module, _, name = member.removeprefix("backends.cpp.").partition(".")

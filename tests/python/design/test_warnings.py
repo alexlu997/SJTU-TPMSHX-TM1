@@ -117,8 +117,8 @@ def test_forward_labels_without_extra_property_or_thermal_calls(
         diagnostics.append(metrics.get('energy_imbalance_rel'))
         return replace(performance, metrics=metrics)
 
-    def observe_ranges(output, collect):
-        original_ranges(output, collect)
+    def observe_ranges(output, collect, warn):
+        original_ranges(output, collect, warn)
         for side, fluid, temperature in (('A', 'water', 500.), ('B', 'sco2', 350.)):
             calls.append((fluid, temperature))
             with range_context(side=side, stage='design-dp-inlet', layout='scalar'):

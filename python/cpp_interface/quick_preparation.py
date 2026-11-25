@@ -1,4 +1,5 @@
 """Pack native Quick Design preparation inputs and copy the returned data."""
+from contextlib import contextmanager
 import ctypes as ct
 from functools import lru_cache
 from types import SimpleNamespace
@@ -110,8 +111,9 @@ def _copy_prepared(output):
         area_density_per_m=output.geometry.area_density_per_m, hydraulic_diameter_m=output.geometry.hydraulic_diameter_m)
 
 
-def run_preparation(state, *, geometry_cache, eos_cache, check_model_error, observe):
-    """Return copied preparation data or the two pressure fractions."""
+@contextmanager
+def _native_result(state, geometry_cache, eos_cache, check_model_error, observe):
+    """Keep the native output live until the binding has copied it."""
     bindings = _bindings(preparation_library.path())
     keepalive = []
     source = _Input(2, ct.sizeof(_Input))
@@ -151,7 +153,13 @@ def run_preparation(state, *, geometry_cache, eos_cache, check_model_error, obse
                           for item in result.inlet_pressure)
         observe(ranges, tuple(result.floating_events), pressures, bindings.collect_range,
                 _native_properties._floating_events)
-        return _copy_prepared(result) if state.full else tuple(result.fractions)
+        yield result
     finally:
         if state.full:
             bindings.release(ct.byref(result))
+
+
+def run_preparation(state, *, geometry_cache, eos_cache, check_model_error, observe):
+    """Return copied preparation data or the two pressure fractions."""
+    with _native_result(state, geometry_cache, eos_cache, check_model_error, observe) as result:
+        return _copy_prepared(result) if state.full else tuple(result.fractions)

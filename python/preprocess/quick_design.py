@@ -81,7 +81,7 @@ def _check_model_error(state, status, message):
                          'has no usable pore space. Reduce t or increase L.') from ValueError(message)
 
 
-def _record_ranges(ranges, collect):
+def _record_ranges(ranges, collect, warn):
     from sjtu_tpmshx.physical_models.tpms_props import _range_notice
 
     for label, side, bounds, temperature in ranges:
@@ -92,7 +92,7 @@ def _record_ranges(ranges, collect):
                 continue
         message = _range_notice(name, temperature, temperature, *bounds)
         if message is not None:
-            warnings.warn(message, UserWarning, stacklevel=5)
+            warn(message, UserWarning)
 
 
 def _record_inlet(state, fluid, pressure, replay_events):
@@ -103,18 +103,18 @@ def _record_inlet(state, fluid, pressure, replay_events):
         _record_pressure_limit(state.topo, state.l, state.t, outlet_squared, state.strict)
 
 
-def _observe(state, warn_fp, ranges, events, pressures, collect, replay_events):
-    _record_ranges(ranges, collect)
-    replay = partial(replay_events, warn=warn_fp)
+def _observe(state, warn, ranges, events, pressures, collect, replay_events):
+    _record_ranges(ranges, collect, warn)
+    replay = partial(replay_events, warn=warn)
     replay(events)
     for fluid, pressure in zip(state.fluids, pressures):
         _record_inlet(state, fluid, pressure, replay)
 
 
-def _operation(state, warn_fp):
+def _operation(state, warn):
     key = (state.topo, state.l, state.t, _Parameters['geometry_resolution'])
     return run_preparation(state, geometry_cache=partial(_geometry_cache, key), eos_cache=_eos_cache,
-                           check_model_error=partial(_check_model_error, state), observe=partial(_observe, state, warn_fp))
+                           check_model_error=partial(_check_model_error, state), observe=partial(_observe, state, warn))
 
 
 def _state(case, topo, l, t, s, length, arrangement, height, *, init, conductivity, prop_model,
@@ -155,7 +155,7 @@ def prepare_values(case, topo, l, t, s, Lx, arrangement='cross', *, init=None,
     """Return copied native fields and detached host snapshots for CaseData."""
     state = _state(case, topo, l, t, s, Lx, arrangement, height, init=init, conductivity=k_s,
                    prop_model=prop_model, tolerance=tol, df_options=None, full=True)
-    output = _operation(state, lambda message: warnings.warn(message, RuntimeWarning))
+    output = _operation(state, lambda message, category=RuntimeWarning: warnings.warn(message, category))
     grid = dict(dimension=3, length_unit='m', axis_order=('x', 'y', 'z'))
     for axis, (widths, edges) in zip('xyz', output.axes):
         grid['d' + axis] = widths
@@ -183,7 +183,7 @@ def pressure_fractions(case, topo, l, t, s, Lx, arrangement='cross', height=None
     """Query analytical inlet pressure fractions without allocating thermal fields."""
     state = _state(case, topo, l, t, s, Lx, arrangement, height, init=None, conductivity=K_STEEL,
                    prop_model='const', tolerance=LTNE_TOL, df_options=df_options, full=False)
-    return _operation(state, lambda message: warnings.warn(message, RuntimeWarning))
+    return _operation(state, lambda message, category=RuntimeWarning: warnings.warn(message, category))
 
 
 def prepare_quick_design(case, topo, l, t, s, Lx, arrangement='cross', *,

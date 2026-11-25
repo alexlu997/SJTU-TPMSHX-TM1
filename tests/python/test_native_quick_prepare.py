@@ -307,6 +307,52 @@ def test_cache_callback_failure_preserves_the_exception_and_release_count(monkey
     assert pressure_error.value is failure and len(releases) == 1
 
 
+@pytest.mark.parametrize('pressure', [False, True], ids=['full', 'sizing'])
+@pytest.mark.parametrize('source', ['geometry lookup', 'cache key', 'overflow warning'])
+def test_stop_iteration_from_preparation_preserves_cause_and_release(monkeypatch, pressure, source):
+    from sjtu_tpmshx.applications.design.sizing import dP_fracs
+    from sjtu_tpmshx.physical_models import tpms_geometry
+
+    bindings = wire._bindings(wire.preparation_library.path())
+    release = bindings.release
+    released = []
+
+    def record_release(pointer):
+        released.append(bool(ctypes.cast(pointer, ctypes.POINTER(wire._Prepared)).contents.owner))
+        release(pointer)
+
+    failure = StopIteration(source)
+    def stop_lookup(key):
+        raise failure
+
+    class InterruptedLength(float):
+        def __hash__(self):
+            raise failure
+
+    def stop_warning(message, category, *args, **kwargs):
+        assert category is RuntimeWarning and str(message) == 'overflow encountered in power'
+        raise failure
+
+    monkeypatch.setattr(bindings, 'release', record_release)
+    arguments = _args()
+    with warnings.catch_warnings(), np.errstate(over='warn'):
+        if source == 'geometry lookup':
+            monkeypatch.setattr(tpms_geometry._compute_geometry_cached, 'lookup', stop_lookup)
+        elif source == 'cache key':
+            arguments['l'] = InterruptedLength(arguments['l'])
+        else:
+            arguments['case'] = _case(mdot_h=1e180)
+            warnings.simplefilter('always', RuntimeWarning)
+            monkeypatch.setattr(warnings, 'showwarning', stop_warning)
+        with pytest.raises(RuntimeError, match='^generator raised StopIteration$') as caught:
+            if pressure:
+                dP_fracs(**arguments)
+            else:
+                prepare_quick_design(**arguments, case_id='interrupted')
+    assert type(caught.value) is RuntimeError and caught.value.__cause__ is failure
+    assert released == ([] if pressure else [source == 'overflow warning'])
+
+
 def _host_site(function, statement):
     lines, first = getsourcelines(function)
     offset, = (i for i, line in enumerate(lines) if statement in line)
