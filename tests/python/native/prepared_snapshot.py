@@ -1,5 +1,6 @@
 """Read native fields at a complete saved-stage boundary for preparation checks."""
-from sjtu_tpmshx.cpp_interface import full_2d_stage, full_3d_stage
+from sjtu_tpmshx.cpp_interface import full_2d_stage
+from sjtu_tpmshx.solvers import full_3d
 from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.run_control.module_ports import resolve_control
 
@@ -7,7 +8,7 @@ from sjtu_tpmshx.run_control.module_ports import resolve_control
 def native_prepared_state(case, *, phase=None):
     """Return the native snapshot at the first ``phase`` boundary of ``case``."""
     dimension = case.grid['dimension']
-    stage = full_2d_stage if dimension == 2 else full_3d_stage
+    stage = full_2d_stage if dimension == 2 else full_3d
     control = resolve_control(RunControl())
     captured = {}
     target = phase if phase is not None else (7 if dimension == 2 else 8)

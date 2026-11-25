@@ -78,6 +78,116 @@ def test_valid_restore_refreshes_error_state_without_recording_history(win):
     assert list(win._field_history['le_L']) == history
 
 
+@pytest.mark.parametrize('unit,text', [
+    ('K', '0'), ('C', '-273.15'),
+    ('K', '0 K'), ('C', '0 K'),
+    ('K', '-273.15 degC'), ('C', '-273.15 degC'),
+    ('C', '-0.001 K'), ('C', '(-273.15)'),
+])
+def test_inlet_keeps_rejected_temperature_on_refresh(win, unit, text):
+    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+
+    if unit == 'C':
+        win._toggle_temp_unit()
+    field = win.le_TinA
+    field.setText(text)
+    for validate in (field.editingFinished.emit, win._refresh_field_validation):
+        validate()
+        assert field.property('inpError') == 'true'
+        assert 'Must be above 0 K' in field.toolTip()
+        assert field.text() == text
+    with pytest.raises(ValueError, match=r'Inlet Temp A|fluid_A\.T_in_K'):
+        config_from_window(win, strict=True).validate()
+
+
+@pytest.mark.parametrize('unit,text,display,kelvin', [
+    ('K', '0.05 K', '0.05', 0.05), ('C', '0.05 K', '-273.1', 0.05),
+    ('K', '300 K', '300', 300), ('C', '300 K', '26.85', 300),
+])
+def test_inlet_keeps_valid_temperature_format_and_value(win, unit, text, display, kelvin):
+    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+
+    if unit == 'C':
+        win._toggle_temp_unit()
+    field = win.le_TinB
+    field.setText(text)
+    field.editingFinished.emit()
+    win._refresh_field_validation()
+    assert field.property('inpError') == 'false'
+    assert field.text() == display
+    assert config_from_window(win, strict=True).fluid_B.T_in_K == pytest.approx(kelvin)
+
+
+@pytest.mark.parametrize('unit,zero,normal,switched', [
+    ('K', '(0)', '150 * 2', '26.850000000000023'),
+    ('C', '(-273.15)', '25 + 1.85', '300'),
+])
+def test_unit_switch_keeps_rejected_temperature_expression_at_absolute_zero(win, unit, zero, normal, switched):
+    if unit == 'C':
+        win._toggle_temp_unit()
+    win.le_TinA.setText(zero)
+    win.le_TinA.editingFinished.emit()
+    win.le_TinB.setText(normal)
+    win._toggle_temp_unit()
+    assert win.le_TinB.text() == switched
+    assert win.le_TinB.property('inpError') == 'false'
+    assert win._temp_to_K(win.le_TinB) == 300
+    assert win.le_TinA.property('inpError') == 'true'
+    assert 'Must be above 0 K' in win.le_TinA.toolTip()
+    assert win._temp_to_K(win.le_TinA) == 0
+
+
+@pytest.mark.parametrize('side,unit,zero', [('A', 'K', '(0)'), ('B', 'C', '(-273.15)')])
+def test_save_config_preserves_file_for_rejected_switched_inlet(win, monkeypatch, tmp_path, side, unit, zero):
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+    path = tmp_path / 'inlets.json'
+    monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *args: (str(path), ''))
+    errors = []
+    monkeypatch.setattr(QMessageBox, 'critical', lambda parent, title, text: errors.append(text))
+    if unit == 'C':
+        win._toggle_temp_unit()
+    field = getattr(win, 'le_Tin' + side)
+    field.setText('0.05 K')
+    field.editingFinished.emit()
+    kelvin = win._temp_to_K(field)
+    assert win.save_config()
+    original = path.read_bytes()
+
+    field.setText(zero)
+    win._toggle_temp_unit()
+    assert field.property('inpError') == 'true'
+    assert not win.save_config()
+    assert 'Must be above 0 K' in errors[-1]
+    assert path.read_bytes() == original
+    assert win._load_config_path(path)
+    assert win._temp_unit == unit
+    assert win._temp_to_K(field) == kelvin > 0
+
+
+@pytest.mark.parametrize('route', ['config', 'session'])
+@pytest.mark.parametrize('side,unit,zero', [('A', 'K', 0), ('B', 'C', -273.15)])
+def test_numeric_zero_in_saved_unit_preserves_active_design(win, tmp_path, side, unit, zero, route):
+    from PySide6.QtWidgets import QApplication
+
+    if unit == 'C':
+        win._toggle_temp_unit()
+    saved = win._capture_current_preset('invalid inlet')
+    saved['line_edits']['le_Tin' + side] = zero
+    saved['line_edits']['le_L'] = '0.333'
+    win._toggle_temp_unit()
+    before = win._capture_current_preset('active')
+    if route == 'config':
+        path = tmp_path / 'invalid.json'
+        path.write_text(json.dumps({'config_format': 1, 'preset': saved}))
+        assert not win._load_config_path(path)
+    else:
+        assert win.sm.save_session(saved)
+        win._restore_session()
+        QApplication.processEvents()
+    assert win._capture_current_preset('active') == before
+
+
 @pytest.mark.parametrize('content', ['{"presets": {"old": 1}}', '{"presets": [null]}', '{broken'])
 def test_rejected_preset_library_is_preserved_before_next_save(win, content):
     path = win.sm.presets_path()

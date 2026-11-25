@@ -79,7 +79,7 @@ def test_full_3d_identity_uses_executed_route(route, counts, options):
 
 
 def test_full_3d_portable_identity_roundtrip(tmp_path):
-    from sjtu_tpmshx.cpp_interface.full_3d_stage import run_case
+    from sjtu_tpmshx.solvers.full_3d import run_case
     from tests.python.native.test_cpp_full_3d import case, control
     from sjtu_tpmshx.file_io.result_io import save_result, load_result
     prepared = case('air-air', cap=2)

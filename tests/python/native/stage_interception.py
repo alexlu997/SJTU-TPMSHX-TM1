@@ -11,6 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from sjtu_tpmshx.cpp_interface import full_2d_stage, full_3d_stage
+from sjtu_tpmshx.solvers import full_3d
 from sjtu_tpmshx.run_control.module_ports import RunControl
 from tests.python.native.shared_library import library_path
 
@@ -25,7 +26,7 @@ def stage_control(**options):
 
 
 def stage_module(case):
-    return full_2d_stage if case.grid['dimension'] == 2 else full_3d_stage
+    return full_2d_stage if case.grid['dimension'] == 2 else full_3d
 
 
 def native_3d_arrays(result, shape):
@@ -55,13 +56,13 @@ def run_stage(case, control=None, *, resume_state=None, checkpoint=None, checkpo
 
     with pytest.MonkeyPatch.context() as patcher:
         patcher.setattr(module, 'capture_result', capture)
-        if module is full_3d_stage:
-            detach = module._detach
+        if module is full_3d:
+            detach = full_3d_stage._detach
 
             def copied(result, shape, *args, **kwargs):
                 arrays.append(native_3d_arrays(result, shape))
                 return detach(result, shape, *args, **kwargs)
-            patcher.setattr(module, '_detach', copied)
+            patcher.setattr(full_3d_stage, '_detach', copied)
         result = module.run_case(case, stage_control() if control is None else control,
                                  resume_state=resume_state, checkpoint=checkpoint,
                                  checkpoint_due=checkpoint_due)

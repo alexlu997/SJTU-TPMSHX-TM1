@@ -302,7 +302,7 @@ def native_result(request):
             bc_A=PartialBCConfig(dir=0, in_ctr=.015, in_w=.014, out_ctr=.015, out_w=.014))
     module = importlib.import_module(
         'sjtu_tpmshx.cpp_interface.full_2d_stage' if dimension == 2 else
-        'sjtu_tpmshx.cpp_interface.full_3d_stage')
+        'sjtu_tpmshx.solvers.full_3d')
     captured = []
     capture_name = '_capture_result' if dimension == 2 else 'capture_result'
     capture = getattr(module, capture_name)
@@ -357,7 +357,7 @@ def native_result(request):
 
 @pytest.mark.parametrize('audit', [False, True])
 def test_native_3d_producer_preserves_optional_diagnostics(monkeypatch, audit):
-    from sjtu_tpmshx.cpp_interface import full_3d_stage as result_capture
+    from sjtu_tpmshx.solvers import full_3d as result_capture
 
     config = _small_air_air_cfg()
     config.solver = replace(config.solver, max_outer_ltne=2, max_iter_simple=500)
