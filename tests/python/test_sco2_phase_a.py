@@ -62,7 +62,7 @@ def test_sco2_nu_gyroid_supported():
 
 def test_sco2_nu_unknown_topology_raises():
     """No silent borrowing of coefficients for unfitted topologies."""
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(ValueError, match='Primitive'):
         nu_sco2_topo('Primitive', 20000.0, 0.85, 5.0, 2.0)
 
 

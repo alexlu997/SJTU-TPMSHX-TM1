@@ -10,7 +10,7 @@ import numpy as np
 
 from sjtu_tpmshx.model_configs.model_parameters import fixed_geometry_error
 
-from ._native_values import TOPOLOGY_CODES, real_scalar
+from ._native_values import TOPOLOGY_CODES, geometry_topology, real_scalar
 from ._df_abi import DragSummary as _Summary
 from .stage_libraries import preparation_library
 from . import _native_properties as _properties
@@ -149,18 +149,21 @@ def _experiment_scope(path):
 
 
 def experiment_scope(topology, fluids, geometry_mode, cell, wall, symmetric, domain):
+    code = geometry_topology(topology)
+    if code not in (0, 1):
+        raise ValueError(f'unsupported D-F experiment topology {topology!r} (code {code})')
     try:
         path = preparation_library.get().path
     except (OSError, RuntimeError, ValueError):
         # Static checks can run before a preparation library is available.
         return None
     query = _experiment_scope(path)
-    # Unknown names enter the selector in its existing order.
+    # The native selector uses code 4 for an unknown fluid.
     codes = [next((i for i, name in enumerate(('air', 'water', 'sco2', 'co2')) if name == fluid), 4)
              for fluid in fluids]
     length, height, depth = (domain + (0., 0., 0.))[:3]
     scope = query(
-        int(topology == 'Gyroid'), *codes, geometry_mode, int(symmetric), cell, wall,
+        code, *codes, geometry_mode, int(symmetric), cell, wall,
         length, height, depth, len(domain))
     return bool(scope & 1), bool(scope & 2), bool(scope & 4)
 

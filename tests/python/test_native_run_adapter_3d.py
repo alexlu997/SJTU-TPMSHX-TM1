@@ -617,6 +617,21 @@ def test_saved_v2_rejects_inconsistent_inputs(fault, message):
         run_case(replace(case, parameters=params, design_fields=design), control=_control())
 
 
+def test_saved_3d_rejects_topology_without_a_nu_multiplier(monkeypatch):
+    from sjtu_tpmshx.cpp_interface._native_values import TOPOLOGY_CODES
+    from sjtu_tpmshx.physical_models.nu_correlations import sco2_effective_nu_config
+
+    config = native_stage_support.volume_configuration(('air', 'water'), 'uniform')
+    config.sco2_nu = sco2_effective_nu_config()
+    case = prepare_case(config, case_id='unsupported-topology')
+    params = dict(case.parameters, tpms_type='Primitive')
+    shape, cell_mm, _, nu = full_3d_stage.validate_saved_case(case)
+    monkeypatch.setitem(TOPOLOGY_CODES, 'Primitive', 2)
+    with pytest.raises(ValueError, match='Primitive'):
+        full_3d_stage.pack_input(params, params['prepared'], case.grid, case.design_fields,
+                                 shape, cell_mm, nu, [])
+
+
 def test_saved_opening_preserves_solver_roundoff_tolerance():
     config = native_stage_support.volume_configuration(('air', 'water'), 'uniform')
     case = prepare_case(config, case_id='rounded-opening')
