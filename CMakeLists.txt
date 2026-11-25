@@ -34,6 +34,7 @@ foreach(component IN LISTS TPMSHX_COMPONENTS)
     set(source "${TPMSHX_ROOT}/${component_${component}}")
     set(options "-DTPMSHX_NATIVE_DEPS_ROOT:PATH=${TPMSHX_NATIVE_DEPS_ROOT}"
         "-DTPMSHX_MODEL_INCLUDE_DIR:PATH=${TPMSHX_MODEL_INCLUDE_DIR}"
+        "-DTPMSHX_BUILD_QUALIFICATION:BOOL=OFF"
         "-DCMAKE_BUILD_TYPE:STRING=Release")
     if(APPLE)
         list(APPEND options "-DCMAKE_OSX_ARCHITECTURES:STRING=arm64")
@@ -51,10 +52,14 @@ foreach(component IN LISTS TPMSHX_COMPONENTS)
     ExternalProject_Add(tpmshx_${component}_build
         SOURCE_DIR "${source}" BINARY_DIR "${component_build}"
         DOWNLOAD_COMMAND "" UPDATE_COMMAND ""
+        STEP_TARGETS configure
         CMAKE_ARGS ${options}
         BUILD_COMMAND "${CMAKE_COMMAND}" --build <BINARY_DIR> --config Release
             --target tpmshx_${component}_shared --parallel 2
         BUILD_ALWAYS TRUE INSTALL_COMMAND "")
+    # A direct qualification build can change the options in the same component directory.
+    ExternalProject_Add_Step(tpmshx_${component}_build refresh_sdk_options
+        DEPENDERS configure ALWAYS TRUE)
     set(library "${CMAKE_SHARED_LIBRARY_PREFIX}tpmshx_${component}_shared${CMAKE_SHARED_LIBRARY_SUFFIX}")
     if(WIN32)
         install(FILES "${component_build}/${library}" DESTINATION "${CMAKE_INSTALL_BINDIR}")
@@ -65,9 +70,47 @@ foreach(component IN LISTS TPMSHX_COMPONENTS)
     endif()
 endforeach()
 
-install(DIRECTORY "${TPMSHX_ROOT}/include/tpmshx" DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
-    FILES_MATCHING PATTERN "*.h")
-install(FILES "${TPMSHX_ROOT}/include/tpmshx/stages.hpp" DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/tpmshx")
+set(sdk_headers
+    closure_evidence_c_api.h
+    enthalpy_driver_c_api.h
+    field_continuous_c_api.h
+    field_lut_c_api.h
+    field_sigmoid_c_api.h
+    full_2d_c_api.h
+    full_2d_run_c_api.h
+    full_3d_c_api.h
+    full_3d_run_c_api.h
+    geometry_c_api.h
+    grid_c_api.h
+    model_h_c_api.h
+    physical_ledger_c_api.h
+    preparation_c_api.h
+    preparation_case_3d_c_api.h
+    preparation_case_c_api.h
+    preparation_df_c_api.h
+    preparation_flow_c_api.h
+    property_c_api.h
+    property_sampling_c_api.h
+    quick_design_stage_c_api.h
+    result_balance_c_api.h
+    result_c_api.h
+    result_checks_c_api.h
+    result_metrics_c_api.h
+    result_stage_c_api.h
+    run_state_c_api.h
+    simple_2d_c_api.h
+    simple_3d_c_api.h
+    simple_c_api_types.h
+    solver_c_api.h
+    stage_run_3d_c_api.h
+    stage_run_c_api.h
+    stages.hpp
+    temperature_driver_c_api.h
+    temperature_evidence_c_api.h
+    thermal_c_api.h
+    zones_c_api.h)
+list(TRANSFORM sdk_headers PREPEND "${TPMSHX_ROOT}/include/tpmshx/")
+install(FILES ${sdk_headers} DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/tpmshx")
 configure_package_config_file("${TPMSHX_ROOT}/engineering/native_build/cmake/tpmshxConfig.cmake.in"
     "${CMAKE_BINARY_DIR}/tpmshxConfig.cmake"
     INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/tpmshx"

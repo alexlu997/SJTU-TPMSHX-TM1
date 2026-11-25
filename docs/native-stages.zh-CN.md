@@ -207,6 +207,24 @@ Quick Design 属于规定流量 LTNE 尺寸近似模式（`physical_validation=n
 取消返回状态 6 且不发布结果。
 Python 在 `python/cpp_interface/_native_quick_prepare.py` 绑定准备，在 `python/cpp_interface/quick_design.py` 绑定运行，并通过 Result ABI 3（`tpmshx_result_stage_query_v3`）计算 Quick Design 指标。
 
+## 安装的公共头文件
+
+所有组件组合均安装下表中的头文件。默认安装位置为 `include/tpmshx/`。
+可链接的库由所选组件决定。
+若需目录内容与清单完全一致，请使用空的安装目录。重复使用同一目录时，CMake 会保留以前安装的文件。
+
+<a id="sdk-public-headers"></a>
+
+| 接口 | 头文件 |
+| --- | --- |
+| 阶段调用与运行状态 | `stages.hpp`、`stage_run_c_api.h`、`stage_run_3d_c_api.h`、`quick_design_stage_c_api.h`、`run_state_c_api.h` |
+| 几何与网格 | `geometry_c_api.h`、`grid_c_api.h`、`zones_c_api.h`、`field_continuous_c_api.h`、`field_lut_c_api.h`、`field_sigmoid_c_api.h` |
+| 工况准备与物性 | `preparation_c_api.h`、`preparation_case_c_api.h`、`preparation_case_3d_c_api.h`、`preparation_df_c_api.h`、`preparation_flow_c_api.h`、`property_c_api.h` |
+| 求解器与流动 | `solver_c_api.h`、`full_2d_c_api.h`、`full_2d_run_c_api.h`、`full_3d_c_api.h`、`full_3d_run_c_api.h`、`simple_c_api_types.h`、`simple_2d_c_api.h`、`simple_3d_c_api.h` |
+| 热学模型 | `thermal_c_api.h`、`enthalpy_driver_c_api.h`、`model_h_c_api.h`、`temperature_driver_c_api.h` |
+| 物理与数值证据 | `closure_evidence_c_api.h`、`physical_ledger_c_api.h`、`property_sampling_c_api.h`、`temperature_evidence_c_api.h` |
+| 结果评估 | `result_c_api.h`、`result_balance_c_api.h`、`result_checks_c_api.h`、`result_metrics_c_api.h`、`result_stage_c_api.h` |
+
 ## 构建、安装与 SDK 示例
 
 根目录 CMake 工程使用已准备的本地依赖构建并安装阶段 SDK，不下载源码也不替换已发布的 Python 运行库。
@@ -245,7 +263,7 @@ target_link_libraries(my_program PRIVATE tpmshx::result)
 "$CMAKE" -S examples/cpp -B .cache/stages-sdk/examples \
   -DCMAKE_PREFIX_PATH="$PWD/.cache/stages-sdk/install"
 "$CMAKE" --build .cache/stages-sdk/examples --config Release
-"$CTEST" --test-dir .cache/stages-sdk/examples -C Release --output-on-failure
+"$CTEST" --test-dir .cache/stages-sdk/examples -C Release --output-on-failure --no-tests=error
 ```
 
 完成依赖构建后，可运行自动化的源码树外 SDK 检查：

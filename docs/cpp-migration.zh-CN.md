@@ -264,6 +264,11 @@ nmake /f engineering\native_build\Makefile.msvc check
 
 ### 完整依赖构建与原生 pytest 套件
 
+直接配置原生组件时，`TPMSHX_BUILD_QUALIFICATION` 默认为 `ON`。
+它启用该组件的测试程序。求解器还会构建 Python 测试库，并生成记录 model-h 迭代历史的测试目标。
+原生依赖构建启用资格测试。顶层 SDK 为每个组件关闭资格测试，复用已经配置过的构建目录时也会关闭。
+`check-stages` 在所选缓存的 `build/stages-<host>/` 下使用独立的 SDK 组件构建目录。
+
 通过环境检查后，使用 `.venv-path` 指定的解释器运行：
 
 ```sh
