@@ -112,7 +112,7 @@ def test_pressure_search_intersects_all_case_limits(
 @pytest.mark.parametrize('height', [None, .06])
 def test_pressure_search_finds_real_df_narrow_interval(height):
     from sjtu_tpmshx.applications.design.sizing import _min_Lx_for_dP
-    from sjtu_tpmshx.cpp_interface._native_quick_prepare import pressure_fractions as dP_fracs
+    from sjtu_tpmshx.preprocess.quick_design import pressure_fractions as dP_fracs
     case = _case()
     # Use actual geometry, fluid properties and D-F; only the limits are chosen.
     hot_limit = dP_fracs(case, 'Diamond', 7., .5, .084, .016, height=height)[0]

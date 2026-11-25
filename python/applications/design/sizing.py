@@ -15,7 +15,7 @@ from sjtu_tpmshx.physical_models.design_fluids import fluid_props, nu_re_window
 from sjtu_tpmshx.physical_models.fluid_props import QuickDesignWaterFieldError
 from .forward import forward
 from sjtu_tpmshx.model_configs.model_parameters import load_quick_design_parameters
-from sjtu_tpmshx.cpp_interface._native_quick_prepare import pressure_fractions as dP_fracs
+from sjtu_tpmshx.preprocess.quick_design import pressure_fractions as dP_fracs
 
 _QUICK_PARAMETERS = load_quick_design_parameters()
 K_STEEL = _QUICK_PARAMETERS['k_s']

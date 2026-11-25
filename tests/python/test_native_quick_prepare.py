@@ -1,12 +1,19 @@
 """Check float64 Quick preparation and pressure-fraction contracts against pure formulas."""
+import ctypes
 from dataclasses import replace
+from inspect import getsourcelines
+from pathlib import Path
+import subprocess
+import sys
 from types import SimpleNamespace
+import warnings
 
 import numpy as np
 import pytest
 
 from sjtu_tpmshx.applications.design.cases import DesignCase
-from sjtu_tpmshx.cpp_interface import _native_quick_prepare as production
+from sjtu_tpmshx.cpp_interface import quick_preparation as wire
+from sjtu_tpmshx.preprocess import quick_design as production
 from sjtu_tpmshx.physical_models import co2_props, fluid_props, sco2_props
 from sjtu_tpmshx.physical_models.tpms_geometry import compute_geometry
 from sjtu_tpmshx.preprocess.api import prepare_quick_design
@@ -174,25 +181,15 @@ def test_non_dataclass_case_fails_with_type_error():
         production.prepare_quick_design(**_args(case=case), case_id='non-dc')
 
 
-def test_prepare_and_pressure_observe_ranges_without_result_or_solver(monkeypatch, tmp_path):
-    for name in ('TPMSHX_RESULT_LIBRARY', 'TPMSHX_GEOMETRY_LIBRARY',
-                 'TPMSHX_NATIVE_SOLVER_LIBRARY', 'TPMSHX_SOLVER_LIBRARY'):
-        monkeypatch.setenv(name, str(tmp_path / name))
-    arguments = _args(case=_case(T_in_h=1200.))
-    prepared = prepare_quick_design(**arguments, case_id='preparation-only')
-    with warning_scope({}) as pressure_records:
-        pressure = production.pressure_fractions(**arguments)
-    assert pressure == tuple(prepared.parameters['inlet_pressure_fractions'][side] for side in 'AB')
-    assert any(row['high'] for row in prepared.metadata['applicability_inputs'])
-    assert list(prepared.metadata['applicability_inputs']) == list(range_observations(pressure_records))
-
-
 def test_geometry_cache_hit_and_clear():
     arguments = _args(case_id='cache-clear')
-    production.prepare_quick_design(**arguments)
+    prepared = production.prepare_quick_design(**arguments)
     assert tuple(compute_geometry.cache_info()) == (0, 1, 32768, 1)
-    production.prepare_quick_design(**arguments)
+    geometry = compute_geometry(arguments['topo'], arguments['l'], arguments['t'])
+    assert (prepared.parameters['A_0'], prepared.parameters['D_h']) == (geometry['A_0'], geometry['D_h'])
     assert tuple(compute_geometry.cache_info()) == (1, 1, 32768, 1)
+    production.prepare_quick_design(**arguments)
+    assert tuple(compute_geometry.cache_info()) == (2, 1, 32768, 1)
     compute_geometry.cache_clear()
     production.prepare_quick_design(**arguments)
     assert tuple(compute_geometry.cache_info()) == (0, 1, 32768, 1)
@@ -201,19 +198,27 @@ def test_geometry_cache_hit_and_clear():
 @pytest.mark.parametrize('pressure', [False, True])
 @pytest.mark.parametrize('fluid', ['sco2', 'co2'])
 def test_eos_scalar_caches_share_external_warming_and_clear(pressure, fluid):
-    owner = sco2_props._prop if fluid == 'sco2' else co2_props._scalar
-    arguments = _args(case=_case(hot_fluid=fluid))
+    get, owner = ((sco2_props.sco2_prop, sco2_props._prop) if fluid == 'sco2'
+                  else (co2_props.co2_prop, co2_props._scalar))
+    case = _case(hot_fluid=fluid)
+    arguments = _args(case=case)
     if pressure:
-        production.pressure_fractions(**arguments)
-        first = tuple(owner.cache_info())
-        production.pressure_fractions(**arguments)
-        second = tuple(owner.cache_info())
+        prepare = production.pressure_fractions
     else:
-        production.prepare_quick_design(**arguments, case_id='eos-cache')
-        first = tuple(owner.cache_info())
-        production.prepare_quick_design(**arguments, case_id='eos-cache')
-        second = tuple(owner.cache_info())
-    assert first[3] > 0 and second[0] > first[0]
+        prepare = production.prepare_quick_design
+        arguments['case_id'] = 'eos-cache'
+    keys = ('D', 'V', 'L', 'C')
+    expected = tuple(get(key, case.T_in_h, case.P_in_h) for key in keys)
+    warm = owner.cache_info()
+    assert warm.currsize == (4 if fluid == 'sco2' else 1)
+    prepare(**arguments)
+    assert (owner.cache_info().hits, owner.cache_info().misses) == (warm.hits + 4, warm.misses)
+    owner.cache_clear()
+    prepare(**arguments)
+    cold = owner.cache_info()
+    assert (cold.currsize, cold.misses) == (warm.currsize, warm.misses)
+    assert tuple(get(key, case.T_in_h, case.P_in_h) for key in keys) == expected
+    assert owner.cache_info().hits == cold.hits + 4
 
 
 def test_sco2_missing_pressure_raises_value_error():
@@ -236,3 +241,290 @@ def test_property_range_records_keep_source_side_and_stage():
     assert {key[-1][0] for key in records} == {'A', 'B'}
     assert all(key[-1][1:] == ('design-dp-inlet', 'scalar') for key in records)
     assert any(row['high'] for row in range_observations(records))
+
+
+def test_prepared_values_survive_release_and_a_second_preparation(monkeypatch):
+    bindings = wire._bindings(wire.preparation_library.path())
+    release = bindings.release
+    snapshots = []
+
+    def overwrite_then_release(pointer):
+        output = ctypes.cast(pointer, ctypes.POINTER(wire._Prepared)).contents
+        buffers = (*output.widths, *output.edges, output.epsilon, output.epsilon_a, output.solid_conductivity)
+        values = []
+        for buffer in buffers:
+            array = np.ctypeslib.as_array(buffer.data, shape=(buffer.size,))
+            values.append(array.tobytes())
+            array.fill(np.nan)
+        snapshots.append((values, output.geometry.area_density_per_m, tuple(output.fractions), output.controls.alpha))
+        output.geometry.area_density_per_m = output.controls.alpha = np.nan
+        output.fractions[:] = (np.nan, np.nan)
+        release(pointer)
+        assert output.owner is None
+
+    monkeypatch.setattr(bindings, 'release', overwrite_then_release)
+    first = production.prepare_values(**_args())
+    second = production.prepare_values(**_args(topo='Gyroid', height=.042), k_s=21.)
+    assert len(snapshots) == 2
+    for (state, grid, fields, controls, fractions), (values, area, pressure, alpha) in zip((first, second), snapshots):
+        arrays = [*(grid['d' + axis] for axis in 'xyz'), *(grid[axis + '_edges'] for axis in 'xyz'),
+                  fields['eps'], fields['eps_A'], fields['K_ss']]
+        assert [array.tobytes() for array in arrays] == values
+        assert state.geometry['A_0'] == area
+        assert fractions == pressure
+        assert controls['alpha'] == alpha
+    assert not np.array_equal(first[2]['K_ss'], second[2]['K_ss'])
+    assert all(not np.shares_memory(first[2][key], second[2][key]) for key in first[2])
+
+
+def test_axis_copy_stop_iteration_preserves_exception_and_releases_owner(monkeypatch):
+    bindings = wire._bindings(wire.preparation_library.path())
+    release, copy_array = bindings.release, wire.copy_array
+    released = []
+    failure = StopIteration('axis copy interrupted')
+
+    def interrupt_axis(value, shape=None):
+        if shape is None:
+            raise failure
+        return copy_array(value, shape)
+
+    def record_release(pointer):
+        released.append(bool(ctypes.cast(pointer, ctypes.POINTER(wire._Prepared)).contents.owner))
+        release(pointer)
+
+    monkeypatch.setattr(wire, 'copy_array', interrupt_axis)
+    monkeypatch.setattr(bindings, 'release', record_release)
+    with pytest.raises(StopIteration) as caught:
+        prepare_quick_design(**_args(), case_id='axis-copy')
+    assert caught.value is failure
+    assert caught.value.__cause__ is None
+    assert released == [True]
+
+
+@pytest.mark.parametrize('cache', ['geometry', 'sco2'])
+def test_cache_callback_failure_preserves_the_exception_and_release_count(monkeypatch, cache):
+    from sjtu_tpmshx.physical_models import tpms_geometry
+
+    arguments = _args(case=_case(hot_fluid='sco2'))
+    bindings = wire._bindings(wire.preparation_library.path())
+    release = bindings.release
+    releases = []
+
+    def counted(pointer):
+        release(pointer)
+        releases.append(True)
+
+    failure = LookupError(cache)
+    def fail_lookup(*args):
+        raise failure
+
+    monkeypatch.setattr(bindings, 'release', counted)
+    pressure = production.pressure_fractions(**arguments)
+    assert len(pressure) == 2 and not releases
+    owner = tpms_geometry._compute_geometry_cached if cache == 'geometry' else sco2_props._prop
+    monkeypatch.setattr(owner, 'lookup', fail_lookup)
+    with pytest.raises(LookupError) as full_error:
+        prepare_quick_design(**arguments, case_id='callback')
+    assert full_error.value is failure and len(releases) == 1
+    with pytest.raises(LookupError) as pressure_error:
+        production.pressure_fractions(**arguments)
+    assert pressure_error.value is failure and len(releases) == 1
+
+
+@pytest.mark.parametrize('pressure', [False, True], ids=['full', 'sizing'])
+@pytest.mark.parametrize('source', ['geometry lookup', 'cache key', 'overflow warning'])
+def test_stop_iteration_from_preparation_preserves_cause_and_release(monkeypatch, pressure, source):
+    from sjtu_tpmshx.applications.design.sizing import dP_fracs
+    from sjtu_tpmshx.physical_models import tpms_geometry
+
+    bindings = wire._bindings(wire.preparation_library.path())
+    release = bindings.release
+    released = []
+
+    def record_release(pointer):
+        released.append(bool(ctypes.cast(pointer, ctypes.POINTER(wire._Prepared)).contents.owner))
+        release(pointer)
+
+    failure = StopIteration(source)
+    def stop_lookup(key):
+        raise failure
+
+    class InterruptedLength(float):
+        def __hash__(self):
+            raise failure
+
+    def stop_warning(message, category, *args, **kwargs):
+        assert category is RuntimeWarning and str(message) == 'overflow encountered in power'
+        raise failure
+
+    monkeypatch.setattr(bindings, 'release', record_release)
+    arguments = _args()
+    with warnings.catch_warnings(), np.errstate(over='warn'):
+        if source == 'geometry lookup':
+            monkeypatch.setattr(tpms_geometry._compute_geometry_cached, 'lookup', stop_lookup)
+        elif source == 'cache key':
+            arguments['l'] = InterruptedLength(arguments['l'])
+        else:
+            arguments['case'] = _case(mdot_h=1e180)
+            warnings.simplefilter('always', RuntimeWarning)
+            monkeypatch.setattr(warnings, 'showwarning', stop_warning)
+        with pytest.raises(RuntimeError, match='^generator raised StopIteration$') as caught:
+            if pressure:
+                dP_fracs(**arguments)
+            else:
+                prepare_quick_design(**arguments, case_id='interrupted')
+    assert type(caught.value) is RuntimeError and caught.value.__cause__ is failure
+    assert released == ([] if pressure else [source == 'overflow warning'])
+
+
+def _host_site(function, statement):
+    lines, first = getsourcelines(function)
+    offset, = (i for i, line in enumerate(lines) if statement in line)
+    return Path(production.__file__).resolve(), first + offset
+
+
+@pytest.mark.parametrize('kind', ['range', 'pressure-limit'])
+@pytest.mark.parametrize('pressure_first', [False, True])
+def test_direct_warning_sites_and_repeat_counts(monkeypatch, kind, pressure_first):
+    from sjtu_tpmshx.applications.design.sizing import dP_fracs
+    from sjtu_tpmshx.physical_models import tpms_props
+    from sjtu_tpmshx.physical_models.df_surrogate import predict
+
+    monkeypatch.setattr(tpms_props, '_range_warnings_emitted', set())
+    monkeypatch.setattr(predict, '_CHOKE_WARNED', set())
+    args = (_args(case=_case(T_in_h=1200.)) if kind == 'range' else
+            _args(case=_case(mdot_h=20., P_in_h=1e5), Lx=20.))
+    routes = (lambda: production.prepare_quick_design(**args, case_id='mixed'), lambda: dP_fracs(**args))
+    if pressure_first:
+        routes = routes[::-1]
+    counts = []
+    with warnings.catch_warnings(record=True) as notices:
+        warnings.simplefilter('default')
+        for step, run in enumerate(routes * 3):
+            if step >= 2:
+                tpms_props._range_warnings_emitted.clear()
+                predict.reset_choke_warn_registry()
+            run()
+            counts.append(len(notices))
+        prepared = prepare_quick_design(**args, case_id='scoped')
+        assert len(notices) == counts[-1]
+    assert prepared.metadata['warnings']
+    assert all(item.category is UserWarning for item in notices)
+    sites = [(Path(item.filename).resolve(), item.lineno) for item in notices]
+    if kind == 'range':
+        assert counts == [3, 3, 3, 6, 6, 6]
+        assert [str(item.message).split(':', 1)[0] for item in notices] == [
+            'air_viscosity', 'air_conductivity', 'air_cp'] * 2
+        lines = [_host_site(production.prepare_values, '_operation(state,'),
+                 _host_site(production.pressure_fractions, '_operation(state,')]
+        if pressure_first:
+            lines.reverse()
+        assert sites == [line for line in lines for _ in range(3)]
+    else:
+        assert counts == [1] * 6
+        assert 'no positive outlet pressure solution' in str(notices[0].message)
+        assert sites == [_host_site(production._observe, '_record_inlet(')]
+
+
+_PRESSURE_LIMIT = ('[D-F approximation] 1D isothermal air pressure model has no positive outlet pressure solution '
+                   '(P_out^2=-inf <= 0); returning P_in as a fallback dP (strict=False). This is not a physical '
+                   'choking diagnosis. Check mass flux, channel length and inlet pressure.')
+
+
+@pytest.mark.parametrize('mode', ['ignore', 'warn', 'raise', 'print'])
+def test_floating_point_events_keep_modes_order_and_metadata(monkeypatch, capsys, mode):
+    from sjtu_tpmshx.applications.design.sizing import dP_fracs
+    from sjtu_tpmshx.physical_models.df_surrogate import predict
+
+    args = _args(case=_case(mdot_h=1e180, mdot_c=1e-185))
+    overflow, underflow = 'overflow encountered in power', 'underflow encountered in power'
+    monkeypatch.setattr(predict, '_CHOKE_WARNED', set())
+    for route, run in (('public', lambda: prepare_quick_design(**args, case_id='floating')),
+                       ('pressure', lambda: dP_fracs(**args))):
+        with np.errstate(all=mode), warnings.catch_warnings(record=True) as notices:
+            warnings.simplefilter('always')
+            if mode == 'raise':
+                with pytest.raises(FloatingPointError, match='^overflow encountered in power$'):
+                    run()
+                assert not notices and not capsys.readouterr().err
+                continue
+            result = run()
+        if route == 'public':
+            assert result.metadata['warnings'] == (_PRESSURE_LIMIT,)
+            assert [(r['source'], r['side'], r['stage']) for r in result.metadata['applicability_inputs']] == [
+                (('property', name), side, 'design-dp-inlet')
+                for side in 'AB' for name in ('air_viscosity', 'air_conductivity', 'air_cp')]
+            assert tuple(result.parameters['inlet_pressure_fractions'].values()) == (1., 0.)
+        else:
+            assert result == (1., 0.)
+        expected = [(UserWarning, _PRESSURE_LIMIT)] if route == 'pressure' else []
+        if mode == 'warn':
+            expected = [(RuntimeWarning, overflow), *expected, (RuntimeWarning, underflow)]
+            function = production.prepare_values if route == 'public' else production.pressure_fractions
+            assert [(Path(w.filename).resolve(), w.lineno) for w in notices if w.category is RuntimeWarning] == [
+                _host_site(function, '_operation(state,')] * 2
+        assert [(w.category, str(w.message)) for w in notices] == expected
+        printed = [f'Warning: {overflow}', f'Warning: {underflow}'] if mode == 'print' else []
+        assert capsys.readouterr().err.splitlines() == printed
+
+
+@pytest.mark.parametrize('rearm, expected_counts', [
+    (False, [1, 2, 2, 2]), (True, [1, 2, 3, 4]),
+], ids=['stable-registry', 'rearmed-registry'])
+def test_public_and_pressure_floating_warnings_keep_their_repeat_counts(monkeypatch, rearm, expected_counts):
+    from sjtu_tpmshx.applications.design.sizing import dP_fracs
+    from sjtu_tpmshx.physical_models.df_surrogate import predict
+    from sjtu_tpmshx.preprocess import _metadata
+
+    # A Git subprocess can reset Python's warning filters during provenance collection.
+    monkeypatch.setattr(_metadata, 'source_context', lambda: {})
+    monkeypatch.setattr(predict, '_CHOKE_WARNED', set())
+    registry = {}
+    monkeypatch.setattr(production, '__warningregistry__', registry, raising=False)
+    args = _args(case=_case(mdot_h=1e180))
+    routes = (lambda: prepare_quick_design(**args, case_id='mixed'), lambda: dP_fracs(**args))
+    counts = []
+    with np.errstate(over='warn'), warnings.catch_warnings(record=True) as notices:
+        warnings.simplefilter('default')
+        for step, run in enumerate(routes * 2):
+            if rearm and step == 2:
+                registry.clear()
+            run()
+            counts.append(sum(item.category is RuntimeWarning for item in notices))
+    assert counts == expected_counts
+    overflow = (RuntimeWarning, 'overflow encountered in power')
+    expected = [overflow, overflow, (UserWarning, _PRESSURE_LIMIT)]
+    if rearm:
+        expected.extend([overflow, overflow])
+    assert [(item.category, str(item.message)) for item in notices] == expected
+
+
+def test_prepare_and_pressure_observe_ranges_without_result_or_solver(monkeypatch, tmp_path):
+    for name in ('RESULT', 'GEOMETRY', 'NATIVE_SOLVER', 'SOLVER'):
+        monkeypatch.setenv(f'TPMSHX_{name}_LIBRARY', str(tmp_path / 'absent'))
+    code = '''
+from pathlib import Path
+import sys
+images = []
+def capture(event, args):
+    if event == 'ctypes.dlopen' and args[0] and 'tpmshx_' in Path(args[0]).name.lower():
+        images.append(Path(args[0]).resolve())
+sys.addaudithook(capture)
+from sjtu_tpmshx.applications.design.sizing import dP_fracs
+from sjtu_tpmshx.preprocess.api import prepare_quick_design
+from sjtu_tpmshx.run_control.run_warnings import range_observations, warning_scope
+from tests.python.test_native_quick_prepare import _args, _case
+for fluid in (_case(T_in_h=1200.), _case(hot_fluid='sco2', T_in_c=1200.)):
+    args = _args(case=fluid)
+    case = prepare_quick_design(**args, case_id='one-image')
+    with warning_scope({}) as records:
+        pressure = dP_fracs(**args)
+    if pressure != tuple(case.parameters['inlet_pressure_fractions'][side] for side in 'AB'):
+        raise SystemExit('pressure fractions differ')
+    rows = case.metadata['applicability_inputs']
+    if list(rows) != list(range_observations(records)) or not any(row['high'] for row in rows):
+        raise SystemExit('range observations differ')
+if set(images) != {Path(sys.argv[1]).resolve()}:
+    raise SystemExit(str(images))
+'''
+    subprocess.run([sys.executable, '-c', code, wire.preparation_library.path()], check=True, timeout=60)

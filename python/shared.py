@@ -7,6 +7,8 @@ import sys
 _PACKAGES = {"configs": "model_configs", "domain": "data_types", "models": "physical_models",
              "df_surrogate": "physical_models.df_surrogate", "io": "file_io"}
 _MOVED = {
+    "_native_quick_prepare": "preprocess.quick_design",
+    "models._native_quick_prepare": "preprocess.quick_design",
     "df_surrogate.ingest_cfd_kappa": "development.runs.cfd_asym.ingest_cfd_kappa",
     "df_surrogate.kappa_asym": "development.runs.cfd_asym.kappa_asym",
     "df_surrogate.load_sco2_cfd": "preprocess.offline.load_sco2_cfd",
