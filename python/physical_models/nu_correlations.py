@@ -36,9 +36,10 @@ from __future__ import annotations
 
 import warnings
 from sjtu_tpmshx.model_configs.model_parameters import load_model_parameters
-from sjtu_tpmshx.run_control.run_warnings import record_range, record_warning
+from sjtu_tpmshx.run_control.run_warnings import record_warning
 import numpy as np
 from sjtu_tpmshx.cpp_interface import _native_properties
+from sjtu_tpmshx.cpp_interface._native_result_checks import record_range
 from sjtu_tpmshx.cpp_interface._native_values import TOPOLOGY_CODES, geometry_topology
 
 # ── Constants ────────────────────────────────────────────────────────────

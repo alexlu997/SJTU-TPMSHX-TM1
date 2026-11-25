@@ -78,7 +78,8 @@ def check_surrogate_domain_at_point(tpms_type: str,
     nu_at_point: list[str] = []
     re_range = {'air': NU_RE_FIT_RANGE, 'water': WATER_NU_RE_RANGE,
                 'sco2': SCO2_NU_RE_RANGE, 'co2': co2_correlations.RE_RANGE}[model.name]
-    from sjtu_tpmshx.run_control.run_warnings import range_context, record_range
+    from sjtu_tpmshx.cpp_interface._native_result_checks import record_range
+    from sjtu_tpmshx.run_control.run_warnings import range_context
     with range_context(side=side, stage='inlet-preflight', layout='scalar'):
         record_range(('nu', model.name, tpms_type), Re, re_range,
                      label=f'{model.name} inlet Nu', quantity='Re', unit='-')

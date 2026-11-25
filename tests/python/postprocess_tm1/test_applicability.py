@@ -9,8 +9,9 @@ import pytest
 
 from sjtu_tpmshx.data_types.field_result import FieldResult
 from sjtu_tpmshx.physical_models.range_policy import assess_range, parameter_bounds
+from sjtu_tpmshx.cpp_interface._native_result_checks import record_range
 from sjtu_tpmshx.run_control.run_warnings import (
-    RangeRecord, range_context, range_observations, record_range, warning_messages, warning_scope,
+    RangeRecord, range_context, range_observations, warning_messages, warning_scope,
 )
 from sjtu_tpmshx.postprocess.api import evaluate_applicability
 

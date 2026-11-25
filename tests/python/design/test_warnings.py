@@ -97,7 +97,8 @@ def test_forward_labels_without_extra_property_or_thermal_calls(
     from sjtu_tpmshx.cpp_interface import _native_quick_prepare as quick_prepare
     from sjtu_tpmshx.physical_models import design_fluids as fluids
     from sjtu_tpmshx.physical_models import tpms_props
-    from sjtu_tpmshx.run_control.run_warnings import range_context, record_range, warning_messages
+    from sjtu_tpmshx.cpp_interface._native_result_checks import record_range
+    from sjtu_tpmshx.run_control.run_warnings import range_context, warning_messages
     calls, solves, diagnostics = [], [], []
     evaluate, native_run = postprocess.evaluate, execution.run_case
     record_native = execution._record_pass
