@@ -128,6 +128,29 @@ def test_equal_scalar_keys_share_float64_cache_entry():
     assert (info.hits, info.misses, info.currsize) == (1, 1, 1)
 
 
+@pytest.mark.parametrize('co2_geometry', [False, True])
+def test_co2_geometry_and_drag_follow_the_registered_fluid(monkeypatch, co2_geometry):
+    args = ('Gyroid', 7., .6, 2., 350., 800000., 16.)
+    monkeypatch.setitem(fluid_props.FLUIDS, 'carbon dioxide', fluid_props.get('co2'))
+    with warning_scope({}):
+        expected = tpms_calc.compute(*args, fluid_type='co2', co2_geometry=co2_geometry)
+        assert expected['dP_per_L'] == pytest.approx(26285.873924157153, rel=2e-12)
+        for spelling in ('CO2', ' Co2 ', 'carbon dioxide'):
+            tpms_calc.compute.cache_clear()
+            assert tpms_calc.compute(*args, fluid_type=spelling, co2_geometry=co2_geometry) == expected
+            assert tpms_calc.compute(*args, fluid_type='co2', co2_geometry=co2_geometry) == expected
+
+
+def test_inlet_adapter_uses_registered_co2_drag_for_supplied_geometry():
+    from sjtu_tpmshx.cpp_interface.inlet_properties import inlet_query
+
+    args = ('Gyroid', 7., .6, 2., 350., 800000.)
+    geometry = compute_geometry('Gyroid', 7., .6)
+    with warning_scope({}):
+        expected = inlet_query(*args, 'co2', None, geometry, {}, lambda *_: None)
+        assert inlet_query(*args, ' CO2 ', None, geometry, {}, lambda *_: None) == expected
+
+
 def test_cache_warning_replay_binds_new_run_context():
     args = ('Diamond', 7., .5, .001, 1200., 160000., 16.)
     with warnings.catch_warnings(record=True) as standalone:

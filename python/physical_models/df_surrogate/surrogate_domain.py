@@ -71,7 +71,7 @@ def check_surrogate_domain_at_point(tpms_type: str,
     rho = float(model.rho(T, P))
     mu = float(model.mu(T, P))
     from sjtu_tpmshx.physical_models import co2_correlations
-    geometry = co2_correlations.geometry if co2_geometry or fluid == 'co2' else _geom
+    geometry = co2_correlations.geometry if co2_geometry or model.name == 'co2' else _geom
     D_h = geometry(tpms_type, L_mm, t_mm, k_s)['D_h']
     Re = reynolds(rho, u, D_h, mu)
 
@@ -88,7 +88,7 @@ def check_surrogate_domain_at_point(tpms_type: str,
             f"[{re_range[0]:.0f}, {re_range[1]:.0f}] "
             f"(u={u} m/s, T={T} K, P={P:.0f} Pa, L={L_mm}mm, t={t_mm}mm)."
         )
-    if fluid == 'co2':
+    if model.name == 'co2':
         pr = prandtl(mu, float(model.cp(T, P)), float(model.k(T, P)))
         lo, hi = co2_correlations.coefficients()['bounds']['Pr']
         with range_context(side=side, stage='inlet-preflight', layout='scalar'):

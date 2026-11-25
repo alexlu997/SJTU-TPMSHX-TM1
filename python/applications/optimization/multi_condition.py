@@ -298,6 +298,42 @@ def resume_condition_batch(batch_file, *, output_dir, control=RunControl(backend
         allow_nu_re_extrapolation=record.get('allow_nu_re_extrapolation', False))
 
 
+def evaluate_compact_condition_batch(
+    conditions: Sequence[ConditionInput], *, output_dir: str | Path,
+    baseline: dict[str, dict] | None = None, control: RunControl = RunControl(),
+    workers: int | None = None, on_update=None, pause_check=None,
+    allow_nu_re_extrapolation: bool = False, resume_saved: bool = False,
+) -> dict:
+    """Run or continue one batch and return compact member summaries.
+
+    The inputs, checks and saved files are those of ``evaluate_condition_batch``.
+    The return value adds ``summaries`` instead of in-memory fields. Each summary
+    keeps the case and result IDs, the saved result path, the evaluated metrics,
+    the resolved configuration and the acceptance record. The batch releases each
+    field before the next member starts. ``baseline`` is the ``summaries`` value of
+    an earlier compact batch. ``on_update`` receives the condition statuses after
+    each change. If ``pause_check`` returns true, the batch saves ``batch.json``
+    and raises ``PausedRun``.
+
+    If ``resume_saved`` is true and ``output_dir`` contains a ``batch.json``,
+    continue that record in place. The saved inputs, member identities and Nu Re
+    policy must agree with the request. Completed members are checked and reused.
+    Failed members keep their saved evidence and do not run again. Other members
+    continue from a saved checkpoint or prepared case. A member without either
+    file starts a new preparation. If ``output_dir`` has no ``batch.json``, the
+    call starts a new batch.
+    """
+    # The record keeps this path as ``resumed_from``.
+    root = Path(output_dir).resolve()
+    recovery = {}
+    if resume_saved and (root / 'batch.json').exists():
+        record = json.loads((root / 'batch.json').read_text(encoding='utf-8'))
+        recovery = dict(resume_from=(root, record), keep_failed=True)
+    return _evaluate_condition_batch(conditions, output_dir=root, baseline=baseline,
+        control=control, workers=workers, on_update=on_update, pause_check=pause_check,
+        allow_nu_re_extrapolation=allow_nu_re_extrapolation, **recovery)
+
+
 def _check_saved_condition(case, config, flow_a, flow_b, case_id, *, saved_config=None):
     from sjtu_tpmshx.data_types.portable_data import mutable_data
 
@@ -325,7 +361,7 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
                               control=RunControl(), collect_fields=False, workers=None, resume_from=None,
                               on_update=None, pause_check=None, keep_failed=False,
                               allow_nu_re_extrapolation=False):
-    """Share batch validation; optimizer summaries keep paths and scalar metrics."""
+    """Run the batch for the public entries that select fields or compact summaries."""
     from sjtu_tpmshx.file_io.case_io import load_case, save_case
     from sjtu_tpmshx.file_io.result_io import load_result, save_result
     from sjtu_tpmshx.file_io.metrics_io import load_metrics, save_metrics

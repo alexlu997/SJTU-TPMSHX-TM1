@@ -24,7 +24,7 @@ from sjtu_tpmshx.file_io.text_file import write_text
 from sjtu_tpmshx.run_control.logutil import get_logger
 from sjtu_tpmshx.physical_models.continuous_field import decision_bounds, decision_dim
 from sjtu_tpmshx.applications.optimization.multi_condition import (
-    _condition_worker_count, _evaluate_condition_batch, _saved_condition_config,
+    _condition_worker_count, _saved_condition_config, evaluate_compact_condition_batch,
 )
 from sjtu_tpmshx.data_types.portable_data import mutable_data
 from sjtu_tpmshx.applications.optimization.mass_design import (
@@ -480,13 +480,10 @@ def _run_multi_condition_optimization(
         return replace(control, progress=progress if control.progress is not None else None)
 
     def evaluate_batch(conditions, directory, unit, baseline=None):
-        path = root / directory
-        recovery = {}
-        if resume_from is not None and (path / 'batch.json').exists():
-            recovery = dict(resume_from=(path, json.loads((path / 'batch.json').read_text(encoding='utf-8'))),
-                            keep_failed=True)
-        return _evaluate_condition_batch(conditions, output_dir=path, baseline=baseline,
-            control=batch_control(unit), workers=workers, **notifications, **recovery,
+        # The copied archive keeps each started batch; continue it in place.
+        return evaluate_compact_condition_batch(conditions, output_dir=root / directory,
+            baseline=baseline, control=batch_control(unit), workers=workers, **notifications,
+            resume_saved=resume_from is not None,
             allow_nu_re_extrapolation=bool(constrained and mass_requirements.get('allow_nu_re_extrapolation', False)))
 
     def evaluate_design(x, iteration):

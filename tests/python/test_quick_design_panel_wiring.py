@@ -384,3 +384,226 @@ def test_failure_keeps_completed_candidates_error_and_export(monkeypatch, tmp_pa
             dialog._qd_worker.requestInterruption()
             _wait_for(lambda: dialog._qd_worker is None)
         dialog.close()
+
+
+def test_cli_and_gui_use_design_default_density(monkeypatch, tmp_path):
+    from sjtu_tpmshx.applications.design import cli, sizing
+
+    monkeypatch.setattr(sizing, 'RHO_S', 2700.)
+    monkeypatch.setattr(sizing, 'K_STEEL', 150.)
+    seen = []
+    design = sizing.Design(True, topo='Diamond', l=7., t=.5, V=.002)
+
+    def fixed(cases, topo, l, t, arrangement, **kwargs):
+        seen.append(dict(arrangement=arrangement, rho_s=kwargs['rho_s'],
+                         k_s=kwargs['k_s'], prop_model=kwargs['prop_model'],
+                         height=kwargs['height']))
+        return design
+
+    monkeypatch.setattr('sjtu_tpmshx.applications.design.cases.load_cases', lambda p: ['case1'])
+    monkeypatch.setattr(cli, 'load_cases', lambda p: ['case1'])
+    monkeypatch.setattr(sizing, 'size_fixed_cell', fixed)
+
+    dialog = build_quick_design_dialog()
+    try:
+        assert dialog.le_qd_rho.text() == '2700'
+        assert dialog.le_qd_ks.text() == '150'
+        dialog.le_qd_file.setText('spec.xlsx')
+        dialog.combo_qd_mode.setCurrentIndex(dialog.combo_qd_mode.findData('fixed'))
+        params = _gather_inputs(dialog)
+        assert params['rho_s'] == 2700. and params['k_s'] == 150.
+        assert params['prop_model'] == 'mean'
+    finally:
+        dialog.close()
+
+    Worker = _make_worker_class()
+    worker = Worker(dict(file='spec.xlsx', mode='fixed', cell=('Diamond', 7., .5),
+                         arrangement='counter'))
+    received = []
+    worker.finished_with_result.connect(received.append)
+    worker.run()
+    assert received[0]['best'] is design
+
+    assert cli.run(['--xlsx', str(tmp_path / 'spec.xlsx'), '--mode', 'fixed',
+                    '--cell', 'Diamond,7,0.5', '--out', str(tmp_path / 'out.xlsx')]) == 0
+    assert seen == [
+        dict(arrangement='counter', rho_s=2700., k_s=150., prop_model='mean', height=None),
+        dict(arrangement='cross', rho_s=2700., k_s=150., prop_model='const', height=None),
+    ]
+
+
+@pytest.mark.parametrize('scenario', [
+    'fixed_feasible',
+    'fixed_infeasible',
+    'auto',
+    'auto_refine_improved',
+    'auto_refine_fallback',
+    'failed_refinement',
+    'cancel_enumeration',
+    'cancel_refinement',
+])
+def test_cli_and_gui_match_on_shared_inputs(monkeypatch, tmp_path, capsys, scenario):
+    from openpyxl import load_workbook
+    from sjtu_tpmshx.applications.design import cli, optimize, report, select, sizing
+    from sjtu_tpmshx.run_control.cancellation import CancelledError
+    from sjtu_tpmshx.run_control.module_ports import RunControl
+
+    source = tmp_path / 'spec.csv'
+    source.write_text(
+        'case,hot_fluid,T_in_h_K,P_in_h_kPa,mdot_h,cold_fluid,T_in_c_K,P_in_c_kPa,'
+        'mdot_c,Q_kW,dPlim_h,dPlim_c\n'
+        '1,air,500,200,0.1,water,300,200,0.1,10,0.1,0.1\n', encoding='utf-8')
+
+    def make_design(feasible, l, t, volume, *, reason=''):
+        detail = dict(
+            case=1, hot_fluid='air', cold_fluid='water',
+            T_air_out=400., T_cold_out=350., Q_W=10000., Q_cold_W=9900.,
+            energy_imbalance_rel=.01, energy_imbalance_status='available',
+            energy_imbalance_reason='', dP_hot_frac=.01, dP_hot_pa=2000.,
+            dP_cold_frac=.02, dP_cold_pa=4000., Re_hot=1000., Re_cold=2000.,
+            warnings=[], run_status={'converged': feasible},
+            acceptance_reasons=([reason] if reason else []),
+        )
+        return sizing.Design(
+            feasible, topo='Diamond', l=l, t=t, s=.1, Lx=.1, arrangement='cross',
+            V=volume, weight=volume * 2000., dP_hot_max=.01, dP_cold_max=.02,
+            T_out_hot_max=400., reason=reason, percase=[detail],
+        )
+
+    designs = {
+        5.: make_design(False, 5., .4, .0008, reason='dP>lim@final'),
+        6.: make_design(True, 6., .4, .0030),
+        7.: make_design(True, 7., .4, .0020),
+    }
+    refined_better = make_design(True, 6.8, .42, .0015)
+    failure = RuntimeError('injected refinement failure')
+
+    def run_pair():
+        state = {'cancel': False}
+
+        def candidate(cases, topo, l, t, arrangement, **kwargs):
+            assert arrangement == 'cross' and kwargs['prop_model'] == 'const'
+            assert kwargs['rho_s'] == sizing.RHO_S and kwargs['k_s'] == sizing.K_STEEL
+            if scenario == 'fixed_infeasible':
+                return designs[5.]
+            if scenario == 'cancel_enumeration' and l == 6.:
+                state['cancel'] = True
+            return designs[l]
+
+        def refine(cases, baseline, arrangement, **kwargs):
+            if scenario == 'failed_refinement':
+                raise failure
+            if scenario == 'cancel_refinement':
+                raise CancelledError('cancelled during refinement')
+            if scenario == 'auto_refine_improved':
+                return refined_better
+            return baseline
+
+        monkeypatch.setattr(sizing, 'size_fixed_cell', candidate)
+        monkeypatch.setattr(select, 'size_fixed_cell', candidate)
+        monkeypatch.setattr(optimize, 'warm_start_joint', refine)
+        return state
+
+    mode = 'fixed' if scenario.startswith('fixed') else 'auto'
+    use_refine = scenario in (
+        'auto_refine_improved', 'auto_refine_fallback',
+        'failed_refinement', 'cancel_refinement',
+    )
+    cli_out = tmp_path / f'{scenario}.xlsx'
+    cli_args = [
+        '--xlsx', str(source), '--mode', mode, '--arrangement', 'cross',
+        '--prop-model', 'const', '--jobs', '1', '--out', str(cli_out),
+    ]
+    if mode == 'fixed':
+        cli_args += ['--cell', 'Diamond,7,0.4']
+    else:
+        cli_args += ['--nodes', 'Diamond:5,6,7:0.4']
+    if use_refine:
+        cli_args.append('--refine')
+
+    # Run CLI.
+    cli_state = run_pair()
+    cli_control = RunControl(cancel_check=lambda: cli_state['cancel'])
+    monkeypatch.setattr(cli, 'run_control_from_args', lambda a: cli_control)
+    cli_cancelled = None
+    cli_failed = None
+    if scenario == 'failed_refinement':
+        with pytest.raises(RuntimeError) as caught:
+            cli.run(cli_args)
+        cli_failed = caught.value
+    elif scenario.startswith('cancel_'):
+        with pytest.raises(select.SelectionCancelled) as caught:
+            cli.run(cli_args)
+        cli_cancelled = caught.value
+    else:
+        assert cli.run(cli_args) == 0
+    cli_stdout = capsys.readouterr().out
+
+    # Run GUI worker with matching inputs.
+    gui_state = run_pair()
+    gui_control = RunControl(cancel_check=lambda: gui_state['cancel'])
+    gui_params = dict(
+        file=str(source), mode=mode, arrangement='cross',
+        rho_s=sizing.RHO_S, k_s=sizing.K_STEEL, prop_model='const',
+        height=None, refine=use_refine,
+    )
+    if mode == 'fixed':
+        gui_params['cell'] = ('Diamond', 7., .4)
+    else:
+        gui_params['nodes'] = dict(topo=['Diamond'], l=[5., 6., 7.], t=[.4])
+    worker = _make_worker_class()(gui_params, control=gui_control)
+    worker.n_jobs = 1
+    gui_results, gui_errors, gui_cancelled = [], [], []
+    worker.finished_with_result.connect(gui_results.append)
+    worker.error_signal.connect(gui_errors.append)
+    worker.cancelled.connect(lambda: gui_cancelled.append(True))
+    worker.run()
+
+    assert len(gui_results) == 1
+    gui = gui_results[0]
+    gui_order = [report.cid(d) for d in gui['all']]
+    gui_best_id = report.cid(gui['best']) if gui['best'] is not None else None
+
+    if scenario.startswith('cancel_'):
+        assert gui_cancelled == [True] and not gui_errors
+        assert gui['partial'] and gui['termination_reason'] == 'cancelled'
+        cli_order = [report.cid(d) for d in cli_cancelled.results]
+        cli_feas = [d for d in cli_cancelled.results if d.feasible]
+        cli_best = min(cli_feas, key=lambda d: d.V) if cli_feas else None
+        cli_best_id = report.cid(cli_best) if cli_best is not None else None
+        assert cli_order == gui_order
+        assert cli_best_id == gui_best_id
+        expected = ['Diamond_l5_t0.4', 'Diamond_l6_t0.4'] if scenario == 'cancel_enumeration' else [
+            'Diamond_l5_t0.4', 'Diamond_l6_t0.4', 'Diamond_l7_t0.4']
+        assert cli_order == expected
+        return
+
+    workbook = load_workbook(cli_out, read_only=True, data_only=True)
+    try:
+        detail_rows = list(workbook['工况明细'].values)
+        detail_header = detail_rows[0]
+        cli_order = [row[detail_header.index('构型')] for row in detail_rows[1:]]
+        summary_rows = list(workbook['构型汇总'].values)
+        summary_header = summary_rows[0]
+        min_v_rows = [
+            row[summary_header.index('构型')]
+            for row in summary_rows[1:]
+            if 'min-V' in (row[summary_header.index('标记')] or '')
+        ]
+    finally:
+        workbook.close()
+
+    assert cli_order == gui_order
+    cli_best_id = min_v_rows[0] if min_v_rows else None
+    assert cli_best_id == gui_best_id
+    if scenario == 'failed_refinement':
+        assert cli_failed is failure
+        assert gui_errors == ['RuntimeError: injected refinement failure']
+        assert gui['partial'] and gui['termination_reason'] == 'failed'
+        assert cli_order == ['Diamond_l5_t0.4', 'Diamond_l6_t0.4', 'Diamond_l7_t0.4']
+    else:
+        assert not gui_errors and not gui['partial']
+        if gui_best_id is not None:
+            assert f'best (min-V): {gui_best_id}' in cli_stdout
+        else:
+            assert 'best (min-V):' not in cli_stdout

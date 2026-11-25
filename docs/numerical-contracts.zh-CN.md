@@ -48,7 +48,7 @@ Python 在 [python](../python/) 下负责公共 API、配置、不可变 DTO、�
 - **水平集计数索引**：`geometry.cpp` 与 `asym_geometry.cpp` 构建精确的有序 `|phi|` 体素与暴露面计数索引（缓存两组拓扑／分辨率；`N = 128` 时占 32 MiB 索引加 16 MiB `phi` 网格）。标准对称场对 `L`/`t` 数组批量应用与标量相同的公式。固体导热率每次调用按显式 `chi`、`TPMSHX_CHI_S`、原生拟合的顺序解析。
 - **连续场（`zones.axis = "continuous"`）**：接受 `x_decision`（先 `L` 控制点后 `t` 控制点，单位 mm）、`n_ctrl_x`、`n_ctrl_y`、可选 `n_ctrl_z`（仅三维；三维仅给 XY 时沿 z 挤出）、`symmetric_y`、`spline_order`（1–3）及位于 `L = 4..8 mm`、`t = 0.3..0.6 mm` 内的 `L_bounds` 与 `t_bounds`。样条在最终物理单元中心采样，不做高斯滤波。连续场要求对称通道（`delta = 0`）。双侧流体在 SIMPLE 坐标系下消费完整局部 K/cF 数组。
 - **离散分区（`x`、`y`、`grid`）**：条带区间须为有限数并无间隙无重叠覆盖 `[0, 1]`（容差 `1e-9`）。二维条带与矩形先按横向宽度投影原始 `L`/`t` 再预测行 D-F，并对设计场做高斯滤波而保留原始热学几何。三维 XY 网格矩形分别平滑 `L` 与 `t` 后沿 z 延伸。
-- **CO2 模型**：任一侧为 CO2 时由 `co2_segment2_v1.json` 为两侧提供公共对称几何。仅 CO2 侧施加固定因子 `K = K0 / 2.5`、`cF = 2.5 * cF0` 及 Nu 因子 `1.28`（含 Nu 下限），且不依赖 `df_mode`。
+- **CO2 模型**：任一侧为 CO2 时由 `co2_segment2_v1.json` 为两侧提供公共对称几何。仅 CO2 侧施加固定因子 `K = K0 / 2.5`、`cF = 2.5 * cF0` 及 Nu 因子 `1.28`（含 Nu 下限），且不依赖 `df_mode`。独立入口计算对流体注册表解析为 `co2` 的所有名称使用相同的 CO2 几何和阻力因子。
 - **规定总质量流量**：`preprocess.api.prepare_fixed_mass_flow_case` 与 `prepare_inlet_mass_capacities` 在物理开口上积分局部单侧孔隙率与归一化入口速度分布，乘以入口密度后用规定 `mass_flow_kg_s` 除以容量求入口速度。二维总流量输入需提供显式物理深度（m），求解场保持单位深度基准。
 
 ## 原生准备、求解与评估阶段
@@ -172,6 +172,7 @@ Python 仅绑定保存态阶段生命周期：`full_2d_stage.py`（二维保存�
 ### 多工况批次与贝叶斯优化
 
 `applications.optimization.multi_condition` 通过 `compute_prepared_run`（60 秒检查点）评估有序工况批次，并由 `resume_condition_batch` 恢复至新目录。
+优化器使用 `evaluate_compact_condition_batch`：返回紧凑摘要，并在原目录内继续已保存的批次；复用已完成成员，保留失败成员且不重新运行。
 默认 `workers = None` 最多启动 4 个原生工作进程，每进程至少分配 2 个 CPU 槽位，平分总 CPU 上限并保持输入顺序与单管理进程暂停／取消控制。
 `run_multi_condition_optimization` 支持 `qLogNEHVI`、`qLogNParEGO` 与 `Sobol` 基于完整合格批次最大化 `(heat_gain_percent, -pressure_ratio)`，或使用 `qLogNEI` 与 `Sobol` 结合 `mass_requirements`（含可选逐工况 `T_out`/`P_out` 限制与 `allow_nu_re_extrapolation`）执行约束最小芯体质量优化。
 `resume_multi_condition_optimization` 将原归档复制到新目录并校验 `optimization-input.json`、Sobol 序列与已保存提议后继续。

@@ -67,7 +67,6 @@ def _make_worker_class():
 
         def run(self):
             from sjtu_tpmshx.run_control.cancellation import CancelledError
-            from sjtu_tpmshx.applications.design.select import SelectionCancelled
             def cancelled():
                 return self.isInterruptionRequested() or (
                     self.control.cancel_check is not None and self.control.cancel_check())
@@ -75,9 +74,10 @@ def _make_worker_class():
             results = []
             p = self.params
 
-            def publish(termination_reason='completed'):
+            def publish(termination_reason='completed', *, best=None):
                 feasible = [d for d in results if d.feasible]
-                best = min(feasible, key=lambda d: d.V) if feasible else None
+                if termination_reason != 'completed':
+                    best = min(feasible, key=lambda d: d.V) if feasible else None
                 self.finished_with_result.emit({
                     'feasible': feasible, 'all': results, 'best': best, 'params': p,
                     'termination_reason': termination_reason,
@@ -85,39 +85,28 @@ def _make_worker_class():
                 })
 
             try:
-                from sjtu_tpmshx.applications.design.cases import load_cases
-                from sjtu_tpmshx.applications.design.sizing import size_fixed_cell
-                from sjtu_tpmshx.applications.design.select import enumerate_select
+                from sjtu_tpmshx.applications.design import cases as design_cases
+                from sjtu_tpmshx.applications.design import sizing
+                from sjtu_tpmshx.applications.design.workflow import run_design
                 control.check_cancelled()
-                cases = load_cases(p["file"])
-                ks = p.get("k_s", 16.0)
-                pm = p.get("prop_model", "mean")
-                ht = p.get("height", None)          # 矩形迎风高 [m]; None=方形 (默认)
-                if p["mode"] == "fixed":
-                    topo, l, t = p["cell"]
-                    d = size_fixed_cell(cases, topo, l, t, p["arrangement"],
-                                        rho_s=p["rho_s"], k_s=ks, prop_model=pm,
-                                        height=ht, control=control)
-                    results = [d]; best = d if d.feasible else None
-                else:
-                    results, best = enumerate_select(cases, p["arrangement"], p["nodes"],
-                                                     rho_s=p["rho_s"], n_jobs=self.n_jobs, k_s=ks,
-                                                     prop_model=pm, height=ht, control=control,
-                                                     completed=results)
-                    if p["refine"] and best is not None:
-                        from sjtu_tpmshx.applications.design.optimize import warm_start_joint
-                        ref = warm_start_joint(cases, best, p["arrangement"],
-                                               rho_s=p["rho_s"], k_s=ks, prop_model=pm,
-                                               height=ht, control=control)
-                        if ref is not best and ref.feasible:
-                            results = list(results) + [ref]
-                            if ref.V < best.V:
-                                best = ref
-                control.check_cancelled()
-                publish()
-            except CancelledError as exc:
-                if isinstance(exc, SelectionCancelled):
-                    results = exc.results
+                cases = design_cases.load_cases(p["file"])
+                results, best = run_design(
+                    cases,
+                    mode=p["mode"],
+                    arrangement=p["arrangement"],
+                    cell=p.get("cell"),
+                    nodes=p.get("nodes"),
+                    refine=p.get("refine", False),
+                    rho_s=p.get("rho_s", sizing.RHO_S),
+                    k_s=p.get("k_s", sizing.K_STEEL),
+                    prop_model=p.get("prop_model", "mean"),
+                    height=p.get("height", None),
+                    n_jobs=self.n_jobs,
+                    control=control,
+                    completed=results,
+                )
+                publish('completed', best=best)
+            except CancelledError:
                 publish('cancelled')
                 self.cancelled.emit()
             except Exception as e:
@@ -418,8 +407,9 @@ def build_quick_design_dialog(parent=None):
     combo_arr.addItem("逆流", "counter")
     combo_arr.addItem("交叉流", "cross")
     combo_arr.setToolTip("逆流：两股流体沿同轴反向流动。\n交叉流：两股流体沿相互垂直的方向流动。")
-    le_rho = QLineEdit("7900"); le_rho.setFixedWidth(80)
-    le_ks = QLineEdit("16"); le_ks.setFixedWidth(60)
+    from sjtu_tpmshx.applications.design import sizing
+    le_rho = QLineEdit(str(sizing.RHO_S).removesuffix(".0")); le_rho.setFixedWidth(80)
+    le_ks = QLineEdit(str(sizing.K_STEEL).removesuffix(".0")); le_ks.setFixedWidth(60)
     le_ks.setToolTip("固体热导率: 304SS=16, AlSi10Mg≈150, Cu≈300。"
                      "影响固体导热与两侧换热耦合，具体影响随工况和芯体尺寸变化。")
     combo_prop = QComboBox()

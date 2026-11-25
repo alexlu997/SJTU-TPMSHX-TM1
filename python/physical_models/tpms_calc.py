@@ -181,9 +181,12 @@ def _compute_cached(tpms_type: str,
         mu        – selected fluid dynamic viscosity [Pa·s]
         k_f       – selected fluid thermal conductivity [W/(m·K)]
     """
+    from .fluid_props import get
+
     with cache_warning_records({}) as records:
         # ── Geometry from numerical computation ─────────────────────
-        if co2_geometry or fluid_type == 'co2':
+        fluid_name = get(fluid_type).name
+        if co2_geometry or fluid_name == 'co2':
             from .co2_correlations import geometry as geometry_model
             g = geometry_model(tpms_type, L_cell_mm, t_mm)
         else:
@@ -207,7 +210,7 @@ def _compute_cached(tpms_type: str,
 
         rho, mu, k_f, cp_f, Pr_f, Re, Nu, K_df, cF_df, dP_per_L, H_sf, K_ff = (
             inlet_properties.inlet_query(tpms_type, L_cell_mm, t_mm, u, T_in_K,
-                P_in_Pa, fluid_type, sco2_nu, g, records, notice))
+                P_in_Pa, fluid_name, sco2_nu, g, records, notice))
 
         return _InletCacheValue({
             'epsilon':   eps,

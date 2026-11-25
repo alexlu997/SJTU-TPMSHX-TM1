@@ -223,3 +223,59 @@ def test_resume_rejects_destination_inside_the_source(tmp_path, monkeypatch, ali
     assert {path.relative_to(source): path.read_bytes() for path in source.rglob('*') if path.is_file()} == before
     if nested:
         assert not target.exists()
+
+
+def test_search_with_real_batches_resumes_moved_archive_like_uninterrupted_search(tmp_path, monkeypatch):
+    from tests.python.test_multi_condition_batch import _conditions as batch_conditions, _native, _patch_solve
+
+    solved = []
+
+    def solve(case, control):
+        solved.append(case.case_id)
+        return _native(case)
+
+    _patch_solve(monkeypatch, solve)
+    library = tmp_path / 'analytic-library'
+    library.write_bytes(b'non-executable test data')
+    control = RunControl(native_library=str(library), cpu_threads=1)
+    conditions = batch_conditions(2)
+    options = dict(method='sobol', n_init=2, n_iter=1, workers=1)
+    expected = search.run_multi_condition_optimization(conditions, output_dir=tmp_path / 'expected',
+                                                       control=control, **options)
+    assert expected['status'] == 'completed'
+    budget = len(solved)
+    assert budget == 2 * (expected['design_budget'] + expected['baseline_batches'])
+    del solved[:]
+    stop = []
+
+    def update(state):
+        # Pause inside the second design batch after its first member is published.
+        if len(state['report']['history']) == 2 and any(
+                row['status'] == 'completed' for row in state['conditions']):
+            stop.append(True)
+
+    source = tmp_path / 'source'
+    with pytest.raises(PausedRun):
+        search.run_multi_condition_optimization(conditions, output_dir=source, control=control,
+            on_update=update, pause_check=lambda: bool(stop), **options)
+    saved = _manifest(source)
+    assert [row['status'] for row in saved['history']] == ['completed', 'paused']
+    batch_record = json.loads((source / 'design_0001/batch.json').read_text())
+    assert [row['status'] for row in batch_record['conditions']] == ['completed', 'not_run']
+    moved = source.rename(tmp_path / 'moved')
+    before = {path.relative_to(moved): path.read_bytes() for path in moved.rglob('*') if path.is_file()}
+    target = tmp_path / 'resumed'
+    result = search.resume_multi_condition_optimization(moved / 'optimization.json',
+                                                        output_dir=target, control=control, workers=1)
+    assert len(solved) == budget
+    assert result['status'] == 'completed'
+    for key in ('design_budget', 'n_evaluated', 'n_usable', 'pareto_indices', 'initial_designs'):
+        assert result[key] == expected[key]
+    assert [row['x_decisions'] for row in result['proposals']] == [
+        row['x_decisions'] for row in expected['proposals']]
+    assert [(row['status'], row['x_decision'], row['objectives'], row['model_y']) for row in result['history']] == [
+        (row['status'], row['x_decision'], row['objectives'], row['model_y']) for row in expected['history']]
+    continued = json.loads((target / 'design_0001/batch.json').read_text())
+    assert continued['resumed_from'] == str(target.resolve() / 'design_0001')
+    assert [row['recovery_mode'] for row in continued['conditions']] == ['completed_copy', 'new']
+    assert {path.relative_to(moved): path.read_bytes() for path in moved.rglob('*') if path.is_file()} == before
