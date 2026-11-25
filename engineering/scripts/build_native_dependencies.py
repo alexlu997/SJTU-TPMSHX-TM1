@@ -772,12 +772,13 @@ def verify_published(directory: Path, host: str, component: str, log: Path) -> N
 
 
 def verify_installed_sdk_headers(prefix: Path) -> None:
-    """Compare installed filenames with the public header tables in both SDK guides."""
-    headers = [path for path in prefix.rglob("*") if path.suffix in {".h", ".hpp"} and path.is_file()]
-    directories = {path.parent for path in headers}
-    if len(directories) != 1 or any(path.name != "tpmshx" for path in directories):
-        raise RuntimeError(f"Expected the SDK headers in one tpmshx directory under {prefix}")
-    installed = {path.name for path in headers}
+    """Compare each installed header path with the public tables in both SDK guides."""
+    wrappers = list(prefix.rglob("tpmshx/stages.hpp"))
+    if len(wrappers) != 1:
+        raise RuntimeError(f"Expected one installed tpmshx/stages.hpp under {prefix}")
+    directory = wrappers[0].parent
+    installed = {path.relative_to(directory).as_posix()
+                 for path in directory.rglob("*") if path.is_file() or path.is_symlink()}
 
     for name in ("native-stages.md", "native-stages.zh-CN.md"):
         guide = (ROOT / "docs" / name).read_text(encoding="utf-8")

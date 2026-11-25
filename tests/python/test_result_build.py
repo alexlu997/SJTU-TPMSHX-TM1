@@ -354,3 +354,26 @@ def test_installed_result_stage_has_no_eos_or_python_runtime(result_build, monke
     assert '--target' not in consumer
     assert not checks[1]['cwd'].is_relative_to(root)
     assert 'PYTHONPATH' not in checks[1]['env'] and 'VIRTUAL_ENV' not in checks[1]['env']
+
+
+@pytest.mark.parametrize('extra', ['private_probe.hh', 'detail/stages.hpp', 'detail/private_probe'])
+def test_sdk_header_check_rejects_unlisted_files(tmp_path, monkeypatch, extra):
+    docs = tmp_path / 'docs'
+    docs.mkdir()
+    for guide in ('native-stages.md', 'native-stages.zh-CN.md'):
+        (docs / guide).write_text(
+            '<a id="sdk-public-headers"></a>\n\n| Headers |\n| --- |\n| `stages.hpp` |\n',
+            encoding='utf-8')
+    monkeypatch.setattr(native, 'ROOT', tmp_path)
+    prefix = tmp_path / 'sdk'
+    headers = prefix / 'custom/include/tpmshx'
+    headers.mkdir(parents=True)
+    (headers / 'stages.hpp').touch()
+    native.verify_installed_sdk_headers(prefix)
+
+    unexpected = headers / extra
+    unexpected.parent.mkdir(exist_ok=True)
+    unexpected.touch()
+    with pytest.raises(RuntimeError) as failure:
+        native.verify_installed_sdk_headers(prefix)
+    assert f"missing=[], extra=['{extra}']" in str(failure.value)
