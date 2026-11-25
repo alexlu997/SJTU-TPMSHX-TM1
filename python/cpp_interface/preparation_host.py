@@ -1,34 +1,18 @@
-"""Own the shared preparation callbacks, native result lifetime and case records."""
+"""Pack preparation callbacks and release their native results."""
 from collections.abc import Callable, Mapping
 from contextlib import contextmanager
 import ctypes as ct
-from dataclasses import replace
-from functools import lru_cache, partial
+from functools import lru_cache
+from types import SimpleNamespace
 from typing import NamedTuple
-import warnings
 
 import numpy as np
 
-from sjtu_tpmshx.physical_models.preparation_cache import geometry_cache, inlet_cache, _InletCacheValue
 from sjtu_tpmshx.data_types.compute_config import Sco2NuConfig
-from sjtu_tpmshx.run_control.logutil import get_logger
-from sjtu_tpmshx.run_control.run_warnings import (
-    RangeRecord, current_warnings, merge_warnings, record_warning, warning_messages, _range_context,
-)
+from sjtu_tpmshx.run_control.run_warnings import RangeRecord
 from . import _native_preparation_case as abi, _native_properties, _native_result
 from ._native_values import TOPOLOGIES, borrow_text, read_text
 from .stage_libraries import preparation_library
-
-
-def validate_fluid_type(fluid_type: str, side: str) -> None:
-    """Reject fluid names outside the supported air, water, sCO2 and CO2 set."""
-    if fluid_type not in abi._FLUIDS:
-        label = {'water': 'Water', 'sco2': 'sCO₂'}.get(fluid_type, fluid_type)
-        raise NotImplementedError(
-            f"Fluid {side} = {label} is not supported yet — no fitted "
-            f"correlations (Nu / f-Re / D-F surrogate) for this fluid. "
-            f"Supported fluids: air, water, sco2, co2."
-        )
 
 
 class _Operation(NamedTuple):
@@ -102,50 +86,22 @@ def _sample(value, shape):
 
 def _range_record(value, bounds_list):
     shape = tuple(value.shape[:value.rank])
-    source = tuple(read_text(item) for item in value.source[:value.source_count])
-    context = tuple(read_text(getattr(value, name)) for name in ('side', 'stage', 'layout'))
+    try:
+        source = tuple([read_text(item) for item in value.source[:value.source_count]])
+        context = tuple([read_text(getattr(value, name)) for name in ('side', 'stage', 'layout')])
+    except StopIteration as problem:
+        # The scalar inlet exposes the exception chain from these two original iterators.
+        raise RuntimeError('generator raised StopIteration') from problem
     bounds = list(value.bounds) if bounds_list else tuple(value.bounds)
     record = RangeRecord(read_text(value.label), read_text(value.quantity), read_text(value.unit),
                          bounds, **_sample(value.sample, shape), last=_sample(value.last, shape))
     return (*source, shape, context), record
 
 
-def observe_range(value, bounds_list, cached, scalar, selection=None, *, records=None):
-    """Replay source records and the original standalone warning filters."""
-    key, record = _range_record(value, bounds_list)
-    if key[-1] == ('unbound', 'unbound', 'source'):
-        key = (*key[:-1], _range_context.get())
-    merge_warnings(current_warnings(), [{key: record}])
-    merge_warnings(records, [{key[:-1]: record}])
-    if cached or current_warnings() is not None or scalar is None:
-        return
-    from sjtu_tpmshx.physical_models import tpms_props, nu_correlations, co2_correlations
-    source = key[:-2]
-    if source[0] == 'property':
-        fluid, property_name = source[1].split('_', 1)
-        notice = tpms_props._range_notice(source[1], scalar, scalar, *record.bounds)
-        if notice is not None:
-            warnings.warn(notice, UserWarning, stacklevel=2)
-    elif source[0] in ('nu', 'nu_pr') and read_text(value.stage) in ('inlet', 'unbound'):
-        fluid, topology = source[1:]
-        if fluid == 'air':
-            notices = nu_correlations._extrap_notices(topology, scalar, scalar)
-        elif fluid == 'water':
-            notices = nu_correlations._water_nu_notices(scalar, scalar, topology)
-        elif fluid == 'sco2':
-            notices = nu_correlations._sco2_nu_notices(scalar, scalar, topology)
-        else:
-            notices = ([co2_correlations._calibration_notice(record.quantity, record.bounds)]
-                       if scalar < record.bounds[0] or scalar > record.bounds[1] else [])
-        for notice in notices:
-            warnings.warn(notice, UserWarning, stacklevel=2)
-
-
-def _check_status(status, error, failure):
+def _check_status(status, error, failure, water_error):
     if not status:
         return
-    from sjtu_tpmshx.physical_models.fluid_props import WaterStateError
-    classes = {1: ValueError, 2: WaterStateError, 3: RuntimeError, 4: NotImplementedError}
+    classes = {1: ValueError, 2: water_error, 3: RuntimeError, 4: NotImplementedError}
     exception = MemoryError if status == 2 else classes.get(failure.kind, RuntimeError)
     problem = exception(error.value.decode('utf-8', errors='replace'))
     current = problem
@@ -157,7 +113,7 @@ def _check_status(status, error, failure):
 
 
 def _callback_bridge(validate_host_input, geometry_cache=None, inlet_cache=None,
-                     observe_range=None, observe_notice=None, nominal_grid_warning=None, *,
+                     observe_range=None, observe_notice=None, observe_event=None, *,
                      geometry_cache_at=None, inlet_cache_at=None, sigmoid_lut_cache=None,
                      validate_grid_stage=False):
     """Own callbacks and preserve their first exception across the C boundary."""
@@ -166,20 +122,10 @@ def _callback_bridge(validate_host_input, geometry_cache=None, inlet_cache=None,
     def event(_context, pointer):
         try:
             item = pointer.contents
-            if item.kind == 0:
-                get_logger(read_text(item.logger).removeprefix('tpmshx.')).info(read_text(item.message))
-            elif item.kind == 1:
-                message = read_text(item.message)
-                warnings.warn(message, UserWarning, stacklevel=2)
-            elif item.kind == 2:
-                source = read_text(item.message)
-                if source in ('nominal-grid-x', 'nominal-grid-y') and nominal_grid_warning:
-                    warn = partial(nominal_grid_warning, source[-1])
-                else:
-                    warn = None
-                _native_properties._floating_events([item.floating_event], warn=warn)
-            else:
-                raise RuntimeError(f'unknown preparation event kind {item.kind}')
+            if observe_event is not None:
+                logger = read_text(item.logger) if item.kind == 0 else ''
+                message = read_text(item.message) if item.kind in (0, 1, 2) else ''
+                observe_event(item.kind, logger, message, item.floating_event, _native_properties._floating_events)
             return 0
         except BaseException as problem:
             callback_errors.append(problem)
@@ -203,7 +149,7 @@ def _callback_bridge(validate_host_input, geometry_cache=None, inlet_cache=None,
 
     def observe(cached, value, bounds_list, have_scalar, scalar):
         if observe_range is not None:
-            observe_range(value.contents, bool(bounds_list), bool(cached), scalar if have_scalar else None)
+            observe_range(*_range_record(value.contents, bool(bounds_list)), bool(cached), scalar if have_scalar else None)
 
     def notice(kind, side, value, message):
         if observe_notice is not None:
@@ -233,8 +179,8 @@ def _callback_bridge(validate_host_input, geometry_cache=None, inlet_cache=None,
     return callbacks, callback_errors
 
 
-def operation(name, source, options, validate_host_input, geometry_cache=None, inlet_cache=None,
-              observe_range=None, observe_notice=None, nominal_grid_warning=None, *,
+def operation(name, source, options, validate_host_input, water_error, geometry_cache=None, inlet_cache=None,
+              observe_range=None, observe_notice=None, observe_event=None, *,
               geometry_cache_at=None, inlet_cache_at=None, sigmoid_lut_cache=None):
     kind = type(source)
     if kind is abi._UniformInput:
@@ -250,9 +196,9 @@ def operation(name, source, options, validate_host_input, geometry_cache=None, i
     bindings = _bindings(preparation_library.path())
     key = (family, name)
     bridge = _callback_bridge(validate_host_input, geometry_cache, inlet_cache, observe_range, observe_notice,
-        nominal_grid_warning, geometry_cache_at=geometry_cache_at, inlet_cache_at=inlet_cache_at,
+        observe_event, geometry_cache_at=geometry_cache_at, inlet_cache_at=inlet_cache_at,
         sigmoid_lut_cache=sigmoid_lut_cache, validate_grid_stage=validate_host_input is not None)
-    return _owned_result(bindings, key, (source,), options, bridge)
+    return _owned_result(bindings, key, (source,), options, bridge, water_error)
 
 
 @lru_cache(maxsize=1)
@@ -260,15 +206,17 @@ def _volume_bindings(path):
     return _Bindings(path, volume=True)
 
 
-def volume_operation(name, source, options, validate_host_input, cache):
+def volume_operation(name, source, options, validate_host_input, policy, water_error):
+    cache = PreparationCacheBridge(policy)
     bindings = _volume_bindings(preparation_library.path())
-    bridge = _callback_bridge(validate_host_input, observe_range=cache.observe_range, observe_notice=cache.observe_notice,
+    bridge = _callback_bridge(validate_host_input, observe_range=policy.observe_range, observe_notice=policy.observe_notice,
+                              observe_event=policy.observe_event,
                               geometry_cache_at=cache.geometry_at, inlet_cache_at=cache.inlet_at)
-    return _owned_result(bindings, (type(source), name), (source,), options, bridge)
+    return _owned_result(bindings, (type(source), name), (source,), options, bridge, water_error)
 
 
 @contextmanager
-def _owned_result(bindings, key, inputs, options, bridge):
+def _owned_result(bindings, key, inputs, options, bridge, water_error):
     """Keep the callbacks and borrowed arrays alive until the consumer finishes."""
     call, result_type, version = bindings.operations[key]
     result = result_type(version, ct.sizeof(result_type))
@@ -279,7 +227,7 @@ def _owned_result(bindings, key, inputs, options, bridge):
                       ct.byref(result), ct.byref(failure), error, len(error))
         if callback_errors:
             raise callback_errors[0]
-        _check_status(status, error, failure)
+        _check_status(status, error, failure, water_error)
         yield result
     finally:
         bindings.releases[result_type](ct.byref(result))
@@ -445,56 +393,6 @@ def pack_saved_resources(case, models, nu, saved, settings, keepalive):
     pack_nu(nu, settings, keepalive)
 
 
-def prepared_port(direction, centers, widths):
-    """Copy the native float64 port windows."""
-    result = {'dir': int(direction)}
-    for end, center, width in zip(('in', 'out'), centers, widths):
-        result[end + '_ctr'] = float(center)
-        result[end + '_w'] = float(width)
-    return result
-
-
-def _summary(value):
-    return value.minimum if value.scalar else {'min': value.minimum, 'max': value.maximum}
-
-
-def _records(evidence, bounds_list):
-    """Restore ordered source observations without computing their values."""
-    ranges = []
-    for index in range(evidence.range_count):
-        key, record = _range_record(evidence.ranges[index], bounds_list[index])
-        message = next(iter(warning_messages({key: record})), None)
-        ranges.append((key, record, message))
-    pending = [read_text(item) for item in evidence.warnings[:evidence.warning_count]]
-    records = {}
-    plain = 0
-    for key, record, message in ranges:
-        if message is not None:
-            while pending and pending[0] != message:
-                records['native-preparation', plain] = pending.pop(0)
-                plain += 1
-            if pending:
-                pending.pop(0)
-        records[key] = record
-    for message in pending:
-        records['native-preparation', plain] = message
-        plain += 1
-    return records
-
-
-_GEOMETRY_NAMES = (('epsilon', 'epsilon'), ('epsilon_a', 'epsilon_A'), ('epsilon_b', 'epsilon_B'),
-                   ('area_density_per_m', 'A_0'), ('hydraulic_diameter_m', 'D_h'))
-_PROPERTY_NAMES = (('rho', 'rho'), ('mu', 'mu'), ('k_f', 'k_f'), ('re', 'Re'), ('nu', 'Nu'),
-    ('permeability_m2', 'K_df'), ('forchheimer_per_m', 'cF_df'), ('pressure_gradient_Pa_m', 'dP_per_L'),
-    ('surface_transfer_W_m2K', 'H_sf'), ('fluid_conductivity_W_mK', 'K_ff'))
-_PROPERTY_COLUMNS = {name: index for index, (name, _) in enumerate(abi._Properties._fields_)}
-
-
-def _geometry_values(value, co2=False):
-    return {key: (np.float64(getattr(value, name)) if co2 or key in ('A_0', 'D_h') else getattr(value, name))
-            for name, key in _GEOMETRY_NAMES}
-
-
 def _cache_record_view(records):
     """Keep copied cache evidence alive until the native stage returns."""
     buffers, ranges, bounds_list, warnings = [], [], [], []
@@ -515,7 +413,7 @@ def _cache_record_view(records):
             warnings.append(text(record))
             continue
         shape = key[-1]
-        sources = (abi._Text * (len(key)-1))(*(text(item) for item in key[:-1]))
+        sources = (abi._Text * (len(key)-1))(*[text(item) for item in key[:-1]])
         sizes = (abi._S * len(shape))(*shape)
         buffers.extend((sources, sizes))
         values = {name: getattr(record, name) for name in ('minimum', 'maximum', 'low', 'high', 'size', 'nonfinite')}
@@ -531,165 +429,110 @@ def _cache_record_view(records):
 
 
 def _geometry_key(value):
-    return (TOPOLOGIES[value.topology], value.cell_length_mm, value.wall_thickness_mm, 128)
+    return (TOPOLOGIES[value.topology], value.cell_length_mm, value.wall_thickness_mm)
 
 
-def _inlet_key(value):
-    selection = None
-    if value.have_sco2_nu:
-        selected = value.sco2_nu
-        selection = Sco2NuConfig(
-            mode=('cfd_smooth', 'experimental')[selected.mode],
-            alpha_D=selected.alpha[0] if selected.have_alpha[0] else None,
-            alpha_G=selected.alpha[1] if selected.have_alpha[1] else None,
-            **{name: read_text(getattr(selected, name))
-               for name in ('parameter_version', 'source', 'applicability')})
-    return (*_geometry_key(value.geometry)[:3],
-            value.velocity_m_s, value.temperature_K, value.pressure_Pa,
-            abi._FLUIDS[value.fluid], selection, bool(value.co2_geometry))
+_GEOMETRY_FIELDS = tuple(name for name, _ in abi._GeometryCache._fields_)
+_INLET_FIELDS = ('rho', 'mu', 'k_f', 're', 'nu', 'permeability_m2', 'forchheimer_per_m',
+                 'pressure_gradient_Pa_m', 'surface_transfer_W_m2K', 'fluid_conductivity_W_mK')
+
+
+def _read_fields(value, names):
+    return tuple([getattr(value, name) for name in names])
+
+
+def geometry_scalars(value):
+    return _read_fields(value, _GEOMETRY_FIELDS)
+
+
+def property_scalars(value):
+    return (*_read_fields(value, _INLET_FIELDS), value.solid_conductivity_W_mK)
+
+
+def _write_fields(value, names, read):
+    for index, name in enumerate(names):
+        setattr(value, name, read(index))
 
 
 class PreparationCacheBridge:
-    """Transport completed native values through the existing scalar caches.
+    """Keep borrowed cache buffers alive until a native preparation operation returns."""
 
-    Keep one bridge for each native call. It owns callback buffers and the
-    last geometry observed for each inlet key. The scalar caches own entries.
-    """
-
-    def __init__(self, config, chi_error=None):
-        self.config = config
-        self.chi_error = chi_error
+    def __init__(self, policy):
+        self.policy = policy
         self.buffers = []
-        self.inlet_geometry = {}
-        self.extrap_reasons = []
-        self._active_inlet_key = None
 
     def geometry_at(self, action, key, value):
-        """Look up or store the actual typed geometry key."""
-        return self.geometry(action, _geometry_key(key), value)
+        cache_key = self.policy.geometry_key(*_geometry_key(key))
+        return self.geometry(action, cache_key, value)
 
-    def geometry(self, action, cache_key, value):
-        if action:
-            geometry_cache.store(cache_key, None, _geometry_values(value))
-            hit = False
-        else:
-            hit, saved = geometry_cache.lookup(cache_key)
-            if hit:
-                for name, field in _GEOMETRY_NAMES:
-                    setattr(value, name, saved[field])
-        if (action or hit) and self.chi_error is not None:
-            raise self.chi_error
-        return hit
+    def geometry(self, action, key, value):
+        def read():
+            return geometry_scalars(value)
+
+        def write(read_geometry):
+            _write_fields(value, _GEOMETRY_FIELDS, read_geometry)
+
+        return self.policy.geometry(action, key, read, write)
 
     def inlet_at(self, action, key, value):
-        """Transport inlet values and evidence without a numerical cache call."""
-        cache_key = _inlet_key(key)
-        return self.inlet(action, cache_key, value, bool(key.co2_geometry) or abi._FLUIDS[key.fluid] == 'co2')
+        settings = fixed_record(key.sco2_nu) if key.have_sco2_nu else None
+        cache_key = self.policy.inlet_key(_geometry_key(key.geometry), key.velocity_m_s, key.temperature_K,
+                                          key.pressure_Pa, abi._FLUIDS[key.fluid], settings, bool(key.co2_geometry))
+        return self.inlet(action, cache_key, value)
 
-    def inlet(self, action, cache_key, value, co2):
-        self._active_inlet_key = cache_key
-        if not action:
-            hit, saved = inlet_cache.lookup(cache_key)
-            if not hit:
-                return False
-            properties, records = saved
-            for name, field in _GEOMETRY_NAMES:
-                setattr(value.geometry, name, properties[field])
-            for name, field in (*_PROPERTY_NAMES, ('cp', None), ('pr', None)):
-                scalar = properties[field] if field is not None else getattr(saved, name)
-                setattr(value.properties, name, scalar)
+    def inlet(self, action, key, value):
+        def read():
+            evidence = value.evidence
+            ranges = [_range_record(evidence.ranges[i], evidence.range_bounds_list[i])
+                      for i in range(evidence.range_count)]
+            messages = [read_text(item) for item in evidence.warnings[:evidence.warning_count]]
+            return (geometry_scalars(value.geometry), _read_fields(value.properties, _INLET_FIELDS),
+                    value.properties.cp, value.properties.pr, ranges, messages)
+
+        def write(read_geometry, read_properties, read_scalar, records):
+            _write_fields(value.geometry, _GEOMETRY_FIELDS, read_geometry)
+            _write_fields(value.properties, _INLET_FIELDS, read_properties)
+            value.properties.cp = read_scalar('cp')
+            value.properties.pr = read_scalar('pr')
             value.evidence, buffers = _cache_record_view(records)
             self.buffers.extend(buffers)
-            self.inlet_geometry[cache_key] = _geometry_values(value.geometry, co2)
-            return True
-        properties = _geometry_values(value.geometry, co2)
-        for name, field in _PROPERTY_NAMES:
-            properties[field] = getattr(value.properties, name)
-        bound = _records(value.evidence, value.evidence.range_bounds_list)
-        records = {key[:-1] if isinstance(record, RangeRecord) else key: record for key, record in bound.items()}
-        inlet_cache.store(cache_key, None,
-            _InletCacheValue(properties, records, value.properties.cp, value.properties.pr))
-        self.inlet_geometry[cache_key] = _geometry_values(value.geometry, co2)
-        return False
+            return geometry_scalars(value.geometry)
 
-    def observe_range(self, value, bounds_list, cached, scalar):
-        selection = self._active_inlet_key[7] if self._active_inlet_key is not None else self.config.sco2_nu
-        observe_range(value, bounds_list, cached, scalar, selection)
-
-    def observe_notice(self, kind, side, value, message):
-        """Use the native notice from the actual inlet topology and fluid."""
-        if kind == 1:
-            record_warning(('nu_preflight', 'AB'[side]), message)
-        elif kind == 2:
-            self.extrap_reasons.append(message)
-        elif kind == 0:
-            if current_warnings() is None and message:
-                warnings.warn(message, UserWarning, stacklevel=2)
-        else:
-            raise RuntimeError(f'unknown preparation notice kind {kind}')
+        return self.policy.inlet(action, key, read, write)
 
 
-def model_metadata(value, settings, config):
-    """Restore model metadata from the shared prepared result views."""
-    nu = dict(mode=config.sco2_nu.mode, model_version=read_text(value.sco2_nu_model_version))
+def fixed_record(value):
+    """Copy fixed ABI records to Python values. Pointers require an explicit extent."""
+    if isinstance(value, abi._Text):
+        return read_text(value)
+    if isinstance(value, ct.Array):
+        return tuple([fixed_record(item) for item in value])
+    if isinstance(value, ct.Structure):
+        return SimpleNamespace(**{name: fixed_record(getattr(value, name)) for name, _ in value._fields_})
+    if isinstance(value, (float, int)):
+        return value
+    raise TypeError(f'unsupported fixed preparation field {type(value).__name__}')
+
+
+def model_evidence(value, settings):
+    """Copy the active model evidence before native release."""
+    nu = SimpleNamespace(mode=settings.mode, model_version=read_text(value.sco2_nu_model_version))
     if settings.mode:
-        nu.update(alpha_D=settings.alpha[0], alpha_G=settings.alpha[1],
-                  interpretation=read_text(value.sco2_nu_interpretation))
-        nu.update({name: read_text(getattr(settings, name))
-                   for name in ('parameter_version', 'source', 'applicability')})
+        nu.alpha = tuple(settings.alpha)
+        nu.interpretation = read_text(value.sco2_nu_interpretation)
+        for name in ('parameter_version', 'source', 'applicability'):
+            setattr(nu, name, read_text(getattr(settings, name)))
     else:
-        nu['coefficients'] = {name: dict(zip(('c', 'a', 'd'), value.sco2_nu_coefficients[index]))
-                              for index, name in enumerate(TOPOLOGIES)}
-    metadata = {'sco2_nu': nu}
-    co2 = value.co2
-    if co2.active:
-        details = {name: read_text(getattr(co2, name)) for name in (
-            'version', 'application_version', 'pressure_model', 'correction_source', 'property_model', 'common_geometry')}
-        details.update({name: getattr(co2, name) for name in (
-            'pressure_multiplier', 'scale_K', 'scale_F', 'nu_multiplier', 'nu_floor_multiplier')})
-        details.update(sides=[side for index, side in enumerate('AB') if co2.sides[index]],
-                       Re_range=list(co2.re_range), Pr_range=list(co2.pr_range))
-        metadata['co2'] = details
-    return metadata
+        nu.coefficients = [(name, tuple(row)) for name, row in zip(TOPOLOGIES, value.sco2_nu_coefficients, strict=True)]
+    co2 = fixed_record(value.co2) if value.co2.active else None
+    return nu, co2
 
 
-def resolved_flow_config(config, flow, targets):
-    """Return a config with the native inlet speeds."""
-    fluids = {}
-    for index, side in enumerate('AB'):
-        fluid = getattr(config, 'fluid_' + side)
-        if targets is not None or fluid.mass_flow_kg_s is not None:
-            fluids['fluid_' + side] = replace(fluid, u_mps=flow.speeds[index],
-                mass_flow_kg_s=None if targets is not None else fluid.mass_flow_kg_s)
-    return replace(config, **fluids).validate(resolved_inlet_speeds=True) if fluids else config
-
-
-def drag_application_metadata(value, extra, inlet_speed, extension):
-    """Read the native D-F application record for a saved case."""
-    metadata = {key: _summary(getattr(value, name)) for name, key in (
-        ('base_permeability', 'base_K'), ('base_forchheimer', 'base_cF'),
-        ('applied_permeability', 'applied_K'), ('applied_forchheimer', 'applied_cF'))}
-    metadata.update(scale_K=value.scale_permeability, scale_F=value.scale_forchheimer,
-                    campaign=read_text(value.campaign), scope=read_text(value.scope))
-    for name in ('application_scope', 'fluid'):
-        text = read_text(getattr(extra, name))
-        if text:
-            metadata[name] = text
-    if extra.calibration_count:
-        metadata['calibration'] = {read_text(item.key): read_text(item.value)
-                                   for item in extra.calibration[:extra.calibration_count]}
-    if extra.have_selection and extra.selection.scope:
-        metadata.update(inlet_u_mps=inlet_speed, extrapolated=bool(extra.selection.flags & 2))
-        for name, key in (('application_u', 'velocity_window_mps'),
-                          ('calibration_u', 'calibration_velocity_window_mps'),
-                          ('runtime_u', 'calibration_runtime_velocity_window_mps')):
-            values = getattr(extra.selection, name)
-            metadata[key] = {'min': values[0], 'max': values[1]}
-    if extension is not None:
-        for name in ('transfer_policy', 'geometry_application'):
-            text = read_text(getattr(extension, name))
-            if text:
-                metadata[name] = text
-        if extension.have_reference_geometry:
-            metadata['reference_geometry_mm'] = dict(zip(('L', 't'), extension.reference_geometry_mm))
-    return metadata
+def drag_evidence(value, extra, extension):
+    """Copy one D-F evidence record and its variable-length calibration table."""
+    selection = fixed_record(extra.selection) if extra.have_selection and extra.selection.scope else None
+    calibration = [(read_text(item.key), read_text(item.value))
+                   for item in extra.calibration[:extra.calibration_count]]
+    details = SimpleNamespace(application_scope=read_text(extra.application_scope), fluid=read_text(extra.fluid),
+                              calibration=calibration, selection=selection)
+    return fixed_record(value), details, fixed_record(extension) if extension is not None else None

@@ -225,16 +225,16 @@ def test_missing_zones_never_solve_or_finalize(dimension, axis, grid, monkeypatc
     finalize.assert_not_called()
 
 
-@pytest.mark.parametrize('callback', ['geometry_at', 'inlet_at', 'observe_range'])
+@pytest.mark.parametrize('callback', ['geometry', 'inlet', 'observe_range'])
 @pytest.mark.parametrize('axis', ['x', 'y', 'grid'])
 def test_native_zone_callback_error_propagates(callback, axis, monkeypatch):
-    from sjtu_tpmshx.cpp_interface.preparation_host import PreparationCacheBridge
+    from sjtu_tpmshx.preprocess.preparation import PreparationCache
     zones = ZoneInputConfig(enabled=True, axis=axis,
         config=ZoneConfig.single_zone(6, .3, 'Diamond', 16),
         grid=dict(cells=[dict(x0=0, x1=1, y0=0, y1=1, L=6, t=.3)],
                   tpms_type='Diamond', k_s=16))
     failure = RuntimeError('zone callback failed')
-    monkeypatch.setattr(PreparationCacheBridge, callback, Mock(side_effect=failure))
+    monkeypatch.setattr(PreparationCache, callback, Mock(side_effect=failure))
     cfg = ComputeConfig(geometry=GeometryConfig(tpms='Diamond'),
         solver=SolverConfig(Nx=4, Ny=4), zones=zones, extrap=ExtrapPolicy(allow=True))
     solve, finalize = Mock(), Mock()

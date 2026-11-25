@@ -189,13 +189,13 @@ def test_geometry_cache_queries_receive_initialized_storage(monkeypatch, tmp_pat
 def test_raw_spatial_model_rejects_invalid_conductivity(monkeypatch, tmp_path, value):
     from sjtu_tpmshx.cpp_interface import native_preparation
     config = configuration(monkeypatch, tmp_path, 'x')
-    original = native_preparation._input
+    original = native_preparation.pack_input
 
     def invalid(*args, **kwargs):
-        source = original(*args, **kwargs)
+        source, error = original(*args, **kwargs)
         source.model.solid_conductivity_W_mK = value
-        return source
+        return source, error
 
-    monkeypatch.setattr(native_preparation, '_input', invalid)
+    monkeypatch.setattr(native_preparation, 'pack_input', invalid)
     with pytest.raises(ValueError, match='spatial.solid_conductivity_W_mK'):
         api.prepare_case(config, case_id='invalid-spatial-material')
