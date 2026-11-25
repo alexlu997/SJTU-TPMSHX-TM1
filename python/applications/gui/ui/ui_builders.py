@@ -16,7 +16,7 @@ and the zone page; page builders and row helpers live in the sibling
 
 Intra-module calls use top-level function names (e.g., `build_param_tabs(window)`
 instead of `window._build_param_tabs()`) so the wiring within this module is
-direct. Calls to methods that remain in main.py use `window.xxx()` so Python's
+direct. Calls to methods that remain in main_window.py use `window.xxx()` so Python's
 dynamic dispatch resolves them on the Main_Menu instance.
 """
 from PySide6.QtCore import Qt

@@ -53,7 +53,7 @@ Quick Design、保存态工况运行、离线评估和运行恢复分别从对�
 
 Python 在 [python/](../python/) 下负责公共 API、配置、不可变 DTO、文件 I/O、缓存、警告格式化与应用工作流。
 数值代码保持不依赖 Qt。
-GUI 代码位于 `python/applications/gui/ui/`、`python/applications/gui/controllers/`、`python/applications/gui/main.py` 与 `python/desktop.py`。
+GUI 代码位于 `python/applications/gui/ui/`（`Main_Menu` 位于 `main_window.py`）和 `python/applications/gui/controllers/`。启动入口为 `python/applications/gui/main.py` 与 `python/desktop.py`。
 
 | 分层 | 所有者路径 | 职责 |
 | --- | --- | --- |

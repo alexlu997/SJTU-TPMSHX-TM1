@@ -51,7 +51,7 @@ See [include/tpmshx/](../include/tpmshx/), [tests/cpp/](../tests/cpp/), [C++ int
 
 Python owns public APIs, configuration, immutable DTOs, file I/O, caches, warning formatting, and applications under [python/](../python/).
 Numerical code stays free of Qt.
-GUI code is in `python/applications/gui/ui/`, `python/applications/gui/controllers/`, `python/applications/gui/main.py`, and `python/desktop.py`.
+GUI code is in `python/applications/gui/ui/` (`Main_Menu` is in `main_window.py`) and `python/applications/gui/controllers/`. The launch entries are `python/applications/gui/main.py` and `python/desktop.py`.
 
 | Layer | Owner path | Responsibility |
 | --- | --- | --- |

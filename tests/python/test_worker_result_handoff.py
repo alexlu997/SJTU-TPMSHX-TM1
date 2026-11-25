@@ -798,10 +798,10 @@ def test_normalized_field_edit_records_undo_and_final_validation(win, typed, exp
 
 @pytest.mark.parametrize('refined,expected', [(False, (36, 17, 17)), (True, (50, 17, 17))])
 def test_geometry_grid_suggestion_uses_selected_scheme_and_preserves_edits(win, monkeypatch, refined, expected):
-    import sjtu_tpmshx.applications.gui.main as main
+    import sjtu_tpmshx.applications.gui.ui.main_window as main_window
     win.combo_dim.setCurrentIndex(1)
     win.combo_grid.setCurrentIndex(win.combo_grid.findData(refined))
-    monkeypatch.setattr(main, 'tpms_geometry', lambda *a: dict(
+    monkeypatch.setattr(main_window, 'tpms_geometry', lambda *a: dict(
         epsilon=.7, A_0=100., D_h=.005, K_ss=3.))
     win._user_edited_grid = False
     assert win.compute_tpms()

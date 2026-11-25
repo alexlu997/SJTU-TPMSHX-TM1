@@ -23,8 +23,8 @@ def win(tmp_path_factory):
                   parent=parent)
 
     mp.setattr(sm_mod.SessionManager, '__init__', _init)
-    import sjtu_tpmshx.applications.gui.main as main_mod
-    w = main_mod.Main_Menu()
+    import sjtu_tpmshx.applications.gui.ui.main_window as main_window
+    w = main_window.Main_Menu()
     yield w
     w.close()
     w.deleteLater()

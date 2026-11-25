@@ -19,7 +19,7 @@ def win(tmp_path, monkeypatch):
         return path
 
     monkeypatch.setattr(user_storage, '_directory', directory)
-    from sjtu_tpmshx.applications.gui.main import Main_Menu
+    from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
     window = Main_Menu()
     yield window
     # Input rejection tests intentionally leave invalid drafts. Keep the real

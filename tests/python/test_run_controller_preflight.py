@@ -167,7 +167,7 @@ def test_run_captures_once_for_preflight_advice_and_worker(win, monkeypatch, dim
 @pytest.mark.parametrize('dimension', [0, 1])
 @pytest.mark.parametrize('zone_axis', [None, 'x', 'y', 'grid', 'continuous'])
 def test_grid_preflight_uses_captured_geometry_ports_and_temperatures(win, monkeypatch, dimension, zone_axis):
-    from sjtu_tpmshx.applications.gui.main import Main_Menu
+    from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
     from sjtu_tpmshx.applications.gui.ui.preflight import Preflight
 
     win.combo_dim.setCurrentIndex(dimension)
@@ -204,7 +204,7 @@ def test_grid_preflight_uses_captured_geometry_ports_and_temperatures(win, monke
 @pytest.mark.parametrize('is_3d,direction',
                          [(False, d) for d in range(4)] + [(True, d) for d in range(6)])
 def test_zero_width_ports_use_prepared_full_face_geometry(win, monkeypatch, graded, is_3d, direction):
-    from sjtu_tpmshx.applications.gui.main import Main_Menu
+    from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
     from sjtu_tpmshx.preprocess.api import prepare_case
     from sjtu_tpmshx.applications.gui.ui.preflight import Preflight, compute_preflight
 
@@ -265,7 +265,7 @@ def test_zero_width_ports_use_prepared_full_face_geometry(win, monkeypatch, grad
 @pytest.mark.parametrize('side', ['A', 'B'])
 @pytest.mark.parametrize('empty_end', ['in', 'out'])
 def test_mixed_zero_width_ports_still_block_preflight(win, is_3d, side, empty_end):
-    from sjtu_tpmshx.applications.gui.main import Main_Menu
+    from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
 
     win.combo_dim.setCurrentIndex(int(is_3d))
     win.combo_grid.setCurrentIndex(win.combo_grid.findData(False))
@@ -287,7 +287,7 @@ def test_mixed_zero_width_ports_still_block_preflight(win, is_3d, side, empty_en
 
 
 def test_captured_invalid_geometry_still_blocks_grid_checks(monkeypatch):
-    from sjtu_tpmshx.applications.gui.main import Main_Menu
+    from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
     cfg = ComputeConfig()
     cfg.geometry.L_dom_m = -1.
     with patch.object(QMessageBox, 'critical') as error, \
