@@ -163,6 +163,7 @@ Python 保留 LUT 的内存与磁盘存储；缺表时 C++ 在体素分辨率 25
 `RunRequest2D` 中 `energy` 为空时默认选择 T-SOU 配方（`temperature_sou`，`1e-8 K`，来自 `model_parameters_v1.json`）。
 可选能量控制不得与 `explicit_energy` 或启用的 `model_h` 控制同时设置。
 取消返回状态 6 且不发布成功阶段结果；状态 4 表示求解器包线失败。
+Python 完整二维执行在 `python/solvers/full_2d.py` 中校验保存工况、解析运行控制并组装 `FieldResult`；`python/cpp_interface/full_2d_stage.py` 仅绑定该生命周期并在释放前复制原生输出，共享捕获读取器位于 `python/cpp_interface/solver_library/stage_capture.py`。各求解宿主向 `python/cpp_interface/run_state.py` 提供各自的领域错误映射。
 
 ## 原生三维执行
 

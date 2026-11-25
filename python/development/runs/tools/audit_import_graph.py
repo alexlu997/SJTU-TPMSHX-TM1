@@ -51,12 +51,6 @@ OWNERS = {
     "file_io": "io",
     "model_configs": "configs",
     "applications.cli.cli_options": "io",
-    # Solver stage modules still share the solver capture wire layout.
-    **{f"cpp_interface.{name}": "solvers" for name in (
-        "full_2d_stage", "full_3d_stage", "quick_design", "run_state", "solver_library")},
-    # These spatial adapters own model policy. The ABI bindings use native_values.
-    **{f"cpp_interface._native_{name}": "models" for name in (
-        "continuous", "lut", "sigmoid", "zones")},
     "cpp_interface": "native_values",
     **{f"shared.{name}": name for name in (
         "domain", "models", "df_surrogate", "io", "configs",
@@ -156,9 +150,14 @@ _RESULT_DTO_MODULES = {f"{package}.{module}" for package in _DTO_PACKAGES
                        for module in ("metric_spec", "performance_result")}
 _QUICK_DTO_MODULES = {f"{package}.field_result" for package in _DTO_PACKAGES}
 _CASE_DTO_MODULES = {f"{package}.{module}" for package in _DTO_PACKAGES for module in ("case_data", "model_refs")}
+_STAGE_DTO_MODULES = _CASE_DTO_MODULES | _QUICK_DTO_MODULES | _RESULT_DTO_MODULES
+_STAGE_DTO_TYPES = {"CaseData", "FieldResult", "MetricSpec", "MetricValue", "PerformanceResult", "ModelRef"}
 _OTHER_STAGE_MODULES = {"full_2d_stage", "full_3d_stage", "run_state", "native_preparation", "preparation_host",
                         "inlet_properties", "quick_design", "_native_preparation_3d", "_native_quick_prepare",
                         "quick_preparation"}
+_FULL_2D_FORBIDDEN_SIBLINGS = {"full_3d_stage", "quick_design", "native_preparation", "inlet_properties",
+                               "result_evaluation", "_native_preparation_3d", "_native_quick_prepare",
+                               "quick_preparation", "*"}
 _FULL_3D_FORBIDDEN_SIBLINGS = {"full_2d_stage", "quick_design", "native_preparation", "inlet_properties",
                                "result_evaluation", "_native_preparation_3d", "_native_quick_prepare",
                                "quick_preparation", "*"}
@@ -192,8 +191,12 @@ def _invalid_stage_target(host, target, binding, operations):
         area = "physical_models"
     elif host and area == "physical_models" and module.startswith("_native_"):
         area = "cpp_interface"
-    if binding == "full_3d_api":
-        return area == "cpp_interface" and module in {"full_3d_stage", "*"}
+    if binding == "solver_api":
+        return (
+            (area == "cpp_interface" and bool(module))
+            or (area == "solvers" and member.startswith("backends.cpp."))
+            or (area == "shared" and (module == "*" or member.startswith(("_native_", "models._native_"))))
+        )
     if binding == "native_preparation":
         if host and not operations and area == "cpp_interface":
             # The public API reaches these native operations through the stage host.
@@ -207,23 +210,23 @@ def _invalid_stage_target(host, target, binding, operations):
     if binding in {"quick_design", "quick_preparation"}:
         if area == "solvers" and member.startswith("backends.cpp."):
             module, _, name = member.removeprefix("backends.cpp.").partition(".")
-            # Quick and full 3D published drivers resolve to solver hosts.
+            # Quick and full published drivers resolve to solver hosts.
             area = "solvers" if module == "quick_design" else "cpp_interface"
         if area == "cpp_interface" and module != binding and module in _OTHER_STAGE_MODULES:
             return True
         if area == "shared" and member.startswith(("_native_", "models._native_")) and (
                 member.removeprefix("models.").partition(".")[0] in _OTHER_STAGE_MODULES):
             return True
-    elif binding == "full_3d_stage":
+    elif binding in {"full_2d_stage", "full_3d_stage"}:
+        forbidden_siblings = _FULL_2D_FORBIDDEN_SIBLINGS if binding == "full_2d_stage" else _FULL_3D_FORBIDDEN_SIBLINGS
         if area == "solvers" and member.startswith("backends.cpp."):
-            module, _, name = member.removeprefix("backends.cpp.").partition(".")
-            area = "solvers" if module == "full_3d_stage" else "cpp_interface"
-        if area == "cpp_interface" and module in _FULL_3D_FORBIDDEN_SIBLINGS:
+            return True
+        if area == "cpp_interface" and module in forbidden_siblings:
             return True
         if area == "shared" and module == "*":
             return True
         if area == "shared" and member.startswith(("_native_", "models._native_")) and (
-                member.removeprefix("models.").partition(".")[0] in _FULL_3D_FORBIDDEN_SIBLINGS):
+                member.removeprefix("models.").partition(".")[0] in forbidden_siblings):
             return True
     if host:
         if area == "shared":
@@ -231,8 +234,9 @@ def _invalid_stage_target(host, target, binding, operations):
         return area == "cpp_interface" and bool(module) and (
             module != binding or name.partition(".")[0] not in operations)
     return (area in {"applications", "compute", "file_io", "physical_models",
-                     "postprocess", "preprocess", "solvers"}
-            or (area == "shared" and module in {"models", "df_surrogate", "io"}))
+                     "postprocess", "preprocess", "solvers", "*"}
+            or (area == "data_types" and module == "*")
+            or (area == "shared" and module in {"models", "df_surrogate", "io", "_native_quick_prepare", "*"}))
 
 
 def _dto_import(target, modules, types):
@@ -332,9 +336,11 @@ class _StageImportAudit(ast.NodeVisitor):
     def visit_Attribute(self, node):
         targets = _qualified_names(node, self.aliases)
         for target in sorted(targets):
-            # A loaded DTO module is also available through its parent package.
+            # A loaded DTO module or exported class is also available through its parent package.
             if (_invalid_stage_target(self.host, target, self.binding, self.operations)
-                    or (not self.host and target in self.dto_modules and isinstance(node.ctx, ast.Load))):
+                    or (not self.host and isinstance(node.ctx, ast.Load) and (
+                        target in self.dto_modules
+                        or (target.rpartition(".")[0] in _DTO_PACKAGES and target.rpartition(".")[2] in self.dto_types)))):
                 self.violations.append((node.lineno, target))
         targets.discard("")  # A path without an import has no parent package.
         if (self.binding == "native_preparation" and targets
@@ -492,7 +498,7 @@ def _stage_boundary_violations(path, tree, package):
         if not preparation_api:
             return
     if path == PKG / "solvers/api.py":
-        label, binding, operations = "full 3D solve", "full_3d_api", set()
+        label, binding, operations = "solver API", "solver_api", set()
         modules, types = set(), set()
     elif (preparation_api or path == PKG / "preprocess/two_d/preparation.py" or path.parent == PKG / "cpp_interface"
             and path.stem in {"native_preparation", "preparation_host", "inlet_properties"}):
@@ -508,22 +514,38 @@ def _stage_boundary_violations(path, tree, package):
     elif path in (PKG / "solvers/quick_design.py", PKG / "cpp_interface/quick_design.py"):
         label, binding, operations = "Quick solve", "quick_design", {"", "QuickSolver"}
         modules, types = _QUICK_DTO_MODULES, {"FieldResult"}
+    elif path in (PKG / "solvers/full_2d.py", PKG / "cpp_interface/full_2d_stage.py"):
+        label, binding = "full 2D solve", "full_2d_stage"
+        operations = {"", "StageDriver", "borrow_mesh", "stage_entries", "check_experiment",
+                      "run_stage", "zone_temperatures"}
+        modules, types = _STAGE_DTO_MODULES, _STAGE_DTO_TYPES
     elif path in (PKG / "solvers/full_3d.py", PKG / "cpp_interface/full_3d_stage.py"):
         label, binding = "full 3D solve", "full_3d_stage"
         operations = {"", "open_library", "borrow_mesh", "require_saved_stage",
-                      "execution_view_query", "run_saved", "link_execution"}
-        modules, types = _QUICK_DTO_MODULES, {"FieldResult"}
+                      "execution_view_query", "run_saved"}
+        modules, types = _STAGE_DTO_MODULES, _STAGE_DTO_TYPES
     elif (path.parent == PKG / "postprocess" and path.stem in {"api", "evaluation"}
           or path.parent == PKG / "cpp_interface" and path.stem in {"_native_result_stage", "result_evaluation"}):
         label, binding = "independent result", "result_evaluation"
         operations = {"", "query_result", "METRICS", "APPLICABILITY", "PHYSICAL_BALANCE", "QUALIFICATION"}
         modules, types = _RESULT_DTO_MODULES, {"MetricSpec", "MetricValue", "PerformanceResult"}
+    elif path.is_relative_to(PKG / "cpp_interface"):
+        label, binding, operations = "native binding", "cpp_interface", set()
+        modules, types = _STAGE_DTO_MODULES, _STAGE_DTO_TYPES
     else:
         return
-    host = path.parent != PKG / "cpp_interface"
+    host = not path.is_relative_to(PKG / "cpp_interface")
+    if not host:
+        modules, types = _STAGE_DTO_MODULES, _STAGE_DTO_TYPES
+        if path == PKG / "cpp_interface/preparation_host.py":
+            # The shared solver input packer checks the type of a saved ModelRef.
+            modules = {name for name in modules if not name.endswith(".model_refs")}
+            types = types - {"ModelRef"}
     for node in ast.walk(tree):
         targets = _policy_targets(node, package)
-        if ((binding in {"full_3d_stage", "full_3d_api"} or (host and binding in {"quick_design", "quick_preparation"}))
+        if (((not host and binding != "native_preparation")
+             or binding in {"full_2d_stage", "full_3d_stage", "solver_api"}
+             or (host and binding in {"quick_design", "quick_preparation"}))
                 and isinstance(node, ast.ImportFrom) and node.names[0].name == "*"):
             targets.append(targets[0] + ".*")
         forbidden = next((name for name in targets

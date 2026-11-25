@@ -100,6 +100,7 @@ files = [
     "sjtu_tpmshx/postprocess/evaluation.py",
     "sjtu_tpmshx/cpp_interface/result_evaluation.py",
     "sjtu_tpmshx/cpp_interface/_native_result_stage.py",
+    "sjtu_tpmshx/cpp_interface/solver_library/stage_capture.py",
 ]
 python_version = "3.12"
 ignore_missing_imports = true
@@ -118,6 +119,7 @@ module = [
     "sjtu_tpmshx.postprocess.evaluation",
     "sjtu_tpmshx.cpp_interface.result_evaluation",
     "sjtu_tpmshx.cpp_interface._native_result_stage",
+    "sjtu_tpmshx.cpp_interface.solver_library.stage_capture",
 ]
 # 这些边界文件中的无注解辅助函数也必须检查函数体。
 check_untyped_defs = true

@@ -168,6 +168,7 @@ Confirm `tpmshx_stage_run_2d_abi_version() == 5` before calling any 2D saved-sta
 A null `energy` pointer in `RunRequest2D` selects the default T-SOU recipe (`temperature_sou`, `1e-8 K` from `model_parameters_v1.json`).
 Optional energy controls cannot be combined with `explicit_energy` or active `model_h` controls.
 Cancellation returns status 6 and cannot publish a successful stage result; status 4 reports a solver envelope failure.
+Python full 2D execution validates saved cases, resolves run controls, and builds `FieldResult` in `python/solvers/full_2d.py`. `python/cpp_interface/full_2d_stage.py` binds this lifecycle, copies native outputs before release, and shares capture readers in `python/cpp_interface/solver_library/stage_capture.py`. Each solver host supplies its domain error map to `python/cpp_interface/run_state.py`.
 
 ## Native 3D execution
 

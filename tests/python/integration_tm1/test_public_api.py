@@ -68,7 +68,7 @@ def test_real_application_mapping_and_offline_readback(monkeypatch, tmp_path, di
     config = baseline_config() if dimension == 2 else small_air_config()
     expected = []
     if dimension == 2:
-        from sjtu_tpmshx.cpp_interface import full_2d_stage as result_capture
+        from sjtu_tpmshx.solvers import full_2d as result_capture
         from tests.python.integration_tm1.legacy_result_mapping import _finalize_cfg
         capture = result_capture._capture_result
         def checked_capture(case, stage_fields, native, application, diagnostics, **kwargs):

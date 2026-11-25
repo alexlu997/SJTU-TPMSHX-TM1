@@ -191,7 +191,7 @@ def test_incomplete_prepared_zones_require_repreparation(missing):
 
 @pytest.mark.parametrize('mode', ['x', 'y', 'grid'])
 def test_discrete_zone_capture_uses_only_the_solver(monkeypatch, tmp_path, mode):
-    from sjtu_tpmshx.cpp_interface._native_result_stage import zone_result
+    from sjtu_tpmshx.solvers.full_2d import zone_result
     from sjtu_tpmshx.data_types.portable_data import mutable_data
     from sjtu_tpmshx.run_control.module_ports import RunControl
     from sjtu_tpmshx.solvers.api import run_case

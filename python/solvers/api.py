@@ -34,7 +34,7 @@ def run_case(case: CaseData, control: RunControl = RunControl(), *,
     elif mode != 'full':
         raise ValueError(f'unsupported solver mode: {mode}')
     elif dimension == 2:
-        from sjtu_tpmshx.cpp_interface.full_2d_stage import run_case as run
+        from .full_2d import run_case as run
     elif dimension == 3:
         from .full_3d import run_case as run
     else:

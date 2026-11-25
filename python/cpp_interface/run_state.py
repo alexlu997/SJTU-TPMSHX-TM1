@@ -3,8 +3,6 @@ import ctypes as ct
 
 import numpy as np
 
-from sjtu_tpmshx.physical_models.fluid_props import WaterStateError
-
 
 class _Field(ct.Structure):
     _fields_ = [('name', ct.c_char_p), ('type', ct.c_uint32),
@@ -23,12 +21,12 @@ class NativeRun:
 
     advance_name = 'advance'
     entry_names = {}
-    error_types = {1: ValueError, 2: WaterStateError, 3: FloatingPointError}
 
-    def __init__(self, library, common, args, callbacks, state):
+    def __init__(self, library, common, args, callbacks, state, *, error_types):
         self.library = library
         self.handle = ct.c_void_p()
         self.callbacks = callbacks
+        self.error_types = dict(error_types)
         tail = [ct.POINTER(ct.c_void_p), ct.POINTER(ct.c_char), ct.c_size_t]
         signatures = {
             'create': common + tail,

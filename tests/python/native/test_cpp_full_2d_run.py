@@ -16,7 +16,7 @@ from sjtu_tpmshx.file_io.solver_checkpoint_io import (
 from sjtu_tpmshx.postprocess.api import evaluate
 from sjtu_tpmshx.physical_models.envelope import R_AIR_DEFAULT
 from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.cpp_interface.full_2d_stage import run_case
+from sjtu_tpmshx.solvers.full_2d import run_case
 from sjtu_tpmshx.solvers.api import run_case as run_public_case
 from tests.python.native import test_cpp_full_2d as public
 from tests.python.native import test_cpp_full_3d as spatial
@@ -406,7 +406,7 @@ from sjtu_tpmshx.data_types.solver_checkpoint import SolverCheckpoint
 from sjtu_tpmshx.file_io.case_io import load_case
 from sjtu_tpmshx.file_io.result_io import save_result
 from sjtu_tpmshx.file_io.solver_checkpoint_io import load_solver_checkpoint, save_solver_checkpoint, load_checkpoint_case
-from sjtu_tpmshx.cpp_interface.full_2d_stage import run_case
+from sjtu_tpmshx.solvers.full_2d import run_case
 from tests.python.native.test_cpp_full_2d_run import inner_position
 mode, target, case_path, saved_path, result_path, library, tables = sys.argv[1:]
 control = RunControl(backend='cpp', native_library=library, native_table_directory=tables)

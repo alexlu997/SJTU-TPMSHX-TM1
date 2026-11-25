@@ -12,7 +12,7 @@ from tests.python import test_native_prepare_spatial_adapter as spatial
 from tests.python.test_native_prepare_adapter import _same
 from sjtu_tpmshx.file_io.case_io import load_case, save_case
 from sjtu_tpmshx.cpp_interface import full_2d_stage as stage
-from sjtu_tpmshx.cpp_interface import preparation_host
+from sjtu_tpmshx.solvers import full_2d
 from tests.python import native_stage_support
 from tests.python import result_stage_fixture
 
@@ -28,14 +28,15 @@ def _case(monkeypatch, tmp_path, mode='uniform', pair=('air', 'air'), delta=.1):
 def _saved(case):
     """Pack the saved v5 case as the production run does."""
     driver = stage.StageDriver(adapter.library_path())
-    checked = preparation_host.borrow_solver_mesh(case, driver.library, 2)
-    shape = stage.execution_grid(case, None if checked is None else checked.shape)
-    entries = stage._stage_entries(driver.library)
-    cfg, prepared, experiment = stage.saved_inputs(case, shape, checked_geometry=checked is not None,
-        check_experiment=entries['check_experiment'], port_windows_fit=entries['port_windows_fit'])
+    checked = stage.borrow_mesh(case, driver.library)
+    shape = full_2d.execution_grid(case, None if checked is None else checked.shape)
+    entries = stage.stage_entries(driver.library)
+    cfg, prepared, experiment = full_2d.saved_inputs(case, shape, checked_geometry=checked is not None,
+        check_experiment=lambda spec: stage.check_experiment(entries, spec, full_2d._ERROR_TYPES),
+        port_windows_fit=entries['port_windows_fit'])
     prepared['solver_mesh'] = checked
     saved, _, keepalive = stage.pack_saved(case, cfg, prepared, experiment)
-    request, energy = stage._request(cfg, driver.library)
+    request, energy = stage._request(cfg, driver.library, full_2d.request_controls)
     control = stage._Control(b'offset-run', None, 2)
     return saved, request, control, (keepalive, energy)
 
@@ -91,15 +92,15 @@ def test_offset_snapshot_restore_keeps_exact_inputs(monkeypatch, tmp_path, mode)
         raise Paused
     for _ in range(2):
         with pytest.raises(Paused):
-            stage.run_case(case, adapter._control([]), checkpoint=pause)
+            full_2d.run_case(case, adapter._control([]), checkpoint=pause)
     native_stage_support.plane_state_equal(snapshots[1], snapshots[0])
     # The saved offset inputs reach the native state unchanged.
     assert snapshots[1]['input.asymmetric'][0] == 1
     assert snapshots[1]['input.split_a'][0] == case.parameters['thermal_geometry']['split_A']
     assert snapshots[1]['input.spatial_geometry'][0] == (mode != 'uniform')
     assert snapshots[1]['input.thermal_mode'][0] == 0
-    complete = stage.run_case(case, adapter._control([]))
-    actual = stage.run_case(case, adapter._control([]), resume_state=snapshots[1])
+    complete = full_2d.run_case(case, adapter._control([]))
+    actual = full_2d.run_case(case, adapter._control([]), resume_state=snapshots[1])
     adapter._checked_applicability(actual, actual, case)
     adapter._same_resumed(actual, complete, case)
     np.savez(tmp_path / 'state.npz', **snapshots[1])
@@ -125,7 +126,7 @@ def test_saved_v5_rejects_invalid_descriptor(monkeypatch, tmp_path, failure):
         saved.prepared.contents.cell_length.size -= 1
     library = ct.CDLL(str(adapter.library_path()))
     with pytest.raises(ValueError):
-        stage._Run(library, saved, request, control, [], None)
+        stage._Run(library, saved, request, control, [], None, full_2d._ERROR_TYPES)
     del keepalive
 
 
@@ -167,7 +168,7 @@ def test_saved_v5_transfer_protects_side_geometry(monkeypatch, tmp_path):
     case = _case(monkeypatch, tmp_path)
     saved, request, control, keepalive = _saved(case)
     library = ct.CDLL(str(adapter.library_path()))
-    with stage._Run(library, saved, request, control, [], None) as run:
+    with stage._Run(library, saved, request, control, [], None, full_2d._ERROR_TYPES) as run:
         result = stage._StageResult()
         before, empty = bytes(saved), bytes(result)
         error = ct.cast(saved.side_geometry, ct.POINTER(ct.c_char))

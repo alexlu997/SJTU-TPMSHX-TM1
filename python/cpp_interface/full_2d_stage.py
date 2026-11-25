@@ -1,18 +1,16 @@
-"""Run saved 2D inputs through one native lifecycle and capture owner."""
+"""Bind validated saved 2D inputs to the native run and capture lifecycle."""
 import ctypes as ct
-from copy import deepcopy
-from functools import partial
 from pathlib import Path
-from uuid import uuid4
 
 import numpy as np
 
-from sjtu_tpmshx.cpp_interface._native_result_stage import Evidence, detach_stage_fields, record
 from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.data_types.compute_config import validate_simple_velocity_relaxation
-from sjtu_tpmshx.run_control.run_environment import run_environment
-from sjtu_tpmshx.cpp_interface._native_preparation_case import _Array, _Nu, _Result as _PreparedCase2D, _Text
-from sjtu_tpmshx.physical_models.envelope import ChokedFlowError
+from ._native_preparation_case import _Array, _Nu, _Result as _PreparedCase2D, _Text
+from ._native_result_stage import Evidence, _zone_temperatures, record
+from ._native_values import TOPOLOGIES, borrow_array, borrow_text, real_scalar
+from .preparation_host import borrow_ranges, borrow_solver_mesh, pack_saved_resources
+from .run_state import NativeRun
+from .solver_library import stage_capture
 from .solver_library._full_2d_abi import (
     _Callbacks,
     _Cancel,
@@ -29,22 +27,6 @@ from .solver_library._full_2d_abi import (
     _Result,
     _result_dict,
 )
-from .solver_library._thermal_abi import (
-    _EnergyOptions,
-    _FullEnergyEffectiveSettings,
-    _IterationOptions,
-    _energy_options,
-    _full_enthalpy_defaults,
-    _iteration_options,
-)
-from sjtu_tpmshx.data_types.field_result import FieldResult, execution_record
-from sjtu_tpmshx.run_control.run_warnings import current_warnings, merge_warnings, warning_messages, warning_scope
-from .preparation_host import borrow_solver_mesh, pack_saved_resources, borrow_ranges
-from ._native_values import TOPOLOGIES, borrow_array, borrow_text, real_scalar
-from .run_state import NativeRun
-from ._native_result_stage import completed_report, execution_view_query, executed_view, link_execution
-from sjtu_tpmshx.run_control.run_warnings import replay_sco2_notices
-from sjtu_tpmshx.data_types.case_data import resolved_input_record
 from .solver_library._stage_capture_abi import (
     StageExecution,
     _energy_native_state,
@@ -53,23 +35,47 @@ from .solver_library._stage_capture_abi import (
     _full_enthalpy_info,
     _plane_info,
 )
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.run_control.run_environment import require_f2_mode
+from .solver_library._thermal_abi import (
+    _EnergyOptions,
+    _FullEnergyEffectiveSettings,
+    _IterationOptions,
+    _energy_options,
+    _full_enthalpy_defaults,
+    _iteration_options,
+)
+from .solver_library.stage_capture import (
+    _stage_array,
+    completed_report,
+    detach_stage_fields,
+    executed_view,
+    execution_view_query,
+    nu_observation,
+    stage_ledger,
+)
+
+__all__ = [
+    'StageDriver',
+    'borrow_mesh',
+    'stage_entries',
+    'check_experiment',
+    'run_stage',
+    'zone_temperatures',
+]
 
 _U, _S, _D = ct.c_uint32, ct.c_size_t, ct.c_double
 _Size = record('SizeOption', [('present', _U), ('value', _S)])
 _Double = record('DoubleOption', [('present', _U), ('value', _D)])
 _Request = record('RunRequestV4', [('abi_version', _U), ('struct_size', _S),
     ('max_iter_simple', _Size), ('max_outer_ltne', _Size),
-    *((key, _Double) for key in ('outer_tol_K', 'simple_velocity_relaxation',
-        'mom_tol', 'mass_local_tol', 'mass_global_tol', 'solid_seed_K')),
+    *[(key, _Double) for key in ('outer_tol_K', 'simple_velocity_relaxation',
+        'mom_tol', 'mass_local_tol', 'mass_global_tol', 'solid_seed_K')],
     ('have_pressure_shooting', _U), ('pressure_shooting', _U),
     ('convergence_mode', ct.c_char_p), ('envelope_mode', ct.c_char_p),
     ('model_h', _IterationOptions), ('energy', ct.POINTER(_EnergyOptions)),
     ('explicit_energy', ct.POINTER(_EnergyControl)),
     ('energy_iterations', _Size), ('energy_sweeps', _Size),
-    *((key, _Double) for key in ('energy_omega', 'energy_update_tolerance',
-        'energy_coupled_tolerance', 'energy_equation_tolerance')),
+    *[(key, _Double) for key in ('energy_omega', 'energy_update_tolerance',
+        'energy_coupled_tolerance', 'energy_equation_tolerance')],
     ('require_enthalpy_update_on_temperature', _U)])
 _Control = record('StageControl', [('result_id', ct.c_char_p), ('table_directory', ct.c_char_p),
     ('cpu_threads', _S), ('callbacks', _Callbacks)])
@@ -110,6 +116,17 @@ _Summary = record('CaptureSummary', [
     ('pressure_min_Pa', _D * 2), ('pressure_max_Pa', _D * 2),
     ('q_net', _D), ('absolute_duty', _D * 2), ('application_hv', _D * 2),
     ('pressure_clip_hits', _S), ('have_finite_duty', _U), ('red_black', _U * 2)])
+
+
+def borrow_mesh(case, library):
+    return borrow_solver_mesh(case, library, 2)
+
+
+def zone_temperatures(widths, temperatures, zone_id, zones, lengths, fractions, *, solver_library=None):
+    """Query native 2D zone temperature statistics while keeping caller warning provenance."""
+    return _zone_temperatures(
+        widths, temperatures, zone_id, zones, lengths, fractions,
+        solver_library=solver_library, stacklevel=5)
 
 
 def pack_saved_design(case, uniform, saved, keepalive):
@@ -155,6 +172,7 @@ def prepare_stage(case, cfg, prepared, saved_flow_grid):
         uniform.dx = borrow_array(prepared['energy_dx'], keepalive)
         uniform.dy = borrow_array(prepared['energy_dy'], keepalive)
     else:
+        keepalive.append(mesh)
         uniform.dx, uniform.dy = mesh.solver_widths[:2]
     uniform.nx, uniform.ny = uniform.dx.size, uniform.dy.size
     uniform.cell_length_m = real_scalar(case.parameters['L_cell_m'], name='L_cell_m')
@@ -177,7 +195,7 @@ def prepare_stage(case, cfg, prepared, saved_flow_grid):
     conductivity = (_Array(), _Array())
     if uniform.input.geometry_mode:
         uniform.cell_length = borrow_array(case.design_fields['L_field_m'], keepalive)
-        conductivity = tuple(borrow_array(cfg['za']['K_ff' + side + '_arr'], keepalive) for side in 'AB')
+        conductivity = tuple([borrow_array(cfg['za']['K_ff' + side + '_arr'], keepalive) for side in 'AB'])
     nu = settings['sco2_nu']
     uniform.sco2_nu.mode = nu.mode != 'cfd_smooth'
     if uniform.sco2_nu.mode:
@@ -220,11 +238,12 @@ def prepare_stage(case, cfg, prepared, saved_flow_grid):
         # The native saved run computes the staggered outlet fraction from this grid.
         grid = saved_flow_grid[index]
         grid.direction = port['dir']
-        cross, stream = (np.asarray(flow[name]) for name in ('dx', 'dy'))
-        if any(axis.ndim != 1 or axis.dtype.kind not in 'fiu' for axis in (cross, stream)):
+        cross_axis = np.asarray(flow['dx'])
+        stream_axis = np.asarray(flow['dy'])
+        if any([axis.ndim != 1 or axis.dtype.kind not in 'fiu' for axis in (cross_axis, stream_axis)]):
             raise ValueError(f'prepared flow {side} grid disagrees with the thermal grid')
-        grid.cross = borrow_array(cross, keepalive)
-        grid.stream = borrow_array(stream, keepalive)
+        grid.cross = borrow_array(cross_axis, keepalive)
+        grid.stream = borrow_array(stream_axis, keepalive)
         for end, prefix in enumerate(('in', 'out')):
             center, half = port[prefix + '_ctr'], port[prefix + '_w'] / 2
             grid.bounds[2*end] = real_scalar(center - half, allow_nonfinite=True)
@@ -234,42 +253,11 @@ def prepare_stage(case, cfg, prepared, saved_flow_grid):
                 raise ValueError(f'prepared Fluid {side} {name} disagrees with its grid and port geometry')
     ranges, captured = borrow_ranges(case.metadata.get('applicability_inputs', ()), keepalive)
     uniform.ranges, uniform.range_count = ranges, len(ranges)
-    notices = (_Text * len(case.metadata['notices']))(*(
-        borrow_text(notice, keepalive) for notice in case.metadata['notices']))
+    notice_items = [borrow_text(notice, keepalive) for notice in case.metadata['notices']]
+    notices = (_Text * len(notice_items))(*notice_items)
     keepalive.append(notices)
     uniform.notices, uniform.notice_count = notices, len(notices)
     return uniform, area, diameter, conductivity, 'applicability_inputs' in case.metadata, captured, keepalive
-
-
-def execution_grid(case, checked_shape=None):
-    from sjtu_tpmshx.data_types.persistence_validation import validate_grid
-    if case.grid.get('dimension') != 2:
-        raise ValueError('2D execution requires a prepared 2D grid')
-    missing = {'thermal_geometry', 'flow_inputs'} - case.parameters.keys()
-    if missing:
-        raise ValueError(f'incomplete prepared 2D execution data: {sorted(missing)}')
-    return checked_shape if checked_shape is not None else validate_grid(case.grid)
-
-
-def _can_pack_settings(settings):
-    if not isinstance(settings, dict) or 'domain' in settings:
-        return False
-    mode = settings.get('df_mode', 'cfd_smooth')
-    if type(mode) is not str or mode != 'experimental':
-        return type(mode) is str
-    geometry, fa, fb = (settings.get(key) for key in ('geometry', 'fluid_A', 'fluid_B'))
-    if not all(type(part) is dict for part in (geometry, fa, fb)):
-        return False
-    if type(geometry.get('tpms')) is not str or geometry['tpms'] not in TOPOLOGIES:
-        return False
-    if not all(type(geometry.get(name)) in (int, float) for name in
-               ('L_dom_m', 'H_dom_m', 'L_cell_mm', 't_wall_mm', 'delta_levelset')):
-        return False
-    if geometry.get('Lz_m') is not None and type(geometry['Lz_m']) not in (int, float):
-        return False
-    return all(type(fluid.get('type')) is str and fluid['type'] in ('air', 'water', 'sco2', 'co2')
-               and (fluid.get('mass_flow_kg_s') is not None or type(fluid.get('u_mps')) in (int, float))
-               for fluid in (fa, fb))
 
 
 def _experiment_request(settings):
@@ -301,79 +289,16 @@ def _raise_stage_error(code, error, error_types):
     raise error_types.get(code, RuntimeError)(message)
 
 
-def _zone_objects(zone):
-    from sjtu_tpmshx.physical_models.zone_config import Zone, ZoneConfig
-
-    return ZoneConfig(**{**zone, 'zones': [Zone(**item) for item in zone['zones']]})
-
-
-def _plain_zone(zone):
-    if set(zone) != {'zones', 'tpms_type', 'k_s'} or not isinstance(zone['zones'], list):
-        return False
-    required = {'name', 'y_frac_start', 'y_frac_end', 'L_mm', 't_mm'}
-    optional = {'props_A', 'props_B'}
-    return all(isinstance(row, dict) and required <= row.keys() <= required | optional
-               for row in zone['zones'])
+def check_experiment(entries, settings, error_types):
+    """Validate experimental D-F applicability with the solver library."""
+    experiment = _experiment_request(settings)
+    error = ct.create_string_buffer(2048)
+    status = entries['check_experiment'](ct.byref(experiment), error, len(error))
+    if status:
+        _raise_stage_error(status, error, error_types)
 
 
-def saved_inputs(case, shape, *, check_experiment, port_windows_fit, checked_geometry=False):
-    from sjtu_tpmshx.data_types.compute_config import ComputeConfig, _checked_saved_2d_settings
-    from sjtu_tpmshx.data_types.persistence_validation import validate_thermal_geometry
-    from sjtu_tpmshx.data_types.portable_data import mutable_data
-    from sjtu_tpmshx.physical_models.zone_units import _legacy_zone_units
-
-    cfg = dict(case.parameters)
-    if not checked_geometry:
-        validate_thermal_geometry(cfg['thermal_geometry'], shape)
-    if set(cfg['flow_inputs']) != {'A', 'B'}:
-        raise ValueError('prepared flow inputs require both physical sides')
-    settings = _legacy_zone_units(mutable_data(cfg['run_settings']))
-    if cfg['z_axis'] == 'continuous':
-        settings['zones'] = dict(enabled=True, axis='continuous', config=mutable_data(cfg['continuous_field']))
-    packed = _can_pack_settings(settings)
-    # The native run reads the experiment record only for experimental D-F.
-    experiment = _Experiment()
-    if packed:
-        values = cfg['compute_cfg'] = _checked_saved_2d_settings(settings, port_windows_fit=port_windows_fit)
-        if values['df_mode'] == 'experimental':
-            experiment = _experiment_request(values)
-            error = ct.create_string_buffer(2048)
-            status = check_experiment(ct.byref(experiment), error, len(error))
-            if status:
-                _raise_stage_error(status, error, _Run.error_types)
-    else:
-        cfg['compute_cfg'] = ComputeConfig.from_dict(settings, prepared_grid=True)
-        if cfg['compute_cfg'].df_mode == 'experimental':
-            raise ValueError('saved experimental 2D settings lack the fields that the experiment check requires; '
-                             'prepare the original configuration again')
-    cfg['Lcell'], cfg['t_wall'] = cfg['L_cell_m'] * 1e3, cfg['t_wall_m'] * 1e3
-    design = case.design_fields
-    if case.metadata['design_mode'] == 'uniform':
-        cfg['za'] = None
-        properties = cfg['static_properties']
-        solid = np.asarray(design['K_ss_arr'])
-        if solid.shape != shape:
-            raise ValueError('prepared design field K_ss_arr does not match the physical grid')
-        cfg['static_properties'] = {**properties, 'geometry': {**properties['geometry'], 'K_ss': float(solid[0, 0])}}
-    else:
-        for name in ('L_field', 't_field'):
-            if np.shape(design.get(name + '_m')) != shape:
-                raise ValueError(f'prepared zoned 2D case requires a positive {name}; '
-                                 'prepare the original configuration again')
-        if cfg['thermal_geometry']['fields'] is None:
-            raise ValueError('prepared zoned 2D case requires per-cell thermal geometry; '
-                             'prepare the original configuration again')
-        cfg['za'] = dict(design)
-        if 'grid_cells' in design:
-            cfg['za'].update(_legacy_zone_units({'grid_cells': mutable_data(design['grid_cells'])}))
-    zone = _legacy_zone_units(mutable_data(cfg['zone_config']))
-    if isinstance(zone, dict) and (not packed or not _plain_zone(zone)):
-        zone = _zone_objects(zone)
-    cfg['zone_config'] = zone
-    return cfg, dict(energy_dx=case.grid['dx'], energy_dy=case.grid['dy']), experiment
-
-
-def _request(cfg, library):
+def _request(cfg, library, resolve_controls):
     solver = _run_settings(cfg)['solver']
     request = _Request(4, ct.sizeof(_Request))
     for name in ('max_iter_simple', 'max_outer_ltne'):
@@ -381,18 +306,17 @@ def _request(cfg, library):
         setattr(request, name, _Size(bool(value), value or 0))
     value = solver.outer_tol_K
     request.outer_tol_K = _Double(bool(value), value or 0.)
-    mode, tolerances = convergence_controls(cfg, solver)
+    mode, tolerances, pressure_shooting, envelope_mode = resolve_controls(cfg, solver)
     request.convergence_mode = mode.encode()
     for name, tolerance in tolerances.items():
         setattr(request, name, _Double(1, tolerance))
-    validate_simple_velocity_relaxation(solver.simple_velocity_relaxation)
     if solver.simple_velocity_relaxation is not None:
         request.simple_velocity_relaxation = _Double(1, solver.simple_velocity_relaxation)
     if cfg.get('T_s_init') is not None:
         request.solid_seed_K = _Double(1, cfg['T_s_init'])
     request.have_pressure_shooting = 1
-    request.pressure_shooting = cfg.get('p_in_shooting', run_environment(cfg, 'TPMSHX_P_IN_SHOOT', '1') == '1')
-    request.envelope_mode = cfg.get('envelope_mode', 'raise').encode()
+    request.pressure_shooting = pressure_shooting
+    request.envelope_mode = envelope_mode.encode()
     energy = _energy_options(solver.enthalpy_algorithm, solver.enthalpy_temperature_tol_K)
     has_water = 'water' in (cfg['fluid_A'], cfg['fluid_B'])
     if solver.enthalpy_algorithm != 'temperature_sou':
@@ -423,13 +347,14 @@ class _Run(NativeRun):
     creation_version = 5
     result_type = _StageResult
     result_release_name = 'tpmshx_stage_run_2d_release_v1'
-    error_types = {**NativeRun.error_types, 4: ChokedFlowError, 6: CancelledError}
 
-    def __init__(self, library, saved, request, control, errors, state):
+    def __init__(self, library, saved, request, control, errors, state, error_types):
         self.errors = errors
         self.creation_version = saved.abi_version
         common = [ct.POINTER(type(saved)), ct.POINTER(_Request), ct.POINTER(_Control)]
-        super().__init__(library, common, [ct.byref(saved), ct.byref(request), ct.byref(control)], control, state)
+        super().__init__(
+            library, common, [ct.byref(saved), ct.byref(request), ct.byref(control)],
+            control, state, error_types=error_types)
 
     def _call(self, function, *args):
         error = ct.create_string_buffer(2048)
@@ -453,7 +378,7 @@ def _scalars(summary):
         red_black=[bool(value) for value in summary.red_black])
 
 
-def _stage_entries(library):
+def stage_entries(library):
     """Bind the saved v5 lifecycle. A library without it is a deployment error."""
     try:
         version = library.tpmshx_stage_run_2d_abi_version
@@ -479,7 +404,7 @@ def _stage_entries(library):
     return entries
 
 
-def pack_saved(case, cfg, prepared, experiment):
+def pack_saved(case, cfg, prepared, experiment_spec):
     """Pack the saved v5 case. The caller keeps the returned owners alive during the run."""
     flow_grid = (_FlowGrid * 2)()
     uniform, area, diameter, conductivity, recorded, captured, keepalive = prepare_stage(
@@ -494,19 +419,21 @@ def pack_saved(case, cfg, prepared, experiment):
     saved.flow_grid = flow_grid
     pack_saved_design(case, uniform, saved, keepalive)
     pack_saved_resources(case, uniform.models, uniform.sco2_nu, saved, _run_settings(cfg)['sco2_nu'], keepalive)
-    saved.experiment = experiment
+    saved.experiment = _Experiment() if experiment_spec is None else _experiment_request(experiment_spec)
     return saved, uniform, keepalive
 
 
-def run_stage(driver, case, cfg, prepared, control, entries, experiment, *,
-              resume_state=None, checkpoint=None, checkpoint_due=None):
-    """Keep preparation and result storage alive through late application capture."""
+def run_stage(driver, case, cfg, prepared, control, entries, experiment_spec, *,
+              resolve_controls, error_types, resume_state=None, checkpoint=None, checkpoint_due=None):
+    """Run the saved 2D stage and detach every native output before release."""
     library = driver.library
     release, query = entries['release'], entries['query']
     control.check_cancelled()
-    saved, uniform, keepalive = pack_saved(case, cfg, prepared, experiment)
-    request, _ = _request(cfg, library)
+    saved, uniform, keepalive = pack_saved(case, cfg, prepared, experiment_spec)
+    request, energy = _request(cfg, library, resolve_controls)
+    keepalive.append(energy)
     callbacks, errors = _callbacks(control)
+    keepalive.append(callbacks)
     stage_control = _Control(case.case_id.encode(), driver.table_directory, control.native_cpu_threads(), callbacks)
     result = _StageResult()
     try:
@@ -517,13 +444,12 @@ def run_stage(driver, case, cfg, prepared, control, entries, experiment, *,
             if errors:
                 raise errors[0]
             if code:
-                _raise_stage_error(code, error, _Run.error_types)
+                _raise_stage_error(code, error, error_types)
         else:
-            with _Run(library, saved, request, stage_control, errors, resume_state) as run:
+            with _Run(library, saved, request, stage_control, errors, resume_state, error_types) as run:
                 run.finish(checkpoint, checkpoint_due, (1, 2, 6, 7, 8))
                 result = run.take_result()
         report = completed_report(library, result)
-        cfg['_input_resolution'] = resolved_input_record(case, **report['input'])
         summary = _Summary()
         if query(ct.byref(result), ct.byref(_Application()), ct.byref(summary)):
             raise RuntimeError('native full 2D capture query failed')
@@ -540,273 +466,28 @@ def run_stage(driver, case, cfg, prepared, control, entries, experiment, *,
             entry_version=6, control=control, cpu_thread_limit=stage_control.cpu_threads,
             resume_state=resume_state, capture_scalars=_scalars(summary), fields=stage_fields[0],
             records=records, evidence=result.evidence, execution=execution, report=report)
-        native['sco2_notices'] = tuple(execution.execution.sco2_notices)
+        native['sco2_notices'] = tuple([
+            None if raw is None else bytes(raw) for raw in execution.execution.sco2_notices])
         control.check_cancelled()
-
-        def application_hv(area_density, surface_htc):
+        native['_native_applicability'] = stage_capture.copy_applicability(
+            result.evidence.applicability, case.metadata.get('applicability_inputs', ()))
+        properties = cfg['static_properties']
+        application_hv = []
+        for side in 'AB':
+            area_density = properties[side]['A_0']
+            surface_htc = properties[side]['H_sf']
             if area_density < 0 or surface_htc < 0:
                 raise ValueError(f'A_0={area_density}, H_sf={surface_htc} must both be >= 0')
             application = _Application((_D * 2)(float(area_density), 0.), (_D * 2)(float(surface_htc), 0.))
             values = _Summary()
             if query(ct.byref(result), ct.byref(application), ct.byref(values)):
                 raise RuntimeError('native full 2D application capture query failed')
-            return values.application_hv[0]
-
-        zone_summary = None
-        if cfg['zone_config'] is not None and cfg['za'] is not None:
-            from sjtu_tpmshx.cpp_interface import _native_result_stage as result_stage
-            # Continuous fields use the result library. Saved regions use the solver zone query.
-            zone_summary = (result_stage.zone_result if cfg['z_axis'] == 'continuous'
-                            else partial(result_stage.zone_result, solver_library=library))
-        from sjtu_tpmshx.cpp_interface._native_result_stage import copy_applicability
-        native['_native_applicability'] = copy_applicability(result.evidence.applicability,
-            case.metadata.get('applicability_inputs', ()))
-        native['execution_facts'] = link_execution(report, case, native['main']['true_h'])
-        return capture_result(case, cfg, prepared, native, application_hv=application_hv,
-                              zone_summary=zone_summary, stage_fields=stage_fields)
+            application_hv.append(values.application_hv[0])
+        return native, stage_fields, report, tuple(application_hv)
     finally:
         if result.owner:
             release(ct.byref(result))
         del keepalive
-
-
-def _model_balance(thermal, result, outer_index, *, fine=False):
-    if thermal['mode'] != 'model_h':
-        return None
-    balance = deepcopy(thermal['model_h'])
-    balance.pop('energy_finishing_checks', None)
-    balance.update(
-        mass_source=('conservative coarse-face prolongation; no fine SIMPLE' if fine else
-                     'last thermal input: actual signed SIMPLE faces'),
-        outer_index=outer_index,
-        outer_converged=bool(result['outer_converged']),
-        post_after_last_thermal=bool(result['post_after_last_thermal']))
-    if fine:
-        balance['state'] = 'raw refined thermal return'
-    else:
-        balance['raw_state_matches_last_thermal'] = True
-    return balance
-
-
-def _fine_evidence(fine, balance):
-    if fine is None:
-        return {}
-    evidence = dict(zip(('Ta', 'Tb', 'Ts'), fine['temperature']))
-    evidence.update(dx=fine['dx'], dy=fine['dy'], eps=fine['epsilon'], model_h_balance=balance,
-                    energy=fine.get('physical_ledger'))
-    for side, label in enumerate('AB'):
-        for prefix, key in (('uc', 'uc'), ('vc', 'vc'), ('rho_cp_', 'rho_cp'),
-                            ('inlet_', 'inlet_profile'), ('outlet_', 'outlet_profile')):
-            evidence[prefix + label] = fine[key][side]
-    if 'native_metadata' in fine:
-        evidence['native'] = fine['native_metadata']
-    if 'temperature_evidence' in fine:
-        evidence['temperature'] = fine['temperature_evidence']
-        for index, label in enumerate('AB'):
-            evidence['mass_' + label] = (fine['mass_x'][index], fine['mass_y'][index])
-        evidence['mass_unit'] = 'kg/(s m)'
-    return evidence
-
-
-def capture_result(case, cfg, prepared, native, *, application_hv, zone_summary, stage_fields):
-    """Capture a completed native return without re-entering Python solvers."""
-    if native['cancelled']:
-        raise CancelledError('compute cancelled by user')
-    settings = _run_settings(cfg)
-    main, fine = native['main'], native['fine']
-    capture_scalars = native['capture_scalars']
-    mode = main['mode']
-    outer_index = native['outer_index']
-    model_balance = _model_balance(main, native, outer_index)
-    fine_balance = None if fine is None else _model_balance(fine, native, outer_index, fine=True)
-    fine_info = None
-    if fine is not None:
-        fine_info = dict(converged=fine['stop'] == 0, iterations=fine['iterations'],
-                         residual=fine['residual'], extrapolated=bool(native['fine_extrapolated']))
-        if fine_balance is not None:
-            fine_info.update(model_h_balance=fine_balance,
-                             energy_finishing_checks=deepcopy(fine['model_h']['energy_finishing_checks']))
-    true_h_info = main['true_h'] if mode in ('true_h', 'conservative_energy') else None
-    true_balance = None
-    if true_h_info is not None:
-        true_balance = dict(
-            Q_A=native['duty'][0], Q_B=native['duty'][1], units='W/m',
-            outer_index=outer_index, converged=bool(native['thermal_ok']),
-            iterations=main['iterations'], residual=main['residual'],
-            pressure_source=('air: P_ref_abs + SIMPLE gauge; frozen fluids: '
-                             'P_in + SIMPLE gauge - open-area physical inlet-face gauge'),
-            P_in_A_Pa=settings['fluid_A'].P_in_Pa,
-            P_in_B_Pa=settings['fluid_B'].P_in_Pa,
-            outer_converged=bool(native['outer_converged']),
-            post_after_last_thermal=bool(native['post_after_last_thermal']),
-            state='last true-h solve, before any final post update')
-        for side, label in enumerate('AB'):
-            true_balance['P_' + label + '_range_Pa'] = list(capture_scalars['pressure_ranges'][side])
-        true_balance.update({key: deepcopy(true_h_info[key]) for key in (
-            'exit_reason', 'enthalpy_clip_counts', 'effective_settings',
-            'coupled_energy_balance', 'equation_energy_balance', 'energy_algorithm',
-            'energy_algorithm_version', 'temperature_update_K') if key in true_h_info})
-
-    warnings = list(cfg['warnings_list'])
-    merge_warnings(current_warnings(), [native['range_warnings']])
-    warnings.extend(warning_messages(native['range_warnings']))
-    notices = {}
-    with warning_scope(notices):
-        replay_sco2_notices(native['sco2_notices'], '2D main-hv')
-    merge_warnings(current_warnings(), [notices])
-    warnings.extend(warning_messages(notices))
-    if not native['outer_converged']:
-        last = native['outer_history'][-1]
-        rho, temperature = last['relative_density_change'], last['temperature_change']
-        warnings.append(
-            f"Velocity-temperature coupling: not converged after {native['iterations']} iters "
-            f"(drho_A={rho[0]:.4f}, drho_B={rho[1]:.4f}, "
-            f"dT_A={temperature[0]:.2f}K, dT_B={temperature[1]:.2f}K)")
-    pressure_states, pressure_evidence = {}, {}
-    evidence = dict(zip(('Ta', 'Tb', 'Ts'), main['temperature']))
-    evidence.update(fine=_fine_evidence(fine, fine_balance),
-        true_h=None if true_h_info is None else true_h_info['_native_state'],
-        model_h_balance=model_balance, mode=mode, split_A=cfg['thermal_geometry']['split_A'],
-        outer_index=outer_index,
-        final_after_thermal=bool(native['post_after_last_thermal']), K_ss=main['solid_conductivity'])
-    if 'temperature_evidence' in main:
-        evidence['temperature'] = main['temperature_evidence']
-    for side, label in enumerate('AB'):
-        flow = native['flow'][side]
-        openings = cfg['boundary_openings'][label]
-        pressure_states[label] = flow['inlet_pressure']
-        pressure_evidence[label] = dict(
-            inlet_gauge_Pa=flow['pressure'][:, 0], outlet_gauge_Pa=flow['pressure'][:, -1],
-            inlet_fraction=openings['in_profile_frac'], outlet_fraction=openings['out_profile_frac'],
-            outlet_geom_frac=openings['out_geom_frac'], reference_abs_Pa=flow['reference_pressure'])
-        mass = native['thermal_mass'][side]
-        evidence.update({
-            'P_thermal_' + label: main['pressure'][side],
-            'P_report_' + label: flow['absolute_pressure'], 'h_v' + label: main['hv'][side],
-            'rho_cp_' + label: None if mode in ('true_h', 'conservative_energy') else main['rho_cp'][side],
-            'mass_flux_' + label: mass,
-        })
-        result = flow['result']
-        if not result['converged']:
-            warnings.append(
-                f"SIMPLE (Fluid {label}): not converged after {result['iterations']} iters "
-                f"(exit={result['exit_reason']}, mom={result['momentum']['maximum']}, "
-                f"mass_local={result['mass']['local_residual']}, "
-                f"mass_global={result['mass']['global_residual']})")
-    evidence['pressure'] = pressure_evidence
-    evidence['physical_ledger'] = main.get('physical_ledger')
-    if fine is not None and not native['fine_extrapolated']:
-        source = '主网格值' if capture_scalars['have_finite_duty'] else ('不可用值' if mode == 'model_h' or 'temperature_evidence' in main else '1D 最后兜底值')
-        warnings.append(
-            f"Richardson 细解或外推未通过，换热量使用{source}，未外推 "
-            f"(converged={fine_info['converged']}, iterations={fine_info['iterations']}, "
-            f"residual={fine_info['residual']:.3e})")
-    detail = dict(inlet_pressure=pressure_states, outer_converged=bool(native['outer_converged']),
-        outer_iters=int(native['iterations']), outer_hit_cap=not native['outer_converged'],
-        simple_ok=bool(native['simple_ok']), ltne_ok=bool(native['thermal_ok']),
-        richardson_ok=None if fine is None else bool(fine_info['converged'] and native['fine_extrapolated']),
-        ltne_iterations=int(main['iterations']), ltne_residual=float(main['residual']),
-        enthalpy_balance_ok=bool(native['pair_balance_ok']),
-        model_h_balance_ok=bool(native['model_balance_ok']) if mode == 'model_h' else None,
-        envelope_ok=bool(native['envelope_ok']))
-    diagnostics = dict(
-        sco2_nu_observations=native['sco2_nu_observations'],
-        T_out_A_K=native['outlet_temperature'][0], T_out_B_K=native['outlet_temperature'][1],
-        dP_A=native['pressure_drop'][0], dP_B=native['pressure_drop'][1], Q_total=native['q_total'],
-        mass_flow_A_kg_s_per_m=native['inlet_mass'][0], mass_flow_B_kg_s_per_m=native['inlet_mass'][1],
-        warnings_list=warnings, solver_converged=bool(native['converged']), convergence_detail=detail,
-        Q_A=native['duty'][0], Q_B=native['duty'][1], Q_net=capture_scalars['q_net'],
-        energy_imbalance_rel=native['energy_imbalance'],
-        Q_enthalpy_A=capture_scalars['absolute_duty'][0], Q_enthalpy_B=capture_scalars['absolute_duty'][1],
-        Q_solid_richardson=native['q_solid'], Q_richardson_warn=bool(native['fine_warning']),
-        richardson_info=fine_info, model_h_balance=None if model_balance is None else dict(main=model_balance, fine=fine_balance),
-        true_h_balance=true_balance, envelope_valid=bool(native['envelope_ok']),
-        envelope_reasons=[f'[{label}] {reason}' for label, flow in zip('AB', native['flow']) for reason in flow['envelope_reasons']],
-        p_clip_hits=capture_scalars['pressure_clip_hits'],
-        df_metadata=dict(mode=settings['df_mode'],
-                         **{label: cfg['flow_inputs'][label]['metadata'] for label in 'AB'}),
-        native_full_2d=dict(numerical_driver='cpp',
-                            range_observations=native['range_observations']))
-    if native['main']['true_h'] is not None:
-        diagnostics['native_full_2d'].update(entry_version=native['entry_version'],
-            energy_history=[dict(iteration=row['iteration'], **row['energy_info']) for row in native['outer_history']])
-    for side, label in enumerate('AB'):
-        state, flow = pressure_states[label], native['flow'][side]
-        diagnostics['P_in_realized_' + label] = np.nan if state is None else state['realized_Pa']
-        diagnostics['P_in_shoot_resid_' + label] = np.nan if state is None else state['relative_error']
-        diagnostics['residuals_' + label] = list(flow['history']['legacy'])
-        diagnostics['mass_imbalance_rel_' + label] = flow['result']['mass']['global_residual']
-    properties = cfg['static_properties']
-    r_a, r_b = properties['A'], properties['B']
-    application = dict(
-        coeffs=dict(K_ffA=r_a['K_ff'], K_ffB=r_b['K_ff'], K_ss=properties['geometry']['K_ss'],
-                    h_vA=application_hv(r_a['A_0'], r_a['H_sf']),
-                    h_vB=application_hv(r_b['A_0'], r_b['H_sf'])),
-        props=dict(rho_A=r_a['rho'], rho_B=r_b['rho'], mu_A=r_a['mu'], mu_B=r_b['mu']),
-        zones=None)
-    if zone_summary is not None:
-        application['zones'] = zone_summary(cfg, prepared, main['temperature'])
-    evidence.update(input_resolution=cfg['_input_resolution'], property_sampling=native['property_sampling'])
-    audit = {key: native[key] for key in ('continuation', 'runtime_resources', '_native_applicability')
-             if key in native}
-    if 'native_metadata' in native:
-        audit['native'] = native['native_metadata']
-    audit.update(_last_closure_ranges=native['last_closure_ranges'],
-                 enthalpy_update_normalization=native['enthalpy_update_normalization'],
-                 simple_velocity_relaxation=native['simple_velocity_relaxation'], simple_flow=native['simple_flow'],
-                 model_h_iterations=native['model_h_iterations'])
-    return _capture_result(case, stage_fields, evidence, application, diagnostics,
-                           audit=audit, facts=native['execution_facts'],
-                           backend_version=f"full_2d_v{native['entry_version']}")
-
-
-def _capture_result(case, stage_fields, native, application, diagnostics, *, audit, facts, backend_version):
-    fields, field_metadata = stage_fields
-    ledger = native.get('physical_ledger')
-    if ledger is not None and ledger['physical_boundary_complete'] is None:
-        from sjtu_tpmshx.solvers.physical_ledger import ports_complete
-        parameters = case.parameters
-        ledger = dict(ledger, physical_boundary_complete=all(ports_complete(
-            native['mass_flux_' + side], parameters['dir_' + side],
-            parameters['boundary_openings'][side]['in_geom_frac'],
-            parameters['boundary_openings'][side]['out_geom_frac']) for side in ('A', 'B')))
-    model_metadata = dict(case.metadata['model_metadata'])
-    for key in ('enthalpy_eos', 'sco2_enthalpy_eos'):
-        if native['true_h'] and key in native['true_h']:
-            model_metadata[key] = native['true_h'][key]
-    metadata = dict(**audit, dimension=2, quantity_basis='per_unit_depth',
-        thermal_mode=native['mode'], split_A=native['split_A'],
-        **({'temperature_transport': native['temperature']['definition']}
-           if 'temperature' in native else {}),
-        rho_cp_A=native['rho_cp_A'], rho_cp_B=native['rho_cp_B'],
-        parameters=case.parameters, design_fields=case.design_fields,
-        design_mode=case.metadata['design_mode'], application=application,
-        model_metadata=model_metadata, notices=case.metadata['notices'],
-        diagnostics=diagnostics, df_metadata=diagnostics['df_metadata'],
-        model_roles=case.metadata['model_roles'],
-        **{key: native[key] for key in ('input_resolution', 'property_sampling') if key in native},
-        reporting_reference={key: diagnostics[key] for key in (
-            'Q_total', 'dP_A', 'dP_B', 'T_out_A_K', 'T_out_B_K')})
-    metadata['execution_record'] = execution_record('cpp', backend_version, metadata,
-        roles=case.metadata['model_roles'], **facts)
-    return FieldResult(
-        result_id=str(uuid4()), case_id=case.case_id,
-        backend_id='cpp', backend_version=backend_version, grid=case.grid,
-        fields=fields, field_metadata=field_metadata, model_refs=case.model_refs,
-        boundary_fluxes=dict(
-            energy=ledger,
-            mass_A=native['mass_flux_A'], mass_B=native['mass_flux_B'],
-            mass_unit='kg/(s m)', mass_axes=('x-face', 'y-face'),
-            mass_sign='positive along physical coordinate axis',
-            state='last main thermal input', model_h=native['model_h_balance'],
-            true_h=native['true_h'], fine=native['fine'],
-            **({'temperature': native['temperature']} if 'temperature' in native else {})),
-        pressure_evidence=native['pressure'],
-        run_status=dict(execution='completed', converged=bool(diagnostics['solver_converged']),
-                        envelope_valid=bool(diagnostics['envelope_valid']),
-                        final_flow_after_last_thermal=native['final_after_thermal'],
-                        outer_index=native['outer_index']),
-        metadata=metadata)
 
 
 def _copy(view, shape=None):
@@ -827,7 +508,7 @@ def _flow(f, physical_shape, fields, label, stop):
         elif name in ('uc', 'vc', 'absolute_pressure'):
             shape = physical_shape
         elif name in ('mass_x', 'mass_y'):
-            shape = tuple(n + int(axis == (name == 'mass_y')) for axis, n in enumerate(physical_shape))
+            shape = tuple([n + int(axis == (name == 'mass_y')) for axis, n in enumerate(physical_shape)])
         if fields is not None and name in ('absolute_pressure', 'uc', 'vc'):
             out[name] = fields[('P_report_' if name == 'absolute_pressure' else name) + label]
         else:
@@ -875,7 +556,7 @@ def _thermal(t, actual, abi, *, capture_scalars=None, level=0, fields=None, bala
                  'mass_x', 'mass_y', 'inlet_capacity', 'inlet_profile', 'outlet_profile'):
         extent = shape
         if name in ('mass_x', 'mass_y'):
-            extent = tuple(n+int(axis == (name == 'mass_y')) for axis, n in enumerate(shape))
+            extent = tuple([n + int(axis == (name == 'mass_y')) for axis, n in enumerate(shape)])
         elif name in ('inlet_capacity', 'inlet_profile', 'outlet_profile'):
             extent = None
         if fields is not None and name in ('temperature', 'hv', 'pressure'):
@@ -1011,8 +692,7 @@ class StageDriver:
             out[name] = list(getattr(result, name))
         for name in ('q_total', 'q_solid', 'energy_imbalance'):
             out[name] = getattr(result, name)
-        from ._native_result_stage import nu_observation, stage_closures
-        out['range_observations'], out['range_warnings'], out['last_closure_ranges'] = stage_closures(records)
+        out['range_observations'], out['range_warnings'], out['last_closure_ranges'] = stage_capture.stage_closures(records)
         out['sco2_nu_observations'] = {}
         for i, (side, value) in enumerate(zip('AB', result.nu_observations)):
             scalar = capture_scalars['nu'][i]
@@ -1059,7 +739,6 @@ class StageDriver:
                 _energy_result_info(row['energy_info'], extra.outer[index],
                     temperature_tol=actual.outer[index].temperature_update_tolerance, abi=entry_version,
                     version=version)
-        from ._native_result_stage import _stage_array, stage_ledger
         out['outer_index'] = evidence.outer_index[0]
         mass = []
         for side in range(2):
@@ -1070,7 +749,7 @@ class StageDriver:
                 if view.data == ct.cast(thermal_face.data, ct.c_void_p).value:
                     face = out['main'][name][side]
                 else:
-                    extent = tuple(n + int(i == axis) for i, n in enumerate(shape))
+                    extent = tuple([n + int(i == axis) for i, n in enumerate(shape)])
                     face = _stage_array(view, extent)
                 faces.append(face)
             mass.append(tuple(faces))
@@ -1087,42 +766,3 @@ class StageDriver:
                                  captured_red_black=capture_scalars['red_black'])
         out['capture_scalars'] = capture_scalars
         return out
-
-
-def convergence_controls(cfg, solver_config):
-    """Read the convergence mode and caller-supplied tolerances."""
-    def knob(name, default):
-        value = getattr(solver_config, name, None)
-        if value is None:
-            value = cfg.get(name)
-        return default if value is None else value
-
-    mode = require_f2_mode(run_environment(
-        cfg, 'TPMSHX_CONV_MODE', knob('convergence_mode', 'f2')))
-    tolerances = {}
-    for name in ('mom_tol', 'mass_local_tol', 'mass_global_tol'):
-        value = knob(name, None)
-        if value is not None:
-            tolerances[name] = float(value)
-    return mode, tolerances
-
-
-def run_case(case, control=RunControl(), *, resume_state=None, checkpoint=None, checkpoint_due=None):
-    if control.backend != 'cpp' or control.native_library is None:
-        raise ValueError('full native 2D requires backend=cpp and an explicit native_library')
-    control.check_cancelled()
-    try:
-        driver = StageDriver(control.native_library, table_directory=control.native_table_directory)
-    except Exception:
-        execution_grid(case)
-        raise
-    checked = borrow_solver_mesh(case, driver.library, 2)
-    shape = execution_grid(case, None if checked is None else checked.shape)
-    entries = _stage_entries(driver.library)
-    cfg, prepared, experiment = saved_inputs(case, shape, checked_geometry=checked is not None,
-        check_experiment=entries['check_experiment'], port_windows_fit=entries['port_windows_fit'])
-    prepared['solver_mesh'] = checked
-    result = run_stage(driver, case, cfg, prepared, control, entries, experiment, resume_state=resume_state,
-                       checkpoint=checkpoint, checkpoint_due=checkpoint_due)
-    control.report_progress(100)
-    return result

@@ -65,9 +65,11 @@ class _SharedNames:
             driver = fullname[len(driver_prefix):]
             if driver == "quick_design":
                 canonical = f"{__package__}.solvers.{driver}"
+            elif driver == "full_2d_stage":
+                canonical = f"{__package__}.solvers.full_2d"
             elif driver == "full_3d_stage":
                 canonical = f"{__package__}.solvers.full_3d"
-            elif driver in ("full_2d_stage", "run_state"):
+            elif driver == "run_state":
                 canonical = f"{__package__}.cpp_interface.{driver}"
             else:
                 canonical = f"{__package__}.cpp_interface.solver_library.{driver}"

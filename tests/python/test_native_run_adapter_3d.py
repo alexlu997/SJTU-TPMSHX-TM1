@@ -462,10 +462,10 @@ def test_spatial_sco2_notice_keeps_saved_field_precision(monkeypatch, tmp_path):
 def _compare_public_applicability(case, monkeypatch, tmp_path, *, control=None):
     """Check native applicability against the independent Python selection of the same run."""
     from tests.python import test_native_run_adapter as two
-    from sjtu_tpmshx.cpp_interface import full_2d_stage
+    from sjtu_tpmshx.solvers import full_2d
     from sjtu_tpmshx.postprocess.api import evaluate
     control = _control() if control is None else control
-    stage = full_2d_stage if case.grid['dimension'] == 2 else full_3d
+    stage = full_2d if case.grid['dimension'] == 2 else full_3d
     original, kept = stage.run_case, []
     def keep(*args, **kwargs):
         kept.append(original(*args, **kwargs))
@@ -554,8 +554,8 @@ def test_applicability_transfer_error_releases_without_fallback(dimension, monke
         monkeypatch.setattr(full_2d_stage, 'executed_view', observe_view)
     def broken(pointer, saved):
         raise sentinel
-    from sjtu_tpmshx.cpp_interface import _native_result_stage
-    monkeypatch.setattr(_native_result_stage, 'copy_applicability', broken)
+    from sjtu_tpmshx.cpp_interface.solver_library import stage_capture
+    monkeypatch.setattr(stage_capture, 'copy_applicability', broken)
     with pytest.raises(LookupError) as caught:
         run_case(case, _control())
     assert caught.value is sentinel and len(owners) == 1

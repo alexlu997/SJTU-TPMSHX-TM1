@@ -301,7 +301,7 @@ def native_result(request):
             solver=SolverConfig(Nx=8, Ny=10, Nz=1, max_outer_ltne=2, max_iter_simple=500),
             bc_A=PartialBCConfig(dir=0, in_ctr=.015, in_w=.014, out_ctr=.015, out_w=.014))
     module = importlib.import_module(
-        'sjtu_tpmshx.cpp_interface.full_2d_stage' if dimension == 2 else
+        'sjtu_tpmshx.solvers.full_2d' if dimension == 2 else
         'sjtu_tpmshx.solvers.full_3d')
     captured = []
     capture_name = '_capture_result' if dimension == 2 else 'capture_result'
