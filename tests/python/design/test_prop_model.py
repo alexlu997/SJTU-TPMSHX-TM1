@@ -47,7 +47,7 @@ def test_mean_threads_solve_Lx_and_converges():
 
 @pytest.mark.parametrize('side,value', [(i, v) for i in range(3) for v in (np.nan, np.inf)])
 def test_forward_rejects_nonfinite_external_seed_before_properties(monkeypatch, side, value):
-    preparation = importlib.import_module('sjtu_tpmshx.cpp_interface._native_quick_prepare')
+    preparation = importlib.import_module('sjtu_tpmshx.preprocess.quick_design')
     execution = importlib.import_module('sjtu_tpmshx.solvers.quick_design')
     seed = [np.full((2, 2, 1), 400.) for _ in range(3)]
     seed[side][0, 0, 0] = value

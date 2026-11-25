@@ -54,13 +54,12 @@ OWNERS = {
     "cpp_interface.native_preparation": "preprocess",
     "cpp_interface.preparation_host": "models",
     "cpp_interface.inlet_properties": "models",
-    # Quick solve still shares the solver capture and preparation wire layouts.
+    # Quick solve still uses the solver capture wire layout.
     **{f"cpp_interface.{name}": "solvers" for name in (
         "full_2d_stage", "full_3d_stage", "quick_design", "run_state", "solver_library")},
     # Case and spatial adapters own model policy. The ABI bindings use native_values.
     **{f"cpp_interface._native_{name}": "models" for name in (
-        "continuous", "flow", "lut", "preparation_3d", "preparation_case", "quick_prepare",
-        "sigmoid", "zones")},
+        "continuous", "lut", "preparation_3d", "sigmoid", "zones")},
     "cpp_interface": "native_values",
     **{f"shared.{name}": name for name in (
         "domain", "models", "df_surrogate", "io", "configs",
@@ -139,8 +138,13 @@ _DTO_PACKAGES = {"sjtu_tpmshx.data_types", "sjtu_tpmshx.shared.domain", "data_ty
 _RESULT_DTO_MODULES = {f"{package}.{module}" for package in _DTO_PACKAGES
                        for module in ("metric_spec", "performance_result")}
 _QUICK_DTO_MODULES = {f"{package}.field_result" for package in _DTO_PACKAGES}
-_OTHER_STAGE_MODULES = {"full_2d_stage", "full_3d_stage", "run_state", "native_preparation",
-                        "_native_preparation_3d", "_native_quick_prepare"}
+_CASE_DTO_MODULES = {f"{package}.{module}" for package in _DTO_PACKAGES for module in ("case_data", "model_refs")}
+_OTHER_STAGE_MODULES = {"full_2d_stage", "full_3d_stage", "run_state", "native_preparation", "preparation_host",
+                        "inlet_properties", "quick_design", "_native_preparation_3d", "_native_quick_prepare",
+                        "quick_preparation"}
+_QUICK_PREPARATION_IMPORTS = {f"sjtu_tpmshx.{module}" for module in (
+    "cpp_interface.quick_preparation", "cpp_interface._native_quick_prepare", "shared._native_quick_prepare",
+    "shared.models._native_quick_prepare", "physical_models._native_quick_prepare")}
 _TYPE_GUARDS = {"typing.TYPE_CHECKING", "typing_extensions.TYPE_CHECKING"}
 _BINDING_NAMESPACES = {"sjtu_tpmshx", "sjtu_tpmshx.cpp_interface", "sjtu_tpmshx.shared", "shared", *_DTO_PACKAGES,
                        "typing", "typing_extensions", *_TYPE_GUARDS}
@@ -151,12 +155,18 @@ def _invalid_stage_target(host, target, binding, operations):
         return False
     area, _, member = target.removeprefix("sjtu_tpmshx.").partition(".")
     module, _, name = member.partition(".")
-    if binding == "quick_design":
+    # The shared resolver exposes the physical range policy through both domain packages.
+    if area == "shared" and module == "domain":
+        area = "data_types"
+        module, _, name = name.partition(".")
+    if area == "data_types" and module == "range_policy":
+        area = "physical_models"
+    if binding in {"quick_design", "quick_preparation"}:
         if area == "solvers" and member.startswith("backends.cpp."):
             module, _, name = member.removeprefix("backends.cpp.").partition(".")
             # Only the published Quick driver resolves to a solver host.
             area = "solvers" if module == "quick_design" else "cpp_interface"
-        if area == "cpp_interface" and module in _OTHER_STAGE_MODULES:
+        if area == "cpp_interface" and module != binding and module in _OTHER_STAGE_MODULES:
             return True
         if area == "shared" and member.startswith(("_native_", "models._native_")) and (
                 member.removeprefix("models.").partition(".")[0] in _OTHER_STAGE_MODULES):
@@ -409,7 +419,17 @@ class _StageImportAudit(ast.NodeVisitor):
 
 
 def _stage_boundary_violations(path, tree, package):
-    if path in (PKG / "solvers/quick_design.py", PKG / "cpp_interface/quick_design.py"):
+    if path in (PKG / "preprocess/api.py", PKG / "applications/design/sizing.py"):
+        for node in ast.walk(tree):
+            for target in import_targets(node, package):
+                if target in _QUICK_PREPARATION_IMPORTS:
+                    yield f"{path.relative_to(REPO)}:{node.lineno}: Quick preparation boundary -> {target}"
+                    break
+        return
+    if path in (PKG / "preprocess/quick_design.py", PKG / "cpp_interface/quick_preparation.py"):
+        label, binding, operations = "Quick preparation", "quick_preparation", {"", "run_preparation"}
+        modules, types = _CASE_DTO_MODULES, {"CaseData", "ModelRef"}
+    elif path in (PKG / "solvers/quick_design.py", PKG / "cpp_interface/quick_design.py"):
         label, binding, operations = "Quick solve", "quick_design", {"", "QuickSolver"}
         modules, types = _QUICK_DTO_MODULES, {"FieldResult"}
     elif (path.parent == PKG / "postprocess" and path.stem in {"api", "evaluation"}
@@ -422,7 +442,8 @@ def _stage_boundary_violations(path, tree, package):
     host = path.parent != PKG / "cpp_interface"
     for node in ast.walk(tree):
         targets = import_targets(node, package)
-        if host and binding == "quick_design" and isinstance(node, ast.ImportFrom) and node.names[0].name == "*":
+        if (host and binding in {"quick_design", "quick_preparation"} and
+                isinstance(node, ast.ImportFrom) and node.names[0].name == "*"):
             targets.append(targets[0] + ".*")
         forbidden = next((name for name in targets
                           if _invalid_stage_target(host, name, binding, operations)), None)

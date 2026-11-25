@@ -15,7 +15,7 @@ from sjtu_tpmshx.preprocess import _metadata, api
 @pytest.mark.parametrize('entry,module,is_3d', [
     ('prepare_case', 'preprocess.two_d.preparation', False),
     ('prepare_case', 'preprocess.three_d.preparation', True),
-    ('prepare_quick_design', 'cpp_interface._native_quick_prepare', False),
+    ('prepare_quick_design', 'preprocess.quick_design', False),
 ])
 def test_public_preparation_keeps_metadata_and_warning_ownership(monkeypatch, entry, module, is_3d):
     # Stub only physical preparation; exercise each real public boundary.
