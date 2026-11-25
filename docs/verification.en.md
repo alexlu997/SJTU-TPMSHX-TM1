@@ -73,9 +73,8 @@ A different source commit, a dirty build, or a missing or unreadable build recor
 
 The check fails when an image is missing or when its C exports differ from the manifest.
 It also applies the import and dynamic dependency checks of the build verifier.
-The manifests are `solver/solver.exports`, `preprocess/preparation.exports`, and `postprocess/result.exports`.
+The manifests are `geometry/geometry.exports`, `preprocess/preparation.exports`, `solver/solver.exports`, and `postprocess/result.exports`.
 The Windows solver image does not export the six macOS SuperLU hooks. The check applies this exception.
-Geometry has no export manifest. The check prints the geometry build record and does not compare its exports.
 Use `--component geometry`, `preparation`, or `result` to check one image. On Linux, use `--component result`.
 
 ## CI scope and test shards
