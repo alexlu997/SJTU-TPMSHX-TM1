@@ -44,7 +44,7 @@ follow the read timing stated below.
 - ``TPMSHX_PHASE_A/C`` (1/0) — adaptive AMG / coarse bootstrap.
   Captured by ``preprocess/three_d/preparation.py`` (cfg keys win).
   Phase B / inner SIMPLE Anderson is retired; explicit enablement raises.
-- ``TPMSHX_PREINIT_3D`` (0) — prewarm 3D panel at startup; ``main.py``.
+- ``TPMSHX_PREINIT_3D`` (0) — prewarm 3D panel at startup; ``applications/gui/ui/main_window.py``.
 - ``TPMSHX_ROUGH_MODE`` (baseline; UI path defaults norris_1a) +
   ``TPMSHX_ROUGH_EPS_UM`` (100) — roughness model; single helper
   ``models.roughness.resolve_mode_from_env``.

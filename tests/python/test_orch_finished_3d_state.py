@@ -85,7 +85,7 @@ class _DummyWindow(RunControllerMixin, RunResultsMixin):
 
 def _run_finished(win, finalize_behavior):
     """Drive Main_Menu._on_orch_finished with ensure_result_plot patched."""
-    import sjtu_tpmshx.applications.gui.main as main
+    import sjtu_tpmshx.applications.gui.ui.main_window as main_window
     if isinstance(finalize_behavior, BaseException):
         def _fb(_w, _field):
             raise finalize_behavior
@@ -94,7 +94,7 @@ def _run_finished(win, finalize_behavior):
         patch_fin = patch('sjtu_tpmshx.applications.gui.ui.plot_2d_results.ensure_result_plot',
                           return_value=finalize_behavior)
     with patch_fin:
-        main.Main_Menu._on_orch_finished(win, win.cache.get_result('3d'))
+        main_window.Main_Menu._on_orch_finished(win, win.cache.get_result('3d'))
     assert not win._compute_running
 
 

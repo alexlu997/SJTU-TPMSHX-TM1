@@ -11,7 +11,7 @@ from sjtu_tpmshx.applications.gui.controllers.session_manager import SessionMana
 def session_window(tmp_path, monkeypatch):
     from PySide6.QtCore import QCoreApplication, QEvent
     from PySide6.QtWidgets import QApplication, QMessageBox
-    from sjtu_tpmshx.applications.gui.main import Main_Menu
+    from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
 
     app = QApplication.instance() or QApplication(['pytest', '-platform', 'offscreen'])
     original_init = SessionManager.__init__

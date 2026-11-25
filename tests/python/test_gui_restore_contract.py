@@ -294,7 +294,7 @@ def test_close_with_focused_expression_restores_complete_session(
         monkeypatch, tmp_path, field, text, expected):
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QApplication
-    from sjtu_tpmshx.applications.gui.main import Main_Menu
+    from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
     original = SessionManager.__init__
     monkeypatch.setattr(SessionManager, '__init__',
         lambda self, base_dir=None, parent=None: original(self, base_dir=tmp_path, parent=parent))
@@ -341,7 +341,7 @@ def test_unreadable_library_is_preserved_before_replacement(win, monkeypatch):
 
 
 def test_malformed_library_members_do_not_block_window_initialization(monkeypatch, tmp_path):
-    from sjtu_tpmshx.applications.gui.main import Main_Menu
+    from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
     path = SessionManager(base_dir=tmp_path).presets_path()
     original = b'{"presets": [null]}'
     path.write_bytes(original)

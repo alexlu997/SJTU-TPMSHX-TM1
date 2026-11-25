@@ -250,7 +250,7 @@ def test_deferred_session_notice_follows_window_lifetime(
     from PySide6.QtWidgets import QApplication, QMessageBox
     from shiboken6 import isValid
     from sjtu_tpmshx.applications.gui.controllers import session_manager
-    from sjtu_tpmshx.applications.gui.main import Main_Menu
+    from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
 
     original_init = session_manager.SessionManager.__init__
     monkeypatch.setattr(session_manager.SessionManager, '__init__',

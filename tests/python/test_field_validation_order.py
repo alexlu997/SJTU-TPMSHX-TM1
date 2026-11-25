@@ -110,8 +110,8 @@ def _bind_handler(win, le, attr):
     """Bind ``Main_Menu._make_field_handler`` to a mock window /
     line edit without importing ``Main_Menu`` (and therefore without
     needing Qt)."""
-    import sjtu_tpmshx.applications.gui.main as main
-    handler_fn = main.Main_Menu._make_field_handler
+    import sjtu_tpmshx.applications.gui.ui.main_window as main_window
+    handler_fn = main_window.Main_Menu._make_field_handler
     fam_target = win._FIELD_UNITS.get(attr)
     is_positive = attr in win._POSITIVE_FIELDS
     return handler_fn(win, le, attr, fam_target, is_positive)

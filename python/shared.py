@@ -61,8 +61,12 @@ class _SharedNames:
         driver_prefix = __package__ + ".solvers.backends.cpp."
         if fullname.startswith(driver_prefix):
             driver = fullname[len(driver_prefix):]
-            directory = ("cpp_interface" if driver in ("full_2d_stage", "full_3d_stage", "quick_design", "run_state")
-                         else "cpp_interface.solver_library")
+            if driver == "quick_design":
+                directory = "solvers"
+            elif driver in ("full_2d_stage", "full_3d_stage", "run_state"):
+                directory = "cpp_interface"
+            else:
+                directory = "cpp_interface.solver_library"
             canonical = f"{__package__}.{directory}.{driver}"
         else:
             canonical = self._shared_target(fullname)

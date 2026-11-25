@@ -1,7 +1,7 @@
 """Grid-legality preflight.
 
 Pure functions (no PySide6) so the rules are testable in isolation. The
-UI wrapper in ``main.py`` passes captured compute inputs to
+UI wrapper in ``main_window.py`` passes captured compute inputs to
 ``compute_preflight`` and shows the findings in a QMessageBox.
 
 Rules:

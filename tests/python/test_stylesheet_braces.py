@@ -45,7 +45,7 @@ def test_main_menu_no_qt_parse_warnings(tmp_path, monkeypatch):
     previous_handler = qInstallMessageHandler(_handler)
     try:
         _app = QApplication.instance() or QApplication(sys.argv)
-        from sjtu_tpmshx.applications.gui.main import Main_Menu
+        from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
         w = Main_Menu()
         assert w.sm.base_dir == tmp_path
         w.close()

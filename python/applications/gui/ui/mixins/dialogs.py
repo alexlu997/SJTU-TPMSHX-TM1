@@ -67,7 +67,7 @@ class DialogsMixin:
         v.addLayout(btn_row)
         dlg.exec()
 
-    # About and onboarding remain owned by main.py; the help menu dispatches
+    # About and onboarding remain owned by main_window.py; the help menu dispatches
     # to those methods through the window's MRO.
 
     _SHORTCUT_ROWS = (
