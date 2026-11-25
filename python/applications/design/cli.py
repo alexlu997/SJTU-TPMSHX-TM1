@@ -4,9 +4,9 @@ import argparse, sys
 from collections import Counter
 from pathlib import Path
 
+from . import sizing
 from .cases import load_cases
-from .sizing import size_fixed_cell
-from .select import enumerate_select
+from .workflow import run_design
 from sjtu_tpmshx.run_control.cancellation import CancelledError
 from sjtu_tpmshx.applications.cli.cli_options import add_run_control_arguments, run_control_from_args
 
@@ -20,6 +20,8 @@ def _parse_nodes(s):          # "Diamond,Gyroid:6,7:0.4,0.5"
             "t": [float(x) for x in ts.split(",")]}
 
 def run(argv=None) -> int:
+    default_rho = str(sizing.RHO_S).removesuffix(".0")
+    default_ks = str(sizing.K_STEEL).removesuffix(".0")
     ap = argparse.ArgumentParser(description="TPMS 快速设计 (单模块)")
     ap.add_argument("--xlsx", required=True)
     ap.add_argument("--mode", choices=["auto", "fixed"], default="auto",
@@ -29,10 +31,10 @@ def run(argv=None) -> int:
     ap.add_argument("--arrangement", choices=["cross","counter"], default="cross")
     ap.add_argument("--refine", action="store_true",
                     help="auto 后对最优件做 warm-start 联合精修 (连续 l,t)")
-    ap.add_argument("--rho-s", type=float, default=7900.0,
-                    help="固体材料密度 kg/m³ (默认 7900 = 304 不锈钢)")
-    ap.add_argument("--k-s", type=float, default=16.0,
-                    help="固体热导率 W/(m·K) (默认 16 = 304SS; 铝~150 铜~300)")
+    ap.add_argument("--rho-s", type=float, default=sizing.RHO_S,
+                    help=f"固体材料密度 kg/m³ (默认 {default_rho} = 304 不锈钢)")
+    ap.add_argument("--k-s", type=float, default=sizing.K_STEEL,
+                    help=f"固体热导率 W/(m·K) (默认 {default_ks} = 304SS; 铝~150 铜~300)")
     ap.add_argument("--prop-model", choices=["const", "mean"], default="const",
                     help="const=入口物性求解一次(默认)；mean=再按入口/出口均温更新物性求解一次。"
                          "压降均用入口物性；水侧 Nu 的 Pr 均固定取 320 K / 0.2 MPa")
@@ -48,26 +50,22 @@ def run(argv=None) -> int:
 
     results = []
     try:
-        if a.mode == "fixed":
-            topo, l, t = _parse_cell(a.cell)
-            d = size_fixed_cell(cases, topo, l, t, a.arrangement,
-                                rho_s=a.rho_s, k_s=a.k_s, prop_model=a.prop_model,
-                                control=control)
-            results, best = [d], (d if d.feasible else None)
-        else:
-            nodes = _parse_nodes(a.nodes) if a.nodes else None
-            results, best = enumerate_select(cases, a.arrangement, nodes,
-                                             rho_s=a.rho_s, n_jobs=a.jobs, k_s=a.k_s,
-                                             prop_model=a.prop_model, control=control,
-                                             completed=results)
-            if a.refine and best is not None:           # Stage B warm-start 精修
-                from .optimize import warm_start_joint
-                ref = warm_start_joint(cases, best, a.arrangement,
-                                       rho_s=a.rho_s, k_s=a.k_s,
-                                       prop_model=a.prop_model, control=control)
-                if ref is not best:
-                    results = results + [ref]
-                    best = ref
+        cell = _parse_cell(a.cell) if a.mode == "fixed" and a.cell is not None else None
+        nodes = _parse_nodes(a.nodes) if a.mode == "auto" and a.nodes else None
+        results, best = run_design(
+            cases,
+            mode=a.mode,
+            arrangement=a.arrangement,
+            cell=cell,
+            nodes=nodes,
+            refine=a.refine,
+            rho_s=a.rho_s,
+            k_s=a.k_s,
+            prop_model=a.prop_model,
+            n_jobs=a.jobs,
+            control=control,
+            completed=results,
+        )
     except CancelledError:
         raise
     except Exception:

@@ -83,12 +83,12 @@ def test_load_cases_ignores_extra_and_blank_columns(tmp_path, suffix):
 
 
 def test_duplicate_duty_does_not_reach_sizing(tmp_path, monkeypatch):
-    from sjtu_tpmshx.applications.design import cli
+    from sjtu_tpmshx.applications.design import cli, sizing
 
     row = _input_row()
     source = tmp_path / 'duplicate.csv'
     _write_columns(source, [*row, 'Q_kW'], [*row.values(), 10.])
-    monkeypatch.setattr(cli, 'size_fixed_cell',
+    monkeypatch.setattr(sizing, 'size_fixed_cell',
                         lambda *a, **kw: pytest.fail('ambiguous duty reached sizing'))
     with pytest.raises(ValueError, match='重复列: Q_kW'):
         cli.run(['--xlsx', str(source), '--mode', 'fixed',

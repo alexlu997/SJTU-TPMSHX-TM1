@@ -33,12 +33,12 @@ def test_output_cannot_replace_input_workbook(tmp_path, monkeypatch, capsys, ali
     assert source.read_bytes() == previous
 
 def test_no_feasible_summary_preserves_actual_failure_reasons(monkeypatch, capsys):
-    from sjtu_tpmshx.applications.design import cli, report
+    from sjtu_tpmshx.applications.design import cli, report, select
 
     designs = [SimpleNamespace(reason=reason) for reason in
                ['not-converged@final', 'Q<target@final', 'not-converged@final']]
     monkeypatch.setattr(cli, 'load_cases', lambda _: [object()])
-    monkeypatch.setattr(cli, 'enumerate_select', lambda *a, **kw: (designs, None))
+    monkeypatch.setattr(select, 'enumerate_select', lambda *a, **kw: (designs, None))
     monkeypatch.setattr(report, 'write_xlsx', lambda *a: (3, 0, 3))
     assert cli.run(['--xlsx', 'unused.xlsx', '--out', 'unused-out.xlsx']) == 0
     message = capsys.readouterr().err
@@ -111,7 +111,7 @@ def test_partial_report_error_does_not_hide_computation_error(monkeypatch, tmp_p
 @pytest.mark.parametrize('explicit_backend', [False, True])
 def test_cli_control_reaches_fixed_enumeration_and_refinement(
         mode, explicit_backend, monkeypatch, tmp_path):
-    from sjtu_tpmshx.applications.design import cli, optimize, sizing
+    from sjtu_tpmshx.applications.design import cli, optimize, select, sizing
     from sjtu_tpmshx.run_control.module_ports import RunControl
 
     source, output = tmp_path / 'spec.xlsx', tmp_path / 'design.xlsx'
@@ -131,8 +131,8 @@ def test_cli_control_reaches_fixed_enumeration_and_refinement(
         calls.append(('refine', control))
         return design
 
-    monkeypatch.setattr(cli, 'size_fixed_cell', fixed)
-    monkeypatch.setattr(cli, 'enumerate_select', enumeration)
+    monkeypatch.setattr(sizing, 'size_fixed_cell', fixed)
+    monkeypatch.setattr(select, 'enumerate_select', enumeration)
     monkeypatch.setattr(optimize, 'warm_start_joint', refinement)
     library, tables = tmp_path / 'solver.so', tmp_path / 'tables'
     arguments = ['--xlsx', str(source), '--out', str(output),
