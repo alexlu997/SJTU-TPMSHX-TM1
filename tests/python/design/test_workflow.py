@@ -289,10 +289,13 @@ def test_cli_rejects_invalid_height_before_loading_or_writing(
 
 
 def test_cli_fixed_without_cell_raises_value_error(monkeypatch, tmp_path):
+    output = tmp_path / 'out.xlsx'
+    output.write_bytes(b'previous report')
     monkeypatch.setattr(cli, 'load_cases', lambda path: ['case1'])
     with pytest.raises(ValueError, match='cell is required'):
         cli.run(['--xlsx', str(tmp_path / 'in.xlsx'), '--mode', 'fixed',
-                 '--out', str(tmp_path / 'out.xlsx')])
+                 '--out', str(output)])
+    assert output.read_bytes() == b'previous report'
 
 
 def test_cli_help_documents_unified_defaults_and_height(capsys):
