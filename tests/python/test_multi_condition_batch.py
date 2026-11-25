@@ -58,6 +58,30 @@ def _conditions(count=3):
              .001 * (i+1), .02 * (i+1)) for i, name in enumerate(('low', 'mid', 'high')[:count])]
 
 
+@pytest.mark.parametrize('workers,count,threads,expected', [
+    (None, 8, 12, 4), (None, 8, 5, 2), (None, 8, 1, 1),
+    (7, 3, 8, 3), (7, 9, 3, 3), (6, 9, 8, 6),
+])
+def test_condition_worker_count(monkeypatch, workers, count, threads, expected):
+    monkeypatch.setattr('os.cpu_count', lambda: 12)
+    assert batch.condition_worker_count(workers, count, RunControl(cpu_threads=threads)) == expected
+
+
+def test_saved_condition_config_uses_prescribed_flows_and_grid_policy():
+    _, config, flow_a, flow_b = _conditions(1)[0]
+    row = dict(config=config.to_dict(), mass_flow_A_kg_s=flow_a, mass_flow_B_kg_s=flow_b)
+    expected = replace(config, fluid_A=replace(config.fluid_A, mass_flow_kg_s=flow_a),
+                       fluid_B=replace(config.fluid_B, mass_flow_kg_s=flow_b))
+    assert batch.saved_condition_config(row) == expected
+    assert row['config'] == config.to_dict()
+
+    row['config']['flags']['wall_refine_3d'] = True
+    with pytest.raises(ValueError, match='wall_refine_3d is retired'):
+        batch.saved_condition_config(row)
+    assert batch.saved_condition_config(row, prepared_grid=True) == expected
+    assert row['config']['flags']['wall_refine_3d'] is True
+
+
 def _native(case, *, q=100., dp_a=20., dp_b=40., index=0):
     """Hand-checkable native boundaries, following postprocess_tm1/test_three_d.
 

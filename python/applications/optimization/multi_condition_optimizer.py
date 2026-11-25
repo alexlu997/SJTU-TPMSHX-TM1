@@ -24,7 +24,7 @@ from sjtu_tpmshx.file_io.text_file import write_text
 from sjtu_tpmshx.run_control.logutil import get_logger
 from sjtu_tpmshx.physical_models.continuous_field import decision_bounds, decision_dim
 from sjtu_tpmshx.applications.optimization.multi_condition import (
-    _condition_worker_count, _saved_condition_config, evaluate_compact_condition_batch,
+    condition_worker_count, evaluate_compact_condition_batch, saved_condition_config,
 )
 from sjtu_tpmshx.data_types.portable_data import mutable_data
 from sjtu_tpmshx.applications.optimization.mass_design import (
@@ -203,7 +203,7 @@ def resume_multi_condition_optimization(checkpoint_file, *, output_dir, control=
         for row in saved['conditions']:
             if row['config']['flags'].get('wall_refine_3d') is False:
                 del row['config']['flags']['wall_refine_3d']
-    conditions = [(row['condition_id'], _saved_condition_config(row),
+    conditions = [(row['condition_id'], saved_condition_config(row),
                    row['mass_flow_A_kg_s'], row['mass_flow_B_kg_s']) for row in frozen['conditions']]
     return _run_multi_condition_optimization(conditions, output_dir=destination, control=control,
         workers=workers, on_update=on_update, pause_check=pause_check,
@@ -264,7 +264,7 @@ def _run_multi_condition_optimization(
     inputs = deepcopy(tuple(conditions))
     if not inputs:
         raise ValueError('conditions must not be empty')
-    workers = _condition_worker_count(workers, len(inputs), control)
+    workers = condition_worker_count(workers, len(inputs), control)
     ids = [row[0] for row in inputs]
     if any(not isinstance(item, str) or not item for item in ids) or len(set(ids)) != len(ids):
         raise ValueError('conditions require unique nonempty IDs')
