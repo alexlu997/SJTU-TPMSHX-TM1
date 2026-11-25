@@ -407,19 +407,20 @@ def test_windows_probe_reports_timeout_while_pipe_writer_is_open(tmp_path, monke
             reading.set()
             return pipe.read()
 
-    probe = Mock(pid=700, stdout=pipe, stderr=None)
+    probe_stdout = Mock(wraps=pipe)
+    probe_stdout.close.side_effect = AssertionError('Cleanup tried to close the reader-owned pipe.')
+    probe = Mock(pid=700, stdout=probe_stdout, stderr=None)
     probe.poll.return_value = 0
     probe.communicate.side_effect = subprocess.TimeoutExpired('probe', 5)
     monkeypatch.setattr(subprocess, 'Popen', Mock())
-    # Release the writer before joining the threads, including when the check fails.
-    with ThreadPoolExecutor(max_workers=2) as pool, os.fdopen(write_fd, 'wb'):
+    # Release the writer before joining its reader, including when the check fails.
+    with ThreadPoolExecutor(max_workers=1) as pool, os.fdopen(write_fd, 'wb'):
         reader = pool.submit(read_to_eof)
-        assert reading.wait(timeout=5)
-        failure = pool.submit(_fail_worker_exit_timeout, probe, tmp_path, monotonic(), 0., windows=True)
+        reading.wait()
         with pytest.raises(pytest.fail.Exception, match='pipe stayed open') as caught:
-            failure.result(timeout=5)
+            _fail_worker_exit_timeout(probe, tmp_path, monotonic(), 0., windows=True)
         assert 'returncode_before_kill=0' in str(caught.value)
-        assert not reader.done()
+        assert not reader.done() and not pipe.closed
     assert reader.result() == b'' and pipe.closed
     probe.wait.assert_called_once_with(timeout=5)
 
