@@ -34,6 +34,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
+
 _THIS = Path(__file__).resolve()
 _PKG_ROOT = _THIS.parents[3]
 from sjtu_tpmshx.physical_models.tpms_props import (  # noqa: E402
@@ -140,13 +142,13 @@ def load_exp(topo: str = "Diamond") -> pd.DataFrame:
     hot, cold = side_frame("hot"), side_frame("cold")
     # 各侧实测端点用于焓差；该侧均温均压仅用于约化物性。
     for s in (hot, cold):
-        s["T_mean_K"] = (s["Tin_C"] + s["Tout_C"]) / 2 + 273.15
+        s["T_mean_K"] = (s["Tin_C"] + s["Tout_C"]) / 2 + CELSIUS_ZERO_K
         s["Pin_abs_Pa"] = s["Pin_MPa"] * 1e6 + P_atm
         s["Pout_abs_Pa"] = s["Pout_MPa"] * 1e6 + P_atm
         s["P_mean_Pa"] = (s["Pin_abs_Pa"] + s["Pout_abs_Pa"]) / 2
         for endpoint in ("in", "out"):
             s[f"h{endpoint}_J_kg"] = PropsSI(
-                "H", "T", s[f"T{endpoint}_C"].to_numpy() + 273.15,
+                "H", "T", s[f"T{endpoint}_C"].to_numpy() + CELSIUS_ZERO_K,
                 "P", s[f"P{endpoint}_abs_Pa"].to_numpy(), "CO2")
     hot["Q_kW"] = hot["mdot"] * (hot["hin_J_kg"] - hot["hout_J_kg"]) / 1e3
     cold["Q_kW"] = cold["mdot"] * (cold["hout_J_kg"] - cold["hin_J_kg"]) / 1e3

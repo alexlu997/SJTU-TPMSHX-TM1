@@ -7,7 +7,7 @@
 # slow/heavy and runs public-module integration separately. Neither is the full suite.
 tests/python/test_conservation_3d_energy.py::test_strict_energy_conservation[T4_partial_offset]
 tests/python/test_conservation_3d_energy.py::test_strict_energy_conservation[T3_partial_aligned]
-tests/python/test_port_wall_grid_3d.py::test_port_wall_grid_solves_and_matches_uniform
+tests/python/solver_tm1/test_port_wall_grid_3d.py::test_port_wall_grid_solves_and_matches_uniform
 tests/python/test_asym_porosity_3d.py::test_asym_delta_runs_and_changes_result[True]
 tests/python/test_asym_porosity_3d.py::test_delta0_explicit_matches_baseline_bit_identical
 tests/python/test_asym_porosity_3d.py::test_asym_delta_runs_and_changes_result[False]

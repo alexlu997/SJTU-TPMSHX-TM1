@@ -13,6 +13,8 @@ Public entry points (consumed by ``ui.mixins.run_controller`` and ``main``):
 import numpy as np
 from matplotlib.ticker import ScalarFormatter
 
+from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
+
 from .theme import FIELD_CMAP
 from .vis3d_constants import field_color_limits
 
@@ -109,7 +111,7 @@ def plot_temperature_3panel(window, r, _t, zones=None):
     and Solid uses its own range.
     """
     unit = '°C' if getattr(window, '_temp_unit', 'K') == 'C' else 'K'
-    offset = 273.15 if unit == '°C' else 0.0
+    offset = CELSIUS_ZERO_K if unit == '°C' else 0.0
     Ta, Tb, Ts = (r[key] - offset for key in ('Ta', 'Tb', 'Ts'))
     N_x, N_y, L, H = r['N_x'], r['N_y'], r['L'], r['H']
 

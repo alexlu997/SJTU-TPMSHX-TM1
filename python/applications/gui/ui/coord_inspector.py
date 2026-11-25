@@ -21,6 +21,8 @@ from PySide6.QtWidgets import (
     QPushButton, QApplication, QSizePolicy,
 )
 
+from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
+
 from .theme import get_theme
 from .matplotlib_canvas import cell_index_mm
 
@@ -94,7 +96,7 @@ def _resolve_fields(window, x_mm, y_mm):
             # header K/°C toggle.
             disp_unit = unit
             if unit == 'K' and want_C:
-                v = v - 273.15
+                v = v - CELSIUS_ZERO_K
                 disp_unit = '°C'
             out.append((label, fmt.format(v), disp_unit))
         except Exception:
