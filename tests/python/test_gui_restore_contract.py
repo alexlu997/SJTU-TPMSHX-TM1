@@ -78,6 +78,65 @@ def test_valid_restore_refreshes_error_state_without_recording_history(win):
     assert list(win._field_history['le_L']) == history
 
 
+@pytest.mark.parametrize('unit,text', [
+    ('K', '0'), ('C', '-273.15'),
+    ('K', '0 K'), ('C', '0 K'),
+    ('K', '-273.15 degC'), ('C', '-273.15 degC'),
+    ('C', '-0.001 K'), ('C', '(-273.15)'),
+])
+def test_inlet_keeps_rejected_temperature_on_refresh(win, unit, text):
+    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+
+    if unit == 'C':
+        win._toggle_temp_unit()
+    field = win.le_TinA
+    field.setText(text)
+    for validate in (field.editingFinished.emit, win._refresh_field_validation):
+        validate()
+        assert field.property('inpError') == 'true'
+        assert 'Must be above 0 K' in field.toolTip()
+        assert field.text() == text
+    with pytest.raises(ValueError, match=r'Inlet Temp A|fluid_A\.T_in_K'):
+        config_from_window(win, strict=True).validate()
+
+
+@pytest.mark.parametrize('unit,text,display,kelvin', [
+    ('K', '0.05 K', '0.05', 0.05), ('C', '0.05 K', '-273.1', 0.05),
+    ('K', '300 K', '300', 300), ('C', '300 K', '26.85', 300),
+])
+def test_inlet_keeps_valid_temperature_format_and_value(win, unit, text, display, kelvin):
+    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+
+    if unit == 'C':
+        win._toggle_temp_unit()
+    field = win.le_TinB
+    field.setText(text)
+    field.editingFinished.emit()
+    win._refresh_field_validation()
+    assert field.property('inpError') == 'false'
+    assert field.text() == display
+    assert config_from_window(win, strict=True).fluid_B.T_in_K == pytest.approx(kelvin)
+
+
+@pytest.mark.parametrize('unit,zero,normal,switched', [
+    ('K', '(0)', '150 * 2', '26.850000000000023'),
+    ('C', '(-273.15)', '25 + 1.85', '300'),
+])
+def test_unit_switch_keeps_rejected_temperature_expression_at_absolute_zero(win, unit, zero, normal, switched):
+    if unit == 'C':
+        win._toggle_temp_unit()
+    win.le_TinA.setText(zero)
+    win.le_TinA.editingFinished.emit()
+    win.le_TinB.setText(normal)
+    win._toggle_temp_unit()
+    assert win.le_TinB.text() == switched
+    assert win.le_TinB.property('inpError') == 'false'
+    assert win._temp_to_K(win.le_TinB) == 300
+    assert win.le_TinA.property('inpError') == 'true'
+    assert 'Must be above 0 K' in win.le_TinA.toolTip()
+    assert win._temp_to_K(win.le_TinA) == 0
+
+
 @pytest.mark.parametrize('content', ['{"presets": {"old": 1}}', '{"presets": [null]}', '{broken'])
 def test_rejected_preset_library_is_preserved_before_next_save(win, content):
     path = win.sm.presets_path()
