@@ -13,7 +13,7 @@ from sjtu_tpmshx.cpp_interface import _native_geometry
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
 from tests.python.cases_3d import air_air_config
-from sjtu_tpmshx.physical_models.df_surrogate import kappa_asym
+from sjtu_tpmshx.development.runs.cfd_asym import kappa_asym
 
 
 # ── split + per-side void fraction ───────────────────────────────────────────

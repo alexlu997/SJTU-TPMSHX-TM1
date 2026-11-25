@@ -146,7 +146,7 @@ def nu_vec(tpms_type, Re, L_mm, D_h_mm, *, Re_floor=10.0, Pr=Pr_AIR):
 # Direct per-topology fits Nu = c·Re^a·Pr^(1/3) on water unit-cell CFD.
 # REFIT 2026-07-23 on the corrected upload (data/raw_data/Water-CFD/
 # 水数值模拟数据.xlsx, 40 geometries D+G L∈[4,8]×t∈[0.3,0.6], ~46 Re each,
-# Re 94–50624), loaded via df_surrogate/load_water_cfd.py (repo Dh, entrance
+# Re 94–50624), loaded via preprocess/offline/load_water_cfd.py (repo Dh, entrance
 # period dropped → Nu_dev target). Replaces the 2026-06-12 coeffs (fit on the
 # retired water-cfd-raw.xlsx, kept in git). Adding a (D_h/L)^d geometry term
 # does NOT help water (d≈0 Diamond / +0.08 Gyroid, RMSRE unchanged) — the
@@ -221,7 +221,7 @@ def nu_water_topo(tpms_type, Re, Pr_water):
 # local .cache/reports/sco2_cfd/; archived outputs: docs/history/README.md.
 # Diamond D_7_3/4/5 remain in the stored fit despite a documented mdot/Um
 # inconsistency. Nu not explicitly using velocity does not validate Re or
-# remove its effect on Nu(Re) fitting; see df_surrogate/load_sco2_cfd.py.
+# remove its effect on Nu(Re) fitting; see preprocess/offline/load_sco2_cfd.py.
 #
 # Form  Nu = c·Re^a·Pr_b^(1/3)·(D_h/L)^d      [bulk properties at (T_b, P)]
 # Accuracy (2026-07-26): far-critical RMSRE Diamond 9.3% / Gyroid 7.4%,

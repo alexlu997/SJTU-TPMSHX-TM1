@@ -50,7 +50,7 @@ def test_2d_tout_displays_result_scalars_across_units_and_direction_drafts(win):
 @pytest.mark.parametrize('mode', ['2d', '3d'])
 @pytest.mark.parametrize('df_extrap', [False, True])
 def test_real_source_warnings_do_not_set_df_ui_flag(win, monkeypatch, mode, df_extrap):
-    from sjtu_tpmshx.physical_models.df_surrogate.surrogate_domain import check_surrogate_domain_at_point
+    from sjtu_tpmshx.development.validation.surrogate_domain import check_surrogate_domain_at_point
     from sjtu_tpmshx.physical_models.nu_correlations import nu_water_topo
     from sjtu_tpmshx.physical_models.tpms_props import air_cp
     from tests.python.gui_worker_support import _stub_stages

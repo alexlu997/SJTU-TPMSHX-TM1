@@ -193,7 +193,7 @@ AC/AD 温度平均值，AE/AF 表压。保留 2000 Pa 的既有筛选规则；�
 `load_air_cases("Gyroid", source=(工作簿相对路径, "Sheet1"))`。
 Diamond 空气、水和 sCO2 的源文件及标定选择保持原状。
 
-本次变更仅作用于独立的 7/0.6 mm HX 修正。`physical_models.df_surrogate.load_data` 的
+本次变更仅作用于独立的 7/0.6 mm HX 修正。`preprocess.offline.load_data` 的
 空气小试件训练集隔离守卫继续有效，上海整机数据不进入该训练表。
 新系数和适用范围见[标定来源与适用范围](model-resources.md)。
 

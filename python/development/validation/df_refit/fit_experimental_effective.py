@@ -16,7 +16,7 @@ from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
 from sjtu_tpmshx.physical_models.df_surrogate.experimental_correction import (
     correction_scale, hx_velocity_bounds)
 from sjtu_tpmshx.physical_models.df_surrogate.full_core_3cell_fixed_v2 import FullCore3CellFixedDFV2
-from sjtu_tpmshx.physical_models.df_surrogate.load_data import load_all
+from sjtu_tpmshx.preprocess.offline.load_data import load_all
 from sjtu_tpmshx.development.validation.hx_experiments import (
     A_FLOW, L_FLOW, P_ATM, R_AIR, air_mu, load_air_cases, load_water_cases)
 from sjtu_tpmshx.development.validation.sco2_exp.load_sco2_exp import load_exp

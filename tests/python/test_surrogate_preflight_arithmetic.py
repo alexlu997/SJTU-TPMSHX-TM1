@@ -5,7 +5,7 @@ import warnings
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.physical_models.df_surrogate import surrogate_domain
+from sjtu_tpmshx.development.validation import surrogate_domain
 from sjtu_tpmshx.cpp_interface import _native_result_checks
 from sjtu_tpmshx.physical_models import co2_correlations, fluid_props
 

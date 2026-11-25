@@ -1,11 +1,6 @@
-"""Production geometry-node and per-fluid Nu-window guard.
+"""Validate a geometry and a fluid Nu window at one point.
 
-Provides `check_surrogate_domain_at_point` for callers that need to verify a
-    single (u, T, P, L, t) point lies inside the CFD geometry grid and in
-the selected fluid's Nu-fit Reynolds-number window.
-
-This file used to live in `optimization.optimizer` but was hoisted out when the
-patch-zoning optimizer was retired in favor of the continuous-field design.
+The query uses the CFD geometry grid and the selected fluid's Reynolds-number window.
 """
 from __future__ import annotations
 from typing import List
@@ -28,7 +23,7 @@ def check_surrogate_domain_at_point(tpms_type: str,
                                     allow_extrap: bool = False,
                                     fluid: str = 'air', *,
                                     nu_reasons: list[str] | None = None, co2_geometry: bool = False) -> List[str]:
-    """Point-form surrogate-domain check for the Compute path.
+    """Evaluate the D-F geometry limits and fluid Nu window at one point.
 
     Computes Re with the selected fluid and checks only that fluid's Nu fit
     window. Darcy--Forchheimer K/cF are interpolated only in L/t and therefore

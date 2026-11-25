@@ -178,6 +178,8 @@ python -m sjtu_tpmshx.development.runs.cfd_asym.asym_ntop_expressions_html
 
 Former `water-cfd-raw.xlsx` is now `data/raw_data/cfd/water/water_DG_cfd_results_legacy.xlsx`. It is only this research tool's declared previous recipe anchor. The [data catalog](data-catalog.en.md) maps all names. Formal offline processing still requires missing `Water-CFD/水数值模拟数据.xlsx`. These files cannot substitute for each other.
 
+Run the research importer with `python -m sjtu_tpmshx.development.runs.cfd_asym.ingest_cfd_kappa results.csv`. New design workbooks show this command. The published `sjtu_tpmshx.shared.df_surrogate.ingest_cfd_kappa` command also uses this importer. Older workbooks show the retired command module `sjtu_tpmshx.physical_models.df_surrogate.ingest_cfd_kappa`. Use the new command with their existing CSV files.
+
 Two asymmetric CFD kappa research paths use different denominators. `ingest_cfd_kappa` uses the current symmetric predictor. `asym_postproc_kappa` uses paired r=1 CFD. Their kappa values cannot be mixed directly. The importer uses piecewise linear interpolation over sorted nodes. It does not guarantee monotonic data or enforce an r=1 anchor.
 
 The registry exists only in the current process. Explicit `kappa_KcF` supports research evaluation. It is not integrated into formal solve preparation. An environment variable does not automatically change full 2D/3D or GUI computations. Previous accuracy figures in work orders are historical references.

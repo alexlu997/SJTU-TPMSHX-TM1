@@ -1,4 +1,4 @@
-"""Sanity tests for df_surrogate.surrogate_domain.check_surrogate_domain_at_point.
+"""Sanity tests for development.validation.surrogate_domain.check_surrogate_domain_at_point.
 
 Covers:
   * In-window inputs return empty list
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from sjtu_tpmshx.physical_models.df_surrogate.surrogate_domain import (
+from sjtu_tpmshx.development.validation.surrogate_domain import (
     check_surrogate_domain_at_point,
     _SURROGATE_L_MM, _SURROGATE_T_MM,
 )
