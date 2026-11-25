@@ -318,6 +318,7 @@ class _StageImportAudit(ast.NodeVisitor):
             if (_invalid_stage_target(self.host, target, self.binding, self.operations)
                     or (not self.host and target in self.dto_modules and isinstance(node.ctx, ast.Load))):
                 self.violations.append((node.lineno, target))
+        targets.discard("")  # A path without an import has no parent package.
         if (self.binding == "native_preparation" and targets
                 and all(_resolved_native_target(target) != target for target in targets)):
             # The published prefix is a namespace on this path to the native module.

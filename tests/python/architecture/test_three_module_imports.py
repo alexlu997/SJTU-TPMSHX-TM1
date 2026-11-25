@@ -312,6 +312,13 @@ def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monke
         f'from sjtu_tpmshx.{package} import _native_preparation_case as wire\n'
         f'import sjtu_tpmshx\nrecord = sjtu_tpmshx.{package}._native_preparation_case._InletQueryInput',
         'VIOLATIONS (0)', 0) for package in ('shared', 'shared.models', 'physical_models')),
+    *(('cpp_interface/inlet_properties.py', 'def request_type(enabled):\n'
+       '    if enabled:\n'
+       f'        import sjtu_tpmshx.{package}._native_preparation_case\n'
+       '    else:\n'
+       '        return None\n'
+       f'    return sjtu_tpmshx.{package}._native_preparation_case._InletQueryInput',
+       'VIOLATIONS (0)', 0) for package in ('shared.models', 'physical_models')),
     *(('cpp_interface/inlet_properties.py', f'from sjtu_tpmshx.{package} import _native_quick_prepare as quick',
         f'full preparation boundary -> sjtu_tpmshx.{package}._native_quick_prepare', 1)
       for package in ('shared', 'shared.models', 'physical_models')),
