@@ -771,24 +771,22 @@ def verify_published(directory: Path, host: str, component: str, log: Path) -> N
     print(f"PASS: {host} published images agree with the export manifests", flush=True)
 
 
-def verify_installed_sdk_headers(prefix: Path) -> None:
-    """Compare each installed header path with the public tables in both SDK guides."""
-    wrappers = list(prefix.rglob("tpmshx/stages.hpp"))
-    if len(wrappers) != 1:
-        raise RuntimeError(f"Expected one installed tpmshx/stages.hpp under {prefix}")
-    directory = wrappers[0].parent
-    installed = {path.relative_to(directory).as_posix()
-                 for path in directory.rglob("*") if path.is_file() or path.is_symlink()}
+def verify_installed_sdk_headers(include_root: Path) -> None:
+    """Check the files visible to SDK consumers against both public header tables."""
+    installed = {path.relative_to(include_root).as_posix() for path in include_root.rglob("*")
+                 if not path.is_dir() or path.is_symlink()}
 
     for name in ("native-stages.md", "native-stages.zh-CN.md"):
         guide = (ROOT / "docs" / name).read_text(encoding="utf-8")
         table = guide.partition('<a id="sdk-public-headers"></a>')[2].lstrip().split("\n\n", 1)[0]
-        documented = set(re.findall(r"`([^`]+)`", table))
+        documented = {f"tpmshx/{header}" for header in re.findall(r"`([^`]+)`", table)}
         if not documented:
             raise RuntimeError(f"Missing public SDK header table in {name}")
-        if installed != documented:
+        missing = sorted(header for header in documented if not (include_root / header).is_file())
+        extra = sorted(installed - documented)
+        if missing or extra:
             raise RuntimeError(f"Installed SDK headers differ from {name}: "
-                               f"missing={sorted(documented - installed)}, extra={sorted(installed - documented)}")
+                               f"missing regular files={missing}, extra={extra}")
 
 
 def check_stages(cache: Path, host: str, python: Path, lock: Path, component: str) -> None:
@@ -826,23 +824,30 @@ def check_stages(cache: Path, host: str, python: Path, lock: Path, component: st
         independent = Path(temporary)
         prefix = independent / "sdk"
         run([cmake, "--install", stage_build, "--config", "Release", "--prefix", prefix], log)
-        verify_installed_sdk_headers(prefix)
+        include_query = independent / "sdk-include-root.cmake"
+        include_query.write_text(
+            'file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/sdk-include-root.txt"\n'
+            '    CONTENT "$<TARGET_PROPERTY:tpmshx::result,INTERFACE_INCLUDE_DIRECTORIES>")\n',
+            encoding="utf-8")
         shutil.copytree(ROOT / "examples/cpp", independent / "examples")
-        sources = ["examples"]
+        sources = [("examples", [f"-DCMAKE_PROJECT_INCLUDE={include_query}"])]
         if component == "all":
             tests = independent / "tests"
             shutil.copytree(ROOT / "tests/cpp/stages", tests / "stages")
             for smoke in ("stage_run_smoke", "quick_design_stage_smoke"):
                 shutil.copy2(ROOT / f"tests/cpp/{smoke}.cpp", tests)
             shutil.copy2(ROOT / "tests/cpp/stage_run_3d_smoke.c", tests)
-            sources.append("tests/stages")
+            sources.append(("tests/stages", []))
         env = {key: value for key, value in os.environ.items()
                if key not in {"PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV"} and not key.startswith("TPMSHX_")}
         env["PATH"] = os.defpath
-        for source in sources:
+        for source, consumer_options in sources:
             build_dir = independent / (source.replace("/", "-") + "-build")
             run([cmake, "-S", independent / source, "-B", build_dir, *generator,
-                 f"-DCMAKE_PREFIX_PATH={prefix}"], log, cwd=independent)
+                 f"-DCMAKE_PREFIX_PATH={prefix}", *consumer_options], log, cwd=independent)
+            if source == "examples":
+                include_root = (build_dir / "sdk-include-root.txt").read_text(encoding="utf-8")
+                verify_installed_sdk_headers(Path(include_root))
             run([cmake, "--build", build_dir, "--config", "Release", "--parallel", "2"],
                 log, cwd=independent)
             run([ctest, "--test-dir", build_dir, "-C", "Release", "--output-on-failure"],
