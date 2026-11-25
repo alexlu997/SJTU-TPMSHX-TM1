@@ -70,7 +70,8 @@ class _CacheCallbacks:
                     for field, value in zip(_GEOMETRY_FIELDS, values):
                         setattr(pointer.contents, field, float(value))
             elif action == 1:
-                self.geometry_cache(tuple(getattr(pointer.contents, field) for field in _GEOMETRY_FIELDS))
+                stored = [getattr(pointer.contents, field) for field in _GEOMETRY_FIELDS]
+                self.geometry_cache(tuple(stored))
                 hit[0] = 0
             else:
                 raise RuntimeError('unknown Quick geometry cache operation')
@@ -83,7 +84,8 @@ class _CacheCallbacks:
         try:
             name = 'sco2' if fluid == 2 else 'co2'
             if action:
-                self.eos_cache(name, index, temperature, pressure, tuple(values[n] for n in range(count[0])))
+                stored = [values[n] for n in range(count[0])]
+                self.eos_cache(name, index, temperature, pressure, tuple(stored))
             else:
                 data = self.eos_cache(name, index, temperature, pressure, None)
                 hit[0] = data is not None
@@ -102,8 +104,10 @@ class _CacheCallbacks:
 def _copy_prepared(output):
     shape = tuple(output.shape)
     controls = output.controls
+    # A generator would convert StopIteration from the copier into RuntimeError.
+    axes = [(copy_array(widths), copy_array(edges)) for widths, edges in zip(output.widths, output.edges)]
     return SimpleNamespace(
-        axes=tuple((copy_array(widths), copy_array(edges)) for widths, edges in zip(output.widths, output.edges)),
+        axes=tuple(axes),
         epsilon=copy_array(output.epsilon, shape), epsilon_a=copy_array(output.epsilon_a, shape),
         solid_conductivity=copy_array(output.solid_conductivity, shape),
         controls=SimpleNamespace(**{name: getattr(controls, name) for name, _ in controls._fields_}),
@@ -147,11 +151,11 @@ def _native_result(state, geometry_cache, eos_cache, check_model_error, observe)
         if status:
             check_model_error(status, error.value.decode('utf-8', errors='replace'))
             _native_flow._check_status(status, error)
-        ranges = tuple((item.label, item.side, tuple(item.bounds), item.temperature_K)
-                       for item in result.ranges[:result.range_count])
-        pressures = tuple((tuple(item.floating_events), item.no_positive_outlet, item.outlet_squared)
-                          for item in result.inlet_pressure)
-        observe(ranges, tuple(result.floating_events), pressures, bindings.collect_range,
+        ranges = [(item.label, item.side, tuple(item.bounds), item.temperature_K)
+                  for item in result.ranges[:result.range_count]]
+        pressures = [(tuple(item.floating_events), item.no_positive_outlet, item.outlet_squared)
+                     for item in result.inlet_pressure]
+        observe(tuple(ranges), tuple(result.floating_events), tuple(pressures), bindings.collect_range,
                 _native_properties._floating_events)
         yield result
     finally:

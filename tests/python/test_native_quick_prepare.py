@@ -277,6 +277,30 @@ def test_prepared_values_survive_release_and_a_second_preparation(monkeypatch):
     assert all(not np.shares_memory(first[2][key], second[2][key]) for key in first[2])
 
 
+def test_axis_copy_stop_iteration_preserves_exception_and_releases_owner(monkeypatch):
+    bindings = wire._bindings(wire.preparation_library.path())
+    release, copy_array = bindings.release, wire.copy_array
+    released = []
+    failure = StopIteration('axis copy interrupted')
+
+    def interrupt_axis(value, shape=None):
+        if shape is None:
+            raise failure
+        return copy_array(value, shape)
+
+    def record_release(pointer):
+        released.append(bool(ctypes.cast(pointer, ctypes.POINTER(wire._Prepared)).contents.owner))
+        release(pointer)
+
+    monkeypatch.setattr(wire, 'copy_array', interrupt_axis)
+    monkeypatch.setattr(bindings, 'release', record_release)
+    with pytest.raises(StopIteration) as caught:
+        prepare_quick_design(**_args(), case_id='axis-copy')
+    assert caught.value is failure
+    assert caught.value.__cause__ is None
+    assert released == [True]
+
+
 @pytest.mark.parametrize('cache', ['geometry', 'sco2'])
 def test_cache_callback_failure_preserves_the_exception_and_release_count(monkeypatch, cache):
     from sjtu_tpmshx.physical_models import tpms_geometry
