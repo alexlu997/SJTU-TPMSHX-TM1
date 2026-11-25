@@ -1,9 +1,8 @@
 #include "tpmshx/fluid_properties.hpp"
 #include "tpmshx/model_coefficients.hpp"
-#include "../preprocess/preparation_properties.hpp"
+#include "property_kernels.hpp"
 
 #include <CoolProp/AbstractState.h>
-#include <CoolProp/CoolProp.h>
 #include <CoolProp/Exceptions.h>
 
 #include <algorithm>
@@ -15,16 +14,14 @@
 
 
 namespace tpmshx {
-namespace {
-std::mutex factory_mutex;
-}
+std::mutex detail::eos_factory_mutex;
 
 
 std::unique_ptr<CoolProp::AbstractState> make_eos_state(const char* backend, const char* fluid) {
     // CoolProp lazily mutates shared fluid/table libraries during construction;
     // serialize initialization while all subsequent updates stay local.
     // ponytail: one factory lock; split initialization only if startup throughput matters.
-    const std::lock_guard<std::mutex> lock(factory_mutex);
+    const std::lock_guard<std::mutex> lock(detail::eos_factory_mutex);
     if (!backend || !fluid) throw std::invalid_argument("missing EOS backend or fluid");
     auto state = std::unique_ptr<CoolProp::AbstractState>(CoolProp::AbstractState::factory(backend, fluid));
     return state;
@@ -121,23 +118,23 @@ FluidProperties PropertyEvaluator::evaluate(Fluid fluid, double temperature, dou
 FluidProperties PropertyEvaluator::transport(Fluid fluid, double temperature, double pressure) {
     positive_state(temperature, pressure);
     FluidProperties result{};
-    const auto empirical=[&](preparation::Empirical getter) {
-        std::array<std::uint32_t,preparation::property_event_count> events{};
-        return preparation::empirical_point(getter,temperature,pressure,events,false);
+    const auto empirical=[&](Empirical getter) {
+        std::array<std::uint32_t,property_event_count> events{};
+        return empirical_point(getter,temperature,pressure,events,false);
     };
     switch (fluid) {
         case Fluid::air: {
-            result.rho=empirical(preparation::Empirical::air_density);
-            result.mu=empirical(preparation::Empirical::air_viscosity);
-            result.k=empirical(preparation::Empirical::air_conductivity);
-            result.cp=empirical(preparation::Empirical::air_cp);
+            result.rho=empirical(Empirical::air_density);
+            result.mu=empirical(Empirical::air_viscosity);
+            result.k=empirical(Empirical::air_conductivity);
+            result.cp=empirical(Empirical::air_cp);
             break;
         }
         case Fluid::water: {
-            result.rho=empirical(preparation::Empirical::water_density);
-            result.mu=empirical(preparation::Empirical::water_viscosity);
-            result.k=empirical(preparation::Empirical::water_conductivity);
-            result.cp=empirical(preparation::Empirical::water_cp);
+            result.rho=empirical(Empirical::water_density);
+            result.mu=empirical(Empirical::water_viscosity);
+            result.k=empirical(Empirical::water_conductivity);
+            result.cp=empirical(Empirical::water_cp);
             break;
         }
         case Fluid::co2:
@@ -176,20 +173,20 @@ double fluid_nusselt_ratio(Fluid fluid, Topology topology, double re,double pr,
     nu_inputs(re,1.,hydraulic_to_cell_ratio);
     if (!std::isfinite(pr) || pr<=0. || !std::isfinite(sco2_multiplier) || sco2_multiplier<=0.)
         throw std::invalid_argument("Nu requires finite positive Pr and selected sCO2 multiplier");
-    preparation::NuRoute route;
+    NuRoute route;
     switch (fluid) {
-        case Fluid::air: route=preparation::NuRoute::air_direct;break;
-        case Fluid::water: route=preparation::NuRoute::water;break;
-        case Fluid::sco2: route=preparation::NuRoute::sco2;break;
+        case Fluid::air: route=NuRoute::air_direct;break;
+        case Fluid::water: route=NuRoute::water;break;
+        case Fluid::sco2: route=NuRoute::sco2;break;
         case Fluid::co2:
             if (re<=0.) throw std::invalid_argument("CO2 Nu requires positive Re");
-            route=preparation::NuRoute::co2;break;
+            route=NuRoute::co2;break;
         default: throw std::invalid_argument("unsupported Nu fluid");
     }
-    std::array<std::uint32_t,preparation::property_event_count> events{};
+    std::array<std::uint32_t,property_event_count> events{};
     const double source_re=fluid==Fluid::water || fluid==Fluid::sco2?std::max(re,1.):re;
     const double source_pr=fluid==Fluid::air?data::pr_air:pr;
-    const double result=preparation::nu_point(route,topology,source_re,source_pr,1.,
+    const double result=nu_point(route,topology,source_re,source_pr,1.,
         hydraulic_to_cell_ratio,sco2_multiplier,events,false);
     if (!std::isfinite(result) || result < 0.) throw std::domain_error("nonfinite or negative Nu");
     return result;
@@ -212,14 +209,10 @@ double nu_extra_roughness_factor(double re,RoughnessMode mode,double roughness_m
     if (mode!=RoughnessMode::bhatti_shah_1b) throw std::invalid_argument("unsupported roughness mode");
     if (!std::isfinite(re) || re<0. || !std::isfinite(roughness_m) || roughness_m<0.
         || !std::isfinite(diameter) || diameter<=0.) throw std::invalid_argument("invalid roughness inputs");
-    return preparation::native_roughness_factor(re,roughness_m,diameter);
+    return native_roughness_factor(re,roughness_m,diameter);
 }
 
-}  // namespace tpmshx
-
-namespace tpmshx::preparation {
 namespace {
-namespace data=model_coefficients;
 using Number=PropertyNumber;
 }  // namespace
 
@@ -409,44 +402,4 @@ PropertyNumber nu_point(NuRoute route,Topology topology,Number re,Number pr,Numb
     return calc.multiply(data::co2_nu_multiplier,exponential);
 }
 
-PropertyNumber reynolds_point(Number rho,Number speed,Number diameter,Number mu,
-    std::array<std::uint32_t,property_event_count>& events) {
-    Calculation calc(events);
-    const auto mass_speed=calc.multiply(rho,speed);
-    const auto scaled=calc.multiply(mass_speed,diameter);
-    return calc.divide(scaled,mu);
-}
-PropertyNumber prandtl_point(Number mu,Number cp,Number conductivity,
-    std::array<std::uint32_t,property_event_count>& events) {
-    Calculation calc(events);
-    const auto capacity=calc.multiply(mu,cp);
-    return calc.divide(capacity,conductivity);
-}
-PropertyNumber surface_transfer_point(Number nu,Number conductivity,Number diameter,
-    std::array<std::uint32_t,property_event_count>& events) {
-    Calculation calc(events);
-    const auto scaled=calc.multiply(nu,conductivity);
-    return calc.divide(scaled,diameter);
-}
-PropertyNumber volumetric_transfer_point(Number surface,Number area,
-    std::array<std::uint32_t,property_event_count>& events) {
-    Calculation calc(events);return calc.multiply(surface,area);
-}
-PropertyNumber pore_conductivity_point(Number epsilon,Number conductivity,
-    std::array<std::uint32_t,property_event_count>& events) {
-    Calculation calc(events);return calc.multiply(epsilon,conductivity);
-}
-
-std::vector<std::vector<double>> property_eos_query(const std::vector<std::string>& keys,
-    const char* input,const std::vector<double>& first,const std::vector<double>& pressure,bool scalar) {
-    const std::lock_guard<std::mutex> lock(factory_mutex);
-    if (scalar) {
-        const double value=CoolProp::PropsSI(keys.at(0),input,first.at(0),"P",pressure.at(0),"CO2");
-        if (!std::isfinite(value)) throw std::runtime_error(CoolProp::get_global_param_string("errstring"));
-        return {{value}};
-    }
-    auto result=CoolProp::PropsSImulti(keys,input,first,"P",pressure,"HEOS",{"CO2"},{1.});
-    if (result.empty()) throw std::runtime_error(CoolProp::get_global_param_string("errstring"));
-    return result;
-}
-}  // namespace tpmshx::preparation
+}  // namespace tpmshx
