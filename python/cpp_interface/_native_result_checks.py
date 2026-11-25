@@ -4,6 +4,8 @@ import math
 
 import numpy as np
 
+from sjtu_tpmshx.run_control import run_warnings
+
 from . import _native_result as native
 
 _Array = native._Array
@@ -57,6 +59,12 @@ def _pointer(array):
 def collect_range(values, lower, upper):
     packed = native.array(values)
     return _output('collect_range', [_Array, _Double, _Double], (packed.raw, lower, upper), _RangeSample)
+
+
+def record_range(source, values, bounds, *, label, quantity, unit):
+    """Record a model range with the native result collector."""
+    return run_warnings.record_range(source, values, bounds, label=label, quantity=quantity,
+                                     unit=unit, collect=collect_range)
 
 
 def scalar_samples(values, lower, upper):

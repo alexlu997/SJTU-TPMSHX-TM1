@@ -23,8 +23,8 @@ from .tpms_geometry import compute_geometry as _tpms_geom
 from .tpms_geometry import compute_geometry_fields as _tpms_geom_fields
 from sjtu_tpmshx.cpp_interface import _native_geometry
 from sjtu_tpmshx.cpp_interface import _native_properties
+from sjtu_tpmshx.cpp_interface._native_result_checks import record_range
 from sjtu_tpmshx.model_configs.model_parameters import load_model_parameters
-from sjtu_tpmshx.run_control.run_warnings import record_range
 
 _MODEL_PARAMETERS = load_model_parameters()
 

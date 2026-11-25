@@ -53,18 +53,14 @@ class RangeRecord:
                        nonfinite=max(self.nonfinite, other.nonfinite), last=other.last)
 
 
-def record_range(source, values, bounds, *, label, quantity, unit, collect=None):
-    """Observe source values before its floor; return whether this run owns notices."""
+def record_range(source, values, bounds, *, label, quantity, unit, collect):
+    """Collect source values before the floor. Return whether this run owns the notices."""
     records, cached = _current.get(), _cache_records.get()
     if records is None and cached is None:
         return False
     array = np.asarray(values, dtype=float)
     if not array.size:
         return records is not None
-    if collect is None:
-        from sjtu_tpmshx.cpp_interface import _native_result_checks
-
-        collect = _native_result_checks.collect_range
     lo, hi = bounds
     sample = collect(array, lo, hi)
     minimum = maximum = None

@@ -1,5 +1,6 @@
 """Check the float64 result check leaves against independent expressions."""
 import ctypes as ct
+from functools import partial
 import math
 from types import SimpleNamespace
 import warnings
@@ -106,14 +107,11 @@ def _reference_collect(array, lo, hi):
     )
 
 
-def collect(values, bounds, *, reference=False):
-    collector = _reference_collect if reference else None
+def collect(values, bounds, record):
     with run_warnings.warning_scope({}) as records, run_warnings.range_context(
             side='B', stage='thermal', layout='cell'):
-        run_warnings.record_range(('property', 'sample'), values, bounds,
-                                  label='sample', quantity='T', unit='K', collect=collector)
-        run_warnings.record_range(('property', 'sample'), values, bounds,
-                                  label='sample', quantity='T', unit='K', collect=collector)
+        for _ in range(2):
+            record(('property', 'sample'), values, bounds, label='sample', quantity='T', unit='K')
     return records, run_warnings.range_observations(records), list(run_warnings.warning_messages(records))
 
 
@@ -126,8 +124,8 @@ def collect(values, bounds, *, reference=False):
 ])
 @pytest.mark.parametrize('bounds', [(250., 350.), (np.nan, 350.), (250., np.nan)])
 def test_range_collector_keeps_original_records_and_messages(values, bounds):
-    actual = collect(values, bounds, reference=False)
-    expected = collect(values, bounds, reference=True)
+    actual = collect(values, bounds, checks.record_range)
+    expected = collect(values, bounds, partial(run_warnings.record_range, collect=_reference_collect))
     assert actual == expected
     if values.size and np.all(np.isfinite(values)) and np.all(values == 0):
         got = next(iter(actual[0].values()))
@@ -315,9 +313,9 @@ def test_disabled_and_empty_paths_do_not_need_result_image(monkeypatch):
         pytest.fail('An empty or capture-disabled operation must not call native code.')
 
     monkeypatch.setattr(checks.native, 'call', forbidden)
-    assert run_warnings.record_range(('sample',), object(), object(), label='', quantity='', unit='') is False
+    assert checks.record_range(('sample',), object(), object(), label='', quantity='', unit='') is False
     with run_warnings.warning_scope({}) as records:
-        assert run_warnings.record_range(('sample',), [], object(), label='', quantity='', unit='') is True
+        assert checks.record_range(('sample',), [], object(), label='', quantity='', unit='') is True
     assert not records
     assert range_policy.assess_range({'captured': False})['status'] == 'unavailable'
     assert checks.all_finite(np.array([])) is True

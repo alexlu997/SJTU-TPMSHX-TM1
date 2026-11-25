@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.physical_models.df_surrogate import surrogate_domain
-from sjtu_tpmshx.run_control import run_warnings
+from sjtu_tpmshx.cpp_interface import _native_result_checks
 from sjtu_tpmshx.physical_models import co2_correlations, fluid_props
 
 
@@ -77,7 +77,7 @@ def _inputs(monkeypatch, *, fluid='air', diameter=.012345, mu=.003125,
         captured.append((source, value, bounds, labels))
         return False
 
-    monkeypatch.setattr(run_warnings, 'record_range', record)
+    monkeypatch.setattr(_native_result_checks, 'record_range', record)
     monkeypatch.delenv('TPMSHX_ALLOW_EXTRAP', raising=False)
     return values, calls, captured, geometry_args, failure
 
