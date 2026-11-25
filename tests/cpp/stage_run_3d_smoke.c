@@ -111,7 +111,7 @@ int main(void) {
     request.max_iter_simple.present=request.max_outer_ltne.present=1;
     request.max_iter_simple.value=12;request.max_outer_ltne.value=2;
     request.model_h.max_iterations=9;request.model_h.temperature_tolerance=.5;request.model_h.q_relative_tolerance=1e-3;
-    control.result_id="plain-C-3d";control.cpu_threads=2;
+    control.result_id="plain-C-3d";control.cpu_threads=12;
     REQUIRE(tpmshx_stage_run_3d_create_saved_v3(&saved,&request,&control,&run,(char*)&saved,sizeof(saved))==1);
     REQUIRE(!run && saved.abi_version==3);
     result.abi_version=1;result.struct_size=sizeof(result);before=result;
@@ -123,7 +123,7 @@ int main(void) {
     REQUIRE(tpmshx_stage_run_3d_advance_step_v1(run,&phase,error,sizeof(error))==0);
     REQUIRE(tpmshx_stage_run_3d_snapshot_v1(run,&snapshot,error,sizeof(error))==0);
     tpmshx_stage_run_3d_release_run_v1(&run);REQUIRE(run==NULL);
-    control.cpu_threads=1;
+    control.cpu_threads=9;
     REQUIRE(tpmshx_stage_run_3d_restore_saved_v3(&saved,&request,&control,
         snapshot.fields,snapshot.count,&restored,error,sizeof(error))==0);
     REQUIRE(tpmshx_stage_run_3d_phase_v1(restored,&restored_phase)==0 && restored_phase==phase);
@@ -132,6 +132,7 @@ int main(void) {
     REQUIRE(tpmshx_stage_run_3d_phase_v1(restored,&phase)==0 && phase==TPMSHX_FULL3D_COMPLETED);
     REQUIRE(tpmshx_stage_run_3d_take_result_v1(restored,&result,error,sizeof(error))==0);
     tpmshx_stage_run_3d_release_run_v1(&restored);
+    control.cpu_threads=1;
     tpmshx_preparation_3d_spatial_case_release_v1(&prepared);
     REQUIRE(result.raw.stop<=1 && result.evidence.dimension==3 && result.evidence.field_count==25);
     REQUIRE(tpmshx_stage_run_3d_get_capture_v1(&result,1,&capture)==0);
