@@ -1,5 +1,6 @@
 """Result builds need only a locked tool and the standard C++ runtime."""
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -329,17 +330,40 @@ def test_installed_result_stage_has_no_eos_or_python_runtime(result_build, monke
     examples = root / 'examples/cpp'
     examples.mkdir(parents=True)
     (examples / 'CMakeLists.txt').write_text('project(test)\n')
+    foreign_sdk = root / 'foreign-sdk'
+    foreign_sdk.mkdir()
+    (foreign_sdk / 'tpmshxConfig.cmake').write_text('message(FATAL_ERROR "Selected the foreign SDK")\n')
+    monkeypatch.setenv('tpmshx_ROOT', str(foreign_sdk))
+    package_subdir = Path('usr/lib/cmake/tpmshx')
     runs = []
     original = native.run
 
     def record(command, *args, **kwargs):
-        runs.append((tuple(map(str, command)), kwargs))
+        parts = tuple(map(str, command))
+        runs.append((parts, kwargs))
+        if '--install' in parts:
+            package_dir = Path(parts[parts.index('--prefix') + 1]) / package_subdir
+            package_dir.mkdir(parents=True)
+            (package_dir / 'tpmshxConfig.cmake').touch()
+        if any(part.startswith('-DCMAKE_PROJECT_INCLUDE=') for part in parts):
+            build_dir = Path(parts[parts.index('-B') + 1])
+            build_dir.mkdir(parents=True)
+            prefix, = (part.removeprefix('-DCMAKE_PREFIX_PATH=') for part in parts
+                       if part.startswith('-DCMAKE_PREFIX_PATH='))
+            selected = next((part.removeprefix('-Dtpmshx_DIR=') for part in parts
+                             if part.startswith('-Dtpmshx_DIR=')), os.environ['tpmshx_ROOT'])
+            assert Path(selected) == Path(prefix) / package_subdir
+            (build_dir / 'sdk-include-root.txt').write_text(str(Path(prefix) / 'custom/include'))
         return original(command, *args, **kwargs)
 
+    checked_include_roots = []
+    monkeypatch.setattr(native, 'verify_installed_sdk_headers', checked_include_roots.append)
     monkeypatch.setattr(native, 'run', record)
     monkeypatch.setenv('PYTHONPATH', '/must-not-reach-native-caller')
     monkeypatch.setenv('VIRTUAL_ENV', '/must-not-reach-native-caller')
     native.check_stages(cache, host, python, lock, 'result')
+    install, = (command for command in commands if '--install' in command)
+    assert checked_include_roots == [Path(install[install.index('--prefix') + 1]) / 'custom/include']
     configure = next(command for command in commands if '-DTPMSHX_COMPONENTS=result' in command)
     stage_build = cache / 'build' / f'stages-{host}'
     assert f'-DTPMSHX_RESULT_BUILD_DIR={stage_build / "result"}' in configure
@@ -352,3 +376,53 @@ def test_installed_result_stage_has_no_eos_or_python_runtime(result_build, monke
     assert '--target' not in consumer
     assert not checks[1]['cwd'].is_relative_to(root)
     assert 'PYTHONPATH' not in checks[1]['env'] and 'VIRTUAL_ENV' not in checks[1]['env']
+
+
+@pytest.fixture
+def sdk_include_root(tmp_path, monkeypatch):
+    docs = tmp_path / 'docs'
+    docs.mkdir()
+    for guide in ('native-stages.md', 'native-stages.zh-CN.md'):
+        (docs / guide).write_text(
+            '<a id="sdk-public-headers"></a>\n\n| Headers |\n| --- |\n| `stages.hpp`, `zones_c_api.h` |\n',
+            encoding='utf-8')
+    monkeypatch.setattr(native, 'ROOT', tmp_path)
+    include_root = tmp_path / 'sdk/custom/include'
+    public = include_root / 'tpmshx'
+    public.mkdir(parents=True)
+    (public / 'stages.hpp').touch()
+    (public / 'zones_c_api.h').touch()
+    native.verify_installed_sdk_headers(include_root)
+    return include_root
+
+
+@pytest.mark.parametrize('extra', ['superlu_solve.h', 'tpmshx/private_probe.hh',
+                                   'tpmshx/detail/stages.hpp', 'tpmshx/detail/private_probe'])
+def test_sdk_header_check_rejects_unlisted_files(sdk_include_root, extra):
+    unexpected = sdk_include_root / extra
+    unexpected.parent.mkdir(exist_ok=True)
+    unexpected.touch()
+    with pytest.raises(RuntimeError) as failure:
+        native.verify_installed_sdk_headers(sdk_include_root)
+    assert f"extra=['{extra}']" in str(failure.value)
+
+
+@pytest.mark.parametrize('kind', ['directory', 'broken link'])
+def test_sdk_header_check_requires_regular_files(sdk_include_root, kind):
+    zones = sdk_include_root / 'tpmshx/zones_c_api.h'
+    zones.unlink()
+    if kind == 'directory':
+        zones.mkdir()
+    else:
+        target = sdk_include_root.parent / 'zones-source.h'
+        target.touch()
+        try:
+            zones.symlink_to(target)
+        except OSError as error:
+            if sys.platform == 'win32' and error.winerror == 1314:
+                pytest.skip('Windows requires a privilege to create a symbolic link')
+            raise
+        native.verify_installed_sdk_headers(sdk_include_root)
+        target.unlink()
+    with pytest.raises(RuntimeError, match='tpmshx/zones_c_api[.]h'):
+        native.verify_installed_sdk_headers(sdk_include_root)
