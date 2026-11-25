@@ -220,36 +220,26 @@ class FluidInputMixin:
         temperature fields. Converts the displayed text AND rewrites the
         label suffixes (`[K]` ↔ `[°C]`) so the UI is self-consistent.
         """
+        from sjtu_tpmshx.applications.gui.ui.expr_eval import eval_expr, is_expression
         self._refresh_field_validation()
-        cur = getattr(self, '_temp_unit', 'K')
-        fields = [
-            getattr(self, 'le_TinA', None),
-            getattr(self, 'le_TinB', None),
-        ]
-        def _fmt(v):
-            return format(v, '.17g')
-        if cur == 'K':
-            # K → °C
-            for le in fields:
-                if le is None:
-                    continue
-                try:
-                    v = float(le.text())
-                    le.setText(_fmt(v - CELSIUS_ZERO_K))
-                except Exception:
-                    pass
-            self._temp_unit = 'C'
+        if getattr(self, '_temp_unit', 'K') == 'K':
+            new_unit, offset = 'C', -CELSIUS_ZERO_K
         else:
-            # °C → K
-            for le in fields:
-                if le is None:
+            new_unit, offset = 'K', CELSIUS_ZERO_K
+        for name in ('le_TinA', 'le_TinB'):
+            field = getattr(self, name, None)
+            if field is None:
+                continue
+            text = field.text()
+            try:
+                value = float(text)
+            except ValueError:
+                # A rejected expression still uses its original display unit.
+                value = eval_expr(text) if is_expression(text) else None
+                if value is None:
                     continue
-                try:
-                    v = float(le.text())
-                    le.setText(_fmt(v + CELSIUS_ZERO_K))
-                except Exception:
-                    pass
-            self._temp_unit = 'K'
+            field.setText(format(value + offset, '.17g'))
+        self._temp_unit = new_unit
         self._sync_temp_unit_labels()
         self._refresh_field_validation()
         self._discard_temperature_history()

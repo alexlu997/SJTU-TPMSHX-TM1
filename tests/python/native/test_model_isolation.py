@@ -44,7 +44,7 @@ def test_cold_model_images_keep_serial_results_and_physical_gates(tmp_path, mode
     from sjtu_tpmshx.preprocess.api import prepare_case
     from sjtu_tpmshx.file_io.case_io import save_case
     from sjtu_tpmshx.file_io.hdf5_data import read_record
-    from sjtu_tpmshx.cpp_interface.full_3d_stage import capture_result
+    from sjtu_tpmshx.solvers.full_3d import capture_result
     from tests.python.native.full_result_audit import physical_gates
 
     python = isolation.configured_python()

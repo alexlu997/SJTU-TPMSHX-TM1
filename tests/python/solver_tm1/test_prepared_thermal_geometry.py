@@ -65,7 +65,7 @@ def test_prepared_geometry_and_roughness_are_consumed(monkeypatch, mode):
         np.testing.assert_array_equal(changed_state[key], state[key]*2.)
     bad_geometry = {**case.parameters['thermal_geometry'], 'split_A': 1.1}
     bad = replace(case, parameters={**case.parameters, 'thermal_geometry':bad_geometry})
-    from sjtu_tpmshx.cpp_interface.full_3d_stage import validate_saved_case
+    from sjtu_tpmshx.solvers.full_3d import validate_saved_case
     with pytest.raises(ValueError, match='side split'):
         validate_saved_case(bad)
 

@@ -179,7 +179,7 @@ Python 保留 LUT 的内存与磁盘存储；缺表时 C++ 在体素分辨率 25
 
 C 状态码含义为：0（结果已转移，不代表收敛）、1（输入无效）、2（水状态错误）、3（算术错误）与 4（原生失败）。
 取消的结果保留 `raw.stop = 2` 的原始诊断，不包含完成的评估证据。
-Python 完整三维执行通过 `python/cpp_interface/full_3d_stage.py` 独占绑定该生命周期。
+Python 完整三维执行在 `python/solvers/full_3d.py` 中校验保存工况并组装 `FieldResult`，并通过 `python/cpp_interface/full_3d_stage.py` 独占绑定该生命周期。
 
 ## Quick Design 阶段
 

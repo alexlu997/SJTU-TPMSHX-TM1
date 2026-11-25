@@ -21,6 +21,7 @@ from sjtu_tpmshx.file_io.result_io import load_result, save_result
 from sjtu_tpmshx.postprocess.api import evaluate, evaluate_physical_balance
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
+from sjtu_tpmshx.solvers import full_3d
 from sjtu_tpmshx.cpp_interface import full_3d_stage
 from tests.python.native.shared_library import library_path
 from tests.python.native.stage_interception import run_stage
@@ -46,7 +47,7 @@ def test_full_3d_binding_rejects_incompatible_abi(monkeypatch, tmp_path, version
     library = SimpleNamespace(tpmshx_full_3d_abi_version=lambda: version)
     monkeypatch.setattr(full_3d_stage.ct, 'CDLL', lambda _: library)
     with pytest.raises(ValueError, match=rf'unsupported full 3D ABI {version}; expected 2'):
-        full_3d_stage.run_case(case, control(path))
+        full_3d.run_case(case, control(path))
 
 
 def control(path, **kwargs):
@@ -536,7 +537,7 @@ def test_large_grid_packing_keeps_legacy_rb_and_candidate_serial(native_path, ai
     # Stop at the first saved boundary; the snapshot holds the native resolved controls.
     seen = {}
     with pytest.raises(ControlsCaptured):
-        full_3d_stage.run_case(prepared, control(native_path), checkpoint=capture)
+        full_3d.run_case(prepared, control(native_path), checkpoint=capture)
     assert tuple(seen['input.geometry.grid.d' + axis].size for axis in 'xyz') == (32, 32, 32)
     assert seen['control.red_black_energy'][0] == (0 if air_sco2 else 1)
     _, library, _, _ = full_3d_stage.open_library(native_path, None)
