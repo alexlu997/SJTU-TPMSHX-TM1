@@ -1,18 +1,12 @@
 """Adapt stored result evidence to the independent native result stage."""
-import ast
 import ctypes as ct
 import json
 from math import prod
-import weakref
 from collections.abc import Mapping
-from uuid import uuid4
 
 import numpy as np
 
 from . import _native_result as core
-from sjtu_tpmshx.data_types.metric_spec import MetricSpec
-from sjtu_tpmshx.data_types.performance_result import MetricValue, PerformanceResult
-from sjtu_tpmshx.data_types.persistence_validation import validate_result_declarations
 
 P = ct.POINTER
 S, I, Z, D = ct.c_char_p, ct.c_int, ct.c_size_t, ct.c_double
@@ -616,30 +610,8 @@ class _Packed:
         return output
 
 
-def _declaration_dimension(result, query):
-    metadata = result.metadata
-    dimension = result.grid.get('dimension', metadata.get('dimension'))
-    # The C interface represents primary sides, integer dimensions and C strings.
-    # Other host values keep their original comparison and exception semantics.
-    def label(value):
-        return type(value) is str and '\0' not in value and value.isascii()
-
-    pressure = result.pressure_evidence
-    if (query == 3 or type(dimension) is not int or dimension not in (2, 3)
-            or type(metadata.get('dimension', dimension)) is not int
-            or metadata.get('dimension', dimension) not in (2, 3)
-            or any(key in row and not label(row[key]) for row, key in
-                   ((metadata, 'mode'), (metadata, 'quantity_basis'), (result.boundary_fluxes, 'mass_unit')))
-            or any(side not in ('A', 'B') or not isinstance(row, Mapping)
-                   or ('unit' in row and not label(row['unit'])) for side, row in pressure.items())
-            or any(not label(key) or not isinstance(row, Mapping) or not label(row.get('unit', ''))
-                   for key, row in result.field_metadata.items())):
-        return validate_result_declarations(result)
-    return dimension
-
-
 class _Evidence(_Packed):
-    def pack(self, result, query):
+    def pack(self, result, query, declaration_dimension, raw_field_names, saved_gates):
         self.result, self.query = result, query
         self.density = self.split = self.invalid_mode_repr = self.dimension_index = self.dimension_slice = None
         self.qualification_error = None
@@ -655,7 +627,7 @@ class _Evidence(_Packed):
         if query == 1:
             return
         try:
-            dimension = _declaration_dimension(result, query)
+            dimension = declaration_dimension(result, query)
             try:
                 ()[:dimension]
             except TypeError as error:
@@ -723,9 +695,8 @@ class _Evidence(_Packed):
         output.absent_records, output.absent_record_count = self.strings(absent), len(absent)
         if query == 2:
             return
-        output.fields, output.field_count = self.named(result.fields,
-            finite_keys=tuple(name for name in result.fields if not name.endswith('_display')))
-        self._qualification(metadata, diagnostics, parameters, dimension)
+        output.fields, output.field_count = self.named(result.fields, finite_keys=raw_field_names(result.fields))
+        self._qualification(metadata, diagnostics, parameters, dimension, saved_gates)
         if query == 3:
             return
         if mode == 'quick_design':
@@ -769,7 +740,7 @@ class _Evidence(_Packed):
                 )
                 output.pressure[index] = self.pointer(row)
 
-    def _qualification(self, metadata, diagnostics, parameters, dimension):
+    def _qualification(self, metadata, diagnostics, parameters, dimension, saved_gates):
         output, result = self.raw, self.result
         detail = _read(diagnostics, 'convergence_detail', {})
         if isinstance(detail, _Fault):
@@ -781,10 +752,7 @@ class _Evidence(_Packed):
         if failure is not None:
             self.fault(ct.byref(output, Evidence.converged.offset), failure)
         gates, failures = [], []
-        for name in ('simple_ok', 'ltne_ok', 'outer_converged', 'fields_finite', 'envelope_ok', 'richardson_ok'):
-            if name not in detail:
-                continue
-            value = detail[name]
+        for name, value in saved_gates(detail):
             flag, failure = _equality_flag(value)
             gates.append(Gate(name=_text(name), value=flag))
             failures.append(failure)
@@ -849,180 +817,6 @@ class _Evidence(_Packed):
                     target.solved = -2 if bool(value) else -5
                 except (TypeError, ValueError) as error:
                     self.fault(ct.byref(target, ExecutionSide.solved.offset), error)
-
-
-def _spec(value):
-    return Spec(*(_text(getattr(value, name)) for name in ('name', 'unit', 'definition_version', 'description')))
-
-
-def _query(result, query, metric_spec=None, metrics=None):
-    packed = _Evidence()
-    output, diagnostics, token = Output(struct_size=ct.sizeof(Output)), core._Diagnostics(), ct.c_uint64()
-    error = ct.create_string_buffer(4096)
-
-    try:
-        packed.pack(result, query)
-        library = core.result_library.get()
-        owner = weakref.proxy(packed)
-
-        @Events
-        def events(context, values, failure):
-            try:
-                core.notify(values.contents, stacklevel=6)
-                return 0
-            except BaseException as exception:
-                identity = owner.token(exception)
-                message = _text(str(exception))
-                owner.keep.append(message)
-                failure[0] = HostError(_cause(exception), 0, identity, message)
-                return 1
-
-        errors = packed.sequence(InputError, packed.errors)
-        none_values = packed.sequence(ct.c_void_p, packed.none_values)
-        argument = Input(3, ct.sizeof(Input), ct.pointer(packed.raw), errors, len(errors), none_values, len(none_values),
-            packed.density, packed.split, packed.inlet_temperature, packed.invalid_mode_repr,
-            packed.dimension_index, packed.dimension_slice, packed.qualification_error,
-            packed.quick_access_recorded, packed.quick_access, None, events)
-        selection = _spec(metric_spec) if metric_spec is not None else None
-        rows = [Metric(_text(name), Spec(b'', b'', b'', b''), 0, 0., _text(value.status), None)
-                for name, value in (metrics or {}).items()]
-        supplied = packed.sequence(Metric, rows)
-        call = library.bind('tpmshx_result_stage_query_v3',
-            [P(Input), ct.c_uint32, P(Spec), P(Metric), Z,
-             P(Output), P(core._Diagnostics), P(ct.c_uint64), P(ct.c_char), Z])
-        release = library.bind('tpmshx_result_stage_release_v1', [P(Output)], None)
-        status = call(ct.byref(argument), query, ct.byref(selection) if selection is not None else None,
-            supplied, len(rows), ct.byref(output), ct.byref(diagnostics), ct.byref(token), error, len(error))
-        core.notify(diagnostics, stacklevel=5)
-        if status:
-            if token.value:
-                raise packed.exceptions[token.value]
-            message = error.value.decode('utf-8', errors='replace') or f'native result stage failed with status {status}'
-            if status == 1:
-                raise ValueError(message)
-            if status == 2:
-                raise MemoryError(message)
-            if status == 4:
-                cause = {1: ZeroDivisionError, 2: OverflowError, 3: ValueError, 4: TypeError,
-                         5: IndexError, 6: KeyError, 7: NotImplementedError}.get(diagnostics.python_cause)
-                if cause is None:
-                    raise RuntimeError('native result stage returned an invalid numerical cause')
-                if cause is KeyError:
-                    message = ast.literal_eval(message)
-                raise cause(message)
-            raise RuntimeError(message)
-        report = json.loads(output.json)
-        if query == 1:
-            return _restore_applicability_fields(report, result.metadata.get('applicability_evidence'))
-        if query == 2:
-            return _restore_balance_fields(report, result)
-        if query == 3:
-            return _restore_qualification_fields(report, result)
-        _restore_qualification_fields(report['qualification'], result)
-        restored = {}
-        for index in range(output.metric_count):
-            row = output.metrics[index]
-            name = row.name.decode('utf-8')
-            spec = metric_spec or MetricSpec(*(getattr(row.spec, key).decode('utf-8')
-                for key in ('name', 'unit', 'definition_version', 'description')))
-            restored[name] = MetricValue(row.value if row.has_value else None, spec,
-                row.status.decode('utf-8'), row.reason.decode('utf-8'))
-        return PerformanceResult(str(uuid4()), result.result_id, restored, report['qualification'])
-    finally:
-        try:
-            if output.owner:
-                release(ct.byref(output))
-        finally:
-            # Deferred tracebacks can refer to the query and its borrowed fields.
-            packed.exceptions.clear()
-            packed.array_errors.clear()
-
-
-def _validated_query(result, query, metric_spec=None):
-    try:
-        return _query(result, query, metric_spec)
-    except Exception:
-        # Archived mappings retain their declaration error order on failure.
-        validate_result_declarations(result)
-        raise
-
-
-def evaluate(result, metric_spec=None):
-    return _validated_query(result, 0, metric_spec)
-
-
-def evaluate_applicability(result):
-    return _query(result, 1)
-
-
-def evaluate_physical_balance(result):
-    return _validated_query(result, 2)
-
-
-def evaluate_qualification(result, metrics):
-    return _query(result, 3, metrics=metrics)
-
-
-def _restore_applicability_fields(report, evidence):
-    if evidence is None or 'checks' not in report:
-        return report
-    for group, rows in report['checks'].items():
-        restored = []
-        for source, row in zip(evidence[group], rows, strict=True):
-            output = dict(source)
-            for name in ('allowed_bounds', 'allowance_fraction', 'status', 'within_limit',
-                         'relative_extrapolation', 'reason'):
-                if name in row:
-                    output[name] = tuple(row[name]) if name == 'allowed_bounds' else row[name]
-            restored.append(output)
-        report['checks'][group] = restored
-    report['missing'] = _restore_missing(report.get('missing', []), evidence)
-    report['scope_notes'] = evidence['scope_notes']
-    return report
-
-
-def _restore_missing(rows, evidence):
-    output = []
-    for row in rows:
-        if 'source' in row:
-            match = next(value for value in evidence['required']
-                if value['group'] == row['group'] and value['side'] == row['side']
-                and tuple(value['source']) == tuple(row['source']))
-            output.append(dict(match))
-        else:
-            output.append(row)
-    return output
-
-
-def _restore_qualification_fields(report, result):
-    convergence = report['convergence']
-    detail = result.metadata.get('diagnostics', {}).get('convergence_detail', {})
-    convergence['gates'] = {name: detail[name] for name in convergence['gates']}
-    convergence['thermal_state'] = result.boundary_fluxes.get('state')
-    convergence['pressure_states'] = {side: result.field_metadata.get('P_report_' + side, {}).get('state')
-        for side, value in result.pressure_evidence.items() if value is not None}
-    report['execution']['state'] = result.run_status.get('execution')
-    if 'balance' in report['physical']:
-        _restore_balance_fields(report['physical']['balance'], result)
-    application = report['applicability']
-    evidence = result.metadata.get('applicability_evidence')
-    if 'checks' in application:
-        if evidence is None:
-            application['missing'], application['scope_notes'] = (), ()
-        else:
-            inputs = [row for group in ('inlet', 'final') for row in evidence[group]]
-            for row, source in zip(application['checks'], inputs, strict=True):
-                row['source'] = source['source']
-            application['missing'] = _restore_missing(application['missing'], evidence)
-            application['scope_notes'] = evidence['scope_notes']
-    return report
-
-
-def _restore_balance_fields(report, result):
-    report['physical_dimension'] = result.grid.get('dimension', result.metadata.get('dimension'))
-    report['state'] = result.boundary_fluxes.get('state', 'not_recorded')
-    report['outer_index'] = result.run_status.get('outer_index')
-    return report
 
 
 def copy_applicability(pointer, saved_inlet):
