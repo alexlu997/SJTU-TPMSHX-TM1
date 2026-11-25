@@ -43,7 +43,11 @@ class FluidInputMixin:
             'B': (self.le_uB, self.le_TinB, self.le_PinB),
         }[fluid]
         try:
-            from sjtu_tpmshx.applications.gui.ui.window_config import mass_flow_active, config_from_window
+            from sjtu_tpmshx.applications.gui.ui.window_config import (
+                config_from_window, fluid_types_from_window, mass_flow_active, sco2_nu_from_window,
+            )
+            fluid_types = fluid_types_from_window(self)
+            _ftype = fluid_types[fluid]
             if mass_flow_active(self, fluid):
                 from sjtu_tpmshx.preprocess.api import resolve_inlet_flow_config
                 resolved = resolve_inlet_flow_config(config_from_window(self, strict=True))
@@ -51,18 +55,13 @@ class FluidInputMixin:
                     if mass_flow_active(self, side):
                         getattr(self, 'le_u' + side).setText(format(getattr(resolved, 'fluid_' + side).u_mps, '.17g'))
             T_K = self._temp_to_K(le_Tin)
-            # Share the same fluid normalization used for solver inputs.
-            from sjtu_tpmshx.applications.gui.ui.window_config import _parse_fluid_label
-            _combo = getattr(self, f'combo_fluid{fluid}', None)
-            _ftype = _parse_fluid_label(_combo)
-            from sjtu_tpmshx.applications.gui.ui.window_config import sco2_nu_from_window
             r = tpms_compute(
                 self.combo_tpms.currentText(),
                 float(self.le_Lcell.text()), float(self.le_t.text()),
                 float(le_u.text()), T_K,
                 float(le_Pin.text()), float(self.le_ks.text()),
                 fluid_type=_ftype, sco2_nu=sco2_nu_from_window(self),
-                co2_geometry=any(_parse_fluid_label(getattr(self, 'combo_fluid' + side, None)) == 'co2' for side in 'AB'))
+                co2_geometry='co2' in fluid_types.values())
             df_combo = getattr(self, 'combo_df_mode', None)
             if _ftype != 'co2' and df_combo is not None and df_combo.currentData() == 'experimental':
                 from sjtu_tpmshx.physical_models.df_surrogate.experimental_correction import apply_correction

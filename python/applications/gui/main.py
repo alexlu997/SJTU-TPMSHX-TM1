@@ -391,9 +391,9 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         """Compute pure geometry (ε, A₀, D_h, K_ss) from TPMS inputs. Returns True on success."""
         self.statusBar().showMessage("Computing TPMS geometry...")
         try:
-            from sjtu_tpmshx.applications.gui.ui.window_config import _parse_fluid_label
+            from sjtu_tpmshx.applications.gui.ui.window_config import fluid_types_from_window
             geometry_model = tpms_geometry
-            if any(_parse_fluid_label(combo) == 'co2' for combo in (self.combo_fluidA, self.combo_fluidB)):
+            if 'co2' in fluid_types_from_window(self).values():
                 from sjtu_tpmshx.physical_models.co2_correlations import geometry as geometry_model
             r = geometry_model(
                 self.combo_tpms.currentText(),
