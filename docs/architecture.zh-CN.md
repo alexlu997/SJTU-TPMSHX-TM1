@@ -45,7 +45,7 @@ Quick Design、保存态工况运行、离线评估和运行恢复分别从对�
 | 检出加载器 [sjtu_tpmshx.py](../sjtu_tpmshx.py) | 从仓库根目录执行命令时，将 `python/__init__.py` 作为 `sjtu_tpmshx` 加载。 |
 | 安装态 wheel 布局 `sjtu_tpmshx/` | 打包 Python 模块及 `pyproject.toml` 声明的 JSON、CSV 与图标资源，不含原生库。[check_types.py](../engineering/scripts/check_types.py) 通过 [python_source.py](../engineering/packaging/python_source.py) 构建相同目录树供 `mypy` 检查。 |
 | 别名解析器 [python/shared.py](../python/shared.py) | 在不复制代码的前提下将历史 `sjtu_tpmshx.shared.*` 与 `sjtu_tpmshx.solvers.backends.cpp.*` 路径解析至规范所有者。[python/solvers/backends/cpp.py](../python/solvers/backends/cpp.py) 导入其搜索路径；[packaging_support.py](../tests/python/packaging_support.py)、[test_three_module_imports.py](../tests/python/architecture/test_three_module_imports.py) 与 [test_distribution_contents.py](../tests/python/test_distribution_contents.py) 在源码检出与安装 wheel 中测试这些别名，本地 `.cache/` 脚本亦使用这些别名。 |
-| 现行原生库目录 `sjtu_tpmshx/solvers/native/lib/<host>/` | 被 Git 忽略的目录，由 [build_native_dependencies.py](../engineering/scripts/build_native_dependencies.py) 为源码运行发布四个原生库。`provenance.py`、`module_ports.py`、`stage_libraries.py`、`_native_geometry.py` 与 `launch-macos.command` 读取该目录；冻结桌面包从 `native/` 加载。使用 `.venv-path` 解释器运行 `build_native_dependencies.py verify-published`，可将已发布导出符号与 `.exports` 清单比对（[已发布原生库检查](verification.md#published-native-images)）；该命令核对求解、准备与结果清单，并输出各库构建记录（`build.json` 与 `*-build.json`）。 |
+| 现行原生库目录 `sjtu_tpmshx/solvers/native/lib/<host>/` | 被 Git 忽略的目录，由 [build_native_dependencies.py](../engineering/scripts/build_native_dependencies.py) 为源码运行发布四个原生库。`provenance.py` 定义 `PUBLISHED_LIBRARY_DIR`，`module_ports.py`、`stage_libraries.py`、`_native_geometry.py` 与 `launch-macos.command` 读取该目录；冻结桌面包从 `native/` 加载。使用 `.venv-path` 解释器运行 `build_native_dependencies.py verify-published` 执行[已发布原生库检查](verification.md#published-native-images)；该命令将已发布导出符号与求解、准备和结果 `.exports` 清单比对，并输出各库构建记录（`build.json` 与 `*-build.json`）。 |
 
 <a id="retained-python-responsibilities"></a>
 
@@ -69,16 +69,17 @@ GUI 代码位于 `python/applications/gui/ui/`、`python/applications/gui/contro
 ## 跨目录 C++ 依赖边
 
 交付的四个共享库之间不存在共享库链接环。
-每个 CMake 作用域独立构建库文件，并隔离各自的 CoolProp 静态归档。
+每个 CMake 作用域独立构建库文件。
+仅 `preprocess/` 与 `solver/` 链接各自隔离的 CoolProp 静态归档；`geometry/` 与 `postprocess/` 不链接 CoolProp。
 以下六类编译期源码与头文件边跨目录存在：
 
 | 依赖边 | 源码或头文件位置 | 原因 |
 | --- | --- | --- |
-| `numerics/` -> `preprocess/` | `numerics/fluid_properties.cpp` 包含 `../preprocess/preparation_properties.hpp` 并定义 `tpmshx::preparation::*`；`numerics/df_summary.cpp` 包含 `tpmshx/preparation_df.hpp`。 | 将带检查的物性算术与 D-F 汇总紧邻 `tpmshx_models` 与 `tpmshx_preparation` 共用的流体物性内核放置（计划后续拆分）。 |
+| `numerics/` -> `preprocess/` | `numerics/fluid_properties.cpp` 包含 `../preprocess/preparation_properties.hpp` 并定义 `tpmshx::preparation::*`；`numerics/df_summary.cpp` 包含 `tpmshx/preparation_df.hpp`。 | 将带检查的物性算术留在 `tpmshx_models` 中紧邻共用流体物性内核，并将 D-F 汇总留在 `numerics/`（计划后续拆分）。 |
 | `solver/` -> `postprocess/` | `solver/CMakeLists.txt` 将 `postprocess/result_{core,arithmetic,metrics,balance}.cpp` 编译进隐藏静态目标 `tpmshx_capture_math`；`solver/stage_capture_2d.cpp` 包含 `../postprocess/result_zone_capture.hpp`。 | 在求解捕获阶段复用精确结果算术，同时保持 `tpmshx_result_shared` 独立部署而不依赖求解库。 |
-| `solver/` -> `preprocess/` | `solver/CMakeLists.txt` 编译 `preprocess/preparation_{df_corrections,flow}.cpp`；`solver/stage_saved_models.hpp` 包含 `../preprocess/preparation_nu.hpp`；`solver/quick_design_run.cpp` 包含 `../preprocess/preparation_c_boundary.hpp`。 | 在求解阶段校验中复用 D-F 修正、入口流、Nu 路线与 C 边界规则，无需链接 `tpmshx_preparation_shared`，使静态 CoolProp 注册表保持隔离。 |
+| `solver/` -> `preprocess/` | `solver/CMakeLists.txt` 编译 `preprocess/preparation_{df_corrections,flow}.cpp`；`solver/stage_saved_models.hpp` 包含 `../preprocess/preparation_nu.hpp`；`solver/quick_design_run.cpp` 包含 `../preprocess/preparation_c_boundary.hpp`。 | 复用 D-F 修正、`closure_geometry_ratio`、Nu 路线与 C 边界规则，无需链接 `tpmshx_preparation_shared`，使静态 CoolProp 注册表保持隔离。 |
 | `preprocess/`、`solver/` -> `geometry/` | 两个 CMake 工程均以子目录方式引入 `geometry/`；`preprocess/preparation_case.cpp` 包含 `../geometry/field_{continuous,lut,sigmoid}.hpp`；五个前处理与求解文件包含 `../geometry/field_c_boundary.hpp`。 | 将网格、端口、设计场与 C 边界辅助代码静态编入各自隔离的阶段构建。 |
-| `geometry/` <-> `numerics/` | `include/tpmshx/geometry.hpp` 为 `Topology` 包含 `tpmshx/fluid_properties.hpp`；`geometry/{grid,zones}.cpp` 包含 `../numerics/contiguous_sum.hpp`；`include/tpmshx/pressure_reference.hpp` 包含 `tpmshx/ports.hpp`，`models.cmake` 与 `pressure-reference.cmake` 链接 `tpmshx_grid`。 | 在几何与压力基准目标之间共享拓扑枚举、确定性求和辅助函数与物理端口分数计算。 |
+| `geometry/` <-> `numerics/` | `include/tpmshx/geometry.hpp` 为 `Topology` 包含 `tpmshx/fluid_properties.hpp`；`geometry/{grid,zones}.cpp` 包含 `../numerics/contiguous_sum.hpp`；`include/tpmshx/pressure_reference.hpp` 包含 `tpmshx/ports.hpp`，`pressure-reference.cmake` 直接链接 `tpmshx_grid`，`models.cmake` 传递链接 `tpmshx_grid`。 | 在几何与压力基准目标之间共享拓扑枚举、确定性求和辅助函数与物理端口分数计算。 |
 | 各阶段 -> `numerics/` 与共享 Quick 头文件 | `preprocess/` 与 `solver/` 包含 `../numerics/contiguous_sum.hpp` 并编译 `numerics/df_summary.cpp`；`preprocess/` 与 `postprocess/` 包含 `../numerics/scalar_range_samples.hpp`；`solver/` 与 `postprocess/` 编译 `numerics/recorded_report.cpp`；`include/tpmshx/quick_design_stage_c_api.h` 包含前处理、求解与结果 C 头文件。 | 在各阶段间共享确定性求和、范围采样、报告编码及统一的 Quick Design 阶段 C 接口。 |
 
 ## 详细契约索引
@@ -86,7 +87,7 @@ GUI 代码位于 `python/applications/gui/ui/`、`python/applications/gui/contro
 详细数值、运行、界面与物理契约均位于[数值与运行契约](numerical-contracts.zh-CN.md)：
 
 - <a id="native-grids-and-design-fields"></a>**网格、设计场与几何 ABI**：[原生网格与设计场](numerical-contracts.zh-CN.md#native-grids-and-design-fields)（FITPACK、样条、ABI 2/3 状态码、CO2 因子、规定总质量流量）。
-- **前处理、求解路线与执行记录**：[原生准备、求解与评估阶段](numerical-contracts.zh-CN.md#原生准备求解与评估阶段)（SIMPLE F2、Anderson 设置、T-SOU、model-h、fullCC、Quick Design、`full_execution_v1`）。
+- <a id="native-preparation-solver-and-evaluation-stages"></a><a id="原生准备求解与评估阶段"></a>**前处理、求解路线与执行记录**：[原生准备、求解与评估阶段](numerical-contracts.zh-CN.md#原生准备求解与评估阶段)（SIMPLE F2、Anderson 设置、T-SOU、model-h、fullCC、Quick Design、`full_execution_v1`）。
 - <a id="result-qualification-by-route"></a>**结果资格与物理平衡**：[各路线的结果资格](numerical-contracts.zh-CN.md#result-qualification-by-route)与[物理平衡证据](numerical-contracts.zh-CN.md#物理平衡证据)。
 - <a id="captured-parameter-limits"></a><a id="捕获的参数范围"></a>**适用范围与公共结论**：[捕获的参数范围](numerical-contracts.zh-CN.md#捕获的参数范围)（`[0.9 * L, 1.1 * U]` 策略）与[公共结果结论](numerical-contracts.zh-CN.md#公共结果结论)。
 - <a id="native-3d-continuation"></a>**持久化接口、续算与优化**：[持久化接口与物理状态](numerical-contracts.zh-CN.md#persistent-interfaces-and-physical-state)和[原生二维与三维续算、取消与 BO](numerical-contracts.zh-CN.md#native-3d-continuation)。
