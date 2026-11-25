@@ -11,9 +11,11 @@ from PySide6.QtWidgets import (
 )
 
 from sjtu_tpmshx.data_types.compute_config import SCO2_P_RANGE_PA
+from sjtu_tpmshx.data_types.validator import format_unit_value
 from sjtu_tpmshx.model_configs.df_domain import TRAIN_L, TRAIN_T
 from sjtu_tpmshx.physical_models.tpms_calc import geometry as tpms_geometry, adaptive_grid
 from sjtu_tpmshx.applications.gui.ui.fmt import duration as _fmt_dur
+from sjtu_tpmshx.applications.gui.ui.window_config import FIELD_UNITS, POSITIVE_FIELDS, parse_field_value
 from sjtu_tpmshx.applications.gui.ui.mixins import (RunHistoryMixin, DialogsMixin, ZonePanelMixin,
                        OptimizeUIMixin, TabViewMixin, UIBuilderMixin,
                        FluidInputMixin, RunControllerMixin, RunResultsMixin,
@@ -1018,16 +1020,6 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
     }
 
 
-    # Audit C5 Phase 4 (L-b, 2026-05-28): unit-parsing config + the
-    # canonical positive-numeric set live in ``domain/validator.py``
-    # so future scripts / widgets can read the same canonical map.
-    # The class still surfaces the two names as attributes for the
-    # ``_attach_field_validation`` / ``_make_field_handler`` callers.
-    from sjtu_tpmshx.data_types.validator import (
-        FIELD_UNITS as _FIELD_UNITS,
-        POSITIVE_FIELDS as _POSITIVE_FIELDS,
-    )
-
     def _attach_field_validation(self):
         """Unified blur-time unit parser + numeric validator.
 
@@ -1041,13 +1033,13 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         The unified handler does parse → validate → apply in one slot.
         """
         self._field_validators = {}
-        all_fields = self._POSITIVE_FIELDS | self._FIELD_UNITS.keys() | set(self._SESSION_LINE_EDITS)
+        all_fields = POSITIVE_FIELDS | FIELD_UNITS.keys() | set(self._SESSION_LINE_EDITS)
         for attr in all_fields:
             le = getattr(self, attr, None)
             if le is None:
                 continue
-            fam_target = self._FIELD_UNITS.get(attr)
-            is_positive = attr in self._POSITIVE_FIELDS
+            fam_target = FIELD_UNITS.get(attr)
+            is_positive = attr in POSITIVE_FIELDS
             cb = self._make_field_handler(le, attr, fam_target, is_positive)
             self._field_validators[attr] = cb
             le.editingFinished.connect(cb)
@@ -1062,25 +1054,17 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
     def _make_field_handler(self, le, attr, fam_target, is_positive):
         """Build the per-field blur callback: parse → validate → apply.
 
-        ``fam_target`` is ``self._FIELD_UNITS.get(attr)`` (an
+        ``fam_target`` is ``FIELD_UNITS.get(attr)`` (an
         ``(family, target_unit)`` tuple, or ``None`` if the field has
         no unit-parsing rule).  ``is_positive`` flips on the
         strictly-positive numeric validation.
 
-        Unit parsing + formatting delegate to
-        :func:`domain.validator.parse_field_value` /
-        :func:`domain.validator.format_unit_value`.
         """
         import re as _re_up
         base_tip = le.toolTip() or ""
         num_unit = _re_up.compile(
             r"\s*([+-]?\d+\.?\d*(?:[eE][+-]?\d+)?)\s*"
             r"([A-Za-zμΜ°/··]+[A-Za-z0-9/··]*)\s*$")
-
-        from sjtu_tpmshx.data_types.validator import (
-            parse_field_value as _domain_parse_field,
-            format_unit_value as _domain_format,
-        )
 
         def _cb():
             from sjtu_tpmshx.applications.gui.ui.window_config import inlet_input_active
@@ -1110,11 +1094,11 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
                         raw_val = None
                     if raw_val is not None:
                         unit_txt = m.group(2)
-                        new_val = _domain_parse_field(
+                        new_val = parse_field_value(
                             attr, raw_val, unit_txt,
                             temp_unit=getattr(self, '_temp_unit', 'K'))
                         if new_val is not None:
-                            fmt = _domain_format(new_val, fam)
+                            fmt = format_unit_value(new_val, fam)
                             # Suppress our own re-fire of editingFinished.
                             was = le.blockSignals(True)
                             le.setText(fmt)
@@ -1130,7 +1114,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             if is_expression(txt):
                 value = eval_expr(txt)
                 if value is not None:
-                    converted = _domain_format(value, 'number')
+                    converted = format_unit_value(value, 'number')
                     was = le.blockSignals(True)
                     le.setText(converted)
                     le.blockSignals(was)

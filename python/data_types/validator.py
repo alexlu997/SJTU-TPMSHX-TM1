@@ -355,53 +355,6 @@ def parse_unit_value(value: float, unit_text: str,
     raise ValueError(f"unknown family {family!r}")
 
 
-# UI mapping: QLineEdit attribute → (family, target unit). Lives in
-# the domain layer (not main.py) so the unit-parsing concern is
-# centralised — main.py only does Qt plumbing.
-#
-# Audit C5 Phase 4 (L-b, 2026-05-28): hoisted from
-# ``Main_Menu._FIELD_UNITS`` so future widgets / scripts can read
-# the same canonical map.
-FIELD_UNITS = {
-    # geometry — metres
-    'le_L': ('length', 'm'), 'le_H': ('length', 'm'),
-    'le_Lz': ('length', 'm'),
-    'le_pipeA_in_ctr': ('length', 'm'), 'le_pipeA_in_w':  ('length', 'm'),
-    'le_pipeA_out_ctr': ('length', 'm'), 'le_pipeA_out_w': ('length', 'm'),
-    'le_pipeB_in_ctr': ('length', 'm'), 'le_pipeB_in_w':  ('length', 'm'),
-    'le_pipeB_out_ctr': ('length', 'm'), 'le_pipeB_out_w': ('length', 'm'),
-    # TPMS geometry — millimetres
-    'le_Lcell': ('length', 'mm'), 'le_t': ('length', 'mm'),
-    # flow / thermo
-    'le_uA': ('speed', 'm/s'), 'le_uB': ('speed', 'm/s'),
-    'le_PinA': ('pressure', 'Pa'), 'le_PinB': ('pressure', 'Pa'),
-    'le_TinA': ('temp', None), 'le_TinB': ('temp', None),
-    # counts (no unit allowed)
-    'le_Nx': ('count', None), 'le_Ny': ('count', None),
-    'le_Nz': ('count', None),
-}
-
-
-# Fields that must be strictly positive after unit-parse + numeric
-# conversion (superset of FIELD_UNITS that adds the non-parseable
-# positives like ``le_rho_s``).
-POSITIVE_FIELDS = frozenset((
-    'le_L', 'le_H', 'le_Lz', 'le_Lcell', 'le_t', 'le_ks',
-    'le_uA', 'le_uB',
-    'le_mass_flowA', 'le_mass_flowB',
-    'le_TinA', 'le_TinB', 'le_PinA', 'le_PinB',
-    'le_Nx', 'le_Ny', 'le_Nz',
-    'le_rho_s',
-))
-
-
-# Whitelist of unit tokens that count-family fields accept (they
-# don't actually convert — just strip).
-COUNT_TOKEN_WHITELIST = frozenset((
-    'cells', 'cell', 'pts', 'points', 'nodes',
-))
-
-
 def format_unit_value(value: float, family: str) -> str:
     """Format a parsed value for UI display.
 
@@ -415,25 +368,3 @@ def format_unit_value(value: float, family: str) -> str:
     if abs(value) >= 1000 or abs(value) < 0.01:
         return f"{value:.6g}"
     return f"{value:.4g}"
-
-
-def parse_field_value(field_attr: str, raw_value: float, unit_text: str,
-                      temp_unit: str = 'K') -> Optional[float]:
-    """One-shot: look up the FIELD_UNITS entry for ``field_attr`` then
-    delegate to :func:`parse_unit_value`.  Returns ``None`` when the
-    field is not in the map, when the unit is rejected, or for
-    count-family fields that received a non-whitelisted unit token.
-
-    Audit C5 Phase 4 (L-b, 2026-05-28).
-    """
-    fam_target = FIELD_UNITS.get(field_attr)
-    if fam_target is None:
-        return None
-    family, target_unit = fam_target
-    if family == 'count':
-        u = (unit_text or '').strip().lower()
-        if u in COUNT_TOKEN_WHITELIST:
-            return raw_value
-        return None
-    return parse_unit_value(raw_value, unit_text, family,
-                            target_unit=target_unit, temp_unit=temp_unit)
