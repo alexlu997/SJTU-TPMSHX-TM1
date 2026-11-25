@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.31.8)
 project(tpmshx_result LANGUAGES C CXX)
+option(TPMSHX_BUILD_QUALIFICATION "Build the native qualification targets" ON)
 enable_testing()
 
 get_filename_component(TPMSHX_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
@@ -47,6 +48,10 @@ if(APPLE)
 elseif(UNIX)
     target_link_options(tpmshx_result_shared PRIVATE "LINKER:--version-script,${CMAKE_CURRENT_LIST_DIR}/result.map")
     set_property(TARGET tpmshx_result_shared APPEND PROPERTY LINK_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/result.map")
+endif()
+
+if(NOT TPMSHX_BUILD_QUALIFICATION)
+    return()
 endif()
 
 foreach(kind IN ITEMS static shared)

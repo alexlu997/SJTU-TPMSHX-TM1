@@ -267,9 +267,9 @@ This builds `.cache/native/libtpmshx_thermal.a` (or `tpmshx_thermal.lib`) with `
 
 ### Full dependency build and native pytest suite
 
-When you configure `solver/` directly, `TPMSHX_BUILD_QUALIFICATION` defaults to `ON`.
-It enables the smoke executables, Python test libraries, and observed model-h history.
-The native dependency build enables these targets. The top-level SDK build disables them for its solver.
+When you configure a native component directly, `TPMSHX_BUILD_QUALIFICATION` defaults to `ON`.
+It enables the component's test callers. The solver also builds Python test libraries, including the libraries that record model-h history.
+The native dependency build enables qualification. The top-level SDK disables it for each component, including previously configured build directories.
 
 Use the interpreter from `.venv-path` after passing environment checks:
 

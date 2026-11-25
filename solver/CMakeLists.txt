@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.31.8)
 project(tpmshx_dependency_pilot LANGUAGES C CXX)
-option(TPMSHX_BUILD_QUALIFICATION "Build the solver qualification targets" ON)
+option(TPMSHX_BUILD_QUALIFICATION "Build the native qualification targets" ON)
 
 # Offline only. Downloading is a separate, explicit build-script operation.
 get_filename_component(TPMSHX_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)

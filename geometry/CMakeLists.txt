@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.31.8)
+option(TPMSHX_BUILD_QUALIFICATION "Build the native qualification targets" ON)
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     project(tpmshx_geometry LANGUAGES C CXX)
     enable_testing()
@@ -86,7 +87,7 @@ foreach(target IN ITEMS tpmshx_grid tpmshx_fields tpmshx_geometry tpmshx_geometr
 endforeach()
 set_target_properties(tpmshx_xy_fitpack PROPERTIES POSITION_INDEPENDENT_CODE ON C_VISIBILITY_PRESET hidden)
 
-if(DEFINED TPMSHX_BUILD_QUALIFICATION AND NOT TPMSHX_BUILD_QUALIFICATION)
+if(NOT TPMSHX_BUILD_QUALIFICATION)
     return()
 endif()
 

@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.31.8)
+option(TPMSHX_BUILD_QUALIFICATION "Build the native qualification targets" ON)
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     project(tpmshx_preparation LANGUAGES C CXX)
     enable_testing()
@@ -59,6 +60,10 @@ foreach(target IN ITEMS tpmshx_preparation tpmshx_preparation_c tpmshx_preparati
             -fno-fast-math -ffp-contract=off -fno-builtin-pow -fno-builtin-sin -fno-builtin-cos)
     endif()
 endforeach()
+
+if(NOT TPMSHX_BUILD_QUALIFICATION)
+    return()
+endif()
 
 foreach(kind IN ITEMS static shared)
     add_executable(preparation_c_${kind} "${TPMSHX_ROOT}/tests/cpp/preparation_c_smoke.c")
