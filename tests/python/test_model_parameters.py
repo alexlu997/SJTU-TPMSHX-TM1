@@ -21,6 +21,45 @@ def test_model_parameters_have_independent_ownership():
     assert second['constants']['gas_constant'] / second['constants']['air_molar_mass'] != 287.05
 
 
+def test_default_loaders_share_one_read_and_explicit_co2_calls_read_again():
+    subprocess.run([sys.executable, '-S', '-c', '''
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from threading import Barrier
+import sys
+from sjtu_tpmshx.model_configs import model_parameters as resources
+
+expected = dict.fromkeys(('model_parameters_v1.json', 'preparation_df_v1.json', 'co2_segment2_v1.json'), 1)
+reads = Counter()
+def observe(event, args):
+    if event == 'open' and isinstance(args[0], str):
+        name = Path(args[0]).name
+        if name in expected:
+            reads[name] += 1
+
+sys.addaudithook(observe)
+start = Barrier(4)
+def read(_):
+    start.wait()
+    resources.load_quick_design_parameters()
+    resources.load_model_parameters()
+    resources.load_preparation_df_parameters()
+    resources.load_co2_coefficients()
+
+with ThreadPoolExecutor(4) as pool:
+    list(pool.map(read, range(4)))
+if reads != expected:
+    raise SystemExit(f'Packaged JSON file reads: {reads}')
+packaged = resources.CO2_RESOURCE
+via_parent = packaged.parent / '..' / packaged.parent.name / packaged.name
+for count, path in enumerate((packaged, packaged, packaged.relative_to(Path.cwd()), via_parent), start=2):
+    resources.load_co2_coefficients(path)
+    if reads[packaged.name] != count:
+        raise SystemExit(f'Explicit CO2 file reads: {reads}')
+'''], cwd=Path(__file__).resolve().parents[2], check=True, timeout=30)
+
+
 @pytest.mark.parametrize('section,key,value', [
     (None, 'schema_version', 'unknown'),
     (None, 'geometry', None),
@@ -37,6 +76,7 @@ def test_model_resource_rejects_invalid_data(tmp_path, monkeypatch, section, key
     data = resources.load_model_parameters()
     (data if section is None else data[section])[key] = value
     (tmp_path / 'model_parameters_v1.json').write_text(json.dumps(data), encoding='utf-8')
+    monkeypatch.setattr(resources, '_packaged_data', {})
     monkeypatch.setattr(resources, 'files', lambda _: tmp_path)
     with pytest.raises(ValueError):
         resources.load_model_parameters()
@@ -74,6 +114,7 @@ def test_quick_design_resource_rejects_invalid_defaults(tmp_path, monkeypatch, p
         row = row[name]
     row[path[-1]] = value
     (tmp_path / 'model_parameters_v1.json').write_text(json.dumps(data), encoding='utf-8')
+    monkeypatch.setattr(resources, '_packaged_data', {})
     monkeypatch.setattr(resources, 'files', lambda _: tmp_path)
     with pytest.raises(ValueError, match='quick_design'):
         resources.load_quick_design_parameters()
@@ -139,11 +180,30 @@ def test_co2_resource_preserves_values_and_selected_path(tmp_path):
     assert data['topologies']['Diamond']['Nu']['parameters']['theta'] == [
         5.116529451028265, .7145279830193259, .3962239747502244,
         -.13822384274620997, .037642668209224774]
-    selected = tmp_path / 'coefficients.json'
+    selected = tmp_path / resources.CO2_RESOURCE.name
+    selected.write_text(json.dumps(data), encoding='utf-8')
+    assert resources.load_co2_coefficients(selected) == data
     data['segment'] = 1
     selected.write_text(json.dumps(data), encoding='utf-8')
     with pytest.raises(ValueError, match='resource/version mismatch'):
         resources.load_co2_coefficients(selected)
+    assert resources.load_co2_coefficients()['segment'] == 2
+
+
+@pytest.mark.parametrize('component', ['absent-directory', 'co2_segment2_v1.json'])
+def test_explicit_co2_path_preserves_parent_traversal_errors(tmp_path, monkeypatch, component):
+    packaged = tmp_path / resources.CO2_RESOURCE.name
+    packaged.write_bytes(resources.CO2_RESOURCE.read_bytes())
+    monkeypatch.setattr(resources, 'CO2_RESOURCE', packaged)
+    selected = tmp_path / component / '..' / packaged.name
+    try:
+        text = selected.read_text(encoding='utf-8')
+    except OSError as error:
+        with pytest.raises(type(error)) as raised:
+            resources.load_co2_coefficients(selected)
+        assert raised.value.errno == error.errno
+    else:
+        assert resources.load_co2_coefficients(selected) == json.loads(text)
 
 
 @pytest.mark.parametrize('bounds', [[3000.], [60000., 3000.], [0., 60000.],

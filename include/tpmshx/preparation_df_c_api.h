@@ -66,7 +66,9 @@ enum {
     TPMSHX_DF_EXPERIMENT_LAYOUT = 2u,
     TPMSHX_DF_HX_DOMAIN = 4u
 };
-/* Geometry mode is 0=uniform, 1=continuous, 2=discrete.
+/* The caller must pass 0 (Diamond) or 1 (Gyroid) for `topology`.
+ * This interface defines the result only for these two codes.
+ * Geometry mode is 0=uniform, 1=continuous, 2=discrete.
  * Fluids are 0=air, 1=water, 2=sCO2, 3=CO2.
  * Symmetric is 1 when delta is zero. L/t use mm.
  * The domain uses m. Dimension 0 reports layout and transfer only.

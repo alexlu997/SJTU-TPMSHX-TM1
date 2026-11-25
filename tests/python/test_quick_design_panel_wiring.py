@@ -59,7 +59,7 @@ def test_worker_auto_calls_backend_and_emits(make_window, monkeypatch, frozen):
          patch("sjtu_tpmshx.applications.design.select.enumerate_select", _fake_enum):
         worker.run()
     assert captured["path"]=="spec.xlsx"
-    assert captured["arr"]=="counter" and captured["rho"]==7900.0
+    assert captured["arr"]=="cross" and captured["rho"]==7900.0
     assert captured["jobs"] == (1 if frozen else -1)
     assert captured["ks"]==16.0   # 默认 304SS 热导率传入后端
     assert captured["pm"]=="mean" # UI 默认物性模型 = 均温
@@ -141,6 +141,15 @@ def test_gather_inputs_rect_height(make_window):
     p = _gather_inputs(w)
     assert abs(p["height"] - 0.750) < 1e-12   # mm→m
     assert _gather_inputs(make_window("auto"))["height"] is None
+
+
+@pytest.mark.parametrize('bad_height', ['0', '-10', 'nan', 'inf', '-inf', 'abc', '1e-322'])
+def test_gather_inputs_rejects_invalid_rect_height(make_window, bad_height):
+    w = make_window("auto")
+    w.chk_qd_rect.setChecked(True)
+    w.le_qd_height.setText(bad_height)
+    with pytest.raises(ValueError):
+        _gather_inputs(w)
 
 def test_worker_emits_error_on_exception(make_window):
     w=make_window("auto"); worker=_make_worker_class()(_gather_inputs(w))
@@ -386,7 +395,7 @@ def test_failure_keeps_completed_candidates_error_and_export(monkeypatch, tmp_pa
         dialog.close()
 
 
-def test_cli_and_gui_use_design_default_density(monkeypatch, tmp_path):
+def test_cli_and_gui_share_unified_defaults_and_density(monkeypatch, tmp_path):
     from sjtu_tpmshx.applications.design import cli, sizing
 
     monkeypatch.setattr(sizing, 'RHO_S', 2700.)
@@ -412,13 +421,19 @@ def test_cli_and_gui_use_design_default_density(monkeypatch, tmp_path):
         dialog.combo_qd_mode.setCurrentIndex(dialog.combo_qd_mode.findData('fixed'))
         params = _gather_inputs(dialog)
         assert params['rho_s'] == 2700. and params['k_s'] == 150.
-        assert params['prop_model'] == 'mean'
+        assert params['arrangement'] == 'cross' and params['prop_model'] == 'mean'
+        assert params['height'] is None
+
+        # Previous GUI counterflow and CLI const selections stay reachable.
+        dialog.combo_qd_arr.setCurrentIndex(dialog.combo_qd_arr.findData('counter'))
+        dialog.combo_qd_prop.setCurrentIndex(dialog.combo_qd_prop.findData('const'))
+        legacy = _gather_inputs(dialog)
+        assert legacy['arrangement'] == 'counter' and legacy['prop_model'] == 'const'
     finally:
         dialog.close()
 
     Worker = _make_worker_class()
-    worker = Worker(dict(file='spec.xlsx', mode='fixed', cell=('Diamond', 7., .5),
-                         arrangement='counter'))
+    worker = Worker(dict(file='spec.xlsx', mode='fixed', cell=('Diamond', 7., .5)))
     received = []
     worker.finished_with_result.connect(received.append)
     worker.run()
@@ -426,16 +441,16 @@ def test_cli_and_gui_use_design_default_density(monkeypatch, tmp_path):
 
     assert cli.run(['--xlsx', str(tmp_path / 'spec.xlsx'), '--mode', 'fixed',
                     '--cell', 'Diamond,7,0.5', '--out', str(tmp_path / 'out.xlsx')]) == 0
-    assert seen == [
-        dict(arrangement='counter', rho_s=2700., k_s=150., prop_model='mean', height=None),
-        dict(arrangement='cross', rho_s=2700., k_s=150., prop_model='const', height=None),
-    ]
+    expected = dict(arrangement='cross', rho_s=2700., k_s=150., prop_model='mean', height=None)
+    assert seen == [expected, expected]
 
 
 @pytest.mark.parametrize('scenario', [
     'fixed_feasible',
     'fixed_infeasible',
+    'fixed_rect_height',
     'auto',
+    'auto_rect_height',
     'auto_refine_improved',
     'auto_refine_fallback',
     'failed_refinement',
@@ -454,6 +469,9 @@ def test_cli_and_gui_match_on_shared_inputs(monkeypatch, tmp_path, capsys, scena
         'mdot_c,Q_kW,dPlim_h,dPlim_c\n'
         '1,air,500,200,0.1,water,300,200,0.1,10,0.1,0.1\n', encoding='utf-8')
 
+    use_rect = scenario.endswith('_rect_height')
+    expected_height = .75 if use_rect else None
+
     def make_design(feasible, l, t, volume, *, reason=''):
         detail = dict(
             case=1, hot_fluid='air', cold_fluid='water',
@@ -468,6 +486,7 @@ def test_cli_and_gui_match_on_shared_inputs(monkeypatch, tmp_path, capsys, scena
             feasible, topo='Diamond', l=l, t=t, s=.1, Lx=.1, arrangement='cross',
             V=volume, weight=volume * 2000., dP_hot_max=.01, dP_cold_max=.02,
             T_out_hot_max=400., reason=reason, percase=[detail],
+            height=(expected_height or 0.0),
         )
 
     designs = {
@@ -482,8 +501,9 @@ def test_cli_and_gui_match_on_shared_inputs(monkeypatch, tmp_path, capsys, scena
         state = {'cancel': False}
 
         def candidate(cases, topo, l, t, arrangement, **kwargs):
-            assert arrangement == 'cross' and kwargs['prop_model'] == 'const'
+            assert arrangement == 'cross' and kwargs['prop_model'] == 'mean'
             assert kwargs['rho_s'] == sizing.RHO_S and kwargs['k_s'] == sizing.K_STEEL
+            assert kwargs['height'] == expected_height
             if scenario == 'fixed_infeasible':
                 return designs[5.]
             if scenario == 'cancel_enumeration' and l == 6.:
@@ -491,6 +511,7 @@ def test_cli_and_gui_match_on_shared_inputs(monkeypatch, tmp_path, capsys, scena
             return designs[l]
 
         def refine(cases, baseline, arrangement, **kwargs):
+            assert kwargs['height'] == expected_height
             if scenario == 'failed_refinement':
                 raise failure
             if scenario == 'cancel_refinement':
@@ -511,13 +532,14 @@ def test_cli_and_gui_match_on_shared_inputs(monkeypatch, tmp_path, capsys, scena
     )
     cli_out = tmp_path / f'{scenario}.xlsx'
     cli_args = [
-        '--xlsx', str(source), '--mode', mode, '--arrangement', 'cross',
-        '--prop-model', 'const', '--jobs', '1', '--out', str(cli_out),
+        '--xlsx', str(source), '--mode', mode, '--jobs', '1', '--out', str(cli_out),
     ]
     if mode == 'fixed':
         cli_args += ['--cell', 'Diamond,7,0.4']
     else:
         cli_args += ['--nodes', 'Diamond:5,6,7:0.4']
+    if use_rect:
+        cli_args += ['--height', '750']
     if use_refine:
         cli_args.append('--refine')
 
@@ -539,18 +561,28 @@ def test_cli_and_gui_match_on_shared_inputs(monkeypatch, tmp_path, capsys, scena
         assert cli.run(cli_args) == 0
     cli_stdout = capsys.readouterr().out
 
-    # Run GUI worker with matching inputs.
+    # Run GUI worker with matching inputs gathered from the dialog.
     gui_state = run_pair()
     gui_control = RunControl(cancel_check=lambda: gui_state['cancel'])
-    gui_params = dict(
-        file=str(source), mode=mode, arrangement='cross',
-        rho_s=sizing.RHO_S, k_s=sizing.K_STEEL, prop_model='const',
-        height=None, refine=use_refine,
-    )
-    if mode == 'fixed':
-        gui_params['cell'] = ('Diamond', 7., .4)
-    else:
-        gui_params['nodes'] = dict(topo=['Diamond'], l=[5., 6., 7.], t=[.4])
+    dialog = build_quick_design_dialog()
+    try:
+        dialog.le_qd_file.setText(str(source))
+        dialog.combo_qd_mode.setCurrentIndex(dialog.combo_qd_mode.findData(mode))
+        dialog.chk_qd_rect.setChecked(use_rect)
+        if use_rect:
+            dialog.le_qd_height.setText('750')
+        if mode == 'fixed':
+            dialog.combo_qd_cell_topo.setCurrentText('Diamond')
+            dialog.le_qd_cell_l.setText('7')
+            dialog.le_qd_cell_t.setText('0.4')
+        else:
+            dialog.le_qd_topo.setText('Diamond')
+            dialog.le_qd_l.setText('5,6,7')
+            dialog.le_qd_t.setText('0.4')
+            dialog.chk_qd_refine.setChecked(use_refine)
+        gui_params = _gather_inputs(dialog)
+    finally:
+        dialog.close()
     worker = _make_worker_class()(gui_params, control=gui_control)
     worker.n_jobs = 1
     gui_results, gui_errors, gui_cancelled = [], [], []
@@ -590,6 +622,9 @@ def test_cli_and_gui_match_on_shared_inputs(monkeypatch, tmp_path, capsys, scena
             for row in summary_rows[1:]
             if 'min-V' in (row[summary_header.index('标记')] or '')
         ]
+        if use_rect:
+            heights = {row[summary_header.index('H_mm')] for row in summary_rows[1:]}
+            assert heights == {750.0}
     finally:
         workbook.close()
 
@@ -605,5 +640,7 @@ def test_cli_and_gui_match_on_shared_inputs(monkeypatch, tmp_path, capsys, scena
         assert not gui_errors and not gui['partial']
         if gui_best_id is not None:
             assert f'best (min-V): {gui_best_id}' in cli_stdout
+            if use_rect:
+                assert '100.0×750.0×100.0mm' in cli_stdout
         else:
             assert 'best (min-V):' not in cli_stdout

@@ -104,6 +104,8 @@ Preparation ABI 3 为全部四个二维几何族（`uniform`、`continuous`、`z
 `resolve_flow` 用目标流量除以容量并校验解析后的速度；无目标时仅复制输入，不执行物理准备。
 `prepare_case` 仅构造一次物理网格与几何，在换热计算前解析速度，并将前段流量证据（`flow.evidence`）与最终准备证据（`prepared`）分开保存。
 `tpmshx_preparation_df_experiment_scope_v1` 为二维与三维准备共用，检查实验 D-F 布局资格与 HX 实验域匹配。
+调用方必须为 `topology` 传入 0（Diamond）或 1（Gyroid）。
+接口仅对这两个代码规定返回值的含义。
 
 ## 空间几何宿主缓存接口
 

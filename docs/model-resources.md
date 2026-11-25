@@ -44,7 +44,9 @@ water = load_water('Diamond', source=water_workbook)
 固定系数、范围和参考态的权威来源是
 [model_parameters_v1.json](../python/model_configs/model_parameters_v1.json)。
 仅依赖 Python 标准库的
-[model_parameters.py](../python/model_configs/model_parameters.py) 读取并校验该资源。
+[model_parameters.py](../python/model_configs/model_parameters.py) 在调用方省略路径参数时，在每个进程中对每份默认 JSON 资源只读取并校验一次。
+每次调用都会返回独立副本。向 `load_co2_coefficients` 传入路径或资源对象时，函数每次都会重新读取并校验指定的数据源。
+即使路径或资源对象指向内置文件，也遵循这一规则。
 Python 模型模块从同一数据构造常量，保留现有名称及 tuple/dict 类型。
 C++ 头文件生成器直接读取资源，不再导入数值模型。
 几何、准备和求解代码使用已声明的模型资源。独立结果核心使用调用方传入的数据，不加载模型资源。
