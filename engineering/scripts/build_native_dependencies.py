@@ -824,6 +824,7 @@ def check_stages(cache: Path, host: str, python: Path, lock: Path, component: st
         independent = Path(temporary)
         prefix = independent / "sdk"
         run([cmake, "--install", stage_build, "--config", "Release", "--prefix", prefix], log)
+        package_config, = (path for path in prefix.rglob("tpmshxConfig.cmake") if path.is_file())
         include_query = independent / "sdk-include-root.cmake"
         include_query.write_text(
             'file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/sdk-include-root.txt"\n'
@@ -844,7 +845,8 @@ def check_stages(cache: Path, host: str, python: Path, lock: Path, component: st
         for source, consumer_options in sources:
             build_dir = independent / (source.replace("/", "-") + "-build")
             run([cmake, "-S", independent / source, "-B", build_dir, *generator,
-                 f"-DCMAKE_PREFIX_PATH={prefix}", *consumer_options], log, cwd=independent)
+                 f"-DCMAKE_PREFIX_PATH={prefix}", f"-Dtpmshx_DIR={package_config.parent}", *consumer_options],
+                log, cwd=independent)
             if source == "examples":
                 include_root = (build_dir / "sdk-include-root.txt").read_text(encoding="utf-8")
                 verify_installed_sdk_headers(Path(include_root))

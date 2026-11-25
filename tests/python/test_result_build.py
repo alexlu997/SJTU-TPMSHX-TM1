@@ -1,5 +1,6 @@
 """Result builds need only a locked tool and the standard C++ runtime."""
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -329,17 +330,29 @@ def test_installed_result_stage_has_no_eos_or_python_runtime(result_build, monke
     examples = root / 'examples/cpp'
     examples.mkdir(parents=True)
     (examples / 'CMakeLists.txt').write_text('project(test)\n')
+    foreign_sdk = root / 'foreign-sdk'
+    foreign_sdk.mkdir()
+    (foreign_sdk / 'tpmshxConfig.cmake').write_text('message(FATAL_ERROR "Selected the foreign SDK")\n')
+    monkeypatch.setenv('tpmshx_ROOT', str(foreign_sdk))
+    package_subdir = Path('usr/lib/cmake/tpmshx')
     runs = []
     original = native.run
 
     def record(command, *args, **kwargs):
         parts = tuple(map(str, command))
         runs.append((parts, kwargs))
+        if '--install' in parts:
+            package_dir = Path(parts[parts.index('--prefix') + 1]) / package_subdir
+            package_dir.mkdir(parents=True)
+            (package_dir / 'tpmshxConfig.cmake').touch()
         if any(part.startswith('-DCMAKE_PROJECT_INCLUDE=') for part in parts):
             build_dir = Path(parts[parts.index('-B') + 1])
             build_dir.mkdir(parents=True)
             prefix, = (part.removeprefix('-DCMAKE_PREFIX_PATH=') for part in parts
                        if part.startswith('-DCMAKE_PREFIX_PATH='))
+            selected = next((part.removeprefix('-Dtpmshx_DIR=') for part in parts
+                             if part.startswith('-Dtpmshx_DIR=')), os.environ['tpmshx_ROOT'])
+            assert Path(selected) == Path(prefix) / package_subdir
             (build_dir / 'sdk-include-root.txt').write_text(str(Path(prefix) / 'custom/include'))
         return original(command, *args, **kwargs)
 
