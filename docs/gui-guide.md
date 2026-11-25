@@ -140,10 +140,7 @@ sCO₂ 传热选项随流体选择显示；已选择的实验模式会保留可�
 `cross/counter` 模式。工况文件使用 K、绝压 kPa、kg/s、kW；压降上限按比例填写
 （例如 5% 填 `0.05`）。
 
-GUI 与 CLI（`python -m sjtu_tpmshx.applications.design.cli`）默认均采用 `cross`
-交叉流、`mean` 均温物性和方形迎风（不启用固定高度）。如需沿用旧默认行为，可在
-CLI 显式传入 `--prop-model const` 或 `--arrangement counter`，或在界面对应下拉框中选择。
-如需固定矩形迎风高度，可在 CLI 传入有限正数 `--height`（单位 mm），或在界面勾选“固定高度迎风”。
+自 2026-11-25 起，GUI 与 CLI（`python -m sjtu_tpmshx.applications.design.cli`）统一采用相同默认设置：`cross` 交叉流、`mean` 均温物性和方形迎风（不启用固定高度）。省略这些选项时，CLI 与 GUI 的默认计算结果会发生变化。2026-11-25 起，CLI 默认物性模型由 `const` 改为 `mean`（流动布置保持 `cross`）；GUI 默认流动布置由逆流（`counter`）改为交叉流（`cross`），物性模型保持 `mean`。如需复现旧版 CLI 默认结果，请传入 `--prop-model const`；如需复现旧版 GUI 默认结果，请在界面选择“逆流”。两种流动布置与两种物性模型在两个入口中均继续可选（CLI 可传 `--arrangement counter`，GUI 可选“入口定物性”）。如需在 CLI 固定矩形迎风高度，请传入有限正数 `--height`（单位 mm）；如需在 GUI 固定矩形迎风高度，请勾选“固定高度迎风”。
 
 结果表将体积放在前列，便于比较候选尺寸。
 选型或精修报错时立即停止，保留此前已完成候选；并行仅保证此前完整批次。
