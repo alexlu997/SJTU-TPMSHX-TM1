@@ -153,7 +153,7 @@ For nonzero `delta_levelset`, local total porosity is multiplied by each side's 
 Returned K/cF fields keep unscaled CFD values while side evidence records CO2 or experimental application factors separately.
 Capacity integrates each side's actual inlet porosity, open area, and density; complete fixed-flow preparation builds geometry once and resolves speeds before speed/model checks.
 Air-field scalar range observations keep at most eight selected samples per side (original notices, extrema, and last sample) while full raw-array records keep all cells.
-`python/preprocess/three_d/preparation.py` assembles immutable `CaseData` from native views and releases the native owner through `preparation_host.py`.
+`python/cpp_interface/native_preparation.py` and `python/cpp_interface/_native_preparation_3d.py` pack 3D inputs, copy native arrays into immutable buffers, and release the native owner through `preparation_host.py`. `python/preprocess/three_d/preparation.py` builds immutable `CaseData` from those detached values.
 
 ## Run continuation
 

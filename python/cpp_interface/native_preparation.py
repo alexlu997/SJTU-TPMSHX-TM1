@@ -1,4 +1,4 @@
-"""Pack full 2D preparation inputs and detach the owned native output."""
+"""Pack full 2D and 3D preparation inputs and detach their owned native outputs."""
 import ctypes as ct
 from functools import partial
 from types import SimpleNamespace
@@ -6,7 +6,13 @@ from types import SimpleNamespace
 import numpy as np
 
 from . import _native_preparation_case as native, preparation_host as host
+from ._native_preparation_3d import (
+    pack_input as pack_volume_input,
+    run_preparation as run_volume_preparation,
+)
 from ._native_values import TOPOLOGIES, borrow_text, copy_array, count, geometry_topology, real_array, real_scalar, read_text
+
+__all__ = ['pack_input', 'run_preparation', 'pack_volume_input', 'run_volume_preparation']
 
 
 def _real(value, name):
