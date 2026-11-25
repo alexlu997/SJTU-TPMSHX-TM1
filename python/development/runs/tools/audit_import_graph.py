@@ -134,15 +134,16 @@ def target_unit(name: str, units: set[str]) -> str | None:
     return None
 
 
-_RESULT_DTO_EXPORTS = {
-    f"sjtu_tpmshx.{area}.{module}": names
-    for area in ("data_types", "shared.domain")
-    for module, names in (("metric_spec", ("MetricSpec",)),
-                          ("performance_result", ("MetricSpec", "MetricValue", "PerformanceResult")))
-}
+_DTO_PACKAGES = {"sjtu_tpmshx.data_types", "sjtu_tpmshx.shared.domain", "data_types", "shared.domain"}
+_DTO_MODULES = {f"{package}.{module}" for package in _DTO_PACKAGES
+                for module in ("metric_spec", "performance_result")}
+_DTO_TYPES = {"MetricSpec", "MetricValue", "PerformanceResult"}
+_TYPE_GUARDS = {"typing.TYPE_CHECKING", "typing_extensions.TYPE_CHECKING"}
+_BINDING_NAMESPACES = {"sjtu_tpmshx", "sjtu_tpmshx.shared", "shared", *_DTO_PACKAGES,
+                       "typing", "typing_extensions", *_TYPE_GUARDS}
 
 
-def _invalid_result_target(host: bool, target: str, *, value: bool = False) -> bool:
+def _invalid_result_target(host: bool, target: str) -> bool:
     if not target.startswith("sjtu_tpmshx."):
         return False
     area, _, member = target.removeprefix("sjtu_tpmshx.").partition(".")
@@ -153,11 +154,14 @@ def _invalid_result_target(host: bool, target: str, *, value: bool = False) -> b
         return area == "cpp_interface" and bool(module) and (
             module != "result_evaluation" or name.partition(".")[0] not in {
                 "", "query_result", "METRICS", "APPLICABILITY", "PHYSICAL_BALANCE", "QUALIFICATION"})
-    owner, _, symbol = target.rpartition(".")
     return (area in {"applications", "compute", "file_io", "physical_models",
                      "postprocess", "preprocess", "solvers"}
-            or (area == "shared" and module in {"models", "df_surrogate", "io"})
-            or (value and symbol in _RESULT_DTO_EXPORTS.get(owner, ())))
+            or (area == "shared" and module in {"models", "df_surrogate", "io"}))
+
+
+def _result_dto_import(target: str) -> bool:
+    owner, _, name = target.rpartition(".")
+    return target in _DTO_MODULES or owner in _DTO_MODULES or name in _DTO_TYPES
 
 
 def _qualified_result_names(node, aliases):
@@ -177,22 +181,26 @@ def _possible_result_names(paths):
             for name in set().union(*paths)}
 
 
-class _ResultReferences(ast.NodeVisitor):
-    """Check runtime names in the independent result host and binding."""
+class _ResultImportAudit(ast.NodeVisitor):
+    """Check host access to native operations. Permit DTO imports in the binding only for type checking."""
 
     def __init__(self, host, package):
         self.host = host
         self.package = package
-        self.aliases = {"isinstance": {"builtins.isinstance"}}
+        self.aliases = {}
         self.module_names = self.aliases
         self.class_parent = None
         self.functions = []
         self.violations = []
 
-    def check(self, node):
-        for target in sorted(_qualified_result_names(node, self.aliases)):
-            if _invalid_result_target(self.host, target, value=True):
-                self.violations.append((node.lineno, target))
+    def bind(self, name, targets):
+        # The binding needs only package names and type guards to check its imports.
+        if not self.host:
+            targets = {target if target in _BINDING_NAMESPACES else "" for target in targets}
+        if targets and targets != {""}:
+            self.aliases[name] = targets
+        else:
+            self.aliases.pop(name, None)
 
     def scope(self, nodes, aliases):
         outer = self.aliases, self.functions, self.class_parent
@@ -212,35 +220,43 @@ class _ResultReferences(ast.NodeVisitor):
 
     def visit_Import(self, node):
         targets = import_targets(node, self.package)
+        if not self.host:
+            # Report the imported member when the statement names one.
+            forbidden = next((name for name in reversed(targets) if _result_dto_import(name)), None)
+            if forbidden:
+                self.violations.append((node.lineno, forbidden))
         for item in node.names:
             if item.name == "*":
-                for name in _RESULT_DTO_EXPORTS.get(targets[0], ()):
-                    self.aliases[name] = {targets[0] + "." + name}
-            elif isinstance(node, ast.ImportFrom):
-                self.aliases[item.asname or item.name] = {targets[0] + "." + item.name}
+                if targets[0] + ".TYPE_CHECKING" in _TYPE_GUARDS:
+                    self.bind("TYPE_CHECKING", {targets[0] + ".TYPE_CHECKING"})
+                continue
+            if isinstance(node, ast.ImportFrom):
+                self.bind(item.asname or item.name, {targets[0] + "." + item.name})
             else:
                 root = item.name.partition(".")[0]
-                self.aliases[item.asname or root] = {item.name if item.asname else root}
+                self.bind(item.asname or root, {item.name if item.asname else root})
 
     visit_ImportFrom = visit_Import
 
     def visit_Name(self, node):
-        if isinstance(node.ctx, ast.Load):
-            self.check(node)
-        else:
+        if not isinstance(node.ctx, ast.Load):
             self.aliases.pop(node.id, None)
 
     def visit_Global(self, node):
         for name in node.names:
-            self.aliases[name] = self.module_names.get(name, set())
+            self.bind(name, self.module_names.get(name, set()))
 
     def visit_Attribute(self, node):
-        if self.host or isinstance(node.ctx, ast.Load):
-            self.check(node)
+        for target in sorted(_qualified_result_names(node, self.aliases)):
+            # A loaded DTO module is also available through its parent package.
+            if (_invalid_result_target(self.host, target)
+                    or (not self.host and target in _DTO_MODULES and isinstance(node.ctx, ast.Load))):
+                self.violations.append((node.lineno, target))
         self.visit(node.value)
 
     def type_guard(self, test):
-        if _qualified_result_names(test, self.aliases) in ({"typing.TYPE_CHECKING"}, {"typing_extensions.TYPE_CHECKING"}):
+        guard = _qualified_result_names(test, self.aliases)
+        if guard and guard <= _TYPE_GUARDS:
             return False
         if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
             value = self.type_guard(test.operand)
@@ -336,11 +352,11 @@ class _ResultReferences(ast.NodeVisitor):
         if node.value is None:
             return
         self.visit(node.value)
-        alias = _qualified_result_names(node.value, self.aliases)
+        alias = _qualified_result_names(node.value, self.aliases) if self.host else set()
         for target in (node.targets if isinstance(node, ast.Assign) else (node.target,)):
             self.visit(target)
             if alias and isinstance(target, ast.Name):
-                self.aliases[target.id] = alias
+                self.bind(target.id, alias)
 
     visit_AnnAssign = visit_NamedExpr = visit_Assign
 
@@ -355,6 +371,13 @@ class _ResultReferences(ast.NodeVisitor):
 
     visit_AsyncFor = visit_For
 
+    def visit_While(self, node):
+        self.visit(node.test)
+        if self.type_guard(node.test) is not False:
+            self.branches([((), self.aliases), (node.body, self.aliases)])
+        for statement in node.orelse:
+            self.visit(statement)
+
     def visit_ExceptHandler(self, node):
         if node.type is not None:
             self.visit(node.type)
@@ -368,33 +391,6 @@ class _ResultReferences(ast.NodeVisitor):
 
     visit_MatchMapping = visit_MatchStar = visit_MatchAs
 
-    def visit_Call(self, node):
-        if (not self.host and _qualified_result_names(node.func, self.aliases) == {"builtins.isinstance"}
-                and len(node.args) == 2):
-            self.visit(node.args[0])
-            self.check_type_operand(node.args[1])
-        else:
-            self.generic_visit(node)
-
-    def check_type_operand(self, node):
-        if isinstance(node, ast.Tuple):
-            for item in node.elts:
-                self.check_type_operand(item)
-        elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
-            self.check_type_operand(node.left)
-            self.check_type_operand(node.right)
-        elif isinstance(node, ast.IfExp):
-            self.visit(node.test)
-            self.check_type_operand(node.body)
-            self.check_type_operand(node.orelse)
-        elif (isinstance(node, ast.Subscript)
-              and _qualified_result_names(node.value, self.aliases) in ({"typing.Union"}, {"typing.Optional"})):
-            self.check_type_operand(node.slice)
-        elif isinstance(node, ast.Starred):
-            self.check_type_operand(node.value)
-        elif not _qualified_result_names(node, self.aliases):
-            self.visit(node)
-
 
 def _result_boundary_violations(path, tree, package):
     host = path.parent == PKG / "postprocess" and path.stem in {"api", "evaluation"}
@@ -404,7 +400,7 @@ def _result_boundary_violations(path, tree, package):
             forbidden = next((name for name in import_targets(node, package) if _invalid_result_target(host, name)), None)
             if forbidden:
                 yield f"{path.relative_to(REPO)}:{node.lineno}: independent result boundary -> {forbidden}"
-        references = _ResultReferences(host, package)
+        references = _ResultImportAudit(host, package)
         references.scope(tree.body, references.aliases)
         for line, target in references.violations:
             yield f"{path.relative_to(REPO)}:{line}: independent result boundary -> {target}"

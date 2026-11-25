@@ -219,48 +219,47 @@ def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monke
     ('postprocess/api.py', 'from sjtu_tpmshx.shared import _native_result_stage',
      'independent result boundary -> sjtu_tpmshx.shared._native_result_stage', 1),
     ('cpp_interface/result_evaluation.py',
-     'from ._native_result_stage import Output\n'
-     'from ..data_types.performance_result import PerformanceResult as Output\nOutput()',
-     'independent result boundary -> sjtu_tpmshx.data_types.performance_result.PerformanceResult', 1),
+     'def assemble_record(provider=None):\n    from ..data_types import performance_result\n'
+     '    records = performance_result if provider is None else provider\n'
+     '    return records.PerformanceResult("new", "saved")',
+     'result_evaluation.py:2: independent result boundary -> sjtu_tpmshx.data_types.performance_result', 1),
     ('cpp_interface/result_evaluation.py',
      'from sjtu_tpmshx import data_types as dto\ndto.performance_result.PerformanceResult()',
-     'independent result boundary -> sjtu_tpmshx.data_types.performance_result.PerformanceResult', 1),
+     'independent result boundary -> sjtu_tpmshx.data_types.performance_result', 1),
     ('cpp_interface/result_evaluation.py',
      'from itertools import starmap\nfrom ..data_types.performance_result import MetricValue\n'
      'def records(rows):\n    return tuple(starmap(MetricValue, rows))',
-     'independent result boundary -> sjtu_tpmshx.data_types.performance_result.MetricValue', 1),
+     'result_evaluation.py:2: independent result boundary -> sjtu_tpmshx.data_types.performance_result.MetricValue', 1),
     ('cpp_interface/result_evaluation.py',
      'from ..data_types.performance_result import PerformanceResult as BuildReport\n'
      'from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from ._native_result_stage import Output as BuildReport\n'
      'BuildReport("new", "saved")',
-     'independent result boundary -> sjtu_tpmshx.data_types.performance_result.PerformanceResult', 1),
-    ('cpp_interface/result_evaluation.py',
-     'import typing as t\nif t.TYPE_CHECKING:\n    from ..data_types.performance_result import PerformanceResult as Output\n'
-     'else:\n    from ._native_result_stage import Output\nOutput()',
-     'native_values -> domain', 0),
+     'result_evaluation.py:1: independent result boundary -> sjtu_tpmshx.data_types.performance_result.PerformanceResult', 1),
+    ('cpp_interface/_native_result_stage.py', 'import sjtu_tpmshx.data_types.metric_spec as specs',
+     'independent result boundary -> sjtu_tpmshx.data_types.metric_spec', 1),
+    ('cpp_interface/result_evaluation.py', 'from ..shared.domain.performance_result import *',
+     'independent result boundary -> sjtu_tpmshx.shared.domain.performance_result', 1),
+    ('cpp_interface/_native_result_stage.py', 'from ..data_types.metric_spec import full_metric_version',
+     'independent result boundary -> sjtu_tpmshx.data_types.metric_spec.full_metric_version', 1),
+    ('cpp_interface/result_evaluation.py', 'from ..data_types import MetricValue as Row',
+     'independent result boundary -> sjtu_tpmshx.data_types.MetricValue', 1),
     ('cpp_interface/_native_result_stage.py',
-     'from ..data_types.performance_result import MetricSpec, MetricValue\n'
-     'def read(item: MetricSpec | MetricValue) -> MetricSpec:\n'
-     '    if isinstance(item, (MetricValue,)):\n        spec: MetricSpec = item.spec\n        return spec\n    return item',
-     'native_values -> domain', 0),
-    ('cpp_interface/result_evaluation.py',
-     'from ..data_types.performance_result import MetricValue\n'
-     'def check(row, factory):\n    return isinstance(row, factory(MetricValue))',
-     'independent result boundary -> sjtu_tpmshx.data_types.performance_result.MetricValue', 1),
-    ('cpp_interface/result_evaluation.py',
-     'import sys\nif sys.platform == "darwin":\n    from ..data_types.performance_result import MetricValue as Build\n'
-     'else:\n    from ._native_result_stage import Metric as Build\nfactory = Build',
-     'independent result boundary -> sjtu_tpmshx.data_types.performance_result.MetricValue', 1),
-    ('cpp_interface/result_evaluation.py',
-     'try:\n    from ..data_types.performance_result import MetricValue as Build\n'
-     'except ImportError:\n    from ._native_result_stage import Metric as Build\nfactory = Build',
-     'independent result boundary -> sjtu_tpmshx.data_types.performance_result.MetricValue', 1),
-    ('cpp_interface/_native_result_stage.py',
-     'def pack():\n    from sjtu_tpmshx.data_types import metric_spec\n    return metric_spec.MetricSpec()',
-     'independent result boundary -> sjtu_tpmshx.data_types.metric_spec.MetricSpec', 1),
+     'from ..data_types.metric_spec import MetricSpec\n'
+     'def check(item: MetricSpec):\n    return isinstance(item, MetricSpec)',
+     '_native_result_stage.py:1: independent result boundary -> sjtu_tpmshx.data_types.metric_spec.MetricSpec', 1),
     ('cpp_interface/_native_result_stage.py',
      'from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from ..data_types.metric_spec import MetricSpec\n'
      'def pack(spec: "MetricSpec"):\n    return spec.name',
+     'native_values -> domain', 0),
+    ('cpp_interface/result_evaluation.py',
+     'import typing as t\nif t.TYPE_CHECKING:\n    from ..data_types import performance_result as output_types\n'
+     'else:\n    from ._native_result_stage import Output\nOutput()',
+     'native_values -> domain', 0),
+    ('cpp_interface/result_evaluation.py',
+     'from typing import TYPE_CHECKING as checking\n'
+     'def pack(checking):\n    if checking:\n        from ..data_types import metric_spec as local',
+     'result_evaluation.py:4: independent result boundary -> sjtu_tpmshx.data_types.metric_spec', 1),
+    ('cpp_interface/_native_result_stage.py', 'from ..data_types import portable_data',
      'native_values -> domain', 0),
     ('cpp_interface/result_evaluation.py', 'from ..physical_models import fluid_props',
      'independent result boundary -> sjtu_tpmshx.physical_models', 1),
