@@ -16,7 +16,7 @@ UI orchestration reaches prepare_case / run_case / evaluate through
 the common workflow on ComputeOrchestrator workers. RunControl selects the numerical
 backend; presentation stays in the UI. Deps are stable
 imports (PySide6 widgets, ui.fmt._fmt_dur, ui.ui_constants constants,
-time) — no main.py module state. Adopted via
+time). The mixin uses ``self`` for window state. ``ui/main_window.py`` defines
 ``class Main_Menu(..., RunControllerMixin, QMainWindow)``; external wiring
 (ui_builders btn_run, command_palette, signal_router, orch signal
 connections) resolves on the live window through the MRO.
