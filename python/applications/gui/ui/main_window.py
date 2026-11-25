@@ -528,6 +528,9 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             le = getattr(self, name, None)
             if le is None:
                 continue
+            if name in ('le_TinA', 'le_TinB'):
+                # The Compute shortcut can leave the inlet edit in focus.
+                self._field_validators[name]()
             if le.property('inpError') == 'true':
                 label = (le.accessibleName() or name)
                 val = le.text() or '(empty)'

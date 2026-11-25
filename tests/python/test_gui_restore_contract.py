@@ -137,6 +137,57 @@ def test_unit_switch_keeps_rejected_temperature_expression_at_absolute_zero(win,
     assert win._temp_to_K(win.le_TinA) == 0
 
 
+@pytest.mark.parametrize('side,unit,zero', [('A', 'K', '(0)'), ('B', 'C', '(-273.15)')])
+def test_save_config_preserves_file_for_rejected_switched_inlet(win, monkeypatch, tmp_path, side, unit, zero):
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+    path = tmp_path / 'inlets.json'
+    monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *args: (str(path), ''))
+    errors = []
+    monkeypatch.setattr(QMessageBox, 'critical', lambda parent, title, text: errors.append(text))
+    if unit == 'C':
+        win._toggle_temp_unit()
+    field = getattr(win, 'le_Tin' + side)
+    field.setText('0.05 K')
+    field.editingFinished.emit()
+    kelvin = win._temp_to_K(field)
+    assert win.save_config()
+    original = path.read_bytes()
+
+    field.setText(zero)
+    win._toggle_temp_unit()
+    assert field.property('inpError') == 'true'
+    assert not win.save_config()
+    assert 'Must be above 0 K' in errors[-1]
+    assert path.read_bytes() == original
+    assert win._load_config_path(path)
+    assert win._temp_unit == unit
+    assert win._temp_to_K(field) == kelvin > 0
+
+
+@pytest.mark.parametrize('route', ['config', 'session'])
+@pytest.mark.parametrize('side,unit,zero', [('A', 'K', 0), ('B', 'C', -273.15)])
+def test_numeric_zero_in_saved_unit_preserves_active_design(win, tmp_path, side, unit, zero, route):
+    from PySide6.QtWidgets import QApplication
+
+    if unit == 'C':
+        win._toggle_temp_unit()
+    saved = win._capture_current_preset('invalid inlet')
+    saved['line_edits']['le_Tin' + side] = zero
+    saved['line_edits']['le_L'] = '0.333'
+    win._toggle_temp_unit()
+    before = win._capture_current_preset('active')
+    if route == 'config':
+        path = tmp_path / 'invalid.json'
+        path.write_text(json.dumps({'config_format': 1, 'preset': saved}))
+        assert not win._load_config_path(path)
+    else:
+        assert win.sm.save_session(saved)
+        win._restore_session()
+        QApplication.processEvents()
+    assert win._capture_current_preset('active') == before
+
+
 @pytest.mark.parametrize('content', ['{"presets": {"old": 1}}', '{"presets": [null]}', '{broken'])
 def test_rejected_preset_library_is_preserved_before_next_save(win, content):
     path = win.sm.presets_path()
