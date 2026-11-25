@@ -39,8 +39,9 @@ def test_fluid_resource_matches_registered_identity(spelling, resource, monkeypa
     assert resolve_model(ModelRef(resource, MODEL_VERSIONS[resource], parameters)) is get(spelling)
 
     wrong = 'fluid' if resource == 'co2_fluid' else 'co2_fluid'
-    with pytest.raises(ValueError, match='CO2 requires its versioned fluid resource'):
+    with pytest.raises(ValueError) as error:
         resolve_model(ModelRef(wrong, MODEL_VERSIONS[wrong], parameters))
+    assert str(error.value) == f"Fluid {spelling!r} requires resource {resource!r}. The record specifies {wrong!r}."
 
 
 def test_reject_invalid_records():

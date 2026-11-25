@@ -26,8 +26,12 @@ def resolve_model(ref: ModelRef):
         if set(parameters) - {'fluid', 'sco2_nu'} or 'fluid' not in parameters:
             raise ValueError('fluid model requires fluid and optional sco2_nu parameters')
         provider = get(parameters['fluid'])
-        if (ref.name == 'co2_fluid') != (provider.name == 'co2'):
-            raise ValueError('CO2 requires its versioned fluid resource')
+        required_resource = 'co2_fluid' if provider.name == 'co2' else 'fluid'
+        if ref.name != required_resource:
+            raise ValueError(
+                f"Fluid {parameters['fluid']!r} requires resource {required_resource!r}. "
+                f"The record specifies {ref.name!r}."
+            )
         settings = parameters.get('sco2_nu')
         if settings is not None:
             settings = Sco2NuConfig(**settings).validate()
