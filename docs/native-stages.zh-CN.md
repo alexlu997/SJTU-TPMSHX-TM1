@@ -148,7 +148,7 @@ Python 保留 LUT 的内存与磁盘存储；缺表时 C++ 在体素分辨率 25
 返回的 K/cF 场保持未缩放的 CFD 基准值，CO2 或实验应用因子单独记入侧证据。
 容量查询按各侧实际入口孔隙率、开口面积与密度积分；完整定流量准备仅构造一次几何，解析速度后再执行速度与模型检查。
 空气场标量范围观测每侧最多保留 8 个样本（原始通知、极值与末次采样），完整原始数组记录保留全部单元。
-`python/preprocess/three_d/preparation.py` 从原生视图组装不可变 `CaseData`，再经 `preparation_host.py` 释放原生所有者。
+`python/cpp_interface/native_preparation.py` 与 `python/cpp_interface/_native_preparation_3d.py` 打包三维输入，将原生数组复制到不可变缓冲区，并经 `preparation_host.py` 释放原生所有者。`python/preprocess/three_d/preparation.py` 使用这些独立数据构造不可变 `CaseData`。
 
 ## 运行续算
 

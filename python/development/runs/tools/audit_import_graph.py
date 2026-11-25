@@ -162,10 +162,11 @@ _OTHER_STAGE_MODULES = {"full_2d_stage", "full_3d_stage", "run_state", "native_p
 _QUICK_PREPARATION_IMPORTS = {f"sjtu_tpmshx.{module}" for module in (
     "cpp_interface.quick_preparation", "cpp_interface._native_quick_prepare", "shared._native_quick_prepare",
     "shared.models._native_quick_prepare", "physical_models._native_quick_prepare")}
-# The shared mesh packer uses the array layout from _native_result.
+# Shared ABI layouts use wire types from _native_df and _native_result.
 _FULL_PREPARATION_WIRE_MODULES = {
     "native_preparation", "preparation_host", "inlet_properties", "stage_libraries",
-    "_native_preparation_case", "_native_preparation_3d", "_native_values", "_native_properties", "_native_result",
+    "_native_preparation_case", "_native_preparation_3d", "_native_values", "_native_properties",
+    "_native_df", "_native_result",
 }
 _TYPE_GUARDS = {"typing.TYPE_CHECKING", "typing_extensions.TYPE_CHECKING"}
 _BINDING_NAMESPACES = {"sjtu_tpmshx", "sjtu_tpmshx.cpp_interface", "sjtu_tpmshx.shared", "shared", *_DTO_PACKAGES,
@@ -474,13 +475,18 @@ def _stage_boundary_violations(path, tree, package):
         if not preparation_api:
             return
     if (preparation_api or path == PKG / "preprocess/two_d/preparation.py" or path.parent == PKG / "cpp_interface"
-            and path.stem in {"native_preparation", "preparation_host", "inlet_properties"}):
+            and path.stem in {"native_preparation", "preparation_host", "inlet_properties",
+                              "_native_preparation_3d", "_native_preparation_case"}):
         label, binding = "full preparation", "native_preparation"
         operations = set() if preparation_api else {"", "pack_input", "run_preparation"}
         modules, types = _CASE_DTO_MODULES, {"CaseData", "ModelRef"}
         if path.stem == "preparation_host":
             # The shared solver input packer checks the type of a saved ModelRef.
             modules, types = {name for name in modules if name.endswith(".case_data")}, {"CaseData"}
+    elif path == PKG / "preprocess/three_d/preparation.py":
+        label, binding = "full 3D preparation", "native_preparation"
+        operations = {"", "pack_volume_input", "run_volume_preparation"}
+        modules, types = _CASE_DTO_MODULES, {"CaseData", "ModelRef"}
     elif path in (PKG / "preprocess/quick_design.py", PKG / "cpp_interface/quick_preparation.py"):
         label, binding, operations = "Quick preparation", "quick_preparation", {"", "run_preparation"}
         modules, types = _CASE_DTO_MODULES, {"CaseData", "ModelRef"}
