@@ -219,8 +219,12 @@ def _run_native_condition(index, case_file, directory, library, threads, checkpo
     return changes
 
 
-def _condition_worker_count(workers, count, control):
-    """Resolve one CPU allocation for batches and optimization."""
+def condition_worker_count(workers: int | None, count: int, control: RunControl) -> int:
+    """Limit the worker count to the number of conditions and the native CPU budget.
+
+    With ``workers=None``, request one worker per two CPU slots, up to four workers.
+    A single CPU slot supports one worker.
+    """
     budget = control.native_cpu_threads()
     if workers is None:
         workers = min(4, max(1, budget // 2))
@@ -263,8 +267,12 @@ def evaluate_condition_batch(
                                      allow_nu_re_extrapolation=allow_nu_re_extrapolation)
 
 
-def _saved_condition_config(row, *, prepared_grid=False):
-    """Parse prescribed flow; preparation still validates the resolved speeds."""
+def saved_condition_config(row: dict, *, prepared_grid: bool = False) -> ComputeConfig:
+    """Read a saved condition with the prescribed mass flow for each inlet.
+
+    Use ``prepared_grid=True`` to read settings for a grid that was already prepared.
+    Preparation validates the resolved inlet speeds.
+    """
     data = deepcopy(row['config'])
     for side in 'AB':
         data['fluid_'+side]['mass_flow_kg_s'] = row[f'mass_flow_{side}_kg_s']
@@ -285,7 +293,7 @@ def resume_condition_batch(batch_file, *, output_dir, control=RunControl(backend
     if record.get('format') != 'condition_batch_v1' or record.get('backend') != 'cpp':
         raise ValueError('batch recovery requires a saved native condition batch')
     inputs = json.loads((path.parent / 'batch-input.json').read_text(encoding='utf-8'))
-    conditions = [(row['condition_id'], _saved_condition_config(row, prepared_grid=True),
+    conditions = [(row['condition_id'], saved_condition_config(row, prepared_grid=True),
                    row['mass_flow_A_kg_s'], row['mass_flow_B_kg_s']) for row in inputs]
     if [row[0] for row in conditions] != [row['condition_id'] for row in record['conditions']]:
         raise ValueError('saved batch input and condition membership differ')
@@ -378,7 +386,7 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
     if (not ids or any(not isinstance(item, str) or not item for item in ids)
             or len(set(ids)) != len(ids)):
         raise ValueError('conditions require unique, nonempty condition IDs')
-    worker_count = _condition_worker_count(workers, len(inputs), control)
+    worker_count = condition_worker_count(workers, len(inputs), control)
     for condition_id, config, flow_a, flow_b in inputs:
         if not isinstance(config, ComputeConfig):
             raise TypeError(f'condition {condition_id}: config must be ComputeConfig')
@@ -426,7 +434,7 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
             raise ValueError('saved batch input and condition membership differ')
         for (_, config, a, b), saved in zip(inputs, source_inputs):
             requested = config.to_dict()
-            archived = _saved_condition_config(saved, prepared_grid=True).to_dict()
+            archived = saved_condition_config(saved, prepared_grid=True).to_dict()
             for settings in (requested, archived):
                 for side in 'AB':
                     settings['fluid_'+side].update(u_mps=None, mass_flow_kg_s=None)
