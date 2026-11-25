@@ -11,7 +11,7 @@ from sjtu_tpmshx.applications.result_adapter import compute_result
 from sjtu_tpmshx.physical_models.df_surrogate.full_core_3cell_fixed_v2 import (
     FullCore3CellFixedDFV2,
 )
-from sjtu_tpmshx.physical_models.df_surrogate.load_sco2_cfd import load_core
+from sjtu_tpmshx.preprocess.offline.load_sco2_cfd import load_core
 from sjtu_tpmshx.data_types.compute_config import (
     ComputeConfig,
     FluidConfig,

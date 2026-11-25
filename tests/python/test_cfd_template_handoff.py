@@ -53,7 +53,7 @@ def test_real_geometry_keeps_values_and_skip_policy(monkeypatch, capsys, name, t
 @pytest.mark.parametrize('name', ['asym_build_cfd_design_xlsx', 'asym_build_cfd_worklist_xlsx'])
 @pytest.mark.parametrize('encoding', ['utf-8', 'utf-8-sig'])
 def test_filled_template_csv_reaches_real_ingest(tmp_path, monkeypatch, name, encoding):
-    from sjtu_tpmshx.physical_models.df_surrogate import ingest_cfd_kappa, kappa_asym
+    from sjtu_tpmshx.development.runs.cfd_asym import ingest_cfd_kappa, kappa_asym
 
     generator = importlib.import_module(f'sjtu_tpmshx.development.runs.tools.{name}')
     book = tmp_path / 'template.xlsx'
@@ -70,6 +70,9 @@ def test_filled_template_csv_reaches_real_ingest(tmp_path, monkeypatch, name, en
     generator.build()
     workbook = openpyxl.load_workbook(book)
     rows = list(workbook['results_template'].values)
+    if name == 'asym_build_cfd_design_xlsx':
+        command = 'python -m sjtu_tpmshx.development.runs.cfd_asym.ingest_cfd_kappa <csv>'
+        assert any(command in str(cell.value) for cell in workbook['README']['A'])
     workbook.close()
     expected = ('tpms', 'L_mm', 't_mm', 'eps_side', 'eps_sym', 'K_cfd', 'cF_cfd')
     assert rows[0] == expected
