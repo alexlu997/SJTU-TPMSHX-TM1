@@ -7,7 +7,10 @@ from sjtu_tpmshx.model_configs.model_parameters import MODEL_VERSIONS
 
 
 def resolve_model(ref: ModelRef):
-    """Return the provider for a recorded model name and version."""
+    """Return the provider for a recorded model name and version.
+
+    Each registered spelling of CO2 requires the co2_fluid resource.
+    """
     if not isinstance(ref, ModelRef):
         raise TypeError('model resource must be a ModelRef')
     if ref.name not in MODEL_VERSIONS or ref.version != MODEL_VERSIONS[ref.name]:
@@ -22,12 +25,14 @@ def resolve_model(ref: ModelRef):
         from .fluid_props import get
         if set(parameters) - {'fluid', 'sco2_nu'} or 'fluid' not in parameters:
             raise ValueError('fluid model requires fluid and optional sco2_nu parameters')
-        if (ref.name == 'co2_fluid') != (parameters['fluid'] == 'co2'):
+        provider = get(parameters['fluid'])
+        if (ref.name == 'co2_fluid') != (provider.name == 'co2'):
             raise ValueError('CO2 requires its versioned fluid resource')
         settings = parameters.get('sco2_nu')
         if settings is not None:
             settings = Sco2NuConfig(**settings).validate()
-        return get(parameters['fluid'], sco2_nu=settings)
+            return get(parameters['fluid'], sco2_nu=settings)
+        return provider
     if ref.name == 'co2_geometry':
         from .co2_correlations import geometry as co2_geometry
         if parameters:
