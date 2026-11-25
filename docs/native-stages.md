@@ -107,6 +107,7 @@ Total mass-flow targets use kg/s and require a positive physical depth in m; 2D 
 `resolve_flow` divides selected targets by capacities and validates resolved speeds; without targets, it copies the input without physical preparation.
 `prepare_case` builds the physical grid and geometry once, resolves speeds before transfer calculations, and separates preliminary flow records (`flow.evidence`) from final preparation records (`prepared`).
 `tpmshx_preparation_df_experiment_scope_v1` validates experimental D-F layout eligibility and HX campaign domain matching for both 2D and 3D preparation.
+The topology must be 0 (Diamond) or 1 (Gyroid).
 
 ## Spatial host cache interface
 
