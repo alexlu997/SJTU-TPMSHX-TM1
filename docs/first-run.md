@@ -52,6 +52,11 @@ $tm1Python = Get-Content .venv-path -TotalCount 1
 [Python venv 支持的用法](https://docs.python.org/3.13/library/venv.html#how-venvs-work)。
 `.venv-path` 保存本机绝对路径，不随 Git 共享；新终端中重新读取该文件即可。
 
+常规安装 wheel 时，h5py 和 PyYAML 随包安装，用于读写工况和结果文件。
+`offline` 可选依赖组提供 Python 版 CoolProp，供 `preprocess.offline` 中的 sCO₂ CFD 读取器使用。
+`test` 可选依赖组提供测试参考计算所需的 SymPy、scikit-image 和 Python 版 CoolProp。
+源码开发使用的基础锁已包含上述依赖。
+
 升级到当前依赖锁时，请创建独立的新环境并预热，保留原环境及其源码版本。
 0.2 的基础锁删除 Numba、llvmlite 和 PyAMG，保留前后处理、优化及界面所需依赖。
 原生压力求解仍使用其已移植的算法及许可声明，不加载 Python PyAMG。

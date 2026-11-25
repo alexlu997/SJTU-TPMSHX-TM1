@@ -22,6 +22,8 @@ def project(tmp_path):
     for name in ("LICENSE", "README.md", "README.en.md", "requirements.txt", "MANIFEST.in", "CMakeLists.txt"):
         (root / name).write_text("source input\n")
     (root / "pyproject.toml").write_text(
+        '[project]\ndependencies = ["h5py>=3.16"]\n'
+        '[project.optional-dependencies]\noffline = ["CoolProp>=8.0"]\n'
         '[tool.setuptools.package-data]\nsjtu_tpmshx = ["model_configs/*.json", "physical_models/df_surrogate/_prebuilt/*.csv"]\n')
     for name in distributions.REQUIRED_RESOURCES:
         path = root / "python" / Path(name).relative_to("sjtu_tpmshx")
@@ -64,7 +66,9 @@ def source_archive(root, output, *, omit=(), extra=None):
             archive.addfile(item, BytesIO(value))
 
 
-def wheel_archive(root, output, *, extra=None, change_resource=False):
+def wheel_archive(root, output, *, extra=None, change_resource=False,
+                  dependency_headers='Provides-Extra: offline\nRequires-Dist: h5py>=3.16\n'
+                                     'Requires-Dist: CoolProp>=8.0; extra == "offline"\n'):
     with zipfile.ZipFile(output, "w") as archive:
         for name in ("__init__.py", "development/runs/tool.py", "development/validation/reference.py"):
             archive.writestr("sjtu_tpmshx/" + name, (root / "python" / name).read_bytes())
@@ -73,7 +77,8 @@ def wheel_archive(root, output, *, extra=None, change_resource=False):
             if change_resource and name.endswith("preparation_df_v1.json"):
                 value += b"changed"
             archive.writestr(name, value)
-        archive.writestr("sjtu_tpmshx-1.0.dist-info/METADATA", "Name: sjtu-tpmshx\nVersion: 1.0\n")
+        archive.writestr("sjtu_tpmshx-1.0.dist-info/METADATA",
+                         "Name: sjtu-tpmshx\nVersion: 1.0\n" + dependency_headers)
         archive.writestr("sjtu_tpmshx-1.0.dist-info/WHEEL", "Root-Is-Purelib: true\nTag: py3-none-any\n")
         for name, value in (extra or {}).items():
             archive.writestr(name, value)
@@ -153,6 +158,14 @@ def test_wheel_keeps_declared_resource_bytes(project, tmp_path):
         distributions.inspect_wheel(archive, project)
 
 
+def test_wheel_rejects_an_optional_dependency_in_core(project, tmp_path):
+    archive = tmp_path / "package.whl"
+    wheel_archive(project, archive, dependency_headers="Provides-Extra: offline\n"
+                  "Requires-Dist: h5py>=3.16\nRequires-Dist: CoolProp>=8.0\n")
+    with pytest.raises(ValueError, match="Wheel dependencies differ.*CoolProp"):
+        distributions.inspect_wheel(archive, project)
+
+
 def test_fresh_source_copy_does_not_use_or_remove_existing_root_build_outputs(project, tmp_path):
     for name in ("build", "dist", "sjtu_tpmshx.egg-info"):
         directory = project / name
@@ -223,6 +236,8 @@ from sjtu_tpmshx.model_configs.model_parameters import (
 assert load_shanghai_baseline() and load_model_parameters()
 from sjtu_tpmshx.physical_models.co2_correlations import coefficients
 assert coefficients() == load_co2_coefficients() and load_preparation_df_parameters()
+from sjtu_tpmshx.preprocess.offline import load_core, load_segments
+assert callable(load_core) and callable(load_segments)
 from sjtu_tpmshx.development.validation.harness._order_fit import fit_order_loglog
 assert abs(fit_order_loglog([1., .5, .25], [1., .25, .0625]).p - 2.) < 1e-12
 from sjtu_tpmshx.development.runs.tools import build_fast_tier_manifest as manifest
@@ -246,7 +261,7 @@ except SystemExit as error:
 else:
     raise AssertionError('CLI help must exit successfully')
 assert main([sys.argv[2], '--dry-run', '--json']) == 0
-assert not any(name.split('.')[0] in ('PySide6', 'CoolProp') for name in sys.modules)
+assert not {'PySide6', 'CoolProp', 'sympy', 'skimage'}.intersection(sys.modules)
 print('installed CLI, resources and retained tools passed')
 """
 

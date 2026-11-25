@@ -16,6 +16,9 @@ import tomllib
 import traceback
 import zipfile
 
+from packaging.markers import Marker
+from packaging.requirements import Requirement
+
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = "sjtu_tpmshx"
@@ -128,6 +131,25 @@ def check_native_closure(root: Path) -> dict:
                 generated_headers=sorted(generated))
 
 
+def check_wheel_dependencies(metadata, project: dict) -> None:
+    extras = project["optional-dependencies"]
+    if set(metadata.get_all("Provides-Extra", [])) != set(extras):
+        raise ValueError("Wheel extras differ from pyproject.toml")
+    expected = set(map(Requirement, project["dependencies"]))
+    for group, entries in extras.items():
+        for requirement in map(Requirement, entries):
+            marker = f'extra == "{group}"'
+            if requirement.marker:
+                marker = f"({requirement.marker}) and {marker}"
+            requirement.marker = Marker(marker)
+            expected.add(requirement)
+    actual = set(map(Requirement, metadata.get_all("Requires-Dist", [])))
+    if actual != expected:
+        raise ValueError(f"Wheel dependencies differ from pyproject.toml: "
+                         f"missing {sorted(map(str, expected - actual))}, "
+                         f"unexpected {sorted(map(str, actual - expected))}")
+
+
 def inspect_wheel(archive: Path, root: Path) -> list[str]:
     resources = declared_resources(root)
     python = {f"{PACKAGE}/{name.removeprefix('python/')}" for name in source_files(root, "python")
@@ -152,6 +174,9 @@ def inspect_wheel(archive: Path, root: Path) -> list[str]:
         wheel = Parser().parsestr(source.read(metadata_root + "/WHEEL").decode())
         if wheel["Root-Is-Purelib"] != "true" or wheel.get_all("Tag") != ["py3-none-any"]:
             raise ValueError("Python wheel unexpectedly declares a native build")
+        headers = Parser().parsestr(source.read(metadata_root + "/METADATA").decode())
+        project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+        check_wheel_dependencies(headers, project)
     return files
 
 

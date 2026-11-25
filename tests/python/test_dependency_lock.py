@@ -18,11 +18,25 @@ from sjtu_tpmshx.development.runs.tools.check_locked_environment import (
 _ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_reference_packages_match_their_test_and_offline_consumers():
+    project = tomllib.loads((_ROOT / 'pyproject.toml').read_text(encoding='utf-8'))['project']
+    extras = project['optional-dependencies']
+    reference = {'sympy', 'scikit-image', 'coolprop'}
+
+    def package_names(entries):
+        return {canonicalize_name(Requirement(raw).name) for raw in entries}
+
+    assert 'io' not in extras
+    assert package_names(extras['offline']) == {'coolprop'}
+    assert reference.isdisjoint(package_names(project['dependencies']))
+    assert reference <= package_names(extras['test'])
+
+
 def test_declared_environment_is_fully_locked_and_installed():
     project = tomllib.loads(
         (_ROOT / 'pyproject.toml').read_text(encoding='utf-8'))['project']
     declared = list(project['dependencies'])
-    for group in ('gui', 'test', 'dev'):
+    for group in ('gui', 'offline', 'test', 'dev'):
         declared.extend(project['optional-dependencies'][group])
 
     locked = read_lock(_ROOT / 'engineering/requirements/base.txt')
@@ -56,7 +70,7 @@ def test_supported_locks_satisfy_project_version_constraints(platform, python_ve
     config = tomllib.loads((_ROOT / 'pyproject.toml').read_text(encoding='utf-8'))
     project = config['project']
     declared = [*project['dependencies'], *config['build-system']['requires']]
-    for group in ('io', 'gui', 'test', 'dev'):
+    for group in ('gui', 'offline', 'test', 'dev'):
         declared.extend(project['optional-dependencies'][group])
     bo_lock = ('engineering/requirements/bo-macos.txt' if platform == 'darwin'
                else 'engineering/requirements/bo-windows.txt')
@@ -86,20 +100,16 @@ def test_supported_locks_satisfy_project_version_constraints(platform, python_ve
                 f'{name}=={version} does not satisfy {requirement}')
 
 
-def test_minimal_postprocess_lock_preserves_declared_io_versions():
+def test_minimal_postprocess_lock_satisfies_core_file_dependencies():
     project = tomllib.loads((_ROOT / 'pyproject.toml').read_text(encoding='utf-8'))['project']
     locked = read_lock(_ROOT / 'engineering/requirements/postprocess.txt', {
         'sys_platform': 'linux', 'python_version': '3.13', 'python_full_version': '3.13.0',
         'platform_system': 'Linux', 'platform_machine': 'x86_64', 'os_name': 'posix',
     })
-    declared = [raw for raw in project['dependencies']
-                if canonicalize_name(Requirement(raw).name) == 'numpy']
-    declared.extend(project['optional-dependencies']['io'])
-    for raw in declared:
-        requirement = Requirement(raw)
-        pin = locked[canonicalize_name(requirement.name)]
-        assert next(iter(pin.specifier)).version in requirement.specifier
-    assert not {'numba', 'scipy', 'pyside6', 'torch'} & set(locked)
+    core = {canonicalize_name(req.name): req for req in map(Requirement, project['dependencies'])}
+    for name in ('numpy', 'h5py', 'pyyaml'):
+        assert next(iter(locked[name].specifier)).version in core[name].specifier
+    assert not {'numba', 'scipy', 'pyside6', 'torch', 'sympy', 'scikit-image', 'coolprop'} & set(locked)
 
 
 def test_lock_reader_follows_includes_and_platform_markers(tmp_path):
