@@ -26,7 +26,7 @@ def _search_batches(monkeypatch, primary=None, stage=None):
                     objectives=None if baseline is None else
                     dict(heat_gain_percent=float(len(calls)), pressure_ratio=.9))
 
-    monkeypatch.setattr(search, '_evaluate_condition_batch', evaluate)
+    monkeypatch.setattr(search, 'evaluate_compact_condition_batch', evaluate)
     return calls
 
 
@@ -95,7 +95,7 @@ def _batch_solver(monkeypatch, prepared, primary=None):
 @pytest.mark.parametrize('error_type,save_stage', [
     (RuntimeError, 'condition'), (CancelledError, 'condition'), (CancelledError, 'batch'),
 ])
-@pytest.mark.parametrize('entry', [batch.evaluate_condition_batch, batch._evaluate_condition_batch])
+@pytest.mark.parametrize('entry', [batch.evaluate_condition_batch, batch.evaluate_compact_condition_batch])
 def test_batch_checkpoint_failure_keeps_primary_exception(
         tmp_path, monkeypatch, prepared_native_case, error_type, save_stage, entry, native_control):
     primary = error_type('original failure')

@@ -84,7 +84,7 @@ def test_one_condition_or_side_cannot_hide_behind_an_average(tmp_path, monkeypat
 def test_invalid_limits_fail_before_native_evaluation(tmp_path, monkeypatch, mutate):
     fixed = requirements()
     mutate(fixed)
-    monkeypatch.setattr(search, '_evaluate_condition_batch', lambda *a, **k: pytest.fail('invalid limits ran'))
+    monkeypatch.setattr(search, 'evaluate_compact_condition_batch', lambda *a, **k: pytest.fail('invalid limits ran'))
     with pytest.raises(ValueError):
         search.run_multi_condition_optimization(_conditions(), output_dir=tmp_path / 'unused',
             method='sobol', n_init=1, n_iter=0, mass_requirements=fixed)
@@ -171,7 +171,7 @@ def test_outlet_violation_trains_model_but_blocks_selection_and_survives_resume(
 
 def _fake_mass_batches(monkeypatch):
     calls = _fake_batches(monkeypatch, fail_indices=(2,))
-    evaluate = search._evaluate_condition_batch
+    evaluate = search.evaluate_compact_condition_batch
     def batch(*args, **kwargs):
         result = evaluate(*args, **kwargs)
         if kwargs.get('baseline') is not None:
@@ -183,7 +183,7 @@ def _fake_mass_batches(monkeypatch):
                           pressure_excess_A=-.2, pressure_excess_B=-.3)
         return objectives, {name: dict(residuals=[objectives[key] for key in mass.CONSTRAINT_KEYS],
                                       feasible=index != 1) for name in fixed['conditions']}
-    monkeypatch.setattr(search, '_evaluate_condition_batch', batch)
+    monkeypatch.setattr(search, 'evaluate_compact_condition_batch', batch)
     monkeypatch.setattr(search, 'mass_observation', observation)
     return calls
 
@@ -252,7 +252,7 @@ def test_real_constrained_acquisition_selects_a_complete_design(tmp_path, monkey
 
 
 def test_search_rejects_two_fixed_fields_before_evaluation(tmp_path, monkeypatch):
-    monkeypatch.setattr(search, '_evaluate_condition_batch', lambda *a, **k: pytest.fail('fixed design ran'))
+    monkeypatch.setattr(search, 'evaluate_compact_condition_batch', lambda *a, **k: pytest.fail('fixed design ran'))
     with pytest.raises(ValueError, match='at least one variable field'):
         search.run_multi_condition_optimization(_conditions(), output_dir=tmp_path / 'fixed',
             method='sobol', field_spec={'L_bounds': [7., 7.], 't_bounds': [.6, .6]})
@@ -261,12 +261,12 @@ def test_search_rejects_two_fixed_fields_before_evaluation(tmp_path, monkeypatch
 
 def test_mass_search_carries_nu_re_policy_through_batches_and_recovery(tmp_path, monkeypatch):
     _fake_mass_batches(monkeypatch)
-    original = search._evaluate_condition_batch
+    original = search.evaluate_compact_condition_batch
     policies = []
     def evaluate(*args, **kwargs):
         policies.append(kwargs['allow_nu_re_extrapolation'])
         return original(*args, **kwargs)
-    monkeypatch.setattr(search, '_evaluate_condition_batch', evaluate)
+    monkeypatch.setattr(search, 'evaluate_compact_condition_batch', evaluate)
     fixed = dict(requirements(), allow_nu_re_extrapolation=True)
     result = search.run_multi_condition_optimization(_conditions(), output_dir=tmp_path/'source',
         method='sobol', n_init=2, n_iter=0, workers=1, mass_requirements=fixed)

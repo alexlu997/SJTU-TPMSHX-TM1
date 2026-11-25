@@ -33,7 +33,7 @@ def test_batch_recovery_parses_prescribed_flow_before_old_speed(tmp_path):
         config.validate()
     source = tmp_path / 'source'
     with pytest.raises(PausedRun):
-        batch._evaluate_condition_batch([(name, config, a, b)], output_dir=source,
+        batch.evaluate_compact_condition_batch([(name, config, a, b)], output_dir=source,
             workers=1, pause_check=lambda: True)
     with pytest.raises(CancelledError):
         batch.resume_condition_batch(source / 'batch.json', output_dir=tmp_path / 'continued',
@@ -246,7 +246,7 @@ def test_historical_batch_without_saved_grid_cannot_use_a_new_constructor(tmp_pa
     from sjtu_tpmshx.run_control.paused_run import PausedRun
     source = tmp_path / 'source'
     with pytest.raises(PausedRun):
-        batch._evaluate_condition_batch(_conditions(1), output_dir=source,
+        batch.evaluate_compact_condition_batch(_conditions(1), output_dir=source,
             control=native_control, workers=1, pause_check=lambda: True)
     path = source / 'batch-input.json'
     inputs = json.loads(path.read_text())
@@ -603,7 +603,7 @@ def test_energy_certificate_failure_cannot_produce_objectives(tmp_path, monkeypa
 
 
 @pytest.mark.parametrize('pre_cancelled', [False, True])
-@pytest.mark.parametrize('entry', [batch.evaluate_condition_batch, batch._evaluate_condition_batch])
+@pytest.mark.parametrize('entry', [batch.evaluate_condition_batch, batch.evaluate_compact_condition_batch])
 def test_cancellation_preserves_full_membership_and_is_reraised(tmp_path, monkeypatch, pre_cancelled, entry):
     conditions, calls = _conditions(), []
     cancelled = [pre_cancelled]
@@ -732,11 +732,11 @@ def test_compact_batches_release_fields_before_next_solve(tmp_path, monkeypatch,
     monkeypatch.setattr(result_io, 'load_result', tracked_load)
     monkeypatch.setattr(result_io, 'save_result', tracked_save)
     monkeypatch.setattr('sjtu_tpmshx.applications.execution.recovery.save_result', tracked_save)
-    baseline = batch._evaluate_condition_batch(uniform, output_dir=tmp_path / 'baseline', workers=1, control=native_control)
+    baseline = batch.evaluate_compact_condition_batch(uniform, output_dir=tmp_path / 'baseline', workers=1, control=native_control)
     assert baseline['status'] == 'completed'
     assert all(ref() is None for ref in references)
     assert set(baseline['summaries']) == {'low', 'mid', 'high'}
-    result = batch._evaluate_condition_batch(conditions, output_dir=tmp_path / 'candidate',
+    result = batch.evaluate_compact_condition_batch(conditions, output_dir=tmp_path / 'candidate',
                                              baseline=baseline['summaries'], workers=1, control=native_control)
     assert call_count == 6
     assert all(ref() is None for ref in references + reads)
@@ -766,7 +766,7 @@ def test_compact_baseline_archive_failures_cannot_produce_objectives(tmp_path, m
     conditions = _conditions(2)
     uniform = [(name, replace(cfg, zones=ZoneInputConfig()), a, b) for name, cfg, a, b in conditions]
     _patch_solve(monkeypatch, lambda case, control: _native(case))
-    baseline = batch._evaluate_condition_batch(uniform, output_dir=tmp_path / 'baseline', workers=1, control=native_control)
+    baseline = batch.evaluate_compact_condition_batch(uniform, output_dir=tmp_path / 'baseline', workers=1, control=native_control)
     path = baseline['summaries']['low']['result_file']
     if damage == 'missing':
         path.unlink()
@@ -777,19 +777,117 @@ def test_compact_baseline_archive_failures_cannot_produce_objectives(tmp_path, m
         save_result(replace(load_result(path), result_id='different-result'), path)
     if damage in ('missing', 'corrupt'):
         with pytest.raises(OSError):
-            batch._evaluate_condition_batch(conditions, output_dir=tmp_path / 'candidate',
+            batch.evaluate_compact_condition_batch(conditions, output_dir=tmp_path / 'candidate',
                 baseline=baseline['summaries'], workers=1, control=native_control)
         saved = _manifest(tmp_path / 'candidate')
         assert saved['status'] == 'failed' and saved['objectives'] is None
         assert all(row['status'] == 'not_run' for row in saved['conditions'])
         assert all(row['result_file'] is None for row in saved['conditions'])
         return
-    result = batch._evaluate_condition_batch(conditions, output_dir=tmp_path / 'candidate',
+    result = batch.evaluate_compact_condition_batch(conditions, output_dir=tmp_path / 'candidate',
                                              baseline=baseline['summaries'], workers=1, control=native_control)
     assert result['status'] == 'failed' and result['objectives'] is None
     assert result['conditions'][0]['stage'] == 'comparison'
     assert result['conditions'][0]['status'] == 'failed'
     assert result['conditions'][1]['status'] == 'completed'
+
+
+@pytest.mark.parametrize('interrupt', ['cancel', 'pause'])
+def test_compact_batch_continues_in_place_after_move_like_uninterrupted_batch(
+        tmp_path, monkeypatch, native_control, interrupt):
+    import weakref
+    from sjtu_tpmshx.file_io import result_io
+    from sjtu_tpmshx.run_control.paused_run import PausedRun
+
+    conditions = _conditions(3)
+    uniform = [(name, replace(cfg, zones=ZoneInputConfig()), a, b) for name, cfg, a, b in conditions]
+    fields, solved = [], []
+    load = result_io.load_result
+
+    def solve(case, control):
+        assert all(ref() is None for ref in fields)
+        solved.append(case.case_id.rsplit(':', 1)[-1])
+        field = _native(case)
+        fields.append(weakref.ref(field))
+        return field
+
+    def tracked_load(path):
+        field = load(path)
+        fields.append(weakref.ref(field))
+        return field
+
+    _patch_solve(monkeypatch, solve)
+    monkeypatch.setattr(result_io, 'load_result', tracked_load)
+    baseline = batch.evaluate_compact_condition_batch(uniform, output_dir=tmp_path / 'baseline',
+                                                      workers=1, control=native_control)['summaries']
+    expected = batch.evaluate_compact_condition_batch(conditions, output_dir=tmp_path / 'expected',
+                                                      baseline=baseline, workers=1, control=native_control)
+    assert expected['status'] == 'completed'
+    del solved[:]
+    stop = []
+
+    def update(states):
+        # The stop request arrives while the batch publishes the first completed member.
+        if states[0]['status'] == 'completed':
+            stop.append(True)
+
+    source = tmp_path / 'source'
+    control = replace(native_control, cancel_check=lambda: bool(stop)) if interrupt == 'cancel' else native_control
+    with pytest.raises(CancelledError if interrupt == 'cancel' else PausedRun):
+        batch.evaluate_compact_condition_batch(conditions, output_dir=source, baseline=baseline,
+            workers=1, control=control, on_update=update,
+            pause_check=(lambda: bool(stop)) if interrupt == 'pause' else None)
+    saved = _manifest(source)
+    assert saved['status'] == ('cancelled' if interrupt == 'cancel' else 'paused')
+    assert [row['status'] for row in saved['conditions']] == ['completed', 'not_run', 'not_run']
+    moved = source.rename(tmp_path / 'moved')
+    result = batch.evaluate_compact_condition_batch(conditions, output_dir=moved, baseline=baseline,
+                                                    workers=1, control=native_control, resume_saved=True)
+    assert solved == ['low', 'mid', 'high']
+    assert all(ref() is None for ref in fields)
+    assert result['status'] == 'completed' and 'results' not in result
+    assert result['objectives'] == expected['objectives']
+    assert result['resumed_from'] == str(moved.resolve())
+    assert [row['case_id'] for row in result['conditions']] == [row['case_id'] for row in saved['conditions']]
+    assert [row['recovery_mode'] for row in result['conditions']] == ['completed_copy', 'new', 'new']
+    assert list(result['summaries']) == list(expected['summaries']) == ['low', 'mid', 'high']
+    for name, summary in result['summaries'].items():
+        assert not any(isinstance(value, FieldResult) for value in summary.values())
+        assert Path(summary['result_file']).resolve().is_relative_to(moved.resolve())
+        assert summary['performance'].metrics == expected['summaries'][name]['performance'].metrics
+    assert _manifest(moved) == {key: value for key, value in result.items() if key != 'summaries'}
+
+
+def test_compact_continuation_keeps_failed_members_without_new_solves(tmp_path, monkeypatch, native_control):
+    from sjtu_tpmshx.run_control.paused_run import PausedRun
+
+    conditions = _conditions(3)
+    solved = []
+
+    def solve(case, control):
+        solved.append(case.case_id.rsplit(':', 1)[-1])
+        if solved == ['low']:
+            raise ValueError('injected member failure')
+        return _native(case)
+
+    _patch_solve(monkeypatch, solve)
+    stop = []
+    source = tmp_path / 'source'
+    with pytest.raises(PausedRun):
+        batch.evaluate_compact_condition_batch(conditions, output_dir=source, workers=1,
+            control=native_control, pause_check=lambda: bool(stop),
+            on_update=lambda states: stop.append(True) if states[0]['status'] == 'failed' else None)
+    saved = _manifest(source)['conditions']
+    assert [row['status'] for row in saved] == ['failed', 'not_run', 'not_run']
+    result = batch.evaluate_compact_condition_batch(conditions, output_dir=source, workers=1,
+                                                    control=native_control, resume_saved=True)
+    assert solved == ['low', 'mid', 'high']
+    assert result['status'] == 'failed' and result['objectives'] is None
+    rows = result['conditions']
+    assert [row['status'] for row in rows] == ['failed', 'completed', 'completed']
+    assert rows[0]['recovery_mode'] == 'failed_copy' and rows[0]['reason'] == saved[0]['reason']
+    assert 'injected member failure' in rows[0]['reason']
+    assert set(result['summaries']) == {'mid', 'high'}
 
 
 @pytest.mark.parametrize('target', ['baseline', 'candidate'])
@@ -846,7 +944,8 @@ def test_nu_re_study_acceptance_keeps_strict_results_and_resumes(tmp_path, monke
                                           control=native_control, workers=1)
     assert resumed['status'] == 'completed' and resumed['allow_nu_re_extrapolation'] is True
     assert resumed['conditions'][0]['acceptance'] == row['acceptance']
+    before = {path.relative_to(source): path.read_bytes() for path in source.rglob('*') if path.is_file()}
     with pytest.raises(ValueError, match='acceptance differs'):
-        batch._evaluate_condition_batch(conditions, output_dir=tmp_path/'changed',
-            control=native_control, workers=1, resume_from=(source, accepted))
-    assert not (tmp_path/'changed').exists()
+        batch.evaluate_compact_condition_batch(conditions, output_dir=source, baseline=None,
+            control=native_control, workers=1, resume_saved=True)
+    assert {path.relative_to(source): path.read_bytes() for path in source.rglob('*') if path.is_file()} == before
