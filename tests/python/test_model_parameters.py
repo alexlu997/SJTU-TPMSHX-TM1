@@ -39,14 +39,19 @@ def observe(event, args):
             reads[name] += 1
 
 sys.addaudithook(observe)
+packaged = resources.CO2_RESOURCE
+relative = packaged.relative_to(Path.cwd())
+via_parent = packaged.parent / '..' / packaged.parent.name / packaged.name
 start = Barrier(4)
 def read(_):
     start.wait()
     resources.load_quick_design_parameters()
     resources.load_model_parameters()
     resources.load_preparation_df_parameters()
+    resources.load_co2_coefficients(relative)
     resources.load_co2_coefficients()
-    resources.load_co2_coefficients(resources.CO2_RESOURCE)
+    resources.load_co2_coefficients(via_parent)
+    resources.load_co2_coefficients(packaged)
 
 with ThreadPoolExecutor(4) as pool:
     list(pool.map(read, range(4)))
@@ -175,7 +180,7 @@ def test_co2_resource_preserves_values_and_selected_path(tmp_path):
     assert data['topologies']['Diamond']['Nu']['parameters']['theta'] == [
         5.116529451028265, .7145279830193259, .3962239747502244,
         -.13822384274620997, .037642668209224774]
-    selected = tmp_path / 'coefficients.json'
+    selected = tmp_path / resources.CO2_RESOURCE.name
     selected.write_text(json.dumps(data), encoding='utf-8')
     assert resources.load_co2_coefficients(selected) == data
     data['segment'] = 1
