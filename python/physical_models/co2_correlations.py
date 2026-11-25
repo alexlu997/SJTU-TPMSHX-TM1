@@ -35,7 +35,7 @@ def _topology(tpms):
 
 
 def _observe(tpms, quantity, values, bounds):
-    from sjtu_tpmshx.run_control.run_warnings import record_range
+    from sjtu_tpmshx.cpp_interface._native_result_checks import record_range
     if record_range(('nu' if quantity == 'Re' else 'nu_pr', 'co2', tpms), values, bounds,
                     label=f'[CO2 Nu extrap] {tpms}', quantity=quantity, unit='-'):
         return

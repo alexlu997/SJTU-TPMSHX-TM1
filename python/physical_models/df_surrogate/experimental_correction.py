@@ -11,7 +11,7 @@ from typing import Any
 
 import numpy as np
 
-from sjtu_tpmshx.run_control.run_warnings import record_range
+from sjtu_tpmshx.cpp_interface._native_result_checks import record_range
 
 from . import CFD_CAMPAIGN, CFD_SCOPE
 

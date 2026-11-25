@@ -68,7 +68,8 @@ def test_checker_resolves_relative_imports_and_allows_shared_models():
     assert not forbidden_imports('from sjtu_tpmshx.physical_models.catalog import resolve_model', ('solvers',))
 
 
-@pytest.mark.parametrize('adapter, api', [
+@pytest.mark.parametrize('source, forbidden', [
+    ('run_control.run_warnings', 'cpp_interface'),
     ('cpp_interface.native_preparation', 'preprocess.api'),
     ('cpp_interface.native_preparation', 'preprocess.two_d.preparation'),
     ('preprocess.two_d.preparation', 'preprocess.api'),
@@ -76,13 +77,13 @@ def test_checker_resolves_relative_imports_and_allows_shared_models():
     ('cpp_interface.full_2d_stage', 'solvers.execution_record'),
     ('cpp_interface.full_3d_stage', 'solvers.execution_record'),
 ])
-def test_stage_adapters_do_not_import_publishers(adapter, api):
-    path = ROOT.joinpath(*adapter.split('.')).with_suffix('.py')
-    package = 'sjtu_tpmshx.' + adapter.rsplit('.', 1)[0]
-    api = 'sjtu_tpmshx.' + api
+def test_module_import_boundaries(source, forbidden):
+    path = ROOT.joinpath(*source.split('.')).with_suffix('.py')
+    package = 'sjtu_tpmshx.' + source.rsplit('.', 1)[0]
+    forbidden = 'sjtu_tpmshx.' + forbidden
     for node in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
         for module in import_targets(node, package):
-            assert module != api and not module.startswith(api + '.'), f'{path}:{node.lineno}'
+            assert module != forbidden and not module.startswith(forbidden + '.'), f'{path}:{node.lineno}'
 
 
 def check_cycles(modules):
