@@ -637,14 +637,18 @@ def test_saved_df_choice_is_preserved(win, monkeypatch, route, saved_mode):
 
 
 def test_partial_preset_allowlist_and_session_preserves_saved_case(win):
-    win._apply_user_preset({'line_edits': {'le_L': '0.22', 'statusBar': 'evil'},
+    win._apply_shanghai_defaults()
+    load_caption = win.btn_recent.text()
+    win._apply_user_preset({'line_edits': {'le_L': '0.22', 'btn_recent': '123'},
                             'combos': {'combo_fluidA': 1}, 'temp_unit': 'C'})
-    assert win.le_L.text() == '0.22' and callable(win.statusBar)
+    assert win.btn_recent.text() == load_caption
+    assert win.le_L.text() == '0.22'
     win.le_Nx.setText('31')
     win.le_TinA.setText('70')
     assert win._save_session()
     win.combo_fluidA.setCurrentIndex(0)  # construction-time Air default
     win._apply_shanghai_defaults()
+    win.combo_fluidB.setCurrentIndex(0)
     win._restore_session()
     assert win._temp_unit == 'K'
     assert win.le_Nx.text() == '31'
