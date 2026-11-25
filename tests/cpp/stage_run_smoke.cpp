@@ -23,9 +23,11 @@ constexpr bool can_save_case<Owner, std::void_t<decltype(tpmshx::stages::saved_c
 template<class Result, class = void>
 constexpr bool can_request_audit = false;
 
+template<class Result> Result audit_source();
+
 template<class Result>
 constexpr bool can_request_audit<Result, std::void_t<decltype(
-    tpmshx::stages::capture_summary(std::declval<Result>(), true))>> = true;
+    tpmshx::stages::capture_summary(audit_source<Result>(), true))>> = true;
 
 template<class Owner> struct MemberOwner {
     Owner member;
@@ -298,6 +300,12 @@ int main(int argc,char** argv) {
     static_assert(!can_request_audit<RunResult3D&&> && !can_request_audit<const RunResult3D&&>);
     static_assert(can_request_audit<MemberOwner<RunResult3D>&> && !can_request_audit<MemberOwner<RunResult3D>>);
     static_assert(!can_request_audit<ValueSource<RunResult3D>&>);
+    struct ResultBox {
+        RunResult3D result;
+        operator const RunResult3D&() const & {return result;}
+        operator const RunResult3D&() const && =delete;
+    };
+    static_assert(can_request_audit<const ResultBox&> && !can_request_audit<const ResultBox>);
     static_assert(std::is_same_v<decltype(capture_summary(std::declval<RunResult3D>())), tpmshx_stage_capture_3d_v1>);
     static_assert(std::is_same_v<decltype(capture_summary(std::declval<RunResult2D>(), {})), tpmshx_stage_capture_2d_v1>);
     try {

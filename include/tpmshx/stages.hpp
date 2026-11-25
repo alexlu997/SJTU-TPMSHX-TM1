@@ -256,8 +256,10 @@ namespace detail {
 void require_audit_result_lvalue(const RunResult3D&);
 template<class = void> void require_audit_result_lvalue(const RunResult3D&&)=delete;
 }
-template<class Source, class = decltype(detail::require_audit_result_lvalue(std::declval<Source&>()))>
-inline tpmshx_stage_capture_3d_v1 capture_summary(Source& source,bool include_audit) {
+template<class... Explicit, class Source, std::enable_if_t<
+    sizeof...(Explicit)==0 && std::is_lvalue_reference_v<Source>,int> = 0>
+inline auto capture_summary(Source&& source,bool include_audit)
+    -> decltype(detail::require_audit_result_lvalue(source),tpmshx_stage_capture_3d_v1{}) {
     const RunResult3D& result=source;
     return capture_summary(result,include_audit);
 }
