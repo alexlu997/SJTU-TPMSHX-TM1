@@ -365,9 +365,11 @@ def test_installed_result_stage_has_no_eos_or_python_runtime(result_build, monke
     install, = (command for command in commands if '--install' in command)
     assert checked_include_roots == [Path(install[install.index('--prefix') + 1]) / 'custom/include']
     configure = next(command for command in commands if '-DTPMSHX_COMPONENTS=result' in command)
-    assert f'-DTPMSHX_RESULT_BUILD_DIR={cache / "build" / f"result-{host}"}' in configure
+    stage_build = cache / 'build' / f'stages-{host}'
+    assert f'-DTPMSHX_RESULT_BUILD_DIR={stage_build / "result"}' in configure
     assert not any('COOLPROP' in part for command in commands for part in command)
     checks, = [(command, options) for command, options in runs if '--test-dir' in command]
+    assert '--no-tests=error' in checks[0]
     consumer_build = checks[0][checks[0].index('--test-dir') + 1]
     consumer, = [command for command in commands
                  if '--build' in command and command[command.index('--build') + 1] == consumer_build]

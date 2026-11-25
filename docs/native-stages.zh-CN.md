@@ -263,7 +263,7 @@ target_link_libraries(my_program PRIVATE tpmshx::result)
 "$CMAKE" -S examples/cpp -B .cache/stages-sdk/examples \
   -DCMAKE_PREFIX_PATH="$PWD/.cache/stages-sdk/install"
 "$CMAKE" --build .cache/stages-sdk/examples --config Release
-"$CTEST" --test-dir .cache/stages-sdk/examples -C Release --output-on-failure
+"$CTEST" --test-dir .cache/stages-sdk/examples -C Release --output-on-failure --no-tests=error
 ```
 
 完成依赖构建后，可运行自动化的源码树外 SDK 检查：

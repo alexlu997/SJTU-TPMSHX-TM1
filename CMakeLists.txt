@@ -34,6 +34,7 @@ foreach(component IN LISTS TPMSHX_COMPONENTS)
     set(source "${TPMSHX_ROOT}/${component_${component}}")
     set(options "-DTPMSHX_NATIVE_DEPS_ROOT:PATH=${TPMSHX_NATIVE_DEPS_ROOT}"
         "-DTPMSHX_MODEL_INCLUDE_DIR:PATH=${TPMSHX_MODEL_INCLUDE_DIR}"
+        "-DTPMSHX_BUILD_QUALIFICATION:BOOL=OFF"
         "-DCMAKE_BUILD_TYPE:STRING=Release")
     if(APPLE)
         list(APPEND options "-DCMAKE_OSX_ARCHITECTURES:STRING=arm64")
@@ -51,10 +52,14 @@ foreach(component IN LISTS TPMSHX_COMPONENTS)
     ExternalProject_Add(tpmshx_${component}_build
         SOURCE_DIR "${source}" BINARY_DIR "${component_build}"
         DOWNLOAD_COMMAND "" UPDATE_COMMAND ""
+        STEP_TARGETS configure
         CMAKE_ARGS ${options}
         BUILD_COMMAND "${CMAKE_COMMAND}" --build <BINARY_DIR> --config Release
             --target tpmshx_${component}_shared --parallel 2
         BUILD_ALWAYS TRUE INSTALL_COMMAND "")
+    # A direct qualification build can change the options in the same component directory.
+    ExternalProject_Add_Step(tpmshx_${component}_build refresh_sdk_options
+        DEPENDERS configure ALWAYS TRUE)
     set(library "${CMAKE_SHARED_LIBRARY_PREFIX}tpmshx_${component}_shared${CMAKE_SHARED_LIBRARY_SUFFIX}")
     if(WIN32)
         install(FILES "${component_build}/${library}" DESTINATION "${CMAKE_INSTALL_BINDIR}")

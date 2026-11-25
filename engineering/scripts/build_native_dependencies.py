@@ -283,6 +283,17 @@ def cmake_path(cache: Path, host: str) -> Path:
     return executable
 
 
+def check_model_h_history_input(solver_build: Path, *, qualification: bool) -> None:
+    """Check whether the solver configuration loaded the model-h history script."""
+    reply = solver_build / ".cmake/api/v1/reply"
+    index = json.loads(max(reply.glob("index-*.json")).read_text(encoding="utf-8"))
+    inputs_file = reply / index["reply"]["cmakeFiles-v1"]["jsonFile"]
+    inputs = json.loads(inputs_file.read_text(encoding="utf-8"))["inputs"]
+    observed = any(Path(item["path"]).name == "model_h_history.cmake" for item in inputs)
+    if observed != qualification:
+        raise RuntimeError(f"Expected model-h history input={qualification} in {solver_build}, got {observed}")
+
+
 def check_environment(cache: Path, python: Path, lock: Path) -> None:
     log = cache / "logs" / "environment.log"
     run([python, "-m", "sjtu_tpmshx.development.runs.tools.check_locked_environment", lock], log)
@@ -322,7 +333,7 @@ def build(cache: Path, host: str, python: Path, lock: Path, component: str) -> N
              generated / "tpmshx/model_coefficients.hpp"], cache / "logs" / "generate-model-coefficients.log")
         generator = ["-G", LOCK["cmake"][host]["generator"]]
         options = [f"-DTPMSHX_MODEL_INCLUDE_DIR={generated}", "-DCMAKE_BUILD_TYPE=Release",
-                   "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"]
+                   "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON", "-DTPMSHX_BUILD_QUALIFICATION=ON"]
         if host == "windows-x64":
             generator += ["-A", "x64"]
         else:
@@ -358,7 +369,7 @@ def build(cache: Path, host: str, python: Path, lock: Path, component: str) -> N
             coolprop_build_record(cache, host, role)
             build_dir = cache / "build" / f"{build_name}-{host}"
             options = [f"-DTPMSHX_NATIVE_DEPS_ROOT={cache}", f"-DTPMSHX_COOLPROP_LIBRARY={library}",
-                       f"-DTPMSHX_MODEL_INCLUDE_DIR={generated}",
+                       f"-DTPMSHX_MODEL_INCLUDE_DIR={generated}", "-DTPMSHX_BUILD_QUALIFICATION=ON",
                        "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"]
             if host == "macos-arm64":
                 options += ["-DCMAKE_OSX_ARCHITECTURES=arm64"]
@@ -378,7 +389,7 @@ def build_result(cache: Path, host: str) -> None:
     cmake = cmake_path(cache, host)
     build_dir = cache / "build" / f"result-{host}"
     generator = ["-G", LOCK["cmake"][host]["generator"]]
-    options = ["-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"]
+    options = ["-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON", "-DTPMSHX_BUILD_QUALIFICATION=ON"]
     if host == "windows-x64":
         generator += ["-A", "x64"]
     elif host == "macos-arm64":
@@ -797,15 +808,17 @@ def check_stages(cache: Path, host: str, python: Path, lock: Path, component: st
     check_environment(cache, python, lock)
     cmake = cmake_path(cache, host)
     stage_build = cache / "build" / f"stages-{host}"
+    solver_build = stage_build / "solver"
     log = cache / "logs" / f"check-stages-{host}.log"
     components = ["result"] if component == "result" else ["geometry", "preparation", "solver", "result"]
     options = [f"-DTPMSHX_COMPONENTS={';'.join(components)}",
                f"-DTPMSHX_NATIVE_DEPS_ROOT={cache}", f"-DTPMSHX_MODEL_INCLUDE_DIR={cache / 'generated'}"]
     for name in components:
-        if name != "geometry":
-            directory = "pilot" if name == "solver" else name
-            options.append(f"-DTPMSHX_{name.upper()}_BUILD_DIR={cache / 'build' / f'{directory}-{host}'}")
+        options.append(f"-DTPMSHX_{name.upper()}_BUILD_DIR={stage_build / name}")
     if component == "all":
+        query = solver_build / ".cmake/api/v1/query"
+        query.mkdir(parents=True, exist_ok=True)
+        (query / "cmakeFiles-v1").touch()
         for role in ("solver", "preparation"):
             coolprop_build_record(cache, host, role)
             options.append(f"-DTPMSHX_{role.upper()}_COOLPROP_LIBRARY={coolprop_library(cache, host, role)}")
@@ -814,11 +827,15 @@ def check_stages(cache: Path, host: str, python: Path, lock: Path, component: st
         generator += ["-A", "x64"]
     run([cmake, "-S", ROOT, "-B", stage_build,
          *generator, *options], log)
+    if component == "all":
+        # A direct qualification configure can reuse an SDK component build directory.
+        run([cmake, "--build", stage_build, "--config", "Release", "--target", "tpmshx_solver_build-configure"], log)
+        check_model_h_history_input(solver_build, qualification=False)
+        run([cmake, "-S", ROOT / "solver", "-B", solver_build, "-DTPMSHX_BUILD_QUALIFICATION=ON"], log)
+        check_model_h_history_input(solver_build, qualification=True)
     run([cmake, "--build", stage_build, "--config", "Release", "--parallel", "1"], log)
     if component == "all":
-        geometry = stage_build / "geometry"
-        run([cmake, "--build", geometry, "--config", "Release", "--target", "geometry_c_shared"], log)
-        run([geometry / ("geometry_c_shared.exe" if host == "windows-x64" else "geometry_c_shared")], log)
+        check_model_h_history_input(solver_build, qualification=False)
     ctest = cmake.with_name("ctest.exe" if host == "windows-x64" else "ctest")
     with tempfile.TemporaryDirectory(prefix="tpmshx-stage-sdk-") as temporary:
         independent = Path(temporary)
@@ -835,9 +852,9 @@ def check_stages(cache: Path, host: str, python: Path, lock: Path, component: st
         if component == "all":
             tests = independent / "tests"
             shutil.copytree(ROOT / "tests/cpp/stages", tests / "stages")
-            for smoke in ("stage_run_smoke", "quick_design_stage_smoke"):
-                shutil.copy2(ROOT / f"tests/cpp/{smoke}.cpp", tests)
-            shutil.copy2(ROOT / "tests/cpp/stage_run_3d_smoke.c", tests)
+            for smoke in ("stage_run_smoke.cpp", "quick_design_stage_smoke.cpp",
+                          "stage_run_3d_smoke.c", "geometry_c_smoke.c"):
+                shutil.copy2(ROOT / "tests/cpp" / smoke, tests)
             sources.append(("tests/stages", []))
         env = {key: value for key, value in os.environ.items()
                if key not in {"PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV"} and not key.startswith("TPMSHX_")}
@@ -852,7 +869,7 @@ def check_stages(cache: Path, host: str, python: Path, lock: Path, component: st
                 verify_installed_sdk_headers(Path(include_root))
             run([cmake, "--build", build_dir, "--config", "Release", "--parallel", "2"],
                 log, cwd=independent)
-            run([ctest, "--test-dir", build_dir, "-C", "Release", "--output-on-failure"],
+            run([ctest, "--test-dir", build_dir, "-C", "Release", "--output-on-failure", "--no-tests=error"],
                 log, cwd=independent, env=env)
             if source == "tests/stages":
                 for name in ("stage-result", "quick-design-stage-result"):

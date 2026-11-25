@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.31.8)
 project(tpmshx_stage_consumer LANGUAGES CXX)
 enable_testing()
-find_package(tpmshx CONFIG REQUIRED COMPONENTS preparation solver result)
+find_package(tpmshx CONFIG REQUIRED COMPONENTS geometry preparation solver result)
 foreach(smoke IN ITEMS stage_run_smoke quick_design_stage_smoke)
     add_executable(${smoke} ../${smoke}.cpp)
     target_compile_features(${smoke} PRIVATE cxx_std_17)
@@ -22,6 +22,16 @@ foreach(smoke IN ITEMS stage_run_smoke quick_design_stage_smoke)
 endforeach()
 
 enable_language(C)
+add_executable(geometry_c_shared ../geometry_c_smoke.c)
+target_compile_features(geometry_c_shared PRIVATE c_std_11)
+target_link_libraries(geometry_c_shared PRIVATE tpmshx::geometry)
+if(WIN32)
+    add_custom_command(TARGET geometry_c_shared POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "$<TARGET_FILE:tpmshx::geometry>" "$<TARGET_FILE_DIR:geometry_c_shared>")
+endif()
+add_test(NAME geometry_c_shared COMMAND geometry_c_shared)
+
 add_executable(stage_run_3d_smoke ../stage_run_3d_smoke.c)
 target_compile_features(stage_run_3d_smoke PRIVATE c_std_11)
 target_link_libraries(stage_run_3d_smoke PRIVATE tpmshx::preparation tpmshx::solver tpmshx::result)
