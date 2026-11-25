@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QMessageBox
 
+from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
 from sjtu_tpmshx.physical_models.design_fluids import nu_re_window
 from sjtu_tpmshx.cpp_interface._native_df import pressure_gradient
 from sjtu_tpmshx.physical_models.tpms_calc import compute as tpms_compute
@@ -123,7 +124,7 @@ class FluidInputMixin:
         # Honour the current temperature display unit.
         T_val = defaults['T']
         if getattr(self, '_temp_unit', 'K') == 'C':
-            T_val = T_val - 273.15
+            T_val = T_val - CELSIUS_ZERO_K
         targets = (
             (f'le_u{side}',  f"{defaults['u']:.3g}"),
             (f'le_Tin{side}', f"{T_val:.2f}"),
@@ -166,7 +167,7 @@ class FluidInputMixin:
         """
         v = float(le.text())
         if getattr(self, '_temp_unit', 'K') == 'C':
-            v += 273.15
+            v += CELSIUS_ZERO_K
         return v
 
     def _set_temp_K(self, le, kelvin_value, fmt='{:.17g}'):
@@ -178,7 +179,7 @@ class FluidInputMixin:
         except (TypeError, ValueError):
             return
         if getattr(self, '_temp_unit', 'K') == 'C':
-            v -= 273.15
+            v -= CELSIUS_ZERO_K
         try:
             le.setText(fmt.format(v))
         except Exception:
@@ -234,7 +235,7 @@ class FluidInputMixin:
                     continue
                 try:
                     v = float(le.text())
-                    le.setText(_fmt(v - 273.15))
+                    le.setText(_fmt(v - CELSIUS_ZERO_K))
                 except Exception:
                     pass
             self._temp_unit = 'C'
@@ -245,7 +246,7 @@ class FluidInputMixin:
                     continue
                 try:
                     v = float(le.text())
-                    le.setText(_fmt(v + 273.15))
+                    le.setText(_fmt(v + CELSIUS_ZERO_K))
                 except Exception:
                     pass
             self._temp_unit = 'K'

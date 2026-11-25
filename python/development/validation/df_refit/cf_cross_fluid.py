@@ -38,6 +38,7 @@ import pandas as pd
 from sjtu_tpmshx.development.validation.hx_experiments import (
     AIR_BOOKS, A_FLOW, L_FLOW, P_ATM, R_AIR, DH_REF, air_mu, load_air_cases, load_water_cases)
 from sjtu_tpmshx.development.validation.sco2_exp.load_sco2_exp import load_exp
+from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
 from sjtu_tpmshx.physical_models.df_surrogate.full_core_3cell_fixed_v2 import FullCore3CellFixedDFV2
 from sjtu_tpmshx.physical_models.fluid_props import check_water_state
 from sjtu_tpmshx.physical_models.tpms_props import water_density, water_viscosity
@@ -91,8 +92,8 @@ def collect() -> pd.DataFrame:
         P_in = P_ATM + a["空气进口压力/Pa"].to_numpy(float)
         dp = (a["空气进口压力/Pa"] - a["空气出口压力/Pa"]).to_numpy(float)
         P_out = P_in - dp
-        T_bar = 0.5 * (a["空气进口温度/℃"].to_numpy(float) + 273.15
-                       + a["空气出口温度/℃"].to_numpy(float) + 273.15)
+        T_bar = 0.5 * (a["空气进口温度/℃"].to_numpy(float) + CELSIUS_ZERO_K
+                       + a["空气出口温度/℃"].to_numpy(float) + CELSIUS_ZERO_K)
         G = a["样机空气流量kg/s"].to_numpy(float) / A_FLOW[topo]
         mu = np.array([air_mu(t) for t in T_bar])
         Re = G * DH_REF / mu
@@ -107,8 +108,8 @@ def collect() -> pd.DataFrame:
         # ---- 水：不可压 ----
         w = load_water_cases(topo)
         w = w[~(w.dp_nonphysical | w.dup_row)]
-        T_bar_w = 0.5 * (w["水进口温度/℃"].to_numpy(float) + 273.15
-                         + w["水出口温度/℃"].to_numpy(float) + 273.15)
+        T_bar_w = 0.5 * (w["水进口温度/℃"].to_numpy(float) + CELSIUS_ZERO_K
+                         + w["水出口温度/℃"].to_numpy(float) + CELSIUS_ZERO_K)
         P_bar_w = 0.5 * (w.water_P_in_abs_Pa + w.water_P_out_abs_Pa).to_numpy(float)
         check_water_state('water', T_bar_w, P_bar_w, where='water HX mean properties')
         rho = np.asarray(water_density(T_bar_w), dtype=float)

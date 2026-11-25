@@ -18,6 +18,7 @@ from sjtu_tpmshx.data_types.compute_config import (
     ComputeConfig, ExtrapPolicy, FeatureFlags, FluidConfig, FluidType,
     GeometryConfig, PartialBCConfig, SolverConfig, TPMSType, ZoneAxis, ZoneInputConfig,
 )
+from sjtu_tpmshx.data_types.validator import parse_unit_value
 
 DOMAIN_SHAPE_NOTICE = (
     "当前仅支持矩形二维／长方体三维计算。\n"
@@ -140,6 +141,58 @@ CONFIG_FIELDS: tuple = (
     FieldSpec('fluid_B',  'P_in_Pa',   'le_PinB',  'float', 101325.0,
               label="Inlet Pressure B (P_inB)"),
 )
+
+
+# The unit parser also handles pipe fields outside CONFIG_FIELDS.
+FIELD_UNITS = {
+    # geometry — metres
+    'le_L': ('length', 'm'), 'le_H': ('length', 'm'),
+    'le_Lz': ('length', 'm'),
+    'le_pipeA_in_ctr': ('length', 'm'), 'le_pipeA_in_w':  ('length', 'm'),
+    'le_pipeA_out_ctr': ('length', 'm'), 'le_pipeA_out_w': ('length', 'm'),
+    'le_pipeB_in_ctr': ('length', 'm'), 'le_pipeB_in_w':  ('length', 'm'),
+    'le_pipeB_out_ctr': ('length', 'm'), 'le_pipeB_out_w': ('length', 'm'),
+    # TPMS geometry — millimetres
+    'le_Lcell': ('length', 'mm'), 'le_t': ('length', 'mm'),
+    # flow / thermo
+    'le_uA': ('speed', 'm/s'), 'le_uB': ('speed', 'm/s'),
+    'le_PinA': ('pressure', 'Pa'), 'le_PinB': ('pressure', 'Pa'),
+    'le_TinA': ('temp', None), 'le_TinB': ('temp', None),
+    # counts (no unit allowed)
+    'le_Nx': ('count', None), 'le_Ny': ('count', None),
+    'le_Nz': ('count', None),
+}
+
+
+POSITIVE_FIELDS = frozenset((
+    'le_L', 'le_H', 'le_Lz', 'le_Lcell', 'le_t', 'le_ks',
+    'le_uA', 'le_uB',
+    'le_mass_flowA', 'le_mass_flowB',
+    'le_TinA', 'le_TinB', 'le_PinA', 'le_PinB',
+    'le_Nx', 'le_Ny', 'le_Nz',
+    'le_rho_s',
+))
+
+
+COUNT_TOKEN_WHITELIST = frozenset((
+    'cells', 'cell', 'pts', 'points', 'nodes',
+))
+
+
+def parse_field_value(field_attr: str, raw_value: float, unit_text: str,
+                      temp_unit: str = 'K') -> Optional[float]:
+    """Convert a value with units for the specified input field."""
+    fam_target = FIELD_UNITS.get(field_attr)
+    if fam_target is None:
+        return None
+    family, target_unit = fam_target
+    if family == 'count':
+        u = (unit_text or '').strip().lower()
+        if u in COUNT_TOKEN_WHITELIST:
+            return raw_value
+        return None
+    return parse_unit_value(raw_value, unit_text, family,
+                            target_unit=target_unit, temp_unit=temp_unit)
 
 
 def mass_flow_active(window, side, *, is_3d=None):
@@ -522,7 +575,8 @@ def config_from_window(window, *, strict: bool = False,
                df_mode=df_mode or 'cfd_smooth', sco2_nu=nu)
 
 
-__all__ = ['config_from_window', 'FieldSpec', 'CONFIG_FIELDS']
+__all__ = ['config_from_window', 'FieldSpec', 'CONFIG_FIELDS', 'FIELD_UNITS',
+           'POSITIVE_FIELDS', 'COUNT_TOKEN_WHITELIST', 'parse_field_value']
 
 
 def sco2_nu_from_window(window):

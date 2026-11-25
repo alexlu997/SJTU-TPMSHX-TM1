@@ -1,6 +1,7 @@
 """Pressure boundary for the explicitly confirmed water experiment workbooks."""
 from pathlib import Path
 
+from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
 from sjtu_tpmshx.physical_models.fluid_props import check_water_state
 
 
@@ -24,7 +25,7 @@ def with_water_absolute_pressures(df, *, source, sheet, tin, tout, pin, pout):
     d = df.copy()
     for endpoint, tcol, pcol in (('in', tin, pin), ('out', tout, pout)):
         d[f'water_P_{endpoint}_abs_Pa'] = d[pcol] + WATER_P_ATM_ASSUMED_PA
-        check_water_state('water', d[tcol].to_numpy(float) + 273.15,
+        check_water_state('water', d[tcol].to_numpy(float) + CELSIUS_ZERO_K,
                           d[f'water_P_{endpoint}_abs_Pa'].to_numpy(float),
                           where=f'{Path(source).name}/{sheet} water {endpoint}')
     d.attrs['water_pressure'] = {

@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 
 from sjtu_tpmshx.applications.result_adapter import compute_result
+from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
 from sjtu_tpmshx.physical_models.tpms_calc import air_cp
 from sjtu_tpmshx.development.validation.harness._harness import load_cases_df
 from sjtu_tpmshx.development.validation.harness._case_sets import SHANGHAI_XLSX, SHANGHAI_N_CASES
@@ -63,8 +64,8 @@ def _run_one_case_pipeline(ci, df):
 
     return {
         'Case': case, 'u_air': round(u_A, 2), 'u_water': round(u_B, 4),
-        'T_air_in': round(T_Ain_K - 273.15, 1),
-        'T_water_in': round(T_Bin_K - 273.15, 1),
+        'T_air_in': round(T_Ain_K - CELSIUS_ZERO_K, 1),
+        'T_water_in': round(T_Bin_K - CELSIUS_ZERO_K, 1),
         'P_in_abs_kPa': round(P_Ain / 1000.0, 1),
         'dP_air_exp': round(dP_A_exp), 'dP_air_sim': round(dP_A_sim),
         'err_dP%': round(err_dP, 1),
@@ -77,7 +78,7 @@ def _run_one_case_pipeline(ci, df):
         'converged': bool(res.converged),
         # 2D water-side outputs the frozen runner could not produce at all.
         'dP_B_sim': float(res.dP_B_Pa),
-        'T_water_out_sim': float(res.T_out_B_K) - 273.15,
+        'T_water_out_sim': float(res.T_out_B_K) - CELSIUS_ZERO_K,
         'T_water_out_exp': float(df.iloc[ci, 25]),
     }
 
