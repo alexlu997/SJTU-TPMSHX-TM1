@@ -72,7 +72,12 @@ def _pass_records(library, output, index, side):
     return records
 
 
-def _saved_v2(shape, p, op, views, keepalive):
+def _check_iteration_size(value):
+    if value > ct.c_size_t(-1).value:
+        raise ValueError('quick-design iteration budget exceeds native size_t')
+
+
+def _saved_v2(shape, p, op, views, keepalive, read_controls):
     raw = _InputV2(2, ct.sizeof(_InputV2))
     raw.have_height, raw.warm_start = 1, p['initial_fields'] is not None
     for name, text in [('topology', p['topology']), ('arrangement', p['arrangement']), ('property_mode', p['prop_model'])]:
@@ -92,16 +97,7 @@ def _saved_v2(shape, p, op, views, keepalive):
     prepared.geometry.area_density_per_m, prepared.geometry.hydraulic_diameter_m = p['A_0'], p['D_h']
     for i, side in enumerate('AB'):
         prepared.fractions[i] = real_scalar(p['inlet_pressure_fractions'][side], name='inlet_pressure_fractions')
-    settings = p['controls']
-    if settings['maxit'] is None:
-        raise ValueError('invalid quick-design numerical controls')
-    for value in (settings['maxit'], settings['chunk']):
-        if value is not None and (not isinstance(value, int) or value <= 0):
-            raise ValueError('invalid quick-design numerical controls')
-        if value is not None and value > ct.c_size_t(-1).value:
-            raise ValueError('quick-design iteration budget exceeds native size_t')
-    if settings['dirB'] not in (1, 2):
-        raise ValueError('quick-design flow direction disagrees with arrangement')
+    settings = read_controls(p, _check_iteration_size)
     c = prepared.controls
     c.dir_b, c.max_iterations, c.alpha = int(settings['dirB']), settings['maxit'], settings['alpha']
     c.ny, c.nz = shape[1:]
@@ -134,7 +130,7 @@ class QuickSolver:
         self._recipe = recipe
         self.abi = abi
 
-    def run(self, shape, p, op, widths, fixed, state, *, retained_fields, new_result_id, cancel,
+    def run(self, shape, p, op, widths, fixed, state, *, read_controls, retained_fields, new_result_id, cancel,
             report_progress, error_types, expected_passes, range_output):
         """Return owned field data, declarations and pass evidence."""
         library, call, recipe = self._library, self._call, self._recipe
@@ -164,7 +160,7 @@ class QuickSolver:
                 except BaseException as error:
                     callback_errors.append(error)
 
-        descriptors = _saved_v2(shape, p, op, views, keepalive)
+        descriptors = _saved_v2(shape, p, op, views, keepalive, read_controls)
         call.argtypes = [*(ct.POINTER(type(item)) for item in descriptors), ct.POINTER(_StageControl),
                          ct.POINTER(_StageResult), ct.POINTER(ct.c_char), ct.c_size_t]
         call.restype = ct.c_int
@@ -183,7 +179,8 @@ class QuickSolver:
                 raise RuntimeError('native Quick Design returned no temperature algorithm')
             algorithm = name.decode('ascii')
             raw = output.raw
-            if raw.stop not in (0, 1) or raw.completed_passes != expected_passes:
+            pass_count = expected_passes()
+            if raw.stop not in (0, 1) or raw.completed_passes != pass_count:
                 raise RuntimeError('native Quick Design returned an invalid pass/status contract')
             passes = tuple(_copy_pass(row) for row in raw.passes[:raw.completed_passes])
             pressure = tuple((side.inlet, side.outlet, bool(side.choked)) for side in raw.pressure)

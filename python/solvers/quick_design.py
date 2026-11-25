@@ -60,26 +60,46 @@ def _record_pass(records):
         record_sample(key, sample)
 
 
+def _initial_fields(parameters, shape):
+    """Read the warm start when the solver has bound the release function."""
+    seed = parameters['initial_fields']
+    if seed is None:
+        return
+    if len(seed) != 3 or any(np.shape(value) != shape for value in seed):
+        raise ValueError('quick-design warm start disagrees with prepared grid')
+    for value in seed:
+        yield np.array(value, dtype=np.float64, order='C', copy=True)
+
+
+def _saved_controls(parameters, check_native_size):
+    settings = parameters['controls']
+    if settings['maxit'] is None:
+        raise ValueError('invalid quick-design numerical controls')
+    for value in (settings['maxit'], settings['chunk']):
+        if value is not None:
+            if not isinstance(value, int) or value <= 0:
+                raise ValueError('invalid quick-design numerical controls')
+            check_native_size(value)
+    if settings['dirB'] not in (1, 2):
+        raise ValueError('quick-design flow direction disagrees with arrangement')
+    return settings
+
+
 def run_case(case, control):
     control.check_cancelled()
     if not control.native_library:
         raise ValueError('cpp requires RunControl.native_library for this host')
     solver = QuickSolver(control.native_library)
     shape, p, op, widths, fixed = _saved_case(case)
-    seed = p['initial_fields']
-    if seed is not None and (len(seed) != 3 or any(np.shape(value) != shape for value in seed)):
-        raise ValueError('quick-design warm start disagrees with prepared grid')
-    state = ([] if seed is None
-             else [np.array(value, dtype=np.float64, order='C', copy=True) for value in seed])
     pass_ranges = []
     try:
         output = solver.run(
-            shape, p, op, widths, fixed, state,
+            shape, p, op, widths, fixed, _initial_fields(p, shape), read_controls=_saved_controls,
             retained_fields={key: fixed[key] for key in ('K_ss', 'eps')},
             new_result_id=lambda: str(uuid4()), cancel=control.cancel_check, report_progress=control.report_progress,
             error_types={1: ValueError, 2: WaterStateError, 3: QuickDesignWaterFieldError,
                          4: FloatingPointError, 6: CancelledError},
-            expected_passes=2 if p['prop_model'] == 'mean' else 1,
+            expected_passes=lambda: 2 if p['prop_model'] == 'mean' else 1,
             range_output=lambda: pass_ranges if current_warnings() is not None else None)
     finally:
         # Keep earlier observations if a later native range query fails.

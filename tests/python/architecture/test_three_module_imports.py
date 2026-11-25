@@ -283,6 +283,20 @@ def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monke
     ('solvers/quick_design.py', 'from ..cpp_interface import quick_design as wire\nwire._saved_v2()',
      'Quick solve boundary -> sjtu_tpmshx.cpp_interface.quick_design._saved_v2', 1),
     ('solvers/quick_design.py', 'from ..cpp_interface.quick_design import QuickSolver', None, 0),
+    ('cpp_interface/quick_design.py', 'from .full_2d_stage import run_case as full_solve',
+     'Quick solve boundary -> sjtu_tpmshx.cpp_interface.full_2d_stage', 1),
+    ('solvers/quick_design.py', 'from .backends.cpp.full_2d_stage import run_case as full_solve',
+     'Quick solve boundary -> sjtu_tpmshx.solvers.backends.cpp.full_2d_stage', 1),
+    ('cpp_interface/quick_design.py', 'from .. import cpp_interface as native\nnative.full_3d_stage.run_case()',
+     'Quick solve boundary -> sjtu_tpmshx.cpp_interface.full_3d_stage', 1),
+    ('solvers/quick_design.py', 'from .backends import cpp\ncpp.full_3d_stage.run_case()',
+     'Quick solve boundary -> sjtu_tpmshx.solvers.backends.cpp.full_3d_stage', 1),
+    ('solvers/quick_design.py', 'from ..cpp_interface.quick_design import *\ncopy_ranges = closure_records',
+     'Quick solve boundary -> sjtu_tpmshx.cpp_interface.quick_design.*', 1),
+    ('cpp_interface/quick_design.py', 'from ..shared import _native_quick_prepare',
+     'Quick solve boundary -> sjtu_tpmshx.shared._native_quick_prepare', 1),
+    ('cpp_interface/quick_design.py', 'from .solver_library._stage_capture_abi import RangeRecordView\n'
+     'from ._native_preparation_case import _QuickInputV2, _QuickPreparedV2', 'solvers -> models', 0),
 ])
 def test_layer_audit_applies_policy_to_each_import_spelling(tmp_path, monkeypatch, capsys,
                                                            filename, source, edge, exit_code):

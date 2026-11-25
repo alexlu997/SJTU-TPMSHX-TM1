@@ -130,6 +130,42 @@ def test_saved_width_sequence_and_integral_direction(native_control, tmp_path):
         np.testing.assert_array_equal(actual.fields[key], expected.fields[key])
 
 
+@pytest.mark.parametrize('bad_property, error, reason', [
+    (True, AttributeError, "'numpy.ndarray' object has no attribute 'encode'"),
+    (False, KeyError, 'topology'),
+], ids=('array-property-mode', 'missing-text-keys'))
+def test_saved_quick_text_reports_first_error(native_control, tmp_path, bad_property, error, reason):
+    case = prepared('counter', 'const')
+    parameters = dict(case.parameters, controls={**case.parameters['controls'], 'dirB': 3})
+    if bad_property:
+        parameters['prop_model'] = np.array([0, 1])
+    else:
+        del parameters['prop_model'], parameters['topology']
+    path = tmp_path / 'invalid-text.h5'
+    save_case(replace(case, parameters=parameters), path)
+    case = load_case(path)
+    with pytest.raises(error) as failure:
+        run_case(case, native_control)
+    assert failure.value.args == (reason,)
+
+
+@pytest.mark.parametrize('changes, reason', [
+    ({'maxit': 0}, 'invalid quick-design numerical controls'),
+    ({'chunk': 0, 'dirB': 3}, 'invalid quick-design numerical controls'),
+    ({'maxit': 2**64, 'chunk': 0}, 'iteration budget exceeds native size_t'),
+    ({'chunk': 2**64, 'dirB': 3}, 'iteration budget exceeds native size_t'),
+    ({'dirB': 3}, 'flow direction disagrees with arrangement'),
+])
+def test_saved_quick_control_errors_in_input_order(native_control, tmp_path, changes, reason):
+    case = prepared('counter', 'const')
+    controls = {**case.parameters['controls'], **changes}
+    path = tmp_path / 'invalid-controls.h5'
+    save_case(replace(case, parameters={**case.parameters, 'controls': controls}), path)
+    case = load_case(path)
+    with pytest.raises(ValueError, match=reason):
+        run_case(case, native_control)
+
+
 @pytest.mark.parametrize('name', ['K_ss', 'eps', 'eps_A'])
 def test_saved_text_fields_are_rejected(native_control, tmp_path, name):
     case = prepared('counter', 'mean')
@@ -342,6 +378,31 @@ def test_stage_symbol_is_required(native_control, monkeypatch):
     monkeypatch.setattr(quick_design.ct, 'CDLL', lambda _: MissingStage())
     with pytest.raises(ValueError, match='lacks the Quick Design v2 stage'):
         run_case(case, native_control)
+
+
+def test_saved_case_then_release_symbol_then_warm_start(native_control, tmp_path, monkeypatch):
+    from sjtu_tpmshx.cpp_interface import quick_design
+
+    case = prepared('counter', 'const')
+    path = tmp_path / 'invalid-seed.h5'
+    save_case(replace(case, parameters={**case.parameters, 'initial_fields': (1., 2., 3.)}), path)
+    case = load_case(path)
+    with pytest.raises(ValueError, match='warm start disagrees with prepared grid'):
+        run_case(case, native_control)
+    library = quick_design.ct.CDLL(native_control.native_library)
+
+    class MissingRelease:
+        def __getattr__(self, name):
+            if name == 'tpmshx_quick_run_release_v1':
+                raise AttributeError(name)
+            return getattr(library, name)
+
+    monkeypatch.setattr(quick_design.ct, 'CDLL', lambda _: MissingRelease())
+    with pytest.raises(AttributeError, match='tpmshx_quick_run_release_v1'):
+        run_case(case, native_control)
+    bad_model = replace(case, metadata={**case.metadata, 'model': 'invalid'})
+    with pytest.raises(ValueError, match='unsupported quick-design physical model'):
+        run_case(bad_model, native_control)
 
 
 def test_failed_range_query_keeps_completed_side(native_control, monkeypatch):

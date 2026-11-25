@@ -139,8 +139,10 @@ _DTO_PACKAGES = {"sjtu_tpmshx.data_types", "sjtu_tpmshx.shared.domain", "data_ty
 _RESULT_DTO_MODULES = {f"{package}.{module}" for package in _DTO_PACKAGES
                        for module in ("metric_spec", "performance_result")}
 _QUICK_DTO_MODULES = {f"{package}.field_result" for package in _DTO_PACKAGES}
+_OTHER_STAGE_MODULES = {"full_2d_stage", "full_3d_stage", "run_state", "native_preparation",
+                        "_native_preparation_3d", "_native_quick_prepare"}
 _TYPE_GUARDS = {"typing.TYPE_CHECKING", "typing_extensions.TYPE_CHECKING"}
-_BINDING_NAMESPACES = {"sjtu_tpmshx", "sjtu_tpmshx.shared", "shared", *_DTO_PACKAGES,
+_BINDING_NAMESPACES = {"sjtu_tpmshx", "sjtu_tpmshx.cpp_interface", "sjtu_tpmshx.shared", "shared", *_DTO_PACKAGES,
                        "typing", "typing_extensions", *_TYPE_GUARDS}
 
 
@@ -149,6 +151,16 @@ def _invalid_stage_target(host, target, binding, operations):
         return False
     area, _, member = target.removeprefix("sjtu_tpmshx.").partition(".")
     module, _, name = member.partition(".")
+    if binding == "quick_design":
+        if area == "solvers" and member.startswith("backends.cpp."):
+            module, _, name = member.removeprefix("backends.cpp.").partition(".")
+            # Only the published Quick driver resolves to a solver host.
+            area = "solvers" if module == "quick_design" else "cpp_interface"
+        if area == "cpp_interface" and module in _OTHER_STAGE_MODULES:
+            return True
+        if area == "shared" and member.startswith(("_native_", "models._native_")) and (
+                member.removeprefix("models.").partition(".")[0] in _OTHER_STAGE_MODULES):
+            return True
     if host:
         if area == "shared":
             return member.startswith(("_native_", "models._native_"))
@@ -409,7 +421,10 @@ def _stage_boundary_violations(path, tree, package):
         return
     host = path.parent != PKG / "cpp_interface"
     for node in ast.walk(tree):
-        forbidden = next((name for name in import_targets(node, package)
+        targets = import_targets(node, package)
+        if host and binding == "quick_design" and isinstance(node, ast.ImportFrom) and node.names[0].name == "*":
+            targets.append(targets[0] + ".*")
+        forbidden = next((name for name in targets
                           if _invalid_stage_target(host, name, binding, operations)), None)
         if forbidden:
             yield f"{path.relative_to(REPO)}:{node.lineno}: {label} boundary -> {forbidden}"
