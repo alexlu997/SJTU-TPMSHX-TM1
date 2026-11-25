@@ -9,7 +9,7 @@ import pytest
 
 from sjtu_tpmshx.development.runs.tools import audit_import_graph as audit
 from sjtu_tpmshx.development.runs.tools.audit_import_graph import LAYERS, import_targets, target_unit, unit_of
-from tests.python.packaging_support import PUBLIC_NAME_CHECK
+from tests.python.packaging_support import PUBLIC_NAME_CHECK, df_package_identity_check
 
 REPO = Path(__file__).resolve().parents[3]
 ROOT = REPO / 'python'
@@ -130,6 +130,9 @@ def test_checker_detects_cycle_across_solver_directories(tmp_path):
     "import sjtu_tpmshx.physical_models.df_surrogate.predict\n"
     "bad = {'sjtu_tpmshx.physical_models.tpms_calc', 'sjtu_tpmshx.physical_models.tpms_props'} & set(sys.modules)\n"
     "assert not bad, f'df_surrogate pulled kernel modules: {bad}'",
+    "import sjtu_tpmshx.physical_models.df_surrogate.predict, sjtu_tpmshx.preprocess.api, sjtu_tpmshx.solvers.api\n"
+    "offline = ('sjtu_tpmshx.preprocess.offline', 'sjtu_tpmshx.development', 'CoolProp')\n"
+    "assert not any(name.startswith(offline) for name in sys.modules)",
     "import sjtu_tpmshx.physical_models.tpms_props\n"
     "bad = [m for m in sys.modules if m.startswith('sjtu_tpmshx.physical_models.df_surrogate')"
     " or m.startswith('sjtu_tpmshx.solvers') or m == 'sjtu_tpmshx.physical_models.tpms_calc']\n"
@@ -145,7 +148,8 @@ def test_checker_detects_cycle_across_solver_directories(tmp_path):
     "ComputeConfig(zones=ZoneInputConfig(enabled=True, axis='continuous', config=spec)).validate_static_inputs()\n"
     "validate_geometry(.1, .1, None, 7., .5)\n"
     "if 'sjtu_tpmshx.physical_models' in sys.modules: raise SystemExit('Geometry validation imported physical models')",
-], ids=['df-surrogate-below-kernel', 'tpms-props-leaf', 'preparation-without-controllers', 'geometry-validation'])
+], ids=['df-surrogate-below-kernel', 'runtime-without-offline', 'tpms-props-leaf',
+        'preparation-without-controllers', 'geometry-validation'])
 def test_lower_modules_import_without_upper_modules(probe):
     result = subprocess.run([sys.executable, '-c', 'import sys\n' + probe], cwd=REPO,
                             capture_output=True, text=True, timeout=300)
@@ -236,9 +240,24 @@ def test_checkout_keeps_published_submodule_identity():
                     + PUBLIC_NAME_CHECK], cwd=REPO, check=True, timeout=60)
 
 
-def test_published_workbook_module_help_uses_strict_cp1252_output(monkeypatch):
+@pytest.mark.parametrize('shared_first', [False, True], ids=['canonical-first', 'shared-first'])
+def test_checkout_keeps_df_package_identity(shared_first):
+    subprocess.run([sys.executable, '-c', df_package_identity_check(shared_first)],
+                   cwd=REPO, check=True, timeout=60)
+
+
+def test_published_sco2_reader_runs_in_a_fresh_interpreter():
+    subprocess.run([sys.executable, '-m', 'sjtu_tpmshx.shared.df_surrogate.load_sco2_cfd'],
+                   cwd=REPO, check=True, timeout=60)
+
+
+@pytest.mark.parametrize('module', [
+    'sjtu_tpmshx.shared.df_surrogate.ingest_cfd_kappa',
+    'sjtu_tpmshx.development.runs.cfd_asym.ingest_cfd_kappa',
+])
+def test_published_workbook_module_help_uses_strict_cp1252_output(monkeypatch, module):
     monkeypatch.setenv('PYTHONIOENCODING', 'cp1252:strict')
-    result = subprocess.run([sys.executable, '-m', 'sjtu_tpmshx.shared.df_surrogate.ingest_cfd_kappa', '--help'],
+    result = subprocess.run([sys.executable, '-m', module, '--help'],
                             cwd=REPO, capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
     assert 'usage:' in result.stdout

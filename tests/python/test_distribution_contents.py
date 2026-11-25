@@ -12,7 +12,7 @@ import zipfile
 import pytest
 
 from engineering.scripts import check_distributions as distributions
-from tests.python.packaging_support import PUBLIC_NAME_CHECK
+from tests.python.packaging_support import PUBLIC_NAME_CHECK, df_package_identity_check
 
 
 @pytest.fixture
@@ -286,11 +286,18 @@ def test_installed_wheel_runtime(kind):
                                  json.dumps(sorted(distributions.declared_resources(root)))],
                                 cwd=directory, env=env, capture_output=True, text=True, timeout=120)
         assert result.returncode == 0, result.stdout + result.stderr
-        result = subprocess.run([sys.executable, "-m", "sjtu_tpmshx.shared.df_surrogate.ingest_cfd_kappa", "--help"],
-                                cwd=directory, env=dict(env, PYTHONPATH=str(target)),
-                                capture_output=True, text=True, timeout=60)
-        assert result.returncode == 0, result.stderr
-        assert "usage:" in result.stdout
+        for shared_first in (False, True):
+            code = "import sys\nsys.path.insert(0, sys.argv[1])\n" + df_package_identity_check(shared_first)
+            result = subprocess.run([sys.executable, "-I", "-c", code, str(target)], cwd=directory,
+                                    env=env, capture_output=True, text=True, timeout=60)
+            assert result.returncode == 0, result.stderr
+        for module in ("sjtu_tpmshx.shared.df_surrogate.ingest_cfd_kappa",
+                       "sjtu_tpmshx.development.runs.cfd_asym.ingest_cfd_kappa"):
+            result = subprocess.run([sys.executable, "-m", module, "--help"], cwd=directory,
+                                    env=dict(env, PYTHONPATH=str(target), PYTHONIOENCODING="cp1252:strict"),
+                                    capture_output=True, text=True, timeout=60)
+            assert result.returncode == 0, result.stderr
+            assert "usage:" in result.stdout
 
 
 def test_wheel_check_accepts_windows_source_paths(project, tmp_path, monkeypatch):

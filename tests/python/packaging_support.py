@@ -24,3 +24,36 @@ for dimension in (2, 3):
     current = importlib.import_module('sjtu_tpmshx.cpp_interface.' + leaf)
     assert before is current and before.run_case is current.run_case
 """
+
+
+def df_package_identity_check(shared_first: bool) -> str:
+    canonical = "from sjtu_tpmshx.physical_models.df_surrogate import predict\n"
+    shared = "from sjtu_tpmshx.shared import df_surrogate as shared_df\n"
+    imports = shared + canonical if shared_first else canonical + shared
+    return imports + '''
+from importlib import import_module
+from importlib.util import find_spec
+import sys
+
+from sjtu_tpmshx.physical_models import df_surrogate as owner
+assert shared_df.predict is owner.predict is predict
+assert shared_df is owner
+for name in ('predict', 'backend', 'experimental_correction', 'full_core_3cell_fixed_v2'):
+    assert import_module('sjtu_tpmshx.shared.df_surrogate.' + name) is import_module(owner.__name__ + '.' + name)
+assert 'sjtu_tpmshx.preprocess.offline.load_sco2_cfd' not in sys.modules
+assert 'sjtu_tpmshx.development.runs.cfd_asym.kappa_asym' not in sys.modules
+
+from sjtu_tpmshx.shared.df_surrogate import ingest_cfd_kappa as shared_ingest
+from sjtu_tpmshx.shared.df_surrogate import kappa_asym as shared_registry
+from sjtu_tpmshx.shared.df_surrogate.load_sco2_cfd import load_core as shared_core
+from sjtu_tpmshx.development.runs.cfd_asym import ingest_cfd_kappa, kappa_asym
+from sjtu_tpmshx.preprocess.offline import load_sco2_cfd
+assert shared_ingest is ingest_cfd_kappa
+assert shared_ingest.kappa_asym is kappa_asym
+assert shared_registry is kappa_asym
+assert shared_df.load_sco2_cfd is load_sco2_cfd
+assert shared_core is load_sco2_cfd.load_core
+assert not {'PySide6', 'CoolProp', 'sympy', 'skimage'}.intersection(sys.modules)
+for name in ('ingest_cfd_kappa', 'kappa_asym', 'load_sco2_cfd'):
+    assert find_spec('sjtu_tpmshx.physical_models.df_surrogate.' + name) is None
+'''

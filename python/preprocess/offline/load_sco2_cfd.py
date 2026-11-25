@@ -76,7 +76,7 @@ import numpy as np
 import pandas as pd
 
 from sjtu_tpmshx.run_control.provenance import SOURCE_ROOT
-from sjtu_tpmshx.physical_models.df_surrogate.cfd_geometry import attach_geometry  # noqa: E402
+from sjtu_tpmshx.preprocess.offline.cfd_geometry import attach_geometry  # noqa: E402
 from sjtu_tpmshx.run_control.logutil import get_logger  # noqa: E402
 
 _log = get_logger(__name__)
