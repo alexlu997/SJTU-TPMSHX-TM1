@@ -27,6 +27,23 @@ def test_resolve_each_registered_resource():
         assert models[name] is provider
 
 
+@pytest.mark.parametrize(('spelling', 'resource'), [
+    ('co2', 'co2_fluid'), ('CO2', 'co2_fluid'), (' Co2 ', 'co2_fluid'),
+    ('catalog-alias', 'co2_fluid'), (' AIR ', 'fluid'), (' Water ', 'fluid'), (' sCO2 ', 'fluid'),
+])
+def test_fluid_resource_matches_registered_identity(spelling, resource, monkeypatch):
+    from sjtu_tpmshx.physical_models.fluid_props import FLUIDS, get
+
+    monkeypatch.setitem(FLUIDS, 'catalog-alias', get('co2'))
+    parameters = {'fluid': spelling}
+    assert resolve_model(ModelRef(resource, MODEL_VERSIONS[resource], parameters)) is get(spelling)
+
+    wrong = 'fluid' if resource == 'co2_fluid' else 'co2_fluid'
+    with pytest.raises(ValueError) as error:
+        resolve_model(ModelRef(wrong, MODEL_VERSIONS[wrong], parameters))
+    assert str(error.value) == f"Fluid {spelling!r} requires resource {resource!r}. The record specifies {wrong!r}."
+
+
 def test_reject_invalid_records():
     for ref in (ModelRef('fluid', 'unknown'), ModelRef('unknown', 'v1'),
                 ModelRef('fluid', MODEL_VERSIONS['fluid'], {'fluid': 'air', 'ignored': True})):
