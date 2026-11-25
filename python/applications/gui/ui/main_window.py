@@ -528,6 +528,9 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             le = getattr(self, name, None)
             if le is None:
                 continue
+            if name in ('le_TinA', 'le_TinB'):
+                # The Compute shortcut can leave the inlet edit in focus.
+                self._field_validators[name]()
             if le.property('inpError') == 'true':
                 label = (le.accessibleName() or name)
                 val = le.text() or '(empty)'
@@ -1056,8 +1059,10 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         strictly-positive numeric validation.
 
         """
+        import math
         import re as _re_up
         base_tip = le.toolTip() or ""
+        is_temperature = fam_target is not None and fam_target[0] == 'temp'
         num_unit = _re_up.compile(
             r"\s*([+-]?\d+\.?\d*(?:[eE][+-]?\d+)?)\s*"
             r"([A-Za-zμΜ°/··]+[A-Za-z0-9/··]*)\s*$")
@@ -1077,77 +1082,63 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             if not txt:
                 return
 
-            # ── 1. PARSE — convert "5 mm" → "5e-3" etc. when the field
-            #    has a unit family. Validator then sees the canonical
-            #    value, never the raw "5 mm" string.
-            if fam_target is not None:
-                fam, target = fam_target
-                m = num_unit.match(txt)
-                if m:
-                    try:
-                        raw_val = float(m.group(1))
-                    except ValueError:
-                        raw_val = None
-                    if raw_val is not None:
-                        unit_txt = m.group(2)
-                        new_val = parse_field_value(
-                            attr, raw_val, unit_txt,
-                            temp_unit=getattr(self, '_temp_unit', 'K'))
-                        if new_val is not None:
-                            fmt = format_unit_value(new_val, fam)
-                            # Suppress our own re-fire of editingFinished.
-                            was = le.blockSignals(True)
-                            le.setText(fmt)
-                            le.blockSignals(was)
-                            self.statusBar().showMessage(
-                                f"Converted {m.group(1)} {unit_txt} → {fmt} "
-                                f"({target or fam})", 4000)
-                            txt = fmt
-
-            # Expressions share this commit with unit parsing and validation.
-            # The undo/history slots run afterwards and record the final text.
             from sjtu_tpmshx.applications.gui.ui.expr_eval import is_expression, eval_expr
-            if is_expression(txt):
-                value = eval_expr(txt)
-                if value is not None:
-                    converted = format_unit_value(value, 'number')
-                    was = le.blockSignals(True)
-                    le.setText(converted)
-                    le.blockSignals(was)
-                    self.statusBar().showMessage(f"{attr}: {txt} → {converted}", 3500)
-                    txt = converted
+            unit_match = num_unit.match(txt) if fam_target else None
+            value = None
+            if unit_match:
+                raw = float(unit_match[1])
+                # Read explicit temperature units in kelvin before display rounding.
+                value = parse_field_value(attr, raw, unit_match[2])
+            if value is None:
+                unit_match = None
+                if is_expression(txt):
+                    value = eval_expr(txt)
 
-            # ── 2. VALIDATE — strictly-positive numeric check for the
-            #    positive-set fields. Non-positive fields skip this.
-            bad = False
+            temp_unit = getattr(self, '_temp_unit', 'K')
+            family = fam_target[0] if unit_match else 'number'
+            # Other fields validate the committed text, including rounded cell counts.
+            formatted = txt
+            if value is not None and not is_temperature:
+                formatted = format_unit_value(value, family)
             reason = ""
             if is_positive:
                 try:
-                    v = float(txt)
-                    if fam_target is not None and fam_target[0] == 'temp':
-                        if getattr(self, '_temp_unit', 'K') == 'C':
-                            v += CELSIUS_ZERO_K
-                    import math as _math
-                    # robustness-hardening: float("nan") parses fine and
-                    # `nan <= 0` is False — nan/inf sailed through here.
-                    if not _math.isfinite(v):
-                        bad = True
+                    v = value if is_temperature and value is not None else float(formatted)
+                    if is_temperature and not unit_match and temp_unit == 'C':
+                        v += CELSIUS_ZERO_K
+                    if not math.isfinite(v):
                         reason = "Must be finite"
                     elif v <= 0:
-                        bad = True
-                        reason = "Must be above 0 K" if fam_target and fam_target[0] == 'temp' else "Must be > 0"
-                except Exception:
-                    bad = True
+                        if is_temperature:
+                            reason = "Must be above 0 K"
+                            value = None  # Keep the rejected input for the next validation.
+                        else:
+                            reason = "Must be > 0"
+                except ValueError:
                     reason = "Must be a number"
 
-            # ── 3. APPLY — flip inpError + tooltip + status-bar warn.
+            if value is not None:
+                if is_temperature:
+                    if unit_match and temp_unit == 'C':
+                        value = parse_field_value(attr, raw, unit_match[2], temp_unit='C')
+                    formatted = format_unit_value(value, family)
+                was = le.blockSignals(True)
+                le.setText(formatted)
+                le.blockSignals(was)
+                if unit_match:
+                    self.statusBar().showMessage(
+                        f"Converted {unit_match[1]} {unit_match[2]} → {formatted} "
+                        f"({fam_target[1] or family})", 4000)
+                else:
+                    self.statusBar().showMessage(f"{attr}: {txt} → {formatted}", 3500)
+
             current = le.property('inpError')
-            new = 'true' if bad else 'false'
+            new = 'true' if reason else 'false'
             if current != new:
                 le.setProperty('inpError', new)
                 le.style().unpolish(le)
                 le.style().polish(le)
-            if bad:
+            if reason:
                 le.setToolTip(f"⚠ {reason}"
                               + (f"\n{base_tip}" if base_tip else ""))
                 self.statusBar().showMessage(
