@@ -307,6 +307,16 @@ def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monke
      'full preparation boundary -> sjtu_tpmshx.preprocess', 1),
     ('cpp_interface/preparation_host.py', 'from ..shared._native_quick_prepare import prepare_values',
      'full preparation boundary -> sjtu_tpmshx.shared._native_quick_prepare', 1),
+    *(('cpp_interface/inlet_properties.py',
+        f'from sjtu_tpmshx.{package}._native_preparation_case import _InletQueryInput\n'
+        f'from sjtu_tpmshx.{package} import _native_preparation_case as wire\n'
+        f'import sjtu_tpmshx\nrecord = sjtu_tpmshx.{package}._native_preparation_case._InletQueryInput',
+        'VIOLATIONS (0)', 0) for package in ('shared', 'shared.models', 'physical_models')),
+    *(('cpp_interface/inlet_properties.py', f'from sjtu_tpmshx.{package} import _native_quick_prepare as quick',
+        f'full preparation boundary -> sjtu_tpmshx.{package}._native_quick_prepare', 1)
+      for package in ('shared', 'shared.models', 'physical_models')),
+    ('cpp_interface/inlet_properties.py', 'from ..physical_models import _native_preparation_case, tpms_calc',
+     'full preparation boundary -> sjtu_tpmshx.physical_models.tpms_calc', 1),
     ('cpp_interface/preparation_host.py', 'from ..shared import result_display',
      'full preparation boundary -> sjtu_tpmshx.shared.result_display', 1),
     ('cpp_interface/inlet_properties.py', 'import sjtu_tpmshx.shared as published\nratio = published.result_math.pressure_ratio',
