@@ -696,7 +696,7 @@ def test_unscoped_sco2_notice_emits_from_solver_host():
     assert direct.fields.keys() == public.fields.keys()
 
 
-def test_saved_3d_run_uses_only_solver_image(monkeypatch, tmp_path):
+def test_saved_3d_run_uses_only_solver_image(tmp_path):
     config = native_stage_support.volume_configuration(('air', 'water'), 'uniform')
     case = prepare_case(config, case_id='solver-image-only')
     case_path = tmp_path / 'case.h5'

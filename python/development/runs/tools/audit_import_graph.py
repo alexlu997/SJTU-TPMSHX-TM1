@@ -54,7 +54,7 @@ OWNERS = {
     "cpp_interface.native_preparation": "preprocess",
     "cpp_interface.preparation_host": "models",
     "cpp_interface.inlet_properties": "models",
-    # Quick solve still shares the solver capture and preparation wire layouts.
+    # Solver stage modules still share capture and preparation wire layouts.
     **{f"cpp_interface.{name}": "solvers" for name in (
         "full_2d_stage", "full_3d_stage", "quick_design", "run_state", "solver_library")},
     # Case and spatial adapters own model policy. The ABI bindings use native_values.
@@ -158,10 +158,12 @@ def _invalid_stage_target(host, target, binding, operations):
         module, _, name = name.partition(".")
     if area == "data_types" and module == "range_policy":
         area = "physical_models"
+    if binding == "full_3d_api":
+        return area == "cpp_interface" and module == "full_3d_stage"
     if binding == "quick_design":
         if area == "solvers" and member.startswith("backends.cpp."):
             module, _, name = member.removeprefix("backends.cpp.").partition(".")
-            # Only the published Quick driver resolves to a solver host.
+            # Quick and full 3D published drivers resolve to solver hosts.
             area = "solvers" if module == "quick_design" else "cpp_interface"
         if area == "cpp_interface" and module in _OTHER_STAGE_MODULES:
             return True
@@ -171,8 +173,6 @@ def _invalid_stage_target(host, target, binding, operations):
     elif binding == "full_3d_stage":
         if area == "solvers" and member.startswith("backends.cpp."):
             module, _, name = member.removeprefix("backends.cpp.").partition(".")
-            if module != "full_3d_stage" and module in _FULL_3D_FORBIDDEN_SIBLINGS:
-                return True
             area = "solvers" if module == "full_3d_stage" else "cpp_interface"
         if area == "cpp_interface" and module in _FULL_3D_FORBIDDEN_SIBLINGS:
             return True
@@ -428,13 +428,9 @@ class _StageImportAudit(ast.NodeVisitor):
 
 def _stage_boundary_violations(path, tree, package):
     if path == PKG / "solvers/api.py":
-        for node in ast.walk(tree):
-            for target in import_targets(node, package):
-                if target == "sjtu_tpmshx.cpp_interface.full_3d_stage" or target.startswith(
-                        "sjtu_tpmshx.cpp_interface.full_3d_stage."):
-                    yield f"{path.relative_to(REPO)}:{node.lineno}: full 3D solve boundary -> {target}"
-        return
-    if path in (PKG / "solvers/quick_design.py", PKG / "cpp_interface/quick_design.py"):
+        label, binding, operations = "full 3D solve", "full_3d_api", set()
+        modules, types = set(), set()
+    elif path in (PKG / "solvers/quick_design.py", PKG / "cpp_interface/quick_design.py"):
         label, binding, operations = "Quick solve", "quick_design", {"", "QuickSolver"}
         modules, types = _QUICK_DTO_MODULES, {"FieldResult"}
     elif path in (PKG / "solvers/full_3d.py", PKG / "cpp_interface/full_3d_stage.py"):

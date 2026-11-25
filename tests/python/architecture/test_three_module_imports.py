@@ -76,6 +76,7 @@ def test_checker_resolves_relative_imports_and_allows_shared_models():
     ('preprocess.three_d.preparation', 'preprocess.api'),
     ('cpp_interface.full_2d_stage', 'solvers.execution_record'),
     ('cpp_interface.full_3d_stage', 'solvers.execution_record'),
+    ('solvers.full_3d', 'solvers.execution_record'),
 ])
 def test_module_import_boundaries(source, forbidden):
     path = ROOT.joinpath(*source.split('.')).with_suffix('.py')
@@ -326,6 +327,8 @@ def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monke
      'full 3D solve boundary -> sjtu_tpmshx.cpp_interface.preparation_host', 1),
     ('solvers/full_3d.py', 'from ..cpp_interface.full_3d_stage import open_library, run_saved', None, 0),
     ('solvers/api.py', 'from ..cpp_interface.full_3d_stage import run_saved',
+     'full 3D solve boundary -> sjtu_tpmshx.cpp_interface.full_3d_stage', 1),
+    ('solvers/api.py', 'from .. import cpp_interface\ncpp_interface.full_3d_stage.run_saved()',
      'full 3D solve boundary -> sjtu_tpmshx.cpp_interface.full_3d_stage', 1),
 ])
 def test_layer_audit_applies_policy_to_each_import_spelling(tmp_path, monkeypatch, capsys,
