@@ -16,8 +16,15 @@ from tests.python.gui_worker_support import win as win
 @pytest.mark.slow
 @pytest.mark.parametrize('dimension', ['2d', '3d'])
 def test_real_pipeline_warning_ownership_and_numerical_transparency(monkeypatch, dimension, win):
-    cfg = _shanghai_like_cfg() if dimension == '2d' else small_air_config()
-    if dimension == '3d':
+    if dimension == '2d':
+        from sjtu_tpmshx.cpp_interface import _native_result_stage as owner
+        main_stage = 'main-hv'
+        cfg = _shanghai_like_cfg()
+    else:
+        # The 3D stage binds stage_closures when its module loads.
+        from sjtu_tpmshx.cpp_interface import full_3d_stage as owner
+        main_stage = 'main'
+        cfg = small_air_config()
         # Fixed positive control: inlet Re=230 < 400, with original tolerances.
         cfg = replace(cfg, fluid_A=replace(cfg.fluid_A, u_mps=1.0))
     geometry = cfg.geometry
@@ -26,7 +33,6 @@ def test_real_pipeline_warning_ownership_and_numerical_transparency(monkeypatch,
                 fluid.u_mps, fluid.T_in_K, fluid.P_in_Pa, geometry.k_s_W_mK,
                 fluid.type)
     # No cache_clear: standalone warm-up must not consume a run's notices.
-    from sjtu_tpmshx.cpp_interface import _native_result_stage as owner
     original = owner.stage_closures
     observations = []
 
@@ -35,17 +41,21 @@ def test_real_pipeline_warning_ownership_and_numerical_transparency(monkeypatch,
         observations.extend(rows)
         return rows, notices, last
 
+    def main_nu_warnings(run):
+        return [message for message in run.warnings
+                if '[Nu extrap]' in message and f'stage={main_stage},' in message]
+
     monkeypatch.setattr(owner, 'stage_closures', observe)
     result = compute_result(cfg)
     assert result.converged, result.diagnostics['convergence_detail']
     assert result.diagnostics['convergence_detail']['outer_iters'] > 1
     local = [row for row in observations if row['view'] == 'nu' and
-             row['model'] == 'air' and row['stage'] in ('main-hv', 'main')]
+             row['model'] == 'air' and row['stage'] == main_stage]
     assert local
     # Native aggregation keeps the worst fraction from one cell snapshot.
     assert all(row['size'] == np.prod(row['shape']) for row in local)
     assert any(row['low'] or row['high'] for row in local)
-    assert any('[Nu extrap]' in message for message in result.warnings)
+    assert main_nu_warnings(result)
     assert result.extrap_reasons == []  # both cases remain inside the D-F grid
     win.write_result(result)
     assert win.cache.get_result().extrap_reasons == []
@@ -55,11 +65,14 @@ def test_real_pipeline_warning_ownership_and_numerical_transparency(monkeypatch,
     repeated = compute_result(cfg)
     assert repeated.warnings == result.warnings
     assert repeated.extrap_reasons == result.extrap_reasons
-    # Suppress only collection in the comparator; every numerical call remains.
+    observation_count = len(observations)
+    # The comparison still runs all numerical calls with collection disabled.
     with monkeypatch.context() as patch:
         patch.setattr(importlib.import_module('sjtu_tpmshx.compute'), 'warning_scope', lambda records: nullcontext(records))
         patch.setattr(owner, 'stage_closures', lambda records: ([], {}, []))
         without_capture = compute_result(cfg)
+    assert len(observations) == observation_count
+    assert not main_nu_warnings(without_capture)
     for other in (repeated, without_capture):
         assert other.converged, other.diagnostics['convergence_detail']
         for name in ('Q_W', 'dP_A_Pa', 'dP_B_Pa', 'T_out_A_K', 'T_out_B_K'):
