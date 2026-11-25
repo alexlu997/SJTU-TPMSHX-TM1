@@ -69,7 +69,8 @@ Items marked **(new fluid)** apply only when you add a new working fluid.
 
 - **Native library rebuild**: After you change C++ code or compiled model resources, rebuild and publish affected native libraries with [engineering/scripts/build_native_dependencies.py](../engineering/scripts/build_native_dependencies.py). Then restart Python. See [C++ integration](cpp-migration.md#native-preparation-core).
 - **Saved data rule**: Follow the [public data contract](contracts/three_module_v1/README.md). Existing saved cases and results must keep their original model versions and parameters without silent replacement.
-- The GUI uses air when an optional fluid selector is missing or empty. A nonempty label must name a supported fluid.
+- Standalone inlet warnings use the fluid registry's canonical name to select the Reynolds number range.
+- The GUI uses air when an optional fluid selector is missing or empty. Each nonempty label must name a supported fluid. Geometry and fluid previews check both sides. The air-only sensitivity sweep checks Fluid A and clears the previous heatmap if its label is invalid.
 
 ### 4. Existing tests to extend
 

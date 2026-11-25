@@ -237,3 +237,29 @@ def test_reynolds_notice_rejects_unknown_fluid():
 
     with pytest.raises(ValueError, match='helium'):
         _reynolds_notice('Gyroid', 1000., 'helium')
+
+
+@pytest.mark.parametrize('label,canonical', [('AIR', 'air'), (' Water ', 'water')])
+@pytest.mark.parametrize('collect', [False, True])
+def test_compute_accepts_registered_spelling_with_empty_cache(label, canonical, collect):
+    from sjtu_tpmshx.run_control.run_warnings import warning_scope
+
+    def cold_call(fluid):
+        compute.cache_clear()
+        records = {} if collect else None
+        with warning_scope(records), warnings.catch_warnings(record=True) as notices:
+            warnings.simplefilter('always')
+            result = compute('Diamond', 6., .4, 5., 320., 300000., 16., fluid_type=fluid)
+        assert not any('outside the validated range' in str(item.message) for item in notices)
+        return result, records
+
+    assert cold_call(label) == cold_call(canonical)
+
+
+@pytest.mark.parametrize('collect', [False, True])
+def test_compute_rejects_unknown_fluid_with_empty_cache(collect):
+    from sjtu_tpmshx.run_control.run_warnings import warning_scope
+
+    compute.cache_clear()
+    with warning_scope({} if collect else None), pytest.raises(ValueError, match='helium'):
+        compute('Diamond', 6., .4, 5., 320., 300000., 16., fluid_type='helium')

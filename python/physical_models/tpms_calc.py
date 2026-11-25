@@ -125,7 +125,9 @@ def adaptive_grid(L_domain: float, H_domain: float,
 
 def _reynolds_notice(tpms_type, Re, fluid_type):
     """Return the existing uncached standalone inlet Re notice."""
-    lo, hi = nu_re_window(fluid_type)
+    from .fluid_props import get
+
+    lo, hi = nu_re_window(get(fluid_type).name)
     if not (lo <= Re <= hi):
         return (f"{tpms_type}: Re = {Re:.1f} is outside the validated range "
                 f"[{lo:.0f}, {hi:.0f}]. Correlation accuracy may be reduced.")

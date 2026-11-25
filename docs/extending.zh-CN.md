@@ -68,7 +68,8 @@
 
 - **重编原生库**：修改 C++ 代码或编译期模型资源后，使用 [engineering/scripts/build_native_dependencies.py](../engineering/scripts/build_native_dependencies.py) 重新构建并发布受影响的原生库。然后重启 Python 进程。详见[C++ 接入说明](cpp-migration.zh-CN.md#native-preparation-core)。
 - **保存数据规则**：遵守[三模块数据契约](contracts/three_module_v1/README.zh-CN.md)。已有保存工况与结果文件必须保留各自记录的模型版本与参数，不得静默替换。
-- 可选的 GUI 流体选择框缺失或为空时，默认使用空气。非空标签必须对应受支持的流体。
+- 独立入口计算使用流体注册表中的规范名称选择雷诺数范围，并据此给出警告。
+- 可选的 GUI 流体选择框缺失或为空时，默认使用空气。非空标签必须对应受支持的流体。几何和流体预览会检查两侧的选择。仅支持空气的灵敏度扫描会检查 A 侧流体，若标签无效，则清除先前的热图。
 
 ### 4. 需要扩展的现有测试
 
