@@ -139,11 +139,32 @@ def target_unit(name: str, units: set[str]) -> str | None:
     return None
 
 
+def _invalid_result_import(path: Path, target: str) -> bool:
+    if not target.startswith("sjtu_tpmshx."):
+        return False
+    area, _, member = target.removeprefix("sjtu_tpmshx.").partition(".")
+    module, _, name = member.partition(".")
+    if path.parent == PKG / "postprocess" and path.stem in {"api", "evaluation"}:
+        if area == "shared":
+            return member.startswith(("_native_", "models._native_"))
+        return area == "cpp_interface" and bool(module) and (
+            module != "result_evaluation" or name not in {
+                "", "query_result", "METRICS", "APPLICABILITY", "PHYSICAL_BALANCE", "QUALIFICATION"})
+    if path.parent == PKG / "cpp_interface" and path.stem in {"_native_result_stage", "result_evaluation"}:
+        return (area in {"applications", "compute", "file_io", "physical_models",
+                         "postprocess", "preprocess", "solvers"}
+                or (area == "shared" and module in {"models", "df_surrogate", "io"})
+                or (area == "shared" and module == "domain" and name.split(".", 1)[0] in {"metric_spec", "performance_result"})
+                or (area == "data_types" and module in {"metric_spec", "performance_result"}))
+    return False
+
+
 def main() -> int:
     units = discover_units()
     edges: Counter[tuple[str, str]] = Counter()
     edge_files: defaultdict[tuple[str, str], set[str]] = defaultdict(set)
     parse_errors: list[str] = []
+    violations: list[str] = []
 
     for py in sorted(source_paths()):
         src_unit = unit_of(py)
@@ -155,7 +176,11 @@ def main() -> int:
         package = ('.'.join(py.relative_to(PKG.parent).parts[:-1]) if src_unit == 'tests' and not py.is_relative_to(PKG)
                    else '.'.join(('sjtu_tpmshx', *py.relative_to(PKG).parts[:-1])))
         for node in ast.walk(tree):
-            targets = {target_unit(name, units) for name in import_targets(node, package)}
+            names = import_targets(node, package)
+            forbidden = next((name for name in names if _invalid_result_import(py, name)), None)
+            if forbidden:
+                violations.append(f"{py.relative_to(REPO)}:{node.lineno}: independent result boundary -> {forbidden}")
+            targets = {target_unit(name, units) for name in names}
             for dst in targets:
                 if dst and dst != src_unit and dst in units:
                     edges[(src_unit, dst)] += 1
@@ -164,7 +189,6 @@ def main() -> int:
 
     core_edges = {e: n for e, n in edges.items()
                   if e[0] not in FREE and e[1] not in FREE}
-    violations: list[str] = []
     sanctioned_hits: list[str] = []
     for (src, dst), n in sorted(edges.items()):
         if src in FREE:
