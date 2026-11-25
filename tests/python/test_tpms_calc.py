@@ -230,3 +230,10 @@ def test_compute_air_out_of_range_still_warns():
 def test_validate_fluid_type_unknown_raises():
     with pytest.raises((NotImplementedError, ValueError)):
         validate_fluid_type('helium', 'A')
+
+
+def test_reynolds_notice_rejects_unknown_fluid():
+    from sjtu_tpmshx.physical_models.tpms_calc import _reynolds_notice
+
+    with pytest.raises(ValueError, match='helium'):
+        _reynolds_notice('Gyroid', 1000., 'helium')

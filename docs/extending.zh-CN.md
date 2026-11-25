@@ -51,7 +51,7 @@
 | Python 模型查询 | [python/physical_models/fluid_props.py](../python/physical_models/fluid_props.py) | `FLUIDS`、`FluidModel`、`get`、`flow_model`、`check_water_state` | 运行期按流体分发与相态检查 |
 | Python 模型查询 | [python/physical_models/nu_correlations.py](../python/physical_models/nu_correlations.py) | `nu_from_Re`、`nu_vec`、`nu_water_topo`、`nu_sco2_topo`、`nu_sco2_selected`、`sco2_effective_nu_config`、`record_raw_nu_range`、`warn_sco2_nu_evidence` | 公开 Nu 封装与范围／证据通知 |
 | Python 模型查询 | [python/physical_models/design_fluids.py](../python/physical_models/design_fluids.py) | `nu_re_window`、`fluid_nu`、`record_native_design_ranges` | Quick Design 与 GUI 预览的流体 Nu 与 `Re` 窗口 **（新增流体）** |
-| Python 模型查询 | [python/physical_models/tpms_calc.py](../python/physical_models/tpms_calc.py)、[tpms_props.py](../python/physical_models/tpms_props.py) | `_RE_FIT_RANGE_BY_FLUID`、`model_h_coefficients`、`record_temperature_ranges` | 独立 `Re` 窗口、model-h 多项式与温度范围 **（新增流体）** |
+| Python 模型查询 | [python/physical_models/tpms_calc.py](../python/physical_models/tpms_calc.py)、[tpms_props.py](../python/physical_models/tpms_props.py) | `nu_re_window`、`model_h_coefficients`、`record_temperature_ranges` | 独立入口警告、Quick Design 与 GUI 预览共用的 `Re` 范围，以及 model-h 多项式与温度范围 **（新增流体）** |
 | Python 原生适配器 | [python/cpp_interface/_native_preparation_case.py](../python/cpp_interface/_native_preparation_case.py)、[_native_properties.py](../python/cpp_interface/_native_properties.py) | `_FLUIDS`、`_Inlet`、`_Nu`、`empirical`、`nu_inputs`、`nusselt` | C ABI 流体编号、Nu 结构与直接物性／Nu 调用 |
 | Python 原生适配器 | [python/cpp_interface/inlet_properties.py](../python/cpp_interface/inlet_properties.py)、[preparation_host.py](../python/cpp_interface/preparation_host.py) | `inlet_query`、`validate_fluid_type`、`observe_range`、`pack_nu`、`pack_saved_resources`、`model_metadata`、`PreparationCacheBridge` | 独立入口查询（`tpmshx_query_inlet_properties_v2`）、宿主回调与保存资源打包 |
 | Python 原生适配器 | [python/cpp_interface/native_preparation.py](../python/cpp_interface/native_preparation.py)、[python/preprocess/three_d/preparation.py](../python/preprocess/three_d/preparation.py)、[_native_quick_prepare.py](../python/cpp_interface/_native_quick_prepare.py) | `_input`、`_case`、`_execute`、`_FLUIDS` | 阶段 1 二维、三维与 Quick Design 输入打包及 `CaseData` 组装 |
@@ -68,10 +68,7 @@
 
 - **重编原生库**：修改 C++ 代码或编译期模型资源后，使用 [engineering/scripts/build_native_dependencies.py](../engineering/scripts/build_native_dependencies.py) 重新构建并发布受影响的原生库。然后重启 Python 进程。详见[C++ 接入说明](cpp-migration.zh-CN.md#native-preparation-core)。
 - **保存数据规则**：遵守[三模块数据契约](contracts/three_module_v1/README.zh-CN.md)。已有保存工况与结果文件必须保留各自记录的模型版本与参数，不得静默替换。
-- **已知静默回退点**：扩展时请同步修改以下位置，使未知流体名称或枚举值显式报错：
-  - [solver/closure_ranges.hpp](../solver/closure_ranges.hpp)（`fluid_name`、`property`、`nu`）：未知枚举值会落入 `"sco2"` 或空气／sCO2 范围。
-  - [python/physical_models/design_fluids.py](../python/physical_models/design_fluids.py)（`nu_re_window`）与 [python/physical_models/tpms_calc.py](../python/physical_models/tpms_calc.py)（`_RE_FIT_RANGE_BY_FLUID`）：未知流体名会回退到空气 `NU_RE_FIT_RANGE`。
-  - [python/applications/gui/ui/window_config.py](../python/applications/gui/ui/window_config.py)（`_parse_fluid_label`）：未识别的下拉文本会回退到 `'air'`。
+- 可选的 GUI 流体选择框缺失或为空时，默认使用空气。非空标签必须对应受支持的流体。
 
 ### 4. 需要扩展的现有测试
 

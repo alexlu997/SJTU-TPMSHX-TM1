@@ -283,16 +283,16 @@ def _parse_fluid_label(combo) -> FluidType:
     if combo is None:
         return 'air'
     try:
-        text = combo.currentText().lower().replace('₂', '2')
+        label = combo.currentText()
     except Exception:
         return 'air'
-    if 'sco2' in text:
-        return 'sco2'
-    if 'co2' in text:
-        return 'co2'
-    if 'water' in text:
-        return 'water'
-    return 'air'
+    if isinstance(label, str):
+        fluid = label.strip().lower().replace('₂', '2')
+        if not fluid:
+            return 'air'
+        if fluid in get_args(FluidType):
+            return fluid
+    raise ValueError(f'Unsupported fluid label {label!r}')
 
 
 def _temp_in_K(window, widget, default_K: float) -> float:
