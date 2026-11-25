@@ -126,7 +126,7 @@ for name in (
 from sjtu_tpmshx.development.validation.df_refit import fit_experimental_effective, cf_cross_fluid
 '''
     result = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True,
-                            cwd=Path(__file__).resolve().parents[2], check=False)
+                            cwd=Path(__file__).resolve().parents[3], check=False)
     assert result.returncode == 0, result.stderr
 
 
