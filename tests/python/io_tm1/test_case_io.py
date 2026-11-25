@@ -28,10 +28,11 @@ def test_case_hdf5_yaml_and_new_process(tmp_path):
 import sys
 from sjtu_tpmshx.file_io.case_io import load_case
 case = load_case(sys.argv[1])
-assert case.case_id == 'synthetic'
-assert case.design_fields['eps_arr'].shape == (2, 2)
-for prefix in ('sjtu_tpmshx.solvers', 'sjtu_tpmshx.preprocess', 'numba', 'PySide6'):
-    assert not any(n == prefix or n.startswith(prefix + '.') for n in sys.modules), prefix
+if case.case_id != 'synthetic' or case.design_fields['eps_arr'].shape != (2, 2):
+    raise SystemExit('Unexpected case ID or field shape')
+for prefix in ('sjtu_tpmshx.solvers', 'sjtu_tpmshx.preprocess', 'sjtu_tpmshx.physical_models', 'numba', 'PySide6'):
+    if any(n == prefix or n.startswith(prefix + '.') for n in sys.modules):
+        raise SystemExit(f'Loading the case imported {prefix}')
 ''', str(path)], capture_output=True, text=True, timeout=30)
     assert child.returncode == 0, child.stderr
 

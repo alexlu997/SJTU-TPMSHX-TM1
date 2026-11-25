@@ -9,7 +9,7 @@ from sjtu_tpmshx.data_types.persistence_validation import validate_case as valid
 
 
 def validate_case(case):
-    from sjtu_tpmshx.physical_models.catalog import MODEL_VERSIONS
+    from sjtu_tpmshx.model_configs.model_parameters import MODEL_VERSIONS
     validate_physical_case(case)
     for ref in case.model_refs:
         if MODEL_VERSIONS.get(ref.name) != ref.version:
