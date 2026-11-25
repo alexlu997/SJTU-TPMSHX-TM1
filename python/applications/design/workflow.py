@@ -1,24 +1,29 @@
 """Run the shared Quick Design selection and refinement workflow."""
 from __future__ import annotations
 
+import math
+
 from sjtu_tpmshx.run_control.cancellation import CancelledError
 from sjtu_tpmshx.run_control.module_ports import RunControl
 
 from . import select, sizing
 from .sizing import Design, K_STEEL, RHO_S
 
+DEFAULT_ARRANGEMENT = 'cross'
+DEFAULT_PROP_MODEL = 'mean'
+
 
 def run_design(
     cases,
     *,
     mode: str = 'auto',
-    arrangement: str = 'cross',
+    arrangement: str = DEFAULT_ARRANGEMENT,
     cell: tuple[str, float, float] | None = None,
     nodes: dict | None = None,
     refine: bool = False,
     rho_s: float = RHO_S,
     k_s: float = K_STEEL,
-    prop_model: str = 'const',
+    prop_model: str = DEFAULT_PROP_MODEL,
     height: float | None = None,
     n_jobs: int = 1,
     control: RunControl | None = None,
@@ -31,6 +36,13 @@ def run_design(
     """
     if mode not in ('auto', 'fixed'):
         raise ValueError(f'unsupported quick design mode: {mode!r}')
+    if height is not None and (
+        isinstance(height, bool)
+        or not isinstance(height, (int, float))
+        or not math.isfinite(height)
+        or height <= 0
+    ):
+        raise ValueError('height must be finite and positive')
     if completed:
         raise ValueError('completed must be empty for each design run')
     results = [] if completed is None else completed

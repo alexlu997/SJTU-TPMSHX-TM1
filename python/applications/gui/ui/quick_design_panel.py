@@ -26,6 +26,8 @@ def _gather_inputs(window) -> dict:
     rho_s = positive("le_qd_rho")
     k_s = positive("le_qd_ks")
     height = positive("le_qd_height") / 1e3 if window.chk_qd_rect.isChecked() else None
+    if height is not None and (not isfinite(height) or height <= 0):
+        raise ValueError("le_qd_height 必须为有限正数")
     mode = window.combo_qd_mode.currentData()
     params = {
         "file": window.le_qd_file.text(),
@@ -87,19 +89,21 @@ def _make_worker_class():
             try:
                 from sjtu_tpmshx.applications.design import cases as design_cases
                 from sjtu_tpmshx.applications.design import sizing
-                from sjtu_tpmshx.applications.design.workflow import run_design
+                from sjtu_tpmshx.applications.design.workflow import (
+                    DEFAULT_ARRANGEMENT, DEFAULT_PROP_MODEL, run_design,
+                )
                 control.check_cancelled()
                 cases = design_cases.load_cases(p["file"])
                 results, best = run_design(
                     cases,
                     mode=p["mode"],
-                    arrangement=p["arrangement"],
+                    arrangement=p.get("arrangement", DEFAULT_ARRANGEMENT),
                     cell=p.get("cell"),
                     nodes=p.get("nodes"),
                     refine=p.get("refine", False),
                     rho_s=p.get("rho_s", sizing.RHO_S),
                     k_s=p.get("k_s", sizing.K_STEEL),
-                    prop_model=p.get("prop_model", "mean"),
+                    prop_model=p.get("prop_model", DEFAULT_PROP_MODEL),
                     height=p.get("height", None),
                     n_jobs=self.n_jobs,
                     control=control,
@@ -404,9 +408,9 @@ def build_quick_design_dialog(parent=None):
     combo_mode.setToolTip("自动搜索：枚举拓扑、胞元尺寸和壁厚，再为各候选定尺。\n"
                          "固定胞元：使用指定的拓扑、胞元尺寸和壁厚，搜索芯体尺寸。")
     combo_arr = QComboBox()
-    combo_arr.addItem("逆流", "counter")
     combo_arr.addItem("交叉流", "cross")
-    combo_arr.setToolTip("逆流：两股流体沿同轴反向流动。\n交叉流：两股流体沿相互垂直的方向流动。")
+    combo_arr.addItem("逆流", "counter")
+    combo_arr.setToolTip("交叉流：两股流体沿相互垂直的方向流动（默认）。\n逆流：两股流体沿同轴反向流动。")
     from sjtu_tpmshx.applications.design import sizing
     le_rho = QLineEdit(str(sizing.RHO_S).removesuffix(".0")); le_rho.setFixedWidth(80)
     le_ks = QLineEdit(str(sizing.K_STEEL).removesuffix(".0")); le_ks.setFixedWidth(60)
@@ -415,7 +419,7 @@ def build_quick_design_dialog(parent=None):
     combo_prop = QComboBox()
     combo_prop.addItem("均温物性", "mean")
     combo_prop.addItem("入口定物性", "const")
-    combo_prop.setToolTip("均温物性：先按入口温度求解，再按各股流体的入口与出口平均温度更新物性并求解一次。\n"
+    combo_prop.setToolTip("均温物性：先按入口温度求解，再按各股流体的入口与出口平均温度更新物性并求解一次（默认）。\n"
                           "入口定物性：按入口温度取物性，只求解一次。\n"
                           "两种方案均在每次求解中保持各股物性均匀；压降均使用入口物性。\n"
                           "水侧 Nu 中的 Pr 均固定取 320 K / 0.2 MPa，未随入口或均温物性更新。")
