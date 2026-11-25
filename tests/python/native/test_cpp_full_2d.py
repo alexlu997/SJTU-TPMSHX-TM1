@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.cpp_interface import full_2d_stage
+from sjtu_tpmshx.solvers import full_2d
 from sjtu_tpmshx.data_types.portable_data import mutable_data
 from sjtu_tpmshx.run_control.cancellation import CancelledError
 from sjtu_tpmshx.preprocess.api import prepare_case
@@ -157,7 +158,7 @@ def test_callback_exception_and_recovery(prepared_zero_duty, kind):
 
 def tracked_entries(monkeypatch, *, complete=None):
     """Wrap the bound saved-run entries; record each released result owner."""
-    original, released = full_2d_stage._stage_entries, []
+    original, released = full_2d_stage.stage_entries, []
 
     def entries(library):
         bound = original(library)
@@ -172,7 +173,7 @@ def tracked_entries(monkeypatch, *, complete=None):
             changed['complete'] = complete(bound['complete'])
         return changed
 
-    monkeypatch.setattr(full_2d_stage, '_stage_entries', entries)
+    monkeypatch.setattr(full_2d_stage, 'stage_entries', entries)
     return released
 
 
@@ -235,7 +236,7 @@ def test_prepared_opening_mismatch_rejected_before_native_call(prepared_zero_dut
 
 def test_independent_concurrent_results(prepared_zero_duty):
     with ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(lambda _: full_2d_stage.run_case(prepared_zero_duty, stage_control()), range(2)))
+        results = list(pool.map(lambda _: full_2d.run_case(prepared_zero_duty, stage_control()), range(2)))
     q_total = [result.metadata['diagnostics']['Q_total'] for result in results]
     assert all(result.run_status['converged'] for result in results)
     assert all(abs(value) <= 2e-7 for value in q_total) and q_total[0] == q_total[1]

@@ -4,9 +4,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from ._native_preparation_case import _QuickInputV2 as _InputV2, _QuickPreparedV2 as _PreparedV2
-from ._native_result_stage import Evidence, _stage_array, closure_records
+from ._native_result_stage import Evidence
 from ._native_values import borrow_array, borrow_text, real_scalar
 from .solver_library._stage_capture_abi import RangeRecordView
+from .solver_library.stage_capture import _stage_array, closure_records
 
 
 _NAMES = ('l', 't', 's', 'Lx', 'height', 'k_s', 'tol', 'mdot_h', 'mdot_c', 'T_in_h', 'T_in_c', 'P_in_h', 'P_in_c')

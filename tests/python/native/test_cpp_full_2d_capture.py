@@ -10,7 +10,7 @@ from sjtu_tpmshx.data_types.compute_config import ComputeConfig, PartialBCConfig
 from sjtu_tpmshx.run_control.run_warnings import RangeRecord, warning_scope
 from sjtu_tpmshx.postprocess.api import evaluate, evaluate_physical_balance
 from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.cpp_interface.full_2d_stage import capture_result
+from sjtu_tpmshx.solvers.full_2d import capture_result
 from tests.python.native.stage_interception import run_stage, stage_control
 from tests.python.native.test_full_2d import ROOT, configuration
 

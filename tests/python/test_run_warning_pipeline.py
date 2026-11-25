@@ -16,13 +16,11 @@ from tests.python.gui_worker_support import win as win
 @pytest.mark.slow
 @pytest.mark.parametrize('dimension', ['2d', '3d'])
 def test_real_pipeline_warning_ownership_and_numerical_transparency(monkeypatch, dimension, win):
+    from sjtu_tpmshx.cpp_interface.solver_library import stage_capture as owner
     if dimension == '2d':
-        from sjtu_tpmshx.cpp_interface import _native_result_stage as owner
         main_stage = 'main-hv'
         cfg = _shanghai_like_cfg()
     else:
-        # The 3D stage binds stage_closures when its module loads.
-        from sjtu_tpmshx.cpp_interface import full_3d_stage as owner
         main_stage = 'main'
         cfg = small_air_config()
         # Fixed positive control: inlet Re=230 < 400, with original tolerances.

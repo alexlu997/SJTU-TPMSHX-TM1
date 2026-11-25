@@ -519,16 +519,16 @@ def test_two_sided_integral_defaults_keep_physics_and_saved_evidence(native_path
 
 @pytest.mark.parametrize('pair',['air-air','air-water','water-air','air-sco2','sco2-water'])
 def test_runtime_range_evidence_preserves_original_sources_and_denominators(native_path, pair):
-    from sjtu_tpmshx.cpp_interface import full_3d_stage
+    from sjtu_tpmshx.cpp_interface.solver_library import stage_capture
     from sjtu_tpmshx.solvers.full_3d import run_case as adapter_run
     from tests.python.native.test_cpp_full_2d_capture import check_range_records
     records, captured = {}, []
-    original = full_3d_stage.stage_closures
+    original = stage_capture.stage_closures
     def observed(*args):
         rows, warnings, last = original(*args)
         captured.append((rows, last))
         return rows, warnings, last
-    with warning_scope(records), patch.object(full_3d_stage, 'stage_closures', observed):
+    with warning_scope(records), patch.object(stage_capture, 'stage_closures', observed):
         result = adapter_run(case(pair, 2), control(native_path))
     (rows, last), = captured
     check_range_records(records, rows)
@@ -1488,8 +1488,7 @@ def test_co2_pt_state_continues_after_process_exit(native_path, tmp_path, dimens
     from sjtu_tpmshx.file_io.case_io import save_case
     from sjtu_tpmshx.file_io.result_io import load_result
     from sjtu_tpmshx.file_io.solver_checkpoint_io import load_solver_checkpoint
-    from sjtu_tpmshx.cpp_interface import full_2d_stage
-    from sjtu_tpmshx.solvers import full_3d
+    from sjtu_tpmshx.solvers import full_2d, full_3d
     from tests.python.native import test_cpp_full_2d_run as planar
     from tests.python.test_co2_model import co2_config
 
@@ -1504,7 +1503,7 @@ def test_co2_pt_state_continues_after_process_exit(native_path, tmp_path, dimens
                  control(native_path).native_table_directory]
     if dimension == 2:
         script, arguments = planar.INNER_CHILD, ['7', *arguments]
-        run = full_2d_stage.run_case
+        run = full_2d.run_case
     else:
         script, arguments = _INNER_CHECKPOINT_CHILD, [*arguments, 'enthalpy']
         run = full_3d.run_case
