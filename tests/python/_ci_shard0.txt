@@ -27,14 +27,15 @@ tests/python/preprocess/test_3d_execution_data.py
 tests/python/preprocess/test_3d_tm1.py
 tests/python/preprocess/test_api_metadata.py
 tests/python/preprocess/test_offline_tm1.py
+tests/python/solver_tm1/test_3d_reverse_mirror.py
+tests/python/solver_tm1/test_asym_porosity_2d.py
 tests/python/solver_tm1/test_execution_2d.py
+tests/python/solver_tm1/test_headline_q_air_side.py
 tests/python/solver_tm1/test_prepared_continuous_2d.py
 tests/python/solver_tm1/test_prepared_grid_contract.py
 tests/python/solver_tm1/test_quick_design_controls.py
-tests/python/test_3d_reverse_mirror.py
 tests/python/test_3d_thermal_face_ownership.py
 tests/python/test_asym_geometry.py
-tests/python/test_asym_porosity_2d.py
 tests/python/test_bc_to_dict.py
 tests/python/test_benchmark_main_compute.py
 tests/python/test_cache_and_source_guards.py
@@ -54,7 +55,6 @@ tests/python/test_envelope_hardening.py
 tests/python/test_field_unit_helpers.py
 tests/python/test_fluid_type_validation.py
 tests/python/test_gui_restore_contract.py
-tests/python/test_headline_q_air_side.py
 tests/python/test_icons.py
 tests/python/test_inlet_duty_2d.py
 tests/python/test_inlet_stretched_grid.py
