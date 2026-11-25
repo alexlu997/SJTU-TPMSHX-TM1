@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -50,7 +51,7 @@ def preparation_build(request, tmp_path, monkeypatch):
         return 'cmake version 4.4.4\n' if '--version' in command else ''
 
     monkeypatch.setattr(native, 'run', run)
-    monkeypatch.setattr(native, 'verify_model_exports', lambda *args: None)
+    monkeypatch.setattr(native, 'verify_model_exports', Mock())
     def backend(version, version_count, revision, revision_count, error, error_count):
         version.value, revision.value, error.value = b'8.0.0', b'locked-eos', b''
         return 0
@@ -85,6 +86,8 @@ def test_preparation_verify_does_not_load_full_solver_programs(preparation_build
     native.verify(cache, host, 'preparation')
     assert sources == [{'models_only': True}]
     assert commands[0] == (str(cmake), '--version')
+    native.verify_model_exports.assert_any_call(
+        cache/'build'/f'preparation-{host}', host, 'geometry', cache/'logs'/f'verify-preparation-{host}.log')
     suffix = '.exe' if host == 'windows-x64' else ''
     names = {Path(command[0]).name for command in commands[1:]}
     assert names == {name+suffix for name in ('geometry_c_static', 'geometry_c_shared',
@@ -167,6 +170,7 @@ def test_full_verify_uses_independent_preparation_programs(preparation_build, mo
     preparation = cache/'build'/f'preparation-{host}'
     assert loads[0].parent == preparation
     assert (preparation, 'preparation') in exports
+    assert (cache/'build'/f'pilot-{host}', 'geometry') in exports
     assert all(path.parent == preparation for path in programs if path.name.startswith('preparation_c_'))
     assert any(path.parent == cache/'build'/f'pilot-{host}' and path.stem == 'side_physics_smoke' for path in programs)
     assert sum(path.stem == 'temperature_driver_smoke' for path in programs) == 1

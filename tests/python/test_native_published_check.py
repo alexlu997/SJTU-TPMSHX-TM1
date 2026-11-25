@@ -8,9 +8,15 @@ from engineering.scripts import build_native_dependencies as native
 
 MANIFESTS = {
     'solver': ('solver/solver.exports', ['_tpmshx_solver_abi_version_v1', '_tpmshx_superlu_solve_v1']),
+    'geometry': ('geometry/geometry.exports', ['_tpmshx_geometry_abi_version_v1', '_tpmshx_field_abi_version_v1']),
     'preparation': ('preprocess/preparation.exports', ['_tpmshx_preparation_abi_version_v1']),
     'result': ('postprocess/result.exports', ['_tpmshx_result_abi_version_v1']),
 }
+
+
+def exported_names(host, kind):
+    return [name[1:] for name in MANIFESTS[kind][1]
+            if not (host == 'windows-x64' and kind == 'solver' and name.startswith('_tpmshx_superlu_'))]
 
 
 def publish_fixture(tmp_path, monkeypatch, host, *, exports=None, record=None, absent=()):
@@ -32,10 +38,7 @@ def publish_fixture(tmp_path, monkeypatch, host, *, exports=None, record=None, a
 
     def symbols(command):
         name = next(kind for kind in MANIFESTS if f'tpmshx_{kind}_shared' in str(command[-1]))
-        default = [symbol[1:] for symbol in MANIFESTS[name][1]]
-        if host == 'windows-x64' and name == 'solver':
-            default = [symbol for symbol in default if not symbol.startswith('tpmshx_superlu_')]
-        return exports.get(name, default)
+        return exports.get(name, exported_names(host, name))
 
     def run(command, log):
         commands.append([str(value) for value in command])
@@ -63,31 +66,34 @@ def test_matching_published_images_pass_and_report_the_build_record(tmp_path, mo
     output = capsys.readouterr().out
     assert f'Published directory: {directory}' in output
     assert output.count(f'source_commit={"a" * 40}, source_changes=0') == 4
-    assert 'geometry has no export manifest' in output
+    assert output.count('exports: agree with the manifest') == 4
     assert 'WARNING' not in output
     assert f'PASS: {host} published images' in output
     inspected = {command[-1] for command in commands}
     assert inspected == {str(directory / native.shared_library_name(host, kind))
-                         for kind in ('solver', 'preparation', 'result')}
+                         for kind in MANIFESTS}
 
 
 @pytest.mark.parametrize('host', ['macos-arm64', 'windows-x64'])
+@pytest.mark.parametrize('kind,extra,missing', [
+    ('solver', 'tpmshx_solve_full_2d_v6', 'tpmshx_solver_abi_version_v1'),
+    ('geometry', 'tpmshx_geometry_probe_v1', 'tpmshx_field_abi_version_v1'),
+])
 @pytest.mark.parametrize('fault', ['extra', 'missing'])
-def test_an_extra_or_missing_export_fails(tmp_path, monkeypatch, capsys, host, fault):
-    symbols = ['tpmshx_solver_abi_version_v1'] + (['tpmshx_superlu_solve_v1'] if host == 'macos-arm64' else [])
+def test_an_extra_or_missing_export_fails(tmp_path, monkeypatch, capsys, host, kind, extra, missing, fault):
+    symbols = exported_names(host, kind)
     if fault == 'extra':
-        symbols.append('tpmshx_solve_full_2d_v6')
+        symbols.append(extra)
     else:
-        symbols.remove('tpmshx_solver_abi_version_v1')
-    directory, _ = publish_fixture(tmp_path, monkeypatch, host, exports={'solver': symbols})
-    with pytest.raises(RuntimeError, match='check failed for: solver$'):
+        symbols.remove(missing)
+    directory, _ = publish_fixture(tmp_path, monkeypatch, host, exports={kind: symbols})
+    with pytest.raises(RuntimeError, match=f'check failed for: {kind}$'):
         native.verify_published(directory, host, 'all', tmp_path / 'check.log')
     output = capsys.readouterr().out
-    expected = ("extra=['_tpmshx_solve_full_2d_v6']" if fault == 'extra'
-                else "missing=['_tpmshx_solver_abi_version_v1']")
+    expected = f"extra=['_{extra}']" if fault == 'extra' else f"missing=['_{missing}']"
     assert expected in output
     # The check continues and reports the other images.
-    assert output.count('exports: agree with the manifest') == 2
+    assert output.count('exports: agree with the manifest') == 3
 
 
 def test_windows_solver_keeps_the_superlu_hook_exception(tmp_path, monkeypatch):
@@ -170,7 +176,7 @@ def test_a_missing_or_incomplete_build_record_is_reported_without_failure(tmp_pa
     native.verify_published(directory, 'macos-arm64', 'all', tmp_path / 'check.log')
     output = capsys.readouterr().out
     assert report in output
-    assert output.count('exports: agree with the manifest') == 3
+    assert output.count('exports: agree with the manifest') == 4
     assert 'PASS:' in output
 
 
