@@ -21,8 +21,7 @@ def inlet_query(topology, cell, wall, velocity, temperature, pressure, fluid,
     from sjtu_tpmshx.physical_models import fluid_props
 
     buffers = []
-    model = fluid_props.get(fluid, sco2_nu=selection)
-    fluid_name = model.name
+    fluid_name = fluid_props.get(fluid, sco2_nu=selection).name
     if fluid_name in ('sco2', 'co2') and pressure is None:
         if fluid_name == 'co2':
             raise ValueError('CO2 requires absolute pressure P in Pa')
@@ -48,7 +47,7 @@ def inlet_query(topology, cell, wall, velocity, temperature, pressure, fluid,
             setattr(settings, name, borrow_text(getattr(selection, name), buffers))
     key = abi._InletKey(abi._GeometryKey(TOPOLOGIES.index(topology), length, thickness),
         abi._FLUIDS.index(fluid_name), speed, temp, press, have_nu, settings, False)
-    source = abi._InletQueryInput(1, ct.sizeof(abi._InletQueryInput), key, diameter, epsilon, fluid == 'co2')
+    source = abi._InletQueryInput(1, ct.sizeof(abi._InletQueryInput), key, diameter, epsilon, fluid_name == 'co2')
 
     def validate(stage, _step):
         if stage != 4:

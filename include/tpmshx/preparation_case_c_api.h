@@ -452,7 +452,8 @@ TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_collect_ra
 /* Query the existing inlet combination from a cached geometry result.
  * No grid, ports, CaseData or solver is required. Both structures use version 1.
  * Values: rho,mu,k,cp,Pr,Re,Nu,K,cF,dP_per_L,H_sf,K_ff, all float64.
- * exact_co2_drag retains the standalone facade's exact CO2 branch.
+ * Set exact_co2_drag to 1 to apply the fixed CO2 drag factors.
+ * The Python inlet query sets this flag for every name that resolves to the CO2 model.
  * Optional callbacks use tpmshx_preparation_callbacks_v1. All cache hooks must
  * be NULL and validate_grid_stage must be 0. Host validation uses stage 4 and
  * steps: 0=diameter, 1=model, 2=mu, 3=k, 4=rho, 5=cp, 6=Re, 7=Nu, 8=DF, 9=K_ff.

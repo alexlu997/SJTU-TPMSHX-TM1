@@ -29,6 +29,20 @@ def test_in_window_returns_empty():
     assert reasons == []
 
 
+def test_co2_preflight_uses_the_registered_geometry_and_pr_range():
+    from sjtu_tpmshx.run_control.run_warnings import warning_scope
+
+    def observations(fluid):
+        with warning_scope({}) as records, pytest.warns(UserWarning, match='outside CO2 Nu window'):
+            reasons = check_surrogate_domain_at_point(
+                'Gyroid', 7., .6, 16., 2., 350., 800000., fluid=fluid, allow_extrap=True)
+        return reasons, records
+
+    expected = observations('co2')
+    for spelling in ('CO2', ' Co2 '):
+        assert observations(spelling) == expected
+
+
 # ─── Out-of-window — raise vs warn ─────────────────────────────────
 
 
