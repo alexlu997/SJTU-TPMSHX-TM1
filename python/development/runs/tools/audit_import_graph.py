@@ -74,19 +74,14 @@ OWNERS = {
 # Adjudicated upward edges (P1.9, 2026-07-20) — ACCEPTED with rationale,
 # reported separately, never counted as violations. Adding an entry here is
 # an architecture decision: document it in docs/architecture.md.
+_SOLVER_DF_EDGE = ("solvers", "df_surrogate")
 SANCTIONED = {
     ("models", "df_surrogate"):
         "shared physical models consume the existing versioned DF closure; "
         "TM1 extraction preserves the previously sanctioned closure boundary. "
         "No numerical backend is imported by the model entry points.",
-    ("solvers", "df_surrogate"):
-        "closure boundary: solvers consume predict_K_cF* and the _domain "
-        "training-hull constants. The shared DF closure does not import "
-        "the numerical backend; this accepted edge preserves that direction.",
-    ("domain", "df_surrogate"):
-        "df_surrogate/_domain.py is a leaf constants module (training-grid "
-        "nodes); domain/validator reads the single source. Direction is "
-        "nominal, no behavior coupling.",
+    _SOLVER_DF_EDGE:
+        "The 3D stage reads the CFD campaign and scope labels from the D-F model for result metadata.",
 }
 
 
@@ -159,9 +154,21 @@ def _invalid_result_import(path: Path, target: str) -> bool:
     return False
 
 
+def _is_sanctioned(edge: tuple[str, str], path: Path, node: ast.AST, module: str) -> bool:
+    if edge != _SOLVER_DF_EDGE:
+        return edge in SANCTIONED
+    return (
+        path == PKG / 'cpp_interface/full_3d_stage.py'
+        and isinstance(node, ast.ImportFrom)
+        and module == 'sjtu_tpmshx.physical_models.df_surrogate'
+        and sorted(alias.name for alias in node.names) == ['CFD_CAMPAIGN', 'CFD_SCOPE']
+    )
+
+
 def main() -> int:
     units = discover_units()
     edges: Counter[tuple[str, str]] = Counter()
+    sanctioned: Counter[tuple[str, str]] = Counter()
     edge_files: defaultdict[tuple[str, str], set[str]] = defaultdict(set)
     parse_errors: list[str] = []
     violations: list[str] = []
@@ -183,20 +190,18 @@ def main() -> int:
             targets = {target_unit(name, units) for name in names}
             for dst in targets:
                 if dst and dst != src_unit and dst in units:
-                    edges[(src_unit, dst)] += 1
-                    edge_files[(src_unit, dst)].add(
-                        str(py.relative_to(REPO)).replace("\\", "/"))
+                    edge = (src_unit, dst)
+                    edges[edge] += 1
+                    if _is_sanctioned(edge, py, node, names[0]):
+                        sanctioned[edge] += 1
+                    else:
+                        edge_files[edge].add(py.relative_to(REPO).as_posix())
 
     core_edges = {e: n for e, n in edges.items()
                   if e[0] not in FREE and e[1] not in FREE}
-    sanctioned_hits: list[str] = []
-    for (src, dst), n in sorted(edges.items()):
+    for (src, dst), n in sorted((edges - sanctioned).items()):
         if src in FREE:
             continue                                        # free consumers
-        if (src, dst) in SANCTIONED:
-            sanctioned_hits.append(
-                f"{src} -> {dst} ({n}x): {SANCTIONED[(src, dst)]}")
-            continue
         if dst in FREE:
             violations.append(
                 f"{src} -> {dst} ({n}x): non-free unit imports a free tier "
@@ -220,9 +225,9 @@ def main() -> int:
     for (src, dst), n in sorted(edges.items()):
         if src in FREE and dst not in FREE:
             print(f"  {src:14s} -> {dst:14s} {n:4d}")
-    print(f"\n== SANCTIONED edges ({len(sanctioned_hits)}) ==")
-    for s_ in sanctioned_hits:
-        print(f"  {s_}")
+    print(f"\n== SANCTIONED edges ({len(sanctioned)}) ==")
+    for (src, dst), n in sorted(sanctioned.items()):
+        print(f"  {src} -> {dst} ({n}x): {SANCTIONED[src, dst]}")
     print(f"\n== VIOLATIONS ({len(violations)}) ==")
     for v in violations:
         print(f"  {v}")

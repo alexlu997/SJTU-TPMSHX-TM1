@@ -355,7 +355,7 @@ class ZoneInputConfig:
         if self.axis not in ('x', 'y', 'grid', 'continuous'):
             raise ValueError(f'Zone axis must be x, y, grid or continuous, got {self.axis!r}')
         if self.axis == 'continuous':
-            from sjtu_tpmshx.physical_models.df_surrogate._domain import TRAIN_L, TRAIN_T
+            from sjtu_tpmshx.model_configs.df_domain import TRAIN_L, TRAIN_T
             required = {'x_decision', 'n_ctrl_x', 'n_ctrl_y', 'symmetric_y',
                         'spline_order', 'L_bounds', 't_bounds'}
             spec = self.config
@@ -902,7 +902,7 @@ def _validate_static_settings(values, is_3d, *, _native_preparation=False, port_
 
     # V2 production D-F closure is a water+sCO2 CFD table with bilinear
     # interpolation in geometry only. Extrapolation is not supported.
-    from sjtu_tpmshx.physical_models.df_surrogate._domain import CASE_GEOMETRY_LIMITS, TRAIN_L, TRAIN_T
+    from sjtu_tpmshx.model_configs.df_domain import CASE_GEOMETRY_LIMITS, TRAIN_L, TRAIN_T
     if not TRAIN_L[0] <= ge.L_cell_mm <= TRAIN_L[1] or not TRAIN_T[0] <= ge.t_wall_mm <= TRAIN_T[1]:
         raise ValueError(f'V2 geometry must lie inside the CFD grid: {CASE_GEOMETRY_LIMITS}')
 

@@ -1,6 +1,6 @@
 """枚举选型: 遍历 {拓扑×l×t}, 各跑 size_fixed_cell, Pareto-tag。"""
 from __future__ import annotations
-from sjtu_tpmshx.physical_models.df_surrogate._domain import TRAIN_L_NODES, TRAIN_T_NODES
+from sjtu_tpmshx.model_configs.df_domain import TRAIN_L_NODES, TRAIN_T_NODES
 from .sizing import size_fixed_cell, RHO_S
 from sjtu_tpmshx.model_configs.model_parameters import load_quick_design_parameters
 
