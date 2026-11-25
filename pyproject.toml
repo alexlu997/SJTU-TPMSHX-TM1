@@ -97,6 +97,8 @@ files = [
     "sjtu_tpmshx/preprocess/api.py",
     "sjtu_tpmshx/solvers/api.py",
     "sjtu_tpmshx/postprocess/api.py",
+    "sjtu_tpmshx/postprocess/evaluation.py",
+    "sjtu_tpmshx/cpp_interface/result_evaluation.py",
     "sjtu_tpmshx/cpp_interface/_native_result_stage.py",
 ]
 python_version = "3.12"
@@ -113,6 +115,8 @@ module = [
     "sjtu_tpmshx.preprocess.api",
     "sjtu_tpmshx.solvers.api",
     "sjtu_tpmshx.postprocess.api",
+    "sjtu_tpmshx.postprocess.evaluation",
+    "sjtu_tpmshx.cpp_interface.result_evaluation",
     "sjtu_tpmshx.cpp_interface._native_result_stage",
 ]
 # 这些边界文件中的无注解辅助函数也必须检查函数体。

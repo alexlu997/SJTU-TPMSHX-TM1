@@ -152,7 +152,7 @@ Windows 两个角色共用同一个锁定的 `Release/CoolProp.lib`。
 它不链接求解库、准备库、几何库、CoolProp、Qt 或模型资源文件。
 缓冲区布局、错误码与通知规则见 [postprocess/sources.md](../postprocess/sources.md)。
 
-`python/cpp_interface/_native_result.py` 与 `_native_result_stage.py` 按需加载结果库。
+`python/cpp_interface/result_evaluation.py` 中的查询通过 `_native_result.py` 按需加载结果库。
 纯 Python 导入和 HDF5/JSON 读取不依赖原生库。
 `tpmshx_result_stage_query_v3` 接收扁平的 `tpmshx_stage_input_v3`，包含借用的 `float64` 数组、`int32` 标签以及原始 C 字符串模式／单位标签。
 浮点事件会针对除零、溢出和无效值发出固定的 `RuntimeWarning` 诊断。

@@ -1,4 +1,4 @@
-"""df_surrogate/kappa_asym.py — per-side asymmetric-porosity κ correction.
+"""Research correction for per-side asymmetric porosity.
 
 Relative-ratio closure for the offset-isosurface (ε_A ≠ ε_B) work:
 

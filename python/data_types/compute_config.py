@@ -32,7 +32,7 @@ follow the read timing stated below.
 - ``TPMSHX_ALLOW_EXTRAP`` (0) — permits warnings at the point applicability
   check. In production this allows inlet Nu/Re checks to proceed; it does not
   relax D-F geometry or fluid-property hard limits. Read by
-  ``df_surrogate/surrogate_domain.py`` and continuous-field preparation.
+  ``development/validation/surrogate_domain.py`` and continuous-field preparation.
 - ``TPMSHX_CHI_S`` (unset) — constant χ_s research override.
   When unset, χ_s comes from the unit-cell homogenization fit
   ``chi_s_eff(type, ε)``;
@@ -57,7 +57,7 @@ follow the read timing stated below.
   names fail. Production 2D/3D compute paths pin this fixed table.
 - ``TPMSHX_ASYM_KAPPA`` (0) — research-only asym per-side κ correction
   after ``ingest_cfd_kappa``; production 2D/3D compute paths do not apply it.
-  Read in ``df_surrogate/kappa_asym.py``.
+  Read in ``development/runs/cfd_asym/kappa_asym.py``.
 - ``TPMSHX_SCO2_COMPRESSIBLE`` (0, experimental) — A-side sCO2 local-pressure
   density/viscosity update and pressure-seed envelope check in native 3D
   execution. B is unchanged; this is not full compressible continuity. Its

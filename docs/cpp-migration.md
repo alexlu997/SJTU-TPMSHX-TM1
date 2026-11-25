@@ -152,7 +152,7 @@ The standalone `postprocess/` project uses only C++17 and system libraries.
 It links no solver, preparation, geometry, CoolProp, Qt, or model-resource files.
 See [postprocess/sources.md](../postprocess/sources.md) for buffer layouts, error codes, and notices.
 
-`python/cpp_interface/_native_result.py` and `_native_result_stage.py` load the result library on demand.
+The query in `python/cpp_interface/result_evaluation.py` loads the result library on demand through `_native_result.py`.
 Pure Python imports and HDF5/JSON reads stay native-free.
 `tpmshx_result_stage_query_v3` accepts flat `tpmshx_stage_input_v3` with borrowed `float64` arrays, `int32` labels, and raw C-string mode/unit labels.
 Floating-point events emit fixed `RuntimeWarning` diagnostics for divide-by-zero, overflow, and invalid values.

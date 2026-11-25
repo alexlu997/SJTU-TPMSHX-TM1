@@ -121,7 +121,7 @@ def register(kap: pd.DataFrame):
     Supplied r≈1 values are retained; the outer κ helper separately
     enforces symmetric identity. No monotonicity constraint is fitted here.
     """
-    from sjtu_tpmshx.physical_models.df_surrogate import kappa_asym
+    from sjtu_tpmshx.development.runs.cfd_asym import kappa_asym
     for tpms, g in kap.groupby("tpms"):
         g = g.sort_values("r")
         r = g["r"].values

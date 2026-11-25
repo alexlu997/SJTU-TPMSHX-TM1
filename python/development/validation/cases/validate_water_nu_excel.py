@@ -14,9 +14,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from sjtu_tpmshx.physical_models.df_surrogate.load_water_cfd import (
+from sjtu_tpmshx.preprocess.offline.load_water_cfd import (
     FLOW_SUSPECT, LATTICES)
-from sjtu_tpmshx.physical_models.df_surrogate.cfd_geometry import attach_geometry
+from sjtu_tpmshx.preprocess.offline.cfd_geometry import attach_geometry
 from sjtu_tpmshx.file_io.file_set import staged_files
 from sjtu_tpmshx.physical_models.nu_correlations import (
     WATER_NU_COEFFS, WATER_NU_RE_RANGE, nu_water_topo)
