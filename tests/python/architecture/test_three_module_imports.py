@@ -207,6 +207,15 @@ def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monke
      'independent result boundary -> sjtu_tpmshx.cpp_interface.result_evaluation._Evidence', 1),
     ('postprocess/evaluation.py', 'from ..cpp_interface import result_evaluation as wire\nwire._Evidence()',
      'independent result boundary -> sjtu_tpmshx.cpp_interface.result_evaluation._Evidence', 1),
+    ('postprocess/evaluation.py', 'from ..cpp_interface import result_evaluation\n'
+     'def source_ids(reports):\n    return [result_evaluation.source_result_id for result_evaluation in reports]',
+     None, 0),
+    ('postprocess/evaluation.py', 'from ..cpp_interface import result_evaluation as wire\n'
+     'def reports():\n    return [wire.source_result_id for wire in wire._Evidence()]',
+     'independent result boundary -> sjtu_tpmshx.cpp_interface.result_evaluation._Evidence', 1),
+    ('postprocess/evaluation.py', 'from ..cpp_interface import result_evaluation as wire\n'
+     'def ids(reports):\n    wire = reports[0]\n    return (lambda wire: wire.source_result_id)(wire)',
+     None, 0),
     ('postprocess/api.py', 'from sjtu_tpmshx.shared import _native_result_stage',
      'independent result boundary -> sjtu_tpmshx.shared._native_result_stage', 1),
     ('cpp_interface/result_evaluation.py',
@@ -216,6 +225,36 @@ def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monke
     ('cpp_interface/result_evaluation.py',
      'from sjtu_tpmshx import data_types as dto\ndto.performance_result.PerformanceResult()',
      'independent result boundary -> sjtu_tpmshx.data_types.performance_result.PerformanceResult', 1),
+    ('cpp_interface/result_evaluation.py',
+     'from itertools import starmap\nfrom ..data_types.performance_result import MetricValue\n'
+     'def records(rows):\n    return tuple(starmap(MetricValue, rows))',
+     'independent result boundary -> sjtu_tpmshx.data_types.performance_result.MetricValue', 1),
+    ('cpp_interface/result_evaluation.py',
+     'from ..data_types.performance_result import PerformanceResult as BuildReport\n'
+     'from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from ._native_result_stage import Output as BuildReport\n'
+     'BuildReport("new", "saved")',
+     'independent result boundary -> sjtu_tpmshx.data_types.performance_result.PerformanceResult', 1),
+    ('cpp_interface/result_evaluation.py',
+     'import typing as t\nif t.TYPE_CHECKING:\n    from ..data_types.performance_result import PerformanceResult as Output\n'
+     'else:\n    from ._native_result_stage import Output\nOutput()',
+     'native_values -> domain', 0),
+    ('cpp_interface/_native_result_stage.py',
+     'from ..data_types.performance_result import MetricSpec, MetricValue\n'
+     'def read(item: MetricSpec | MetricValue) -> MetricSpec:\n'
+     '    if isinstance(item, (MetricValue,)):\n        spec: MetricSpec = item.spec\n        return spec\n    return item',
+     'native_values -> domain', 0),
+    ('cpp_interface/result_evaluation.py',
+     'from ..data_types.performance_result import MetricValue\n'
+     'def check(row, factory):\n    return isinstance(row, factory(MetricValue))',
+     'independent result boundary -> sjtu_tpmshx.data_types.performance_result.MetricValue', 1),
+    ('cpp_interface/result_evaluation.py',
+     'import sys\nif sys.platform == "darwin":\n    from ..data_types.performance_result import MetricValue as Build\n'
+     'else:\n    from ._native_result_stage import Metric as Build\nfactory = Build',
+     'independent result boundary -> sjtu_tpmshx.data_types.performance_result.MetricValue', 1),
+    ('cpp_interface/result_evaluation.py',
+     'try:\n    from ..data_types.performance_result import MetricValue as Build\n'
+     'except ImportError:\n    from ._native_result_stage import Metric as Build\nfactory = Build',
+     'independent result boundary -> sjtu_tpmshx.data_types.performance_result.MetricValue', 1),
     ('cpp_interface/_native_result_stage.py',
      'def pack():\n    from sjtu_tpmshx.data_types import metric_spec\n    return metric_spec.MetricSpec()',
      'independent result boundary -> sjtu_tpmshx.data_types.metric_spec.MetricSpec', 1),

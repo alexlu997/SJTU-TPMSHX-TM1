@@ -134,7 +134,15 @@ def target_unit(name: str, units: set[str]) -> str | None:
     return None
 
 
-def _invalid_result_target(host: bool, target: str, *, constructor: bool = False) -> bool:
+_RESULT_DTO_EXPORTS = {
+    f"sjtu_tpmshx.{area}.{module}": names
+    for area in ("data_types", "shared.domain")
+    for module, names in (("metric_spec", ("MetricSpec",)),
+                          ("performance_result", ("MetricSpec", "MetricValue", "PerformanceResult")))
+}
+
+
+def _invalid_result_target(host: bool, target: str, *, value: bool = False) -> bool:
     if not target.startswith("sjtu_tpmshx."):
         return False
     area, _, member = target.removeprefix("sjtu_tpmshx.").partition(".")
@@ -145,63 +153,261 @@ def _invalid_result_target(host: bool, target: str, *, constructor: bool = False
         return area == "cpp_interface" and bool(module) and (
             module != "result_evaluation" or name.partition(".")[0] not in {
                 "", "query_result", "METRICS", "APPLICABILITY", "PHYSICAL_BALANCE", "QUALIFICATION"})
-    if area == "shared" and module == "domain":
-        area = "data_types"
-        module, _, name = name.partition(".")
+    owner, _, symbol = target.rpartition(".")
     return (area in {"applications", "compute", "file_io", "physical_models",
                      "postprocess", "preprocess", "solvers"}
             or (area == "shared" and module in {"models", "df_surrogate", "io"})
-            or (constructor and area == "data_types" and module in {"metric_spec", "performance_result"}
-                and name in {"MetricSpec", "MetricValue", "PerformanceResult"}))
+            or (value and symbol in _RESULT_DTO_EXPORTS.get(owner, ())))
+
+
+def _qualified_result_names(node, aliases):
+    parts = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if not isinstance(node, ast.Name):
+        return set()
+    suffix = "".join("." + part for part in reversed(parts))
+    return {name + suffix if name else "" for name in aliases.get(node.id, ())}
+
+
+def _possible_result_names(paths):
+    # An empty name denotes a local value on a path without that import.
+    return {name: set().union(*(path.get(name, {""}) for path in paths))
+            for name in set().union(*paths)}
+
+
+class _ResultReferences(ast.NodeVisitor):
+    """Check runtime names in the independent result host and binding."""
+
+    def __init__(self, host, package):
+        self.host = host
+        self.package = package
+        self.aliases = {"isinstance": {"builtins.isinstance"}}
+        self.module_names = self.aliases
+        self.class_parent = None
+        self.functions = []
+        self.violations = []
+
+    def check(self, node):
+        for target in sorted(_qualified_result_names(node, self.aliases)):
+            if _invalid_result_target(self.host, target, value=True):
+                self.violations.append((node.lineno, target))
+
+    def scope(self, nodes, aliases):
+        outer = self.aliases, self.functions, self.class_parent
+        self.aliases, self.functions, self.class_parent = aliases, [], None
+        for node in nodes:
+            self.visit(node)
+        # Functions can use imports that follow their definitions.
+        for function in self.functions:
+            local = aliases.copy()
+            args = function.args
+            for arg in (*args.posonlyargs, *args.args, *args.kwonlyargs, args.vararg, args.kwarg):
+                if arg is not None:
+                    local.pop(arg.arg, None)
+            body = [function.body] if isinstance(function, ast.Lambda) else function.body
+            self.scope(body, local)
+        self.aliases, self.functions, self.class_parent = outer
+
+    def visit_Import(self, node):
+        targets = import_targets(node, self.package)
+        for item in node.names:
+            if item.name == "*":
+                for name in _RESULT_DTO_EXPORTS.get(targets[0], ()):
+                    self.aliases[name] = {targets[0] + "." + name}
+            elif isinstance(node, ast.ImportFrom):
+                self.aliases[item.asname or item.name] = {targets[0] + "." + item.name}
+            else:
+                root = item.name.partition(".")[0]
+                self.aliases[item.asname or root] = {item.name if item.asname else root}
+
+    visit_ImportFrom = visit_Import
+
+    def visit_Name(self, node):
+        if isinstance(node.ctx, ast.Load):
+            self.check(node)
+        else:
+            self.aliases.pop(node.id, None)
+
+    def visit_Global(self, node):
+        for name in node.names:
+            self.aliases[name] = self.module_names.get(name, set())
+
+    def visit_Attribute(self, node):
+        if self.host or isinstance(node.ctx, ast.Load):
+            self.check(node)
+        self.visit(node.value)
+
+    def type_guard(self, test):
+        if _qualified_result_names(test, self.aliases) in ({"typing.TYPE_CHECKING"}, {"typing_extensions.TYPE_CHECKING"}):
+            return False
+        if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
+            value = self.type_guard(test.operand)
+            return None if value is None else not value
+        if isinstance(test, ast.BoolOp):
+            stop = isinstance(test.op, ast.Or)
+            values = [self.type_guard(part) for part in test.values]
+            if stop in values:
+                return stop
+            if None not in values:
+                return not stop
+        return None
+
+    def visit_BoolOp(self, node):
+        stop = isinstance(node.op, ast.Or)
+        for part in node.values:
+            self.visit(part)
+            if self.type_guard(part) is stop:
+                break
+
+    def visit_If(self, node):
+        self.visit(node.test)
+        guard = self.type_guard(node.test)
+        if guard is not None:
+            for statement in (node.body if guard else node.orelse):
+                self.visit(statement)
+        else:
+            self.branches(((node.body, self.aliases), (node.orelse, self.aliases)))
+
+    def branches(self, paths):
+        outer = self.aliases
+        outcomes = []
+        for statements, names in paths:
+            self.aliases = names.copy()
+            for statement in statements:
+                self.visit(statement)
+            outcomes.append(self.aliases)
+        outer.clear()
+        outer.update(_possible_result_names(outcomes))
+        self.aliases = outer
+
+    def visit_Try(self, node):
+        possible = [self.aliases.copy()]
+        for statement in node.body:
+            self.visit(statement)
+            possible.append(self.aliases.copy())
+        failure = _possible_result_names(possible)
+        paths = [(node.orelse, self.aliases)]
+        paths.extend(((handler,), failure) for handler in node.handlers)
+        self.branches(paths)
+        for statement in node.finalbody:
+            self.visit(statement)
+
+    visit_TryStar = visit_Try
+
+    def visit_FunctionDef(self, node):
+        defaults = (*node.args.defaults, *node.args.kw_defaults)
+        for expr in (*getattr(node, "decorator_list", ()), *defaults):
+            if expr is not None:
+                self.visit(expr)
+        if not isinstance(node, ast.Lambda):
+            self.aliases.pop(node.name, None)
+        self.functions.append(node)
+
+    visit_AsyncFunctionDef = visit_Lambda = visit_FunctionDef
+
+    def visit_ClassDef(self, node):
+        for expr in (*node.decorator_list, *node.bases, *node.keywords):
+            self.visit(expr)
+        # Methods and comprehension bodies use the enclosing function or module names.
+        outer = self.aliases, self.class_parent
+        if self.class_parent is None:
+            self.class_parent = self.aliases
+        self.aliases = self.class_parent.copy()
+        for statement in node.body:
+            self.visit(statement)
+        self.aliases, self.class_parent = outer
+        self.aliases.pop(node.name, None)
+
+    def visit_ListComp(self, node):
+        first, *rest = node.generators
+        self.visit(first.iter)
+        inner = [first.target, *first.ifs]
+        for clause in rest:
+            inner.extend((clause.iter, clause.target, *clause.ifs))
+        inner.extend((node.key, node.value) if isinstance(node, ast.DictComp) else (node.elt,))
+        enclosing = self.aliases if self.class_parent is None else self.class_parent
+        self.scope(inner, enclosing.copy())
+
+    visit_DictComp = visit_SetComp = visit_GeneratorExp = visit_ListComp
+
+    def visit_Assign(self, node):
+        if node.value is None:
+            return
+        self.visit(node.value)
+        alias = _qualified_result_names(node.value, self.aliases)
+        for target in (node.targets if isinstance(node, ast.Assign) else (node.target,)):
+            self.visit(target)
+            if alias and isinstance(target, ast.Name):
+                self.aliases[target.id] = alias
+
+    visit_AnnAssign = visit_NamedExpr = visit_Assign
+
+    def visit_TypeAlias(self, node):
+        self.visit(node.name)
+
+    def visit_For(self, node):
+        self.visit(node.iter)
+        self.branches([((), self.aliases), ([node.target, *node.body], self.aliases)])
+        for statement in node.orelse:
+            self.visit(statement)
+
+    visit_AsyncFor = visit_For
+
+    def visit_ExceptHandler(self, node):
+        if node.type is not None:
+            self.visit(node.type)
+        self.aliases.pop(node.name, None)
+        for statement in node.body:
+            self.visit(statement)
+
+    def visit_MatchAs(self, node):
+        self.generic_visit(node)
+        self.aliases.pop(node.rest if isinstance(node, ast.MatchMapping) else node.name, None)
+
+    visit_MatchMapping = visit_MatchStar = visit_MatchAs
+
+    def visit_Call(self, node):
+        if (not self.host and _qualified_result_names(node.func, self.aliases) == {"builtins.isinstance"}
+                and len(node.args) == 2):
+            self.visit(node.args[0])
+            self.check_type_operand(node.args[1])
+        else:
+            self.generic_visit(node)
+
+    def check_type_operand(self, node):
+        if isinstance(node, ast.Tuple):
+            for item in node.elts:
+                self.check_type_operand(item)
+        elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+            self.check_type_operand(node.left)
+            self.check_type_operand(node.right)
+        elif isinstance(node, ast.IfExp):
+            self.visit(node.test)
+            self.check_type_operand(node.body)
+            self.check_type_operand(node.orelse)
+        elif (isinstance(node, ast.Subscript)
+              and _qualified_result_names(node.value, self.aliases) in ({"typing.Union"}, {"typing.Optional"})):
+            self.check_type_operand(node.slice)
+        elif isinstance(node, ast.Starred):
+            self.check_type_operand(node.value)
+        elif not _qualified_result_names(node, self.aliases):
+            self.visit(node)
 
 
 def _result_boundary_violations(path, tree, package):
     host = path.parent == PKG / "postprocess" and path.stem in {"api", "evaluation"}
     binding = path.parent == PKG / "cpp_interface" and path.stem in {"_native_result_stage", "result_evaluation"}
-    if not (host or binding):
-        return
-
-    def check_scope(scope, aliases):
-        # Keep local imports in source order. Functions can use later module imports.
-        aliases = aliases.copy()
-        if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            for arg in ast.walk(scope.args):
-                if isinstance(arg, ast.arg):
-                    aliases.pop(arg.arg, None)
-        nested = []
-        pending = [scope]
-        while pending:
-            node = pending.pop()
-            if node is not scope and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                nested.append(node)
-                continue
-            pending.extend(reversed(list(ast.iter_child_nodes(node))))
-            if isinstance(node, (ast.Import, ast.ImportFrom)):
-                targets = import_targets(node, package)
-                for item in node.names:
-                    if isinstance(node, ast.ImportFrom):
-                        aliases[item.asname or item.name] = targets[0] + "." + item.name
-                    else:
-                        root = item.name.partition(".")[0]
-                        aliases[item.asname or root] = item.name if item.asname else root
-                forbidden = next((target for target in targets if _invalid_result_target(host, target)), None)
-                if forbidden:
-                    yield node.lineno, forbidden
-            elif (host and isinstance(node, ast.Attribute)) or (binding and isinstance(node, ast.Call)):
-                expression = node.func if isinstance(node, ast.Call) else node
-                parts = []
-                while isinstance(expression, ast.Attribute):
-                    parts.append(expression.attr)
-                    expression = expression.value
-                if isinstance(expression, ast.Name) and expression.id in aliases:
-                    target = ".".join((aliases[expression.id], *reversed(parts)))
-                    if _invalid_result_target(host, target, constructor=isinstance(node, ast.Call)):
-                        yield node.lineno, target
-        for child in nested:
-            yield from check_scope(child, aliases)
-
-    for line, target in check_scope(tree, {}):
-        yield f"{path.relative_to(REPO)}:{line}: independent result boundary -> {target}"
+    if host or binding:
+        for node in ast.walk(tree):
+            forbidden = next((name for name in import_targets(node, package) if _invalid_result_target(host, name)), None)
+            if forbidden:
+                yield f"{path.relative_to(REPO)}:{node.lineno}: independent result boundary -> {forbidden}"
+        references = _ResultReferences(host, package)
+        references.scope(tree.body, references.aliases)
+        for line, target in references.violations:
+            yield f"{path.relative_to(REPO)}:{line}: independent result boundary -> {target}"
 
 
 def _is_sanctioned(edge: tuple[str, str], path: Path, node: ast.AST, module: str) -> bool:
