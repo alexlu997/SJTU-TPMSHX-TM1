@@ -199,13 +199,13 @@ def test_host_exception_keeps_identity_and_releases_owner(monkeypatch):
 @pytest.mark.parametrize('mode', ['uniform', 'xyz', 'grid'])
 @pytest.mark.parametrize('alias', ['error', 'failure'])
 def test_owned_3d_views_cannot_be_diagnostic_outputs(mode, alias):
-    from sjtu_tpmshx.preprocess.three_d import preparation
     from sjtu_tpmshx.cpp_interface import _native_preparation_3d as binding
     from sjtu_tpmshx.cpp_interface import _native_preparation_case as native
     from sjtu_tpmshx.cpp_interface import preparation_host
     from sjtu_tpmshx.cpp_interface.stage_libraries import preparation_library
     config = _configuration(mode).validate()
-    source = preparation._input(config, None, 'prepare_flow_case')
+    source, errors = binding.pack_input(config, None, lambda fluid: fluid.u_mps, 2_000_000)
+    assert not errors
     kind = binding._ContinuousCase if isinstance(source, binding._ContinuousInput) else binding._SpatialCase
     result = kind(1, ct.sizeof(kind))
     options = native._Options(1, ct.sizeof(native._Options), 0, 1, 0.)
@@ -230,13 +230,13 @@ def test_owned_3d_views_cannot_be_diagnostic_outputs(mode, alias):
 
 @pytest.mark.parametrize('alias', ['error', 'failure'])
 def test_cached_3d_evidence_cannot_alias_diagnostics(alias):
-    from sjtu_tpmshx.preprocess.three_d import preparation
     from sjtu_tpmshx.cpp_interface import _native_preparation_3d as binding
     from sjtu_tpmshx.cpp_interface import _native_preparation_case as native
     from sjtu_tpmshx.cpp_interface import preparation_host
     from sjtu_tpmshx.cpp_interface.stage_libraries import preparation_library
     config = _configuration('uniform', pair=('air', 'air')).validate()
-    source = preparation._input(config, None, 'prepare_flow_case')
+    source, errors = binding.pack_input(config, None, lambda fluid: fluid.u_mps, 2_000_000)
+    assert not errors
     result = binding._SpatialCase(1, ct.sizeof(binding._SpatialCase))
     options = native._Options(1, ct.sizeof(native._Options), 0, 1, 0.)
     failure, error = native._Failure(2, ct.sizeof(native._Failure)), ct.create_string_buffer(b'unchanged', 4096)
@@ -448,3 +448,340 @@ def test_flow_queries_emit_out_of_range_observations(monkeypatch, mode, operatio
         (('property', 'air_cp'), 1),
         (('property', 'air_conductivity'), 1),
     }
+
+
+def _bytes_owner(array):
+    owner = array
+    while type(owner) is np.ndarray:
+        owner = owner.base
+    return owner
+
+
+@pytest.mark.parametrize('mode', ['uniform', 'xyz', 'grid', 'offset'])
+def test_detached_case_survives_buffer_poison_and_second_call_with_single_copy(monkeypatch, mode):
+    from contextlib import contextmanager
+    from sjtu_tpmshx.cpp_interface import _native_preparation_3d as binding, preparation_host
+    from sjtu_tpmshx.preprocess.three_d import preparation
+
+    config = _configuration(mode)
+    original_op, original_case = preparation_host.volume_operation, preparation._case
+    released_owners, detached_records, model_names, live_buffers = [], [], [], []
+    snapshots = []
+
+    @contextmanager
+    def poison_buffers(*args, **kwargs):
+        with original_op(*args, **kwargs) as result:
+            source = result.prepared
+            model_names.append(ct.string_at(source.models[0].name.data, source.models[0].name.size).decode())
+            views = [source.widths[0], source.edges[0], source.cell_length, source.side_porosity,
+                     source.sides[0].inlet_opening, source.models[0].name]
+            if isinstance(result, binding._SpatialCase):
+                views.append(result.side_b_porosity)
+            if result.area_density_per_m.size:
+                views.append(result.area_density_per_m)
+            replacements, raw_bytes = [], []
+            for view in views:
+                saved = type(view).from_buffer_copy(view)
+                size = view.size * ct.sizeof(view.data._type_)
+                raw = ct.string_at(view.data, size)
+                raw_bytes.append(raw)
+                storage = ct.create_string_buffer(raw, size)
+                live_buffers.append(storage)
+                view.data = ct.cast(storage, type(view.data))
+                replacements.append((view, saved, storage))
+            snapshots.append(raw_bytes)
+            try:
+                yield result
+            finally:
+                for view, saved, storage in replacements:
+                    ct.memset(storage, 0, ct.sizeof(storage))
+                    ct.memmove(ct.byref(view), ct.byref(saved), ct.sizeof(view))
+        released_owners.append(result.owner)
+
+    def capture_detached(detached, *args):
+        # The native owner must already be released before CaseData assembly starts.
+        assert len(released_owners) == len(detached_records) + 1
+        assert released_owners[-1] is None
+        detached_records.append(detached)
+        return original_case(detached, *args)
+
+    monkeypatch.setattr(preparation_host, 'volume_operation', poison_buffers)
+    monkeypatch.setattr(preparation, '_case', capture_detached)
+    first = api.prepare_case(config, case_id='first')
+    config.solver.Nx += 1
+    second = api.prepare_case(config, case_id='second')
+
+    assert released_owners == [None, None]
+    assert first.case_id == 'first' and len(first.grid['dx']) != len(second.grid['dx'])
+    first_detached = detached_records[0]
+    pairs = [
+        (first_detached.widths[0], first.grid['dx']),
+        (first_detached.edges[0], first.grid['x_edges']),
+        (first_detached.cell_length, first.design_fields['L_field_m']),
+        (first_detached.side_porosity, first.design_fields['eps_A']),
+        (first_detached.sides[0].inlet_opening, first.parameters['prepared']['openings']['A']['inlet']),
+    ]
+    for index, (detached_arr, saved_arr) in enumerate(pairs):
+        assert saved_arr.dtype == np.float64 and saved_arr.flags.c_contiguous and saved_arr.flags.aligned
+        assert not saved_arr.flags.writeable
+        assert saved_arr.tobytes() == snapshots[0][index]
+        assert np.any(saved_arr != 0.)
+        owner = _bytes_owner(detached_arr)
+        assert type(owner) is bytes and _bytes_owner(saved_arr) is owner
+    assert first.model_refs[0].name == model_names[0] and first.model_refs[0].name
+    if mode == 'xyz':
+        assert _bytes_owner(first.design_fields['eps_B']) is _bytes_owner(first.design_fields['eps_A'])
+    else:
+        assert _bytes_owner(first.design_fields['eps_B']) is _bytes_owner(first_detached.side_b_porosity)
+    if first.parameters['thermal_geometry']['fields'] is not None:
+        assert (_bytes_owner(first.parameters['thermal_geometry']['fields']['A_0'])
+                is _bytes_owner(first_detached.thermal_fields.area_density_per_m))
+    stream_axis = first.parameters['prepared']['axes']['A']['stream_real_axis']
+    grid_key = 'd' + 'xyz'[stream_axis]
+    assert _bytes_owner(first.parameters['prepared']['axes']['A']['dstream']) is _bytes_owner(first.grid[grid_key])
+    assert not np.shares_memory(first.design_fields['L_field_m'], second.design_fields['L_field_m'])
+
+
+@pytest.mark.parametrize('mode', ['uniform', 'xyz'])
+@pytest.mark.parametrize('operation', ['capacity', 'resolve', 'prepare', 'fixed-flow'])
+def test_all_3d_operations_release_owned_result_once(monkeypatch, mode, operation):
+    from sjtu_tpmshx.cpp_interface import _native_preparation_3d as binding, preparation_host
+
+    config = _configuration(mode)
+    original = preparation_host._Bindings
+    releases = []
+
+    def bindings(path):
+        owner = original(path, volume=True)
+        for kind, release in owner.releases.items():
+            def checked(pointer, kind=kind, release=release):
+                view = ct.cast(pointer, ct.POINTER(kind)).contents
+                previous = bool(view.owner)
+                release(pointer)
+                releases.append((kind, previous, bool(view.owner)))
+            owner.releases[kind] = checked
+        return owner
+
+    monkeypatch.setattr(preparation_host, '_volume_bindings', bindings)
+    if operation == 'capacity':
+        api.prepare_inlet_mass_capacities(config)
+    elif operation == 'resolve':
+        api.resolve_fixed_mass_flow_config(config, mass_flow_A_kg_s=.001, mass_flow_B_kg_s=.01)
+    elif operation == 'fixed-flow':
+        api.prepare_fixed_mass_flow_case(config, mass_flow_A_kg_s=.001, mass_flow_B_kg_s=.01, case_id='rel-fixed')
+    else:
+        api.prepare_case(config, case_id='rel-case')
+
+    expected_kind = (
+        (binding._ContinuousFlow if operation in ('capacity', 'resolve') else binding._ContinuousCase)
+        if mode == 'xyz'
+        else (binding._SpatialFlow if operation in ('capacity', 'resolve') else binding._SpatialCase)
+    )
+    assert releases == [(expected_kind, True, False)]
+
+
+@pytest.mark.parametrize('exc_cls', [StopIteration, LookupError, MemoryError])
+@pytest.mark.parametrize('mode,fault', [
+    (mode, fault)
+    for mode in ('uniform', 'xyz')
+    for fault in (
+        'detach', 'geometry_scalars', 'fixed_record', 'drag_evidence', 'model_text', 'model_evidence',
+        'cache_geometry', 'observe_range', 'host_stage_13',
+    )
+] + [('uniform', 'cache_inlet')])
+def test_injected_read_and_callback_failures_keep_exception_and_release_once(monkeypatch, mode, exc_cls, fault):
+    from contextlib import contextmanager
+    from sjtu_tpmshx.cpp_interface import _native_preparation_3d as binding, preparation_host
+    from sjtu_tpmshx.preprocess.preparation import PreparationCache
+    from sjtu_tpmshx.preprocess.three_d import preparation
+    from sjtu_tpmshx.run_control.run_warnings import current_warnings, warning_scope
+
+    pair = ('co2', 'water') if fault == 'drag_evidence' else ('air', 'water')
+    config = _configuration(mode, pair=pair)
+    if fault == 'observe_range':
+        config.fluid_A.T_in_K = 190.
+    marker = exc_cls(f'{mode}-{fault}')
+    original = preparation_host._Bindings
+    releases = []
+
+    def bindings(path):
+        owner = original(path, volume=True)
+        for kind, release in owner.releases.items():
+            def checked(pointer, kind=kind, release=release):
+                view = ct.cast(pointer, ct.POINTER(kind)).contents
+                previous = bool(view.owner)
+                release(pointer)
+                releases.append((kind, previous, bool(view.owner)))
+            owner.releases[kind] = checked
+        return owner
+
+    def fail(*args, **kwargs):
+        raise marker
+
+    monkeypatch.setattr(preparation_host, '_volume_bindings', bindings)
+    callback_faults = {'cache_geometry', 'cache_inlet', 'observe_range', 'host_stage_13'}
+    if fault == 'detach':
+        monkeypatch.setattr(binding, '_detach_array', fail)
+    elif fault == 'geometry_scalars':
+        # Fault only the post-yield _copy_case read, not the cache publish callback.
+        original_op = preparation_host.volume_operation
+
+        @contextmanager
+        def fail_on_case_geometry(*args, **kwargs):
+            with original_op(*args, **kwargs) as result:
+                with monkeypatch.context() as inner:
+                    inner.setattr(preparation_host, 'geometry_scalars', fail)
+                    yield result
+
+        monkeypatch.setattr(preparation_host, 'volume_operation', fail_on_case_geometry)
+    elif fault == 'fixed_record':
+        monkeypatch.setattr(preparation_host, 'fixed_record', fail)
+    elif fault == 'drag_evidence':
+        monkeypatch.setattr(preparation_host, 'drag_evidence', fail)
+    elif fault == 'model_text':
+        monkeypatch.setattr(binding, 'read_text', fail)
+    elif fault == 'model_evidence':
+        monkeypatch.setattr(preparation_host, 'model_evidence', fail)
+    elif fault == 'cache_geometry':
+        monkeypatch.setattr(PreparationCache, 'geometry', fail)
+    elif fault == 'cache_inlet':
+        monkeypatch.setattr(PreparationCache, 'inlet', fail)
+    elif fault == 'observe_range':
+        monkeypatch.setattr(PreparationCache, 'observe_range', fail)
+    else:
+        monkeypatch.setattr(preparation, 'capture_environment', fail)
+
+    parent = {('parent',): 'parent'}
+    expected_kind = binding._ContinuousCase if mode == 'xyz' else binding._SpatialCase
+    with warning_scope(parent):
+        if fault in callback_faults and exc_cls is StopIteration:
+            with pytest.raises(RuntimeError, match='^generator raised StopIteration$') as caught:
+                api.prepare_case(config, case_id='fault')
+            assert caught.value.__cause__ is marker
+        else:
+            with pytest.raises(exc_cls) as caught:
+                api.prepare_case(config, case_id='fault')
+            assert caught.value is marker and caught.value.__cause__ is None
+        assert current_warnings() is parent and parent == {('parent',): 'parent'}
+
+    assert len(releases) == 1
+    kind, previous, after = releases[0]
+    assert kind is expected_kind and after is False
+    if fault not in callback_faults:
+        assert previous is True
+
+
+def test_detach_array_rejects_null_pointer_with_nonzero_size():
+    from sjtu_tpmshx.cpp_interface import _native_preparation_3d as binding, _native_preparation_case as native
+
+    empty = binding._detach_array(native._Array(None, 0))
+    assert empty.dtype == np.float64 and empty.shape == (0,) and not empty.flags.writeable
+    assert _bytes_owner(empty) == b''
+    with pytest.raises(RuntimeError, match='null array pointer'):
+        binding._detach_array(native._Array(None, 4))
+
+
+@pytest.mark.parametrize('field', ['L_bounds', 't_bounds'])
+def test_continuous_bounds_conversion_keeps_stop_iteration(field):
+    from sjtu_tpmshx.preprocess.three_d import preparation
+
+    marker = StopIteration(field)
+
+    class BadFloat(float):
+        def __float__(self):
+            raise marker
+
+    config = _configuration('xyz')
+    config.zones.config[field][0] = BadFloat(config.zones.config[field][0])
+    with pytest.raises(StopIteration) as caught:
+        preparation._execute(config, 'prepare_flow_case', case_id='bounds-stop')
+    assert caught.value is marker and caught.value.__cause__ is None
+
+
+def test_3d_warning_sites_repeat_counts_and_scoped_metadata(monkeypatch):
+    from pathlib import Path
+    import warnings
+    from sjtu_tpmshx.physical_models import nu_correlations, tpms_props
+    from sjtu_tpmshx.preprocess import preparation as shared
+    from sjtu_tpmshx.preprocess.three_d import preparation
+
+    monkeypatch.setattr(tpms_props, '_range_warnings_emitted', set())
+    monkeypatch.setattr(nu_correlations, '_EXTRAP_WARNED', set())
+    monkeypatch.setattr(shared, '__warningregistry__', {}, raising=False)
+    config = _configuration('uniform', 'Gyroid', ('air', 'air'))
+    config.fluid_A.T_in_K, config.fluid_B.T_in_K = 190., 1100.
+    config.fluid_A.u_mps = config.fluid_B.u_mps = .0001
+    counts = []
+    with warnings.catch_warnings(record=True) as recorded:
+        warnings.simplefilter('default')
+        for _ in range(2):
+            compute.cache_clear()
+            compute_geometry.cache_clear()
+            preparation.prepare_case(config, case_id='warn-direct')
+            counts.append(len(recorded))
+
+    assert counts == [9, 9]
+    assert [entry.category for entry in recorded] == [UserWarning] * 9
+    assert [str(entry.message).split(':', 1)[0] for entry in recorded] == [
+        'air_viscosity', '[surrogate extrap] Fluid A', '[surrogate extrap] Fluid B',
+        'air_cp', 'air_conductivity', 'air_cp', 'Gyroid', '[Nu extrap] Gyroid', 'Gyroid',
+    ]
+    assert {Path(entry.filename).resolve() for entry in recorded} == {Path(shared.__file__).resolve()}
+    assert recorded[0].lineno == recorded[3].lineno == recorded[4].lineno == recorded[5].lineno == recorded[7].lineno
+    assert recorded[1].lineno == recorded[2].lineno
+    assert recorded[6].lineno == recorded[8].lineno
+    assert len({recorded[0].lineno, recorded[1].lineno, recorded[6].lineno}) == 3
+
+    compute.cache_clear()
+    compute_geometry.cache_clear()
+    with warnings.catch_warnings(record=True) as scoped_recorded:
+        warnings.simplefilter('always')
+        scoped = api.prepare_case(config, case_id='warn-scoped')
+    assert [str(entry.message).split(':', 1)[0] for entry in scoped_recorded] == [
+        '[surrogate extrap] Fluid A', '[surrogate extrap] Fluid B',
+    ]
+    assert {Path(entry.filename).resolve() for entry in scoped_recorded} == {Path(shared.__file__).resolve()}
+    assert {entry.lineno for entry in scoped_recorded} == {recorded[1].lineno}
+    assert scoped.metadata['warnings'] and scoped.metadata['applicability_inputs']
+
+
+def test_3d_preparation_loads_only_preparation_library(monkeypatch, tmp_path):
+    import json
+    import subprocess
+    import sys
+    from sjtu_tpmshx.cpp_interface.stage_libraries import preparation_library
+
+    for name in ('RESULT', 'GEOMETRY', 'NATIVE_SOLVER', 'SOLVER'):
+        monkeypatch.setenv(f'TPMSHX_{name}_LIBRARY', str(tmp_path / 'absent'))
+    fixtures = json.dumps([(mode, asdict(_configuration(mode)))
+                           for mode in ('uniform', 'xy', 'xyz', 'grid', 'offset')])
+    code = '''
+from copy import deepcopy
+import json
+from pathlib import Path
+import sys
+images = []
+def capture(event, args):
+    if event == 'ctypes.dlopen' and args[0] and 'tpmshx_' in Path(args[0]).name.lower():
+        images.append(Path(args[0]).resolve())
+sys.addaudithook(capture)
+from sjtu_tpmshx.data_types.compute_config import ComputeConfig
+from sjtu_tpmshx.preprocess import api
+for mode, payload in json.loads(sys.argv[2]):
+    cfg = ComputeConfig.from_dict(payload)
+    api.prepare_case(cfg, case_id='iso-' + mode)
+    api.prepare_inlet_mass_capacities(cfg)
+    if mode != 'offset':
+        flow_cfg = deepcopy(cfg)
+        flow_cfg.geometry.delta_levelset = 0.
+        api.resolve_fixed_mass_flow_config(flow_cfg, mass_flow_A_kg_s=.001, mass_flow_B_kg_s=.01)
+        api.prepare_fixed_mass_flow_case(flow_cfg, mass_flow_A_kg_s=.001, mass_flow_B_kg_s=.01, case_id='iso-f-' + mode)
+forbidden = [name for name in sys.modules if name.startswith((
+    'sjtu_tpmshx.solvers', 'sjtu_tpmshx.postprocess', 'PySide6', 'CoolProp',
+))]
+if forbidden:
+    raise SystemExit(f'unexpected modules: {forbidden}')
+if set(images) != {Path(sys.argv[1]).resolve()}:
+    raise SystemExit(str(images))
+'''
+    subprocess.run([sys.executable, '-c', code, preparation_library.path(), fixtures], check=True, timeout=120)
