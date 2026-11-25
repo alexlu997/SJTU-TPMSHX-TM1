@@ -283,16 +283,21 @@ def _parse_fluid_label(combo) -> FluidType:
     if combo is None:
         return 'air'
     try:
-        text = combo.currentText().lower().replace('₂', '2')
+        label = combo.currentText()
     except Exception:
         return 'air'
-    if 'sco2' in text:
-        return 'sco2'
-    if 'co2' in text:
-        return 'co2'
-    if 'water' in text:
-        return 'water'
-    return 'air'
+    if isinstance(label, str):
+        fluid = label.strip().lower().replace('₂', '2')
+        if not fluid:
+            return 'air'
+        if fluid in get_args(FluidType):
+            return fluid
+    raise ValueError(f'Unsupported fluid label {label!r}')
+
+
+def fluid_types_from_window(window) -> dict[str, FluidType]:
+    """Read the selected fluid for each side."""
+    return {side: _parse_fluid_label(getattr(window, 'combo_fluid' + side, None)) for side in 'AB'}
 
 
 def _temp_in_K(window, widget, default_K: float) -> float:
@@ -478,14 +483,15 @@ def config_from_window(window, *, strict: bool = False,
         raise ValueError('Grid Nz must be >= 2 for 3D compute')
 
     # fluids — type combos special; fluid_B.u_mps defaults to A's value:
+    fluid_types = fluid_types_from_window(window)
     fluid_A = FluidConfig(
-        type=_parse_fluid_label(getattr(window, 'combo_fluidA', None)),
+        type=fluid_types['A'],
         mass_flow_kg_s=(_qt_float(getattr(window, 'le_mass_flowA', None), 0.)
                        if mass_flow_active(window, 'A', is_3d=is_3d) else None),
         **_read_section_fields(window, 'fluid_A'),
     )
     fluid_B = FluidConfig(
-        type=_parse_fluid_label(getattr(window, 'combo_fluidB', None)),
+        type=fluid_types['B'],
         mass_flow_kg_s=(_qt_float(getattr(window, 'le_mass_flowB', None), 0.)
                        if mass_flow_active(window, 'B', is_3d=is_3d) else None),
         u_mps=_qt_float(getattr(window, 'le_uB', None), fluid_A.u_mps),
