@@ -17,7 +17,7 @@ Each group gives a reading order. All files in the tree are directly under `solv
 <details>
 <summary>Change a model or the solution procedure</summary>
 
-For the velocity used in local Re and Nu, see the [2D](full_2d.cpp#L539) and [3D](full_3d.cpp#L877) implementations. For changes to a Nu correlation, read the common [nu_point](../numerics/fluid_properties.cpp#L371) function.
+For the velocity used in local Re and Nu, see the [2D](full_2d.cpp#L539) and [3D](full_3d.cpp#L877) implementations. For changes to a Nu correlation, read the common [nu_point](../numerics/fluid_properties.cpp#L364) function.
 
 - Iteration order for full runs
   - [full_2d.cpp](full_2d.cpp) · [full_3d.cpp](full_3d.cpp)
