@@ -19,6 +19,13 @@ constexpr bool can_save_case = false;
 template<class Owner>
 constexpr bool can_save_case<Owner, std::void_t<decltype(tpmshx::stages::saved_case(std::declval<Owner>()))>> = true;
 
+template<class Result, class = void>
+constexpr bool can_request_audit = false;
+
+template<class Result>
+constexpr bool can_request_audit<Result, std::void_t<decltype(
+    tpmshx::stages::capture_summary(std::declval<Result>(), true))>> = true;
+
 template<class Owner> struct MemberOwner {
     Owner member;
     operator const Owner&() const {return member;}
@@ -269,11 +276,20 @@ void check_sdk_saved_families(tpmshx::stages::RunControl control) {
         auto result=run_case(prepare_case(continuous,options),control3d,fast3d);
         require(result.view().raw.stop<=1 && result.view().evidence.dimension==3,
             "continuous 3D SavedPreparedCase3D run failed");
+        const auto scalars=capture_summary(std::move(result));
+        require(scalars.model_h_cell_count==64 && !scalars.audit_outlet[0].size && !scalars.audit_outlet[1].size,
+            "expected a 3D cell count without audit spans");
     }
 }
 }
 int main(int argc,char** argv) {
     using namespace tpmshx::stages;
+    static_assert(can_request_audit<RunResult3D&> && can_request_audit<const RunResult3D&>);
+    static_assert(!can_request_audit<RunResult3D&&> && !can_request_audit<const RunResult3D&&>);
+    static_assert(can_request_audit<MemberOwner<RunResult3D>&> && !can_request_audit<MemberOwner<RunResult3D>>);
+    static_assert(!can_request_audit<ValueSource<RunResult3D>&>);
+    static_assert(std::is_same_v<decltype(capture_summary(std::declval<RunResult3D>())), tpmshx_stage_capture_3d_v1>);
+    static_assert(std::is_same_v<decltype(capture_summary(std::declval<RunResult2D>(), {})), tpmshx_stage_capture_2d_v1>);
     try {
         require(tpmshx_stage_run_2d_abi_version()==TPMSHX_STAGE_RUN_ABI_VERSION_V5,
             "unexpected 2D stage run ABI version");
