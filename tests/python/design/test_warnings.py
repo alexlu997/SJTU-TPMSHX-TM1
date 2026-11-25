@@ -64,7 +64,7 @@ def test_cli_refined_best_and_both_export_sheets(monkeypatch, tmp_path, capsys, 
     base = _sized_with_notices([_case()], 'Diamond', 6., .5)
     ref = _sized_with_notices([replace(_case(2), hot_fluid=hot_fluid)], 'Diamond', 4., .5)
     monkeypatch.setattr(cli, 'load_cases', lambda path: [_case()])
-    monkeypatch.setattr(cli, 'enumerate_select', lambda *a, **kw: ([base], base))
+    monkeypatch.setattr(select, 'enumerate_select', lambda *a, **kw: ([base], base))
     monkeypatch.setattr(optimize, 'warm_start_joint', lambda *a, **kw: ref)
     path = tmp_path / 'warnings.xlsx'
     assert cli.run(['--xlsx', 'unused', '--out', str(path), '--refine']) == 0
