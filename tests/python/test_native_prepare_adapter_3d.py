@@ -746,14 +746,18 @@ def test_3d_warning_sites_repeat_counts_and_scoped_metadata(monkeypatch):
 
 
 def test_3d_preparation_loads_only_preparation_library(monkeypatch, tmp_path):
+    import json
     import subprocess
     import sys
     from sjtu_tpmshx.cpp_interface.stage_libraries import preparation_library
 
     for name in ('RESULT', 'GEOMETRY', 'NATIVE_SOLVER', 'SOLVER'):
         monkeypatch.setenv(f'TPMSHX_{name}_LIBRARY', str(tmp_path / 'absent'))
+    fixtures = json.dumps([(mode, asdict(_configuration(mode)))
+                           for mode in ('uniform', 'xy', 'xyz', 'grid', 'offset')])
     code = '''
 from copy import deepcopy
+import json
 from pathlib import Path
 import sys
 images = []
@@ -761,10 +765,10 @@ def capture(event, args):
     if event == 'ctypes.dlopen' and args[0] and 'tpmshx_' in Path(args[0]).name.lower():
         images.append(Path(args[0]).resolve())
 sys.addaudithook(capture)
+from sjtu_tpmshx.data_types.compute_config import ComputeConfig
 from sjtu_tpmshx.preprocess import api
-from tests.python.test_native_prepare_adapter_3d import _configuration
-for mode in ('uniform', 'xy', 'xyz', 'grid', 'offset'):
-    cfg = _configuration(mode)
+for mode, payload in json.loads(sys.argv[2]):
+    cfg = ComputeConfig.from_dict(payload)
     api.prepare_case(cfg, case_id='iso-' + mode)
     api.prepare_inlet_mass_capacities(cfg)
     if mode != 'offset':
@@ -780,4 +784,4 @@ if forbidden:
 if set(images) != {Path(sys.argv[1]).resolve()}:
     raise SystemExit(str(images))
 '''
-    subprocess.run([sys.executable, '-c', code, preparation_library.path()], check=True, timeout=120)
+    subprocess.run([sys.executable, '-c', code, preparation_library.path(), fixtures], check=True, timeout=120)
