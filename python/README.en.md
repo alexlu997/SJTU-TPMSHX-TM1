@@ -97,7 +97,7 @@ See [C++ builds](../docs/cpp-migration.md#native-geometry-core) for separate com
 | Directory | Responsibility and boundary |
 | --- | --- |
 | [preprocess](preprocess/) | Preprocessing and explicit offline model preparation. |
-| [solvers](solvers/) | Solver API, applicability/execution records, and compatibility names. C++ implementation is in [solver](../solver/). |
+| [solvers](solvers/) | Solver API, 2D/3D and Quick Design hosts, execution and ledger helpers, and compatibility names. C++ implementation is in [solver](../solver/). |
 | [postprocess](postprocess/) | Metrics, physical audits, qualification, and exports from recorded results. |
 | [data_types](data_types/) | Configuration, prepared cases, fields, and performance results. |
 | [file_io](file_io/) | Read and write case, result, metric, and checkpoint files. |

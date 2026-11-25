@@ -95,7 +95,7 @@ $tm1Python = Get-Content .venv-path -TotalCount 1
 | 目录 | 职责与边界 |
 | --- | --- |
 | [preprocess/](preprocess/) | 前处理与显式离线模型准备。 |
-| [solvers/](solvers/) | 求解 API、适用性／执行记录及兼容公开名称。C++ 实现在 [solver/](../solver/)。 |
+| [solvers/](solvers/) | 求解 API、二维／三维与 Quick Design 求解宿主、执行与账本辅助模块及兼容公开名称。C++ 实现在 [solver/](../solver/)。 |
 | [postprocess/](postprocess/) | 已记录结果的指标、物理审计、资格结论和导出。 |
 | [data_types/](data_types/) | 配置、准备好的工况、场与性能结果的数据定义。 |
 | [file_io/](file_io/) | 工况、结果、指标和检查点的文件读写。 |

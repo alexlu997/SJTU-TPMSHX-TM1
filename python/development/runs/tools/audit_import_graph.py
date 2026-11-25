@@ -146,11 +146,10 @@ def target_unit(name: str, units: set[str]) -> str | None:
 
 
 _DTO_PACKAGES = {"sjtu_tpmshx.data_types", "sjtu_tpmshx.shared.domain", "data_types", "shared.domain"}
-_RESULT_DTO_MODULES = {f"{package}.{module}" for package in _DTO_PACKAGES
-                       for module in ("metric_spec", "performance_result")}
-_QUICK_DTO_MODULES = {f"{package}.field_result" for package in _DTO_PACKAGES}
-_CASE_DTO_MODULES = {f"{package}.{module}" for package in _DTO_PACKAGES for module in ("case_data", "model_refs")}
-_STAGE_DTO_MODULES = _CASE_DTO_MODULES | _QUICK_DTO_MODULES | _RESULT_DTO_MODULES
+_STAGE_DTO_MODULES = {
+    f"{package}.{module}" for package in _DTO_PACKAGES
+    for module in ("case_data", "model_refs", "field_result", "metric_spec", "performance_result")
+}
 _STAGE_DTO_TYPES = {"CaseData", "FieldResult", "MetricSpec", "MetricValue", "PerformanceResult", "ModelRef"}
 _OTHER_STAGE_MODULES = {"full_2d_stage", "full_3d_stage", "run_state", "native_preparation", "preparation_host",
                         "inlet_properties", "quick_design", "_native_preparation_3d", "_native_quick_prepare",
@@ -210,9 +209,7 @@ def _invalid_stage_target(host, target, binding, operations):
             return True
     if binding in {"quick_design", "quick_preparation"}:
         if area == "solvers" and member.startswith("backends.cpp."):
-            module, _, name = member.removeprefix("backends.cpp.").partition(".")
-            # Quick and full published drivers resolve to solver hosts.
-            area = "solvers" if module == "quick_design" else "cpp_interface"
+            return True
         if area == "cpp_interface" and module != binding and module in _OTHER_STAGE_MODULES:
             return True
         if area == "shared" and member.startswith(("_native_", "models._native_")) and (
@@ -500,48 +497,38 @@ def _stage_boundary_violations(path, tree, package):
             return
     if path == PKG / "solvers/api.py":
         label, binding, operations = "solver API", "solver_api", set()
-        modules, types = set(), set()
     elif (preparation_api or path == PKG / "preprocess/two_d/preparation.py" or path.parent == PKG / "cpp_interface"
             and path.stem in {"native_preparation", "preparation_host", "inlet_properties",
                               "_native_preparation_3d", "_native_preparation_case"}):
         label, binding = "full preparation", "native_preparation"
         operations = set() if preparation_api else {"", "pack_input", "run_preparation"}
-        modules, types = _CASE_DTO_MODULES, {"CaseData", "ModelRef"}
-        if path.stem == "preparation_host":
-            # The shared solver input packer checks the type of a saved ModelRef.
-            modules, types = {name for name in modules if name.endswith(".case_data")}, {"CaseData"}
     elif path == PKG / "preprocess/three_d/preparation.py":
         label, binding = "full 3D preparation", "native_preparation"
         operations = {"", "pack_volume_input", "run_volume_preparation"}
-        modules, types = _CASE_DTO_MODULES, {"CaseData", "ModelRef"}
     elif path in (PKG / "preprocess/quick_design.py", PKG / "cpp_interface/quick_preparation.py"):
         label, binding, operations = "Quick preparation", "quick_preparation", {"", "run_preparation"}
-        modules, types = _CASE_DTO_MODULES, {"CaseData", "ModelRef"}
     elif path in (PKG / "solvers/quick_design.py", PKG / "cpp_interface/quick_design.py"):
         label, binding, operations = "Quick solve", "quick_design", {"", "QuickSolver"}
-        modules, types = _QUICK_DTO_MODULES, {"FieldResult"}
     elif path in (PKG / "solvers/full_2d.py", PKG / "cpp_interface/full_2d_stage.py"):
         label, binding = "full 2D solve", "full_2d_stage"
         operations = {"", "StageDriver", "borrow_mesh", "stage_entries", "check_experiment",
                       "run_stage", "zone_temperatures"}
-        modules, types = _STAGE_DTO_MODULES, _STAGE_DTO_TYPES
     elif path in (PKG / "solvers/full_3d.py", PKG / "cpp_interface/full_3d_stage.py"):
         label, binding = "full 3D solve", "full_3d_stage"
         operations = {"", "open_library", "borrow_mesh", "require_saved_stage",
                       "execution_view_query", "run_saved"}
-        modules, types = _STAGE_DTO_MODULES, _STAGE_DTO_TYPES
     elif (path.parent == PKG / "postprocess" and path.stem in {"api", "evaluation"}
           or path.parent == PKG / "cpp_interface" and path.stem in {"_native_result_stage", "result_evaluation"}):
         label, binding = "independent result", "result_evaluation"
         operations = {"", "query_result", "METRICS", "APPLICABILITY", "PHYSICAL_BALANCE", "QUALIFICATION"}
-        modules, types = _RESULT_DTO_MODULES, {"MetricSpec", "MetricValue", "PerformanceResult"}
     elif path.is_relative_to(PKG / "cpp_interface"):
         label, binding, operations = "native binding", "cpp_interface", set()
-        modules, types = _STAGE_DTO_MODULES, _STAGE_DTO_TYPES
     else:
         return
     host = not path.is_relative_to(PKG / "cpp_interface")
-    if not host:
+    if host:
+        modules, types = set(), set()
+    else:
         modules, types = _STAGE_DTO_MODULES, _STAGE_DTO_TYPES
         if path == PKG / "cpp_interface/preparation_host.py":
             # The shared solver input packer checks the type of a saved ModelRef.
