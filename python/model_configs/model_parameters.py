@@ -2,7 +2,6 @@
 from importlib.resources import files
 import json
 import math
-from pathlib import Path
 from threading import Lock
 
 
@@ -157,10 +156,8 @@ def load_quick_design_parameters():
 
 
 def load_co2_coefficients(path=None):
-    """Return a fresh copy of the coefficients. Read other files on each call."""
-    if (path is None or path == CO2_RESOURCE
-            or (isinstance(path, Path) and isinstance(CO2_RESOURCE, Path)
-                and path.resolve() == CO2_RESOURCE.resolve())):
+    """Return fresh coefficients. Read and validate an explicit source on each call."""
+    if path is None:
         return _copy_json(_cached_resource(_read_co2_coefficients))
     return _read_co2_coefficients(path)
 

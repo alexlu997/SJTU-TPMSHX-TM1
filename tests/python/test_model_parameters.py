@@ -21,7 +21,7 @@ def test_model_parameters_have_independent_ownership():
     assert second['constants']['gas_constant'] / second['constants']['air_molar_mass'] != 287.05
 
 
-def test_concurrent_loaders_read_each_packaged_resource_once():
+def test_default_loaders_share_one_read_and_explicit_co2_calls_read_again():
     subprocess.run([sys.executable, '-S', '-c', '''
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
@@ -39,24 +39,24 @@ def observe(event, args):
             reads[name] += 1
 
 sys.addaudithook(observe)
-packaged = resources.CO2_RESOURCE
-relative = packaged.relative_to(Path.cwd())
-via_parent = packaged.parent / '..' / packaged.parent.name / packaged.name
 start = Barrier(4)
 def read(_):
     start.wait()
     resources.load_quick_design_parameters()
     resources.load_model_parameters()
     resources.load_preparation_df_parameters()
-    resources.load_co2_coefficients(relative)
     resources.load_co2_coefficients()
-    resources.load_co2_coefficients(via_parent)
-    resources.load_co2_coefficients(packaged)
 
 with ThreadPoolExecutor(4) as pool:
     list(pool.map(read, range(4)))
 if reads != expected:
     raise SystemExit(f'Packaged JSON file reads: {reads}')
+packaged = resources.CO2_RESOURCE
+via_parent = packaged.parent / '..' / packaged.parent.name / packaged.name
+for count, path in enumerate((packaged, packaged, packaged.relative_to(Path.cwd()), via_parent), start=2):
+    resources.load_co2_coefficients(path)
+    if reads[packaged.name] != count:
+        raise SystemExit(f'Explicit CO2 file reads: {reads}')
 '''], cwd=Path(__file__).resolve().parents[2], check=True, timeout=30)
 
 
@@ -188,6 +188,22 @@ def test_co2_resource_preserves_values_and_selected_path(tmp_path):
     with pytest.raises(ValueError, match='resource/version mismatch'):
         resources.load_co2_coefficients(selected)
     assert resources.load_co2_coefficients()['segment'] == 2
+
+
+@pytest.mark.parametrize('component', ['absent-directory', 'co2_segment2_v1.json'])
+def test_explicit_co2_path_preserves_parent_traversal_errors(tmp_path, monkeypatch, component):
+    packaged = tmp_path / resources.CO2_RESOURCE.name
+    packaged.write_bytes(resources.CO2_RESOURCE.read_bytes())
+    monkeypatch.setattr(resources, 'CO2_RESOURCE', packaged)
+    selected = tmp_path / component / '..' / packaged.name
+    try:
+        text = selected.read_text(encoding='utf-8')
+    except OSError as error:
+        with pytest.raises(type(error)) as raised:
+            resources.load_co2_coefficients(selected)
+        assert raised.value.errno == error.errno
+    else:
+        assert resources.load_co2_coefficients(selected) == json.loads(text)
 
 
 @pytest.mark.parametrize('bounds', [[3000.], [60000., 3000.], [0., 60000.],
