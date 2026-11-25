@@ -173,6 +173,7 @@ Active linear solves or chunks finish before returning; there is no forced threa
 The optimizer uses `evaluate_compact_condition_batch`, which returns compact summaries and continues a saved batch in place. It reuses completed members and keeps failed members without running them again.
 Default `workers = None` selects at most 4 native worker processes with at least 2 CPU slots each.
 It splits the total CPU limit, keeps input order, and uses one manager process for pause and cancel.
+With only one CPU slot, automatic allocation selects one worker and the batch runs serially in the calling process.
 `run_multi_condition_optimization` supports `qLogNEHVI`, `qLogNParEGO`, and `Sobol` to maximize `(heat_gain_percent, -pressure_ratio)` from complete accepted batches.
 With `mass_requirements`, it runs `qLogNEI` or `Sobol` for constrained core-mass minimization, including optional per-condition `T_out`/`P_out` limits and `allow_nu_re_extrapolation`.
 `resume_multi_condition_optimization` copies the archive to a new directory and validates `optimization-input.json`, Sobol sequences, and saved proposals before continuing.
