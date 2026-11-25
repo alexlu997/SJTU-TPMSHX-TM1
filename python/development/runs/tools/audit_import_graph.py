@@ -54,6 +54,7 @@ OWNERS = {
     "cpp_interface.native_preparation": "preprocess",
     "cpp_interface.preparation_host": "models",
     "cpp_interface.inlet_properties": "models",
+    # Quick solve still shares the solver capture and preparation wire layouts.
     **{f"cpp_interface.{name}": "solvers" for name in (
         "full_2d_stage", "full_3d_stage", "quick_design", "run_state", "solver_library")},
     # Case and spatial adapters own model policy. The ABI bindings use native_values.
@@ -135,36 +136,47 @@ def target_unit(name: str, units: set[str]) -> str | None:
 
 
 _DTO_PACKAGES = {"sjtu_tpmshx.data_types", "sjtu_tpmshx.shared.domain", "data_types", "shared.domain"}
-_DTO_MODULES = {f"{package}.{module}" for package in _DTO_PACKAGES
-                for module in ("metric_spec", "performance_result")}
-_DTO_TYPES = {"MetricSpec", "MetricValue", "PerformanceResult"}
+_RESULT_DTO_MODULES = {f"{package}.{module}" for package in _DTO_PACKAGES
+                       for module in ("metric_spec", "performance_result")}
+_QUICK_DTO_MODULES = {f"{package}.field_result" for package in _DTO_PACKAGES}
+_OTHER_STAGE_MODULES = {"full_2d_stage", "full_3d_stage", "run_state", "native_preparation",
+                        "_native_preparation_3d", "_native_quick_prepare"}
 _TYPE_GUARDS = {"typing.TYPE_CHECKING", "typing_extensions.TYPE_CHECKING"}
-_BINDING_NAMESPACES = {"sjtu_tpmshx", "sjtu_tpmshx.shared", "shared", *_DTO_PACKAGES,
+_BINDING_NAMESPACES = {"sjtu_tpmshx", "sjtu_tpmshx.cpp_interface", "sjtu_tpmshx.shared", "shared", *_DTO_PACKAGES,
                        "typing", "typing_extensions", *_TYPE_GUARDS}
 
 
-def _invalid_result_target(host: bool, target: str) -> bool:
+def _invalid_stage_target(host, target, binding, operations):
     if not target.startswith("sjtu_tpmshx."):
         return False
     area, _, member = target.removeprefix("sjtu_tpmshx.").partition(".")
     module, _, name = member.partition(".")
+    if binding == "quick_design":
+        if area == "solvers" and member.startswith("backends.cpp."):
+            module, _, name = member.removeprefix("backends.cpp.").partition(".")
+            # Only the published Quick driver resolves to a solver host.
+            area = "solvers" if module == "quick_design" else "cpp_interface"
+        if area == "cpp_interface" and module in _OTHER_STAGE_MODULES:
+            return True
+        if area == "shared" and member.startswith(("_native_", "models._native_")) and (
+                member.removeprefix("models.").partition(".")[0] in _OTHER_STAGE_MODULES):
+            return True
     if host:
         if area == "shared":
             return member.startswith(("_native_", "models._native_"))
         return area == "cpp_interface" and bool(module) and (
-            module != "result_evaluation" or name.partition(".")[0] not in {
-                "", "query_result", "METRICS", "APPLICABILITY", "PHYSICAL_BALANCE", "QUALIFICATION"})
+            module != binding or name.partition(".")[0] not in operations)
     return (area in {"applications", "compute", "file_io", "physical_models",
                      "postprocess", "preprocess", "solvers"}
             or (area == "shared" and module in {"models", "df_surrogate", "io"}))
 
 
-def _result_dto_import(target: str) -> bool:
+def _dto_import(target, modules, types):
     owner, _, name = target.rpartition(".")
-    return target in _DTO_MODULES or owner in _DTO_MODULES or name in _DTO_TYPES
+    return target in modules or owner in modules or name in types
 
 
-def _qualified_result_names(node, aliases):
+def _qualified_names(node, aliases):
     parts = []
     while isinstance(node, ast.Attribute):
         parts.append(node.attr)
@@ -175,16 +187,20 @@ def _qualified_result_names(node, aliases):
     return {name + suffix if name else "" for name in aliases.get(node.id, ())}
 
 
-def _possible_result_names(paths):
+def _possible_names(paths):
     # An empty name denotes a local value on a path without that import.
     return {name: set().union(*(path.get(name, {""}) for path in paths))
             for name in set().union(*paths)}
 
 
-class _ResultImportAudit(ast.NodeVisitor):
+class _StageImportAudit(ast.NodeVisitor):
     """Check host access to native operations. Permit DTO imports in the binding only for type checking."""
 
-    def __init__(self, host, package):
+    def __init__(self, host, package, binding, operations, dto_modules, dto_types):
+        self.binding = binding
+        self.operations = operations
+        self.dto_modules = dto_modules
+        self.dto_types = dto_types
         self.host = host
         self.package = package
         self.aliases = {}
@@ -222,7 +238,7 @@ class _ResultImportAudit(ast.NodeVisitor):
         targets = import_targets(node, self.package)
         if not self.host:
             # Report the imported member when the statement names one.
-            forbidden = next((name for name in reversed(targets) if _result_dto_import(name)), None)
+            forbidden = next((name for name in reversed(targets) if _dto_import(name, self.dto_modules, self.dto_types)), None)
             if forbidden:
                 self.violations.append((node.lineno, forbidden))
         for item in node.names:
@@ -247,15 +263,15 @@ class _ResultImportAudit(ast.NodeVisitor):
             self.bind(name, self.module_names.get(name, set()))
 
     def visit_Attribute(self, node):
-        for target in sorted(_qualified_result_names(node, self.aliases)):
+        for target in sorted(_qualified_names(node, self.aliases)):
             # A loaded DTO module is also available through its parent package.
-            if (_invalid_result_target(self.host, target)
-                    or (not self.host and target in _DTO_MODULES and isinstance(node.ctx, ast.Load))):
+            if (_invalid_stage_target(self.host, target, self.binding, self.operations)
+                    or (not self.host and target in self.dto_modules and isinstance(node.ctx, ast.Load))):
                 self.violations.append((node.lineno, target))
         self.visit(node.value)
 
     def type_guard(self, test):
-        guard = _qualified_result_names(test, self.aliases)
+        guard = _qualified_names(test, self.aliases)
         if guard and guard <= _TYPE_GUARDS:
             return False
         if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
@@ -295,7 +311,7 @@ class _ResultImportAudit(ast.NodeVisitor):
                 self.visit(statement)
             outcomes.append(self.aliases)
         outer.clear()
-        outer.update(_possible_result_names(outcomes))
+        outer.update(_possible_names(outcomes))
         self.aliases = outer
 
     def visit_Try(self, node):
@@ -303,7 +319,7 @@ class _ResultImportAudit(ast.NodeVisitor):
         for statement in node.body:
             self.visit(statement)
             possible.append(self.aliases.copy())
-        failure = _possible_result_names(possible)
+        failure = _possible_names(possible)
         paths = [(node.orelse, self.aliases)]
         paths.extend(((handler,), failure) for handler in node.handlers)
         self.branches(paths)
@@ -352,7 +368,7 @@ class _ResultImportAudit(ast.NodeVisitor):
         if node.value is None:
             return
         self.visit(node.value)
-        alias = _qualified_result_names(node.value, self.aliases) if self.host else set()
+        alias = _qualified_names(node.value, self.aliases) if self.host else set()
         for target in (node.targets if isinstance(node, ast.Assign) else (node.target,)):
             self.visit(target)
             if alias and isinstance(target, ast.Name):
@@ -392,18 +408,30 @@ class _ResultImportAudit(ast.NodeVisitor):
     visit_MatchMapping = visit_MatchStar = visit_MatchAs
 
 
-def _result_boundary_violations(path, tree, package):
-    host = path.parent == PKG / "postprocess" and path.stem in {"api", "evaluation"}
-    binding = path.parent == PKG / "cpp_interface" and path.stem in {"_native_result_stage", "result_evaluation"}
-    if host or binding:
-        for node in ast.walk(tree):
-            forbidden = next((name for name in import_targets(node, package) if _invalid_result_target(host, name)), None)
-            if forbidden:
-                yield f"{path.relative_to(REPO)}:{node.lineno}: independent result boundary -> {forbidden}"
-        references = _ResultImportAudit(host, package)
-        references.scope(tree.body, references.aliases)
-        for line, target in references.violations:
-            yield f"{path.relative_to(REPO)}:{line}: independent result boundary -> {target}"
+def _stage_boundary_violations(path, tree, package):
+    if path in (PKG / "solvers/quick_design.py", PKG / "cpp_interface/quick_design.py"):
+        label, binding, operations = "Quick solve", "quick_design", {"", "QuickSolver"}
+        modules, types = _QUICK_DTO_MODULES, {"FieldResult"}
+    elif (path.parent == PKG / "postprocess" and path.stem in {"api", "evaluation"}
+          or path.parent == PKG / "cpp_interface" and path.stem in {"_native_result_stage", "result_evaluation"}):
+        label, binding = "independent result", "result_evaluation"
+        operations = {"", "query_result", "METRICS", "APPLICABILITY", "PHYSICAL_BALANCE", "QUALIFICATION"}
+        modules, types = _RESULT_DTO_MODULES, {"MetricSpec", "MetricValue", "PerformanceResult"}
+    else:
+        return
+    host = path.parent != PKG / "cpp_interface"
+    for node in ast.walk(tree):
+        targets = import_targets(node, package)
+        if host and binding == "quick_design" and isinstance(node, ast.ImportFrom) and node.names[0].name == "*":
+            targets.append(targets[0] + ".*")
+        forbidden = next((name for name in targets
+                          if _invalid_stage_target(host, name, binding, operations)), None)
+        if forbidden:
+            yield f"{path.relative_to(REPO)}:{node.lineno}: {label} boundary -> {forbidden}"
+    references = _StageImportAudit(host, package, binding, operations, modules, types)
+    references.scope(tree.body, references.aliases)
+    for line, target in references.violations:
+        yield f"{path.relative_to(REPO)}:{line}: {label} boundary -> {target}"
 
 
 def _is_sanctioned(edge: tuple[str, str], path: Path, node: ast.AST, module: str) -> bool:
@@ -434,7 +462,7 @@ def main() -> int:
             continue
         package = ('.'.join(py.relative_to(PKG.parent).parts[:-1]) if src_unit == 'tests' and not py.is_relative_to(PKG)
                    else '.'.join(('sjtu_tpmshx', *py.relative_to(PKG).parts[:-1])))
-        violations.extend(_result_boundary_violations(py, tree, package))
+        violations.extend(_stage_boundary_violations(py, tree, package))
         for node in ast.walk(tree):
             names = import_targets(node, package)
             targets = {target_unit(name, units) for name in names}

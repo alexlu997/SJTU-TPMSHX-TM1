@@ -30,7 +30,7 @@ def run_case(case: CaseData, control: RunControl = RunControl(), *,
     control = resolve_control(control)
     run: Callable[..., FieldResult]
     if mode == 'quick_design':
-        from sjtu_tpmshx.cpp_interface.quick_design import run_case as run
+        from .quick_design import run_case as run
     elif mode != 'full':
         raise ValueError(f'unsupported solver mode: {mode}')
     elif dimension == 2:

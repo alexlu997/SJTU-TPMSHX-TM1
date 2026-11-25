@@ -26,7 +26,7 @@ def test_sizing_stops_between_forward_solves(monkeypatch):
 @pytest.mark.parametrize('stage', ['search', 'final'])
 def test_sizing_cancels_inside_forward(monkeypatch, stage):
     execution = importlib.import_module(
-        'sjtu_tpmshx.cpp_interface.quick_design')
+        'sjtu_tpmshx.solvers.quick_design')
     calls = []
     cancellation = CancelledError('cancelled inside the active thermal solve')
     control = RunControl(cancel_check=lambda: bool(calls))
