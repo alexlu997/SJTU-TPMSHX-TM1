@@ -213,7 +213,7 @@ Absent counterflow `q_relative_tolerance` and `chunk_iterations` stay marked abs
 The returned `tpmshx_quick_run_result_v1` (release with `tpmshx_quick_run_release_v1`) owns all 15 fields, physical grid widths, pressure evidence, final-pass scalars, and pass range records (`tpmshx_quick_run_ranges_v2`).
 `tpmshx_quick_run_temperature_algorithm_v1` returns the executed temperature recipe name.
 Cancellation returns status 6 and publishes no result.
-Python binds preparation in `python/cpp_interface/_native_quick_prepare.py`. The Quick Design host in `python/solvers/quick_design.py` reads the saved case and builds its `FieldResult`. The binding in `python/cpp_interface/quick_design.py` copies the native solver output before release. Quick Design metrics use Result ABI 3 (`tpmshx_result_stage_query_v3`).
+The preparation host in `python/preprocess/quick_design.py` builds the case and supplies the sizing pressure query. The binding in `python/cpp_interface/quick_preparation.py` copies prepared arrays before release. The Quick Design host in `python/solvers/quick_design.py` reads the saved case and builds its `FieldResult`. The binding in `python/cpp_interface/quick_design.py` copies the native solver output before release. Quick Design metrics use Result ABI 3 (`tpmshx_result_stage_query_v3`).
 
 ## Installed public headers
 
