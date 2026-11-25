@@ -106,6 +106,13 @@ def test_implementation_imports_have_no_cycles(owner):
     check_cycles(modules)
 
 
+def test_configuration_and_native_properties_have_no_import_cycle():
+    names = ('data_types.compute_config', 'file_io.config_io', 'file_io.text_file',
+             'cpp_interface._native_df', 'cpp_interface._native_properties')
+    check_cycles({'sjtu_tpmshx.' + name: ROOT.joinpath(*name.split('.')).with_suffix('.py')
+                  for name in names})
+
+
 def test_checker_detects_cycle_across_solver_directories(tmp_path):
     api, stage = 'sjtu_tpmshx.solvers.api', 'sjtu_tpmshx.cpp_interface.full_2d_stage'
     modules = {api: tmp_path / 'api.py', stage: tmp_path / 'full_2d_stage.py'}
