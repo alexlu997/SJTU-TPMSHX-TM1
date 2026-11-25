@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.31.8)
 project(tpmshx_dependency_pilot LANGUAGES C CXX)
+option(TPMSHX_BUILD_QUALIFICATION "Build the solver qualification targets" ON)
 
 # Offline only. Downloading is a separate, explicit build-script operation.
 get_filename_component(TPMSHX_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
@@ -59,10 +60,7 @@ set_property(SOURCE
     "${TPMSHX_ROOT}/solver/model_h_3d.cpp"
     "${TPMSHX_ROOT}/preprocess/preparation_flow.cpp"
     "${TPMSHX_ROOT}/solver/stage_capture_3d.cpp"
-    "${TPMSHX_ROOT}/tests/cpp/conservative_energy_smoke.cpp"
-    "${TPMSHX_ROOT}/tests/python/native/anderson_candidate_bridge.cpp"
     APPEND PROPERTY COMPILE_OPTIONS "${TPMSHX_ENERGY_ROW_FP_OPTION}")
-unset(TPMSHX_ENERGY_ROW_FP_OPTION)
 
 add_library(tpmshx_temperature STATIC "${TPMSHX_ROOT}/solver/temperature_driver.cpp")
 target_include_directories(tpmshx_temperature PUBLIC "${TPMSHX_ROOT}/include")
@@ -72,8 +70,6 @@ target_compile_definitions(tpmshx_temperature PRIVATE EIGEN_MPL2_ONLY)
 add_library(tpmshx_quick_design STATIC "${TPMSHX_ROOT}/solver/quick_design_driver.cpp")
 target_include_directories(tpmshx_quick_design PUBLIC "${TPMSHX_ROOT}/include")
 target_link_libraries(tpmshx_quick_design PUBLIC tpmshx_models tpmshx_temperature)
-add_executable(temperature_driver_smoke "${TPMSHX_ROOT}/tests/cpp/temperature_driver_smoke.cpp")
-target_link_libraries(temperature_driver_smoke PRIVATE tpmshx_temperature)
 add_library(tpmshx_enthalpy STATIC "${TPMSHX_ROOT}/solver/enthalpy_driver.cpp"
     "${TPMSHX_ROOT}/solver/enthalpy_eos.cpp")
 target_include_directories(tpmshx_enthalpy PUBLIC "${TPMSHX_ROOT}/include")
@@ -85,11 +81,6 @@ if(MSVC)
 else()
     target_compile_options(tpmshx_model_h_2d PRIVATE -ffp-contract=off)
 endif()
-add_executable(model_h_2d_smoke "${TPMSHX_ROOT}/tests/cpp/model_h_2d_smoke.cpp")
-target_link_libraries(model_h_2d_smoke PRIVATE tpmshx_model_h_2d)
-add_library(model_h_2d_test SHARED "${TPMSHX_ROOT}/tests/python/native/model_h_2d_bridge.cpp")
-target_compile_definitions(model_h_2d_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
-target_link_libraries(model_h_2d_test PRIVATE tpmshx_model_h_2d)
 add_library(tpmshx_model_h_3d STATIC "${TPMSHX_ROOT}/solver/model_h_3d.cpp")
 target_link_libraries(tpmshx_model_h_3d PUBLIC tpmshx_models tpmshx_energy)
 if(MSVC)
@@ -97,25 +88,8 @@ if(MSVC)
 else()
     target_compile_options(tpmshx_model_h_3d PRIVATE -ffp-contract=off)
 endif()
-add_library(model_h_3d_test SHARED "${TPMSHX_ROOT}/tests/python/native/model_h_3d_bridge.cpp")
-target_compile_definitions(model_h_3d_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
-target_link_libraries(model_h_3d_test PRIVATE tpmshx_model_h_3d)
-add_executable(model_h_3d_smoke "${TPMSHX_ROOT}/tests/cpp/model_h_3d_smoke.cpp")
-target_link_libraries(model_h_3d_smoke PRIVATE tpmshx_model_h_3d)
-add_executable(model_h_chunk_smoke "${TPMSHX_ROOT}/tests/cpp/model_h_chunk_smoke.cpp")
-target_link_libraries(model_h_chunk_smoke PRIVATE tpmshx_models)
-add_executable(model_h_run_smoke "${TPMSHX_ROOT}/tests/cpp/model_h_run_smoke.cpp")
-target_link_libraries(model_h_run_smoke PRIVATE tpmshx_model_h_2d tpmshx_model_h_3d)
-include("${TPMSHX_ROOT}/tests/python/native/model_h_history.cmake")
 add_library(tpmshx_temperature_staggered STATIC "${TPMSHX_ROOT}/solver/temperature_staggered.cpp")
 target_link_libraries(tpmshx_temperature_staggered PUBLIC tpmshx_models tpmshx_energy SuperLU::LU AMGCL::AMGCL)
-add_library(temperature_staggered_test SHARED "${TPMSHX_ROOT}/tests/python/native/temperature_staggered_bridge.cpp")
-target_compile_definitions(temperature_staggered_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
-target_link_libraries(temperature_staggered_test PRIVATE tpmshx_temperature_staggered)
-add_executable(temperature_staggered_smoke "${TPMSHX_ROOT}/tests/cpp/temperature_staggered_smoke.cpp")
-target_link_libraries(temperature_staggered_smoke PRIVATE tpmshx_temperature_staggered)
-add_executable(temperature_run_smoke "${TPMSHX_ROOT}/tests/cpp/temperature_run_smoke.cpp")
-target_link_libraries(temperature_run_smoke PRIVATE tpmshx_temperature tpmshx_temperature_staggered)
 include("${TPMSHX_ROOT}/engineering/native_build/cmake/pressure-reference.cmake")
 add_custom_target(tpmshx_state_build_identity
     COMMAND "${CMAKE_COMMAND}"
@@ -138,23 +112,11 @@ else()
     target_compile_options(tpmshx_full_3d PRIVATE -ffp-contract=off)
 endif()
 
-add_library(full_3d_test SHARED "${TPMSHX_ROOT}/tests/python/native/full_3d_bridge.cpp")
-target_compile_definitions(full_3d_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
-target_link_libraries(full_3d_test PRIVATE tpmshx_full_3d)
-target_include_directories(full_3d_test PRIVATE "${TPMSHX_ROOT}/solver")
 add_library(tpmshx_refinement_2d STATIC "${TPMSHX_ROOT}/solver/refinement_2d.cpp")
 target_include_directories(tpmshx_refinement_2d PUBLIC "${TPMSHX_ROOT}/include")
-add_library(refinement_2d_test SHARED "${TPMSHX_ROOT}/tests/python/native/refinement_2d_bridge.cpp")
-target_compile_definitions(refinement_2d_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
-target_link_libraries(refinement_2d_test PRIVATE tpmshx_refinement_2d)
 add_library(tpmshx_full_2d STATIC "${TPMSHX_ROOT}/solver/full_2d.cpp")
 target_link_libraries(tpmshx_full_2d PUBLIC tpmshx_run_state tpmshx_simple
     tpmshx_model_h_2d tpmshx_enthalpy tpmshx_pressure_reference tpmshx_models tpmshx_refinement_2d)
-add_executable(side_physics_smoke "${TPMSHX_ROOT}/tests/cpp/side_physics_smoke.cpp")
-target_link_libraries(side_physics_smoke PRIVATE tpmshx_full_2d tpmshx_full_3d)
-add_library(full_2d_test SHARED "${TPMSHX_ROOT}/tests/python/native/full_2d_bridge.cpp")
-target_compile_definitions(full_2d_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
-target_link_libraries(full_2d_test PRIVATE tpmshx_full_2d)
 if(MSVC)
     target_compile_options(tpmshx_refinement_2d PRIVATE /fp:strict)
     target_compile_options(tpmshx_full_2d PRIVATE /fp:strict)
@@ -162,15 +124,6 @@ else()
     target_compile_options(tpmshx_refinement_2d PRIVATE -ffp-contract=off)
     target_compile_options(tpmshx_full_2d PRIVATE -ffp-contract=off)
 endif()
-add_executable(enthalpy_driver_smoke "${TPMSHX_ROOT}/tests/cpp/enthalpy_driver_smoke.cpp")
-target_link_libraries(enthalpy_driver_smoke PRIVATE tpmshx_enthalpy)
-add_executable(conservative_energy_smoke "${TPMSHX_ROOT}/tests/cpp/conservative_energy_smoke.cpp")
-target_link_libraries(conservative_energy_smoke PRIVATE tpmshx_energy)
-add_executable(conservative_energy_driver_smoke "${TPMSHX_ROOT}/tests/cpp/conservative_energy_driver_smoke.cpp")
-target_link_libraries(conservative_energy_driver_smoke PRIVATE tpmshx_enthalpy)
-add_library(enthalpy_driver_test SHARED "${TPMSHX_ROOT}/tests/python/native/enthalpy_driver_bridge.cpp")
-target_compile_definitions(enthalpy_driver_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
-target_link_libraries(enthalpy_driver_test PRIVATE tpmshx_enthalpy)
 add_library(tpmshx_solver_shared SHARED "${TPMSHX_ROOT}/solver/solver_c_api.cpp"
     "${TPMSHX_ROOT}/solver/full_2d_c_api.cpp" "${TPMSHX_ROOT}/solver/full_3d_c_api.cpp"
     "${TPMSHX_ROOT}/solver/run_state_c_api.cpp" "${TPMSHX_ROOT}/solver/temperature_algorithm_c_api.cpp"
@@ -212,19 +165,6 @@ if(APPLE)
     set_property(TARGET tpmshx_solver_shared APPEND PROPERTY LINK_DEPENDS
         "${CMAKE_CURRENT_LIST_DIR}/solver.exports")
 endif()
-add_executable(quick_design_driver_smoke "${TPMSHX_ROOT}/tests/cpp/quick_design_driver_smoke.cpp")
-target_link_libraries(quick_design_driver_smoke PRIVATE tpmshx_quick_design)
-add_library(quick_design_test SHARED "${TPMSHX_ROOT}/tests/python/native/quick_design_bridge.cpp")
-target_compile_definitions(quick_design_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
-target_link_libraries(quick_design_test PRIVATE tpmshx_quick_design)
-set_target_properties(quick_design_test PROPERTIES
-    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
-    LIBRARY_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}")
-
-add_executable(eos_smoke "${TPMSHX_ROOT}/tests/cpp/eos_smoke.cpp")
-target_link_libraries(eos_smoke PRIVATE CoolProp::CoolProp Threads::Threads)
-add_executable(fluid_properties_smoke "${TPMSHX_ROOT}/tests/cpp/fluid_properties_smoke.cpp")
-target_link_libraries(fluid_properties_smoke PRIVATE tpmshx_models)
 add_library(tpmshx_pressure STATIC "${TPMSHX_ROOT}/solver/pressure_candidate.cpp"
     "${TPMSHX_ROOT}/solver/classical_amg.cpp")
 if(APPLE)
@@ -239,8 +179,6 @@ if(MSVC)
 else()
     target_compile_options(tpmshx_pressure PRIVATE -ffp-contract=off)
 endif()
-add_executable(pressure_smoke "${TPMSHX_ROOT}/tests/cpp/pressure_smoke.cpp")
-target_link_libraries(pressure_smoke PRIVATE tpmshx_pressure)
 add_library(tpmshx_simple STATIC "${TPMSHX_ROOT}/solver/simple_pressure.cpp"
     "${TPMSHX_ROOT}/solver/simple_convergence.cpp" "${TPMSHX_ROOT}/solver/simple_2d.cpp"
     "${TPMSHX_ROOT}/solver/simple_3d.cpp")
@@ -257,49 +195,127 @@ if(MSVC)
 else()
     target_compile_options(tpmshx_simple PRIVATE -ffp-contract=off)
 endif()
-add_executable(simple_run_smoke "${TPMSHX_ROOT}/tests/cpp/simple_run_smoke.cpp")
-target_link_libraries(simple_run_smoke PRIVATE tpmshx_simple)
-add_executable(simple_2d_smoke "${TPMSHX_ROOT}/tests/cpp/simple_2d_smoke.cpp")
-target_link_libraries(simple_2d_smoke PRIVATE tpmshx_simple)
-add_library(simple_2d_test SHARED "${TPMSHX_ROOT}/tests/python/native/simple_2d_bridge.cpp")
-target_compile_definitions(simple_2d_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
-target_link_libraries(simple_2d_test PRIVATE tpmshx_simple)
-add_library(simple_3d_test SHARED "${TPMSHX_ROOT}/tests/python/native/simple_3d_bridge.cpp")
-target_compile_definitions(simple_3d_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
-target_link_libraries(simple_3d_test PRIVATE tpmshx_simple)
-add_executable(simple_3d_smoke "${TPMSHX_ROOT}/tests/cpp/simple_3d_smoke.cpp")
-target_link_libraries(simple_3d_smoke PRIVATE tpmshx_simple)
-add_library(tpmshx_kernel_test SHARED
-    "${TPMSHX_ROOT}/tests/python/native/anderson_candidate_bridge.cpp"
-    "${TPMSHX_ROOT}/tests/python/native/enthalpy_bridge.cpp"
-    "${TPMSHX_ROOT}/tests/python/native/pressure_reference_bridge.cpp"
-    "${TPMSHX_ROOT}/tests/python/native/simple_pressure_bridge.cpp"
-    "${TPMSHX_ROOT}/tests/python/native/temperature_bridge.cpp")
-target_compile_definitions(tpmshx_kernel_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED EIGEN_MPL2_ONLY)
-target_include_directories(tpmshx_kernel_test SYSTEM PRIVATE "${TPMSHX_NATIVE_DEPS_ROOT}/src/Eigen-5.0.1")
-target_link_libraries(tpmshx_kernel_test PRIVATE tpmshx_temperature tpmshx_pressure_reference tpmshx_simple)
 
-add_executable(superlu_error_smoke "${TPMSHX_ROOT}/tests/cpp/superlu_error_smoke.cpp"
-    "${TPMSHX_ROOT}/solver/superlu_solve.c")
-target_compile_definitions(superlu_error_smoke PRIVATE TPMSHX_SUPERLU_TESTING)
-set_target_properties(superlu_error_smoke PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
-target_include_directories(superlu_error_smoke PRIVATE "${TPMSHX_ROOT}/include"
-    "${TPMSHX_ROOT}/solver")
-target_link_libraries(superlu_error_smoke PRIVATE SuperLU::LU Threads::Threads)
-foreach(target IN ITEMS tpmshx_run_state tpmshx_energy tpmshx_models tpmshx_temperature tpmshx_quick_design temperature_driver_smoke tpmshx_solver_shared
-        tpmshx_enthalpy enthalpy_driver_smoke enthalpy_driver_test conservative_energy_smoke conservative_energy_driver_smoke
-        tpmshx_model_h_2d model_h_2d_test model_h_2d_smoke
-        tpmshx_model_h_3d model_h_3d_test model_h_3d_smoke model_h_chunk_smoke model_h_run_smoke
-        tpmshx_temperature_staggered temperature_staggered_test temperature_staggered_smoke temperature_run_smoke
-        tpmshx_pressure_reference
-        tpmshx_full_3d full_3d_test
-        tpmshx_refinement_2d refinement_2d_test
-        tpmshx_full_2d full_2d_test side_physics_smoke
-        tpmshx_pressure tpmshx_simple
-        simple_2d_smoke simple_2d_test simple_3d_test simple_3d_smoke simple_run_smoke
-        quick_design_driver_smoke
-        quick_design_test eos_smoke fluid_properties_smoke pressure_smoke
+set(warning_targets tpmshx_run_state tpmshx_energy tpmshx_models tpmshx_temperature
+    tpmshx_quick_design tpmshx_solver_shared tpmshx_enthalpy tpmshx_model_h_2d tpmshx_model_h_3d
+    tpmshx_temperature_staggered tpmshx_pressure_reference tpmshx_full_3d tpmshx_refinement_2d
+    tpmshx_full_2d tpmshx_pressure tpmshx_simple)
+if(TPMSHX_BUILD_QUALIFICATION)
+    set_property(SOURCE
+        "${TPMSHX_ROOT}/tests/cpp/conservative_energy_smoke.cpp"
+        "${TPMSHX_ROOT}/tests/python/native/anderson_candidate_bridge.cpp"
+        APPEND PROPERTY COMPILE_OPTIONS "${TPMSHX_ENERGY_ROW_FP_OPTION}")
+
+    add_executable(temperature_driver_smoke "${TPMSHX_ROOT}/tests/cpp/temperature_driver_smoke.cpp")
+    target_link_libraries(temperature_driver_smoke PRIVATE tpmshx_temperature)
+
+    add_executable(model_h_2d_smoke "${TPMSHX_ROOT}/tests/cpp/model_h_2d_smoke.cpp")
+    target_link_libraries(model_h_2d_smoke PRIVATE tpmshx_model_h_2d)
+    add_library(model_h_2d_test SHARED "${TPMSHX_ROOT}/tests/python/native/model_h_2d_bridge.cpp")
+    target_compile_definitions(model_h_2d_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
+    target_link_libraries(model_h_2d_test PRIVATE tpmshx_model_h_2d)
+
+    add_library(model_h_3d_test SHARED "${TPMSHX_ROOT}/tests/python/native/model_h_3d_bridge.cpp")
+    target_compile_definitions(model_h_3d_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
+    target_link_libraries(model_h_3d_test PRIVATE tpmshx_model_h_3d)
+    add_executable(model_h_3d_smoke "${TPMSHX_ROOT}/tests/cpp/model_h_3d_smoke.cpp")
+    target_link_libraries(model_h_3d_smoke PRIVATE tpmshx_model_h_3d)
+    add_executable(model_h_chunk_smoke "${TPMSHX_ROOT}/tests/cpp/model_h_chunk_smoke.cpp")
+    target_link_libraries(model_h_chunk_smoke PRIVATE tpmshx_models)
+    add_executable(model_h_run_smoke "${TPMSHX_ROOT}/tests/cpp/model_h_run_smoke.cpp")
+    target_link_libraries(model_h_run_smoke PRIVATE tpmshx_model_h_2d tpmshx_model_h_3d)
+    include("${TPMSHX_ROOT}/tests/python/native/model_h_history.cmake")
+
+    add_library(temperature_staggered_test SHARED "${TPMSHX_ROOT}/tests/python/native/temperature_staggered_bridge.cpp")
+    target_compile_definitions(temperature_staggered_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
+    target_link_libraries(temperature_staggered_test PRIVATE tpmshx_temperature_staggered)
+    add_executable(temperature_staggered_smoke "${TPMSHX_ROOT}/tests/cpp/temperature_staggered_smoke.cpp")
+    target_link_libraries(temperature_staggered_smoke PRIVATE tpmshx_temperature_staggered)
+    add_executable(temperature_run_smoke "${TPMSHX_ROOT}/tests/cpp/temperature_run_smoke.cpp")
+    target_link_libraries(temperature_run_smoke PRIVATE tpmshx_temperature tpmshx_temperature_staggered)
+
+    add_library(full_3d_test SHARED "${TPMSHX_ROOT}/tests/python/native/full_3d_bridge.cpp")
+    target_compile_definitions(full_3d_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
+    target_link_libraries(full_3d_test PRIVATE tpmshx_full_3d)
+    target_include_directories(full_3d_test PRIVATE "${TPMSHX_ROOT}/solver")
+
+    add_library(refinement_2d_test SHARED "${TPMSHX_ROOT}/tests/python/native/refinement_2d_bridge.cpp")
+    target_compile_definitions(refinement_2d_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
+    target_link_libraries(refinement_2d_test PRIVATE tpmshx_refinement_2d)
+
+    add_executable(side_physics_smoke "${TPMSHX_ROOT}/tests/cpp/side_physics_smoke.cpp")
+    target_link_libraries(side_physics_smoke PRIVATE tpmshx_full_2d tpmshx_full_3d)
+    add_library(full_2d_test SHARED "${TPMSHX_ROOT}/tests/python/native/full_2d_bridge.cpp")
+    target_compile_definitions(full_2d_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
+    target_link_libraries(full_2d_test PRIVATE tpmshx_full_2d)
+
+    add_executable(enthalpy_driver_smoke "${TPMSHX_ROOT}/tests/cpp/enthalpy_driver_smoke.cpp")
+    target_link_libraries(enthalpy_driver_smoke PRIVATE tpmshx_enthalpy)
+    add_executable(conservative_energy_smoke "${TPMSHX_ROOT}/tests/cpp/conservative_energy_smoke.cpp")
+    target_link_libraries(conservative_energy_smoke PRIVATE tpmshx_energy)
+    add_executable(conservative_energy_driver_smoke "${TPMSHX_ROOT}/tests/cpp/conservative_energy_driver_smoke.cpp")
+    target_link_libraries(conservative_energy_driver_smoke PRIVATE tpmshx_enthalpy)
+    add_library(enthalpy_driver_test SHARED "${TPMSHX_ROOT}/tests/python/native/enthalpy_driver_bridge.cpp")
+    target_compile_definitions(enthalpy_driver_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
+    target_link_libraries(enthalpy_driver_test PRIVATE tpmshx_enthalpy)
+
+    add_executable(quick_design_driver_smoke "${TPMSHX_ROOT}/tests/cpp/quick_design_driver_smoke.cpp")
+    target_link_libraries(quick_design_driver_smoke PRIVATE tpmshx_quick_design)
+    add_library(quick_design_test SHARED "${TPMSHX_ROOT}/tests/python/native/quick_design_bridge.cpp")
+    target_compile_definitions(quick_design_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
+    target_link_libraries(quick_design_test PRIVATE tpmshx_quick_design)
+    set_target_properties(quick_design_test PROPERTIES
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+        LIBRARY_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}")
+
+    add_executable(eos_smoke "${TPMSHX_ROOT}/tests/cpp/eos_smoke.cpp")
+    target_link_libraries(eos_smoke PRIVATE CoolProp::CoolProp Threads::Threads)
+    add_executable(fluid_properties_smoke "${TPMSHX_ROOT}/tests/cpp/fluid_properties_smoke.cpp")
+    target_link_libraries(fluid_properties_smoke PRIVATE tpmshx_models)
+
+    add_executable(pressure_smoke "${TPMSHX_ROOT}/tests/cpp/pressure_smoke.cpp")
+    target_link_libraries(pressure_smoke PRIVATE tpmshx_pressure)
+
+    add_executable(simple_run_smoke "${TPMSHX_ROOT}/tests/cpp/simple_run_smoke.cpp")
+    target_link_libraries(simple_run_smoke PRIVATE tpmshx_simple)
+    add_executable(simple_2d_smoke "${TPMSHX_ROOT}/tests/cpp/simple_2d_smoke.cpp")
+    target_link_libraries(simple_2d_smoke PRIVATE tpmshx_simple)
+    add_library(simple_2d_test SHARED "${TPMSHX_ROOT}/tests/python/native/simple_2d_bridge.cpp")
+    target_compile_definitions(simple_2d_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
+    target_link_libraries(simple_2d_test PRIVATE tpmshx_simple)
+    add_library(simple_3d_test SHARED "${TPMSHX_ROOT}/tests/python/native/simple_3d_bridge.cpp")
+    target_compile_definitions(simple_3d_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED)
+    target_link_libraries(simple_3d_test PRIVATE tpmshx_simple)
+    add_executable(simple_3d_smoke "${TPMSHX_ROOT}/tests/cpp/simple_3d_smoke.cpp")
+    target_link_libraries(simple_3d_smoke PRIVATE tpmshx_simple)
+    add_library(tpmshx_kernel_test SHARED
+        "${TPMSHX_ROOT}/tests/python/native/anderson_candidate_bridge.cpp"
+        "${TPMSHX_ROOT}/tests/python/native/enthalpy_bridge.cpp"
+        "${TPMSHX_ROOT}/tests/python/native/pressure_reference_bridge.cpp"
+        "${TPMSHX_ROOT}/tests/python/native/simple_pressure_bridge.cpp"
+        "${TPMSHX_ROOT}/tests/python/native/temperature_bridge.cpp")
+    target_compile_definitions(tpmshx_kernel_test PRIVATE TPMSHX_THERMAL_BUILD_SHARED EIGEN_MPL2_ONLY)
+    target_include_directories(tpmshx_kernel_test SYSTEM PRIVATE "${TPMSHX_NATIVE_DEPS_ROOT}/src/Eigen-5.0.1")
+    target_link_libraries(tpmshx_kernel_test PRIVATE tpmshx_temperature tpmshx_pressure_reference tpmshx_simple)
+
+    add_executable(superlu_error_smoke "${TPMSHX_ROOT}/tests/cpp/superlu_error_smoke.cpp"
+        "${TPMSHX_ROOT}/solver/superlu_solve.c")
+    target_compile_definitions(superlu_error_smoke PRIVATE TPMSHX_SUPERLU_TESTING)
+    set_target_properties(superlu_error_smoke PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
+    target_include_directories(superlu_error_smoke PRIVATE "${TPMSHX_ROOT}/include"
+        "${TPMSHX_ROOT}/solver")
+    target_link_libraries(superlu_error_smoke PRIVATE SuperLU::LU Threads::Threads)
+    list(APPEND warning_targets temperature_driver_smoke enthalpy_driver_smoke enthalpy_driver_test
+        conservative_energy_smoke conservative_energy_driver_smoke model_h_2d_test model_h_2d_smoke
+        model_h_3d_test model_h_3d_smoke model_h_chunk_smoke model_h_run_smoke temperature_staggered_test
+        temperature_staggered_smoke temperature_run_smoke full_3d_test refinement_2d_test full_2d_test
+        side_physics_smoke simple_2d_smoke simple_2d_test simple_3d_test simple_3d_smoke simple_run_smoke
+        quick_design_driver_smoke quick_design_test eos_smoke fluid_properties_smoke pressure_smoke
         tpmshx_kernel_test superlu_error_smoke)
+endif()
+unset(TPMSHX_ENERGY_ROW_FP_OPTION)
+
+foreach(target IN LISTS warning_targets)
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4 /WX $<$<COMPILE_LANGUAGE:CXX>:/EHsc>)
     else()

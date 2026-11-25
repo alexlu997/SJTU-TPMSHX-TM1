@@ -86,6 +86,10 @@ foreach(target IN ITEMS tpmshx_grid tpmshx_fields tpmshx_geometry tpmshx_geometr
 endforeach()
 set_target_properties(tpmshx_xy_fitpack PROPERTIES POSITION_INDEPENDENT_CODE ON C_VISIBILITY_PRESET hidden)
 
+if(DEFINED TPMSHX_BUILD_QUALIFICATION AND NOT TPMSHX_BUILD_QUALIFICATION)
+    return()
+endif()
+
 foreach(kind IN ITEMS static shared)
     add_executable(geometry_c_${kind} "${TPMSHX_ROOT}/tests/cpp/geometry_c_smoke.c")
     target_compile_features(geometry_c_${kind} PRIVATE c_std_11)

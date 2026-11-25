@@ -360,6 +360,8 @@ def build(cache: Path, host: str, python: Path, lock: Path, component: str) -> N
             options = [f"-DTPMSHX_NATIVE_DEPS_ROOT={cache}", f"-DTPMSHX_COOLPROP_LIBRARY={library}",
                        f"-DTPMSHX_MODEL_INCLUDE_DIR={generated}",
                        "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"]
+            if role == "solver":
+                options.append("-DTPMSHX_BUILD_QUALIFICATION=ON")
             if host == "macos-arm64":
                 options += ["-DCMAKE_OSX_ARCHITECTURES=arm64"]
             source = "preprocess" if build_name == "preparation" else "solver"
@@ -779,15 +781,19 @@ def check_stages(cache: Path, host: str, python: Path, lock: Path, component: st
     check_environment(cache, python, lock)
     cmake = cmake_path(cache, host)
     stage_build = cache / "build" / f"stages-{host}"
+    solver_build = stage_build / "solver"
     log = cache / "logs" / f"check-stages-{host}.log"
     components = ["result"] if component == "result" else ["geometry", "preparation", "solver", "result"]
     options = [f"-DTPMSHX_COMPONENTS={';'.join(components)}",
                f"-DTPMSHX_NATIVE_DEPS_ROOT={cache}", f"-DTPMSHX_MODEL_INCLUDE_DIR={cache / 'generated'}"]
     for name in components:
         if name != "geometry":
-            directory = "pilot" if name == "solver" else name
-            options.append(f"-DTPMSHX_{name.upper()}_BUILD_DIR={cache / 'build' / f'{directory}-{host}'}")
+            directory = solver_build if name == "solver" else cache / "build" / f"{name}-{host}"
+            options.append(f"-DTPMSHX_{name.upper()}_BUILD_DIR={directory}")
     if component == "all":
+        query = solver_build / ".cmake/api/v1/query"
+        query.mkdir(parents=True, exist_ok=True)
+        (query / "cmakeFiles-v1").touch()
         for role in ("solver", "preparation"):
             coolprop_build_record(cache, host, role)
             options.append(f"-DTPMSHX_{role.upper()}_COOLPROP_LIBRARY={coolprop_library(cache, host, role)}")
@@ -798,6 +804,12 @@ def check_stages(cache: Path, host: str, python: Path, lock: Path, component: st
          *generator, *options], log)
     run([cmake, "--build", stage_build, "--config", "Release", "--parallel", "1"], log)
     if component == "all":
+        reply = solver_build / ".cmake/api/v1/reply"
+        index = json.loads(max(reply.glob("index-*.json")).read_text(encoding="utf-8"))
+        inputs_file = reply / index["reply"]["cmakeFiles-v1"]["jsonFile"]
+        inputs = json.loads(inputs_file.read_text(encoding="utf-8"))["inputs"]
+        if any(Path(item["path"]).name == "model_h_history.cmake" for item in inputs):
+            raise RuntimeError("The SDK solver configuration loaded model_h_history.cmake")
         geometry = stage_build / "geometry"
         run([cmake, "--build", geometry, "--config", "Release", "--target", "geometry_c_shared"], log)
         run([geometry / ("geometry_c_shared.exe" if host == "windows-x64" else "geometry_c_shared")], log)

@@ -264,6 +264,10 @@ nmake /f engineering\native_build\Makefile.msvc check
 
 ### 完整依赖构建与原生 pytest 套件
 
+直接配置 `solver/` 时，`TPMSHX_BUILD_QUALIFICATION` 默认为 `ON`。
+它启用冒烟测试程序、Python 测试库，以及记录 model-h 迭代历史的测试目标。
+原生依赖构建启用这些目标。顶层 SDK 构建为其求解器关闭这些目标。
+
 通过环境检查后，使用 `.venv-path` 指定的解释器运行：
 
 ```sh
