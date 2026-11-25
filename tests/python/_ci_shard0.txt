@@ -44,7 +44,6 @@ tests/python/test_closure_guards.py
 tests/python/test_compute_config.py
 tests/python/test_compute_orchestrator.py
 tests/python/test_condition_workers.py
-tests/python/test_conservation_audit_coordinates.py
 tests/python/test_continuous_field.py
 tests/python/test_continuous_field_volume.py
 tests/python/test_df_projection.py
@@ -68,7 +67,6 @@ tests/python/test_module_result_mapping.py
 tests/python/test_multi_condition_optimizer.py
 tests/python/test_nonuniform_probe.py
 tests/python/test_orch_finished_3d_state.py
-tests/python/test_order_fit.py
 tests/python/test_outlet_temperature_2d.py
 tests/python/test_partial_config_import.py
 tests/python/test_pipeline_ui_hooks.py
@@ -77,10 +75,7 @@ tests/python/test_quick_design_dialog.py
 tests/python/test_re_convention.py
 tests/python/test_render_tool_failures.py
 tests/python/test_retained_tool_imports.py
-tests/python/test_retired_boundary_experiments.py
 tests/python/test_run_provenance.py
-tests/python/test_sco2_checkpoints.py
-tests/python/test_sco2_exp_loader.py
 tests/python/test_sco2_phase_a.py
 tests/python/test_sco2_temperature_field.py
 tests/python/test_shanghai_regression.py
@@ -93,10 +88,15 @@ tests/python/test_tpms_geometry_n128.py
 tests/python/test_ui_smoke_tools.py
 tests/python/test_ui_typography.py
 tests/python/test_user_storage.py
-tests/python/test_validate_pipeline_runner_wiring.py
-tests/python/test_validation_output_paths.py
-tests/python/test_validation_tool_verdicts.py
 tests/python/test_water_states.py
 tests/python/test_workbench_field_selection.py
 tests/python/test_workbench_navigation.py
 tests/python/test_worker_result_handoff.py
+tests/python/validation_tm1/test_conservation_audit_coordinates.py
+tests/python/validation_tm1/test_order_fit.py
+tests/python/validation_tm1/test_retired_boundary_experiments.py
+tests/python/validation_tm1/test_sco2_checkpoints.py
+tests/python/validation_tm1/test_sco2_exp_loader.py
+tests/python/validation_tm1/test_validate_pipeline_runner_wiring.py
+tests/python/validation_tm1/test_validation_output_paths.py
+tests/python/validation_tm1/test_validation_tool_verdicts.py

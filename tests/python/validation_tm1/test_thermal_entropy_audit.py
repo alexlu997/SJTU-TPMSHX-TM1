@@ -111,7 +111,7 @@ def test_entropy_rejects_nonfinite_evidence(key, value):
 
 
 def test_crossover_observation_is_not_rendered_as_a_failed_gate():
-    from tests.python.test_retirement_validation_contracts import _certificate_result, _certificate_fields
+    from tests.python.validation_tm1.test_retirement_validation_contracts import _certificate_result, _certificate_fields
     data = _certificate_result()
     certificate = audit.compute_phase2a(_certificate_fields(data))
     p3 = audit.compute_phase3(null_case())
