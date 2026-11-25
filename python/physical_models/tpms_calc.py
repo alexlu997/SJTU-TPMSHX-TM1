@@ -50,7 +50,7 @@ from sjtu_tpmshx.cpp_interface import inlet_properties
 from .tpms_props import (  # noqa: F401 — re-exports
     chi_s_eff, M_air, P_atm, R,
     air_conductivity, air_cp, air_density, air_viscosity,
-    geometry,
+    geometry as geometry,
     water_conductivity, water_cp, water_density, water_viscosity,
     _warn_range_once,
 )
@@ -60,7 +60,7 @@ from sjtu_tpmshx.run_control.logutil import get_logger
 
 _log = get_logger(__name__)
 
-from sjtu_tpmshx.cpp_interface.preparation_host import validate_fluid_type as validate_fluid_type
+from .fluid_props import validate_fluid_type as validate_fluid_type
 from .preparation_cache import _InletCacheValue
 
 
@@ -209,7 +209,7 @@ def _compute_cached(tpms_type: str,
                     registry=caller.f_globals.setdefault('__warningregistry__', {}))
 
         rho, mu, k_f, cp_f, Pr_f, Re, Nu, K_df, cF_df, dP_per_L, H_sf, K_ff = (
-            inlet_properties.inlet_query(tpms_type, L_cell_mm, t_mm, u, T_in_K,
+            inlet_query(tpms_type, L_cell_mm, t_mm, u, T_in_K,
                 P_in_Pa, fluid_name, sco2_nu, g, records, notice))
 
         return _InletCacheValue({
@@ -272,3 +272,48 @@ def compute(tpms_type: str,
 compute.cache_clear = _compute_cached.cache_clear
 compute.cache_info = _compute_cached.cache_info
 compute.cache_parameters = _compute_cached.cache_parameters
+
+
+def inlet_query(topology, cell, wall, velocity, temperature, pressure, fluid,
+                selection, geometry, records, notice):
+    """Select the fluid for one inlet with the supplied geometry."""
+    from . import fluid_props
+    from .preparation_notices import range_notices
+
+    fluid_name = fluid_props.get(fluid, sco2_nu=selection).name
+    if fluid_name in ('sco2', 'co2') and pressure is None:
+        if fluid_name == 'co2':
+            raise ValueError('CO2 requires absolute pressure P in Pa')
+        raise ValueError('sCO2 properties require pressure P [Pa]; caller passed P=None. '
+                         'Fix the call site to forward the inlet/local pressure.')
+
+    def observe(key, record, cached, scalar):
+        for message in range_notices(key, record, cached, scalar, records=records):
+            warnings.warn(message, UserWarning)
+
+    def floating_warning(message):
+        # Attribute native arithmetic to the caller that requested this inlet.
+        warnings.warn(message, RuntimeWarning, stacklevel=7)
+
+    def observe_event(kind, logger, message, code, replay):
+        if kind == 2:
+            replay([code], warn=floating_warning)
+        elif kind == 0:
+            get_logger(logger.removeprefix('tpmshx.')).info(message)
+        elif kind == 1:
+            warnings.warn(message, UserWarning)
+        else:
+            raise RuntimeError(f'unknown preparation event kind {kind}')
+
+    def property_error(status, reason, text):
+        if status == 11 and fluid_name == 'co2':
+            if reason in (1, 5):
+                raise ValueError(text) from None
+            prefix = ('CO2 requires a stable single-phase PT state; '
+                      'saturation, two-phase and critical-point states are unsupported. ')
+            raise ValueError(text) from ValueError(text.removeprefix(prefix))
+        if status in (10, 12):
+            raise ValueError(text) from None
+
+    return inlet_properties.query_values(topology, cell, wall, velocity, temperature, pressure, fluid_name,
+        selection, geometry, observe, notice, observe_event, property_error, fluid_props.WaterStateError)

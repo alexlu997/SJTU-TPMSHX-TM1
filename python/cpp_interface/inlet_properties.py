@@ -15,18 +15,10 @@ def _inlet_query_function(path):
         ct.POINTER(abi._InletQueryResult), ct.POINTER(abi._Failure), ct.POINTER(ct.c_char), abi._S])
 
 
-def inlet_query(topology, cell, wall, velocity, temperature, pressure, fluid,
-                selection, geometry, records, notice):
-    """Transport one float64 scalar query without a mesh or a prepared case."""
-    from sjtu_tpmshx.physical_models import fluid_props
-
+def query_values(topology, cell, wall, velocity, temperature, pressure, fluid_name,
+                 selection, geometry, observe, notice, observe_event, property_error, water_error):
+    """Pack one inlet and return its twelve inline float64 values."""
     buffers = []
-    fluid_name = fluid_props.get(fluid, sco2_nu=selection).name
-    if fluid_name in ('sco2', 'co2') and pressure is None:
-        if fluid_name == 'co2':
-            raise ValueError('CO2 requires absolute pressure P in Pa')
-        raise ValueError('sCO2 properties require pressure P [Pa]; caller passed P=None. '
-                         'Fix the call site to forward the inlet/local pressure.')
 
     def real(value, name):
         return real_scalar(value, name=name, allow_nonfinite=True)
@@ -53,11 +45,8 @@ def inlet_query(topology, cell, wall, velocity, temperature, pressure, fluid,
         if stage != 4:
             raise RuntimeError(f'unknown property query host stage {stage}')
 
-    def observe(value, bounds_list, cached, scalar):
-        host.observe_range(value, bounds_list, cached, scalar, selection, records=records)
-
     callbacks, callback_errors = host._callback_bridge(
-        validate, observe_range=observe, observe_notice=notice)
+        validate, observe_range=observe, observe_notice=notice, observe_event=observe_event)
     result = abi._InletQueryResult(1, ct.sizeof(abi._InletQueryResult))
     failure, error = abi._Failure(2, ct.sizeof(abi._Failure)), ct.create_string_buffer(4096)
     status = _inlet_query_function(preparation_library.path())(
@@ -75,13 +64,6 @@ def inlet_query(topology, cell, wall, velocity, temperature, pressure, fluid,
         if fp.python_cause:
             exception = {1: ZeroDivisionError, 3: ValueError, 4: TypeError}.get(fp.python_cause, RuntimeError)
             raise exception(text)
-        if status == 11 and fluid_name == 'co2':
-            if failure.property.reason in (1, 5):
-                raise ValueError(text) from None
-            prefix = ('CO2 requires a stable single-phase PT state; '
-                      'saturation, two-phase and critical-point states are unsupported. ')
-            raise ValueError(text) from ValueError(text.removeprefix(prefix))
-        if status in (10, 12):
-            raise ValueError(text) from None
-    host._check_status(status, error, failure)
+        property_error(status, failure.property.reason, text)
+    host._check_status(status, error, failure, water_error)
     return list(result.values)

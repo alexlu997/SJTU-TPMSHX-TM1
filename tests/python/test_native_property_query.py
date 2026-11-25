@@ -142,13 +142,62 @@ def test_co2_geometry_and_drag_follow_the_registered_fluid(monkeypatch, co2_geom
 
 
 def test_inlet_adapter_uses_registered_co2_drag_for_supplied_geometry():
-    from sjtu_tpmshx.cpp_interface.inlet_properties import inlet_query
+    from sjtu_tpmshx.physical_models.tpms_calc import inlet_query
 
     args = ('Gyroid', 7., .6, 2., 350., 800000.)
     geometry = compute_geometry('Gyroid', 7., .6)
     with warning_scope({}):
         expected = inlet_query(*args, 'co2', None, geometry, {}, lambda *_: None)
         assert inlet_query(*args, ' CO2 ', None, geometry, {}, lambda *_: None) == expected
+
+
+@pytest.mark.parametrize('text', ['property', 'unbound', 'K'])
+def test_inlet_range_text_failures_keep_their_original_exception(text, monkeypatch):
+    from sjtu_tpmshx.cpp_interface import preparation_host
+
+    marker = StopIteration(text)
+    read = preparation_host.read_text
+
+    def fail_at(source):
+        item = read(source)
+        if item == text:
+            raise marker
+        return item
+
+    monkeypatch.setattr(preparation_host, 'read_text', fail_at)
+    error = StopIteration if text == 'K' else RuntimeError
+    with warning_scope({}), pytest.raises(error) as caught:
+        tpms_calc.inlet_query('Gyroid', 7., .6, 2., 350., 2e5, 'air', None,
+                              dict(D_h=.003, epsilon_A=.38), {}, lambda *_: None)
+    if text == 'K':
+        assert caught.value is marker and marker.__cause__ is None
+    else:
+        assert str(caught.value) == 'generator raised StopIteration' and caught.value.__cause__ is marker
+
+
+@pytest.mark.parametrize('mode', ['ignore', 'warn', 'raise', 'print'])
+def test_scalar_arithmetic_replays_at_each_query_call_site(mode, capsys):
+    from pathlib import Path
+
+    args = ('Gyroid', 7., .6, float(np.finfo(float).smallest_subnormal), 350., 2e5)
+    geometry = dict(D_h=.003, epsilon_A=.38)
+
+    def supplied():
+        return tpms_calc.inlet_query(*args, 'air', None, geometry, {}, lambda *_: None)
+
+    with warning_scope({}), warnings.catch_warnings(record=True) as captured, np.errstate(all=mode):
+        warnings.simplefilter('default')
+        for call in (lambda: tpms_calc.compute(*args, 16.), supplied) * 2:
+            tpms_calc.compute.cache_clear()
+            outcome = pytest.raises(FloatingPointError, match='underflow encountered in multiply') if mode == 'raise' else nullcontext()
+            with outcome:
+                call()
+    messages = [(item.category, str(item.message), Path(item.filename)) for item in captured]
+    expected = [(RuntimeWarning, 'underflow encountered in multiply', Path(name))
+                for name in (tpms_calc.__file__, __file__)]
+    assert messages == (expected if mode == 'warn' else [])
+    printed = capsys.readouterr().err.splitlines()
+    assert printed == (['Warning: underflow encountered in multiply'] * 20 if mode == 'print' else [])
 
 
 def test_cache_warning_replay_binds_new_run_context():

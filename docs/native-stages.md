@@ -90,7 +90,7 @@ It evaluates four-fluid properties, Nu, and fixed CFD drag in their production o
 `tpmshx_preparation_inlet_query_result_v1` (`abi_version = 1`, `struct_size = sizeof(tpmshx_preparation_inlet_query_result_v1)`) returns 12 `float64` values (`double values[12]`).
 This query allocates no owner and requires no release call.
 Pass optional `tpmshx_preparation_callbacks_v1` with null cache hooks and `validate_grid_stage = 0` to record range, notice, and floating-point events synchronously.
-Standalone Python `tpms_calc.compute` calls this entry through `python/cpp_interface/inlet_properties.py`, keeping geometry selection, shared caches, per-call `K_ss` lookup, and warning policy.
+Standalone `tpms_calc.compute` selects the registered fluid, geometry, shared cache, per-call `K_ss` and warning policy. Its `inlet_query` uses `python/cpp_interface/inlet_properties.py` to call this entry.
 
 ## Spatial total mass flow
 
@@ -121,7 +121,7 @@ Initialize `abi_version = TPMSHX_PREPARATION_CASE_ABI_VERSION` (1) and `struct_s
 - **Family hook rules**: untyped (`geometry_cache`, `inlet_cache`) and keyed (`geometry_cache_at`, `inlet_cache_at`, `sigmoid_lut_cache`) hooks cannot be combined. Uniform and continuous 2D accept untyped hooks only; zoned, sigmoid, and stripe 2D accept keyed hooks only. 3D accepts `geometry_cache_at` and `inlet_cache_at` only and rejects `sigmoid_lut_cache` and `validate_grid_stage != 0`.
 - **Isolation rules**: callbacks do no numerical preparation. Returned views must not overlap output, failure, or error storage. A nonzero callback return stops the stage immediately so Python can re-raise its saved exception.
 
-`python/cpp_interface/preparation_host.py` and `native_preparation.py` connect these hooks to the shared 32,768-entry geometry cache and 4,096-entry inlet-property cache in `python/physical_models/preparation_cache.py`.
+`python/preprocess/preparation.py` supplies the cache and warning callbacks for both dimensions. `python/physical_models/preparation_cache.py` owns the 32,768-entry geometry cache and the 4,096-entry inlet-property cache. `python/cpp_interface/preparation_host.py` copies cache values and keeps callback buffers alive.
 Python keeps disk/memory LUT storage; on a LUT miss, C++ builds the native 41×31 table at voxel resolution 256.
 The [spatial cache example](../examples/cpp/prepare_spatial_cache_2d.cpp) tests these typed callbacks outside Python.
 

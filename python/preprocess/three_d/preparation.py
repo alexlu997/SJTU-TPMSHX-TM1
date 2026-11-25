@@ -7,6 +7,8 @@ import os
 import numpy as np
 
 from sjtu_tpmshx.cpp_interface import preparation_host as host
+from sjtu_tpmshx.physical_models.fluid_props import WaterStateError, validate_fluid_type
+from .. import preparation as shared
 from sjtu_tpmshx.data_types.case_data import CaseData
 from sjtu_tpmshx.data_types.compute_config import ComputeConfig
 from sjtu_tpmshx.data_types.model_refs import ModelRef
@@ -173,7 +175,7 @@ def _case(result, config, case_id, context):
                   ('permeability', 'K_m2'), ('forchheimer', 'cF_per_m'), ('solid_conductivity', 'K_ss'))}
     continuous = isinstance(result, three._ContinuousCase)
     design['eps_B'] = design['eps_A'] if continuous else _array(result.side_b_porosity, shape)
-    uniform = host._geometry_values(value.geometry, bool(value.co2.active))
+    uniform = shared.geometry_values(host.geometry_scalars(value.geometry), bool(value.co2.active))
     uniform['K_ss'] = value.uniform_solid_conductivity
     params = _parameters(config, uniform, context)
     thermal = dict(uniform=uniform, fields=None,
@@ -188,8 +190,8 @@ def _case(result, config, case_id, context):
     for index, side in enumerate('AB'):
         current = value.sides[index]
         native_port = value.input.sides[index].port
-        port = host.prepared_port(native_port.direction,
-            (row[0] for row in native_port.values), (row[1] for row in native_port.values))
+        port = shared.prepared_port(native_port.direction,
+            [row[0] for row in native_port.values], [row[1] for row in native_port.values])
         for row, end in enumerate(('in', 'out')):
             for column, suffix in ((2, '_z_ctr'), (3, '_z_w')):
                 if native_port.present[row][column]:
@@ -202,8 +204,8 @@ def _case(result, config, case_id, context):
         properties[side] = {key: getattr(current, name) for name, key in
                             (('rho', 'rho'), ('mu', 'mu'), ('cp', 'cp'), ('k_f', 'k'))}
         if current.have_drag_application:
-            drag[side] = host.drag_application_metadata(current.drag_evidence, current.drag_selection,
-                params['u_' + side], result.drag[index] if continuous else None)
+            drag[side] = shared.drag_application_metadata(host.drag_evidence(current.drag_evidence,
+                current.drag_selection, result.drag[index] if continuous else None), params['u_' + side])
     params.update(thermal_geometry=thermal, df_application=drag or None,
         prepared=dict(Nx=shape[0], Ny=shape[1], Nz=shape[2],
             max_outer=None if config.solver.max_outer_ltne is None else int(config.solver.max_outer_ltne),
@@ -217,7 +219,7 @@ def _case(result, config, case_id, context):
         'xy_extruded' if config.zones.enabled else 'uniform')
     return CaseData.from_compute_config(case_id, config, grid=grid, design_fields=design, parameters=params,
         model_refs=refs, metadata=dict(preprocessor='three_d_v1', quantity_basis='total', design_mode=mode,
-            model_metadata=host.model_metadata(value, value.input.sco2_nu, config),
+            model_metadata=shared.model_metadata(host.model_evidence(value, value.input.sco2_nu), config),
             notices=[read_text(item) for item in value.notices[:value.notice_count]],
             model_roles={'fluid_A': 0, 'fluid_B': 1, 'geometry': 2, 'darcy_forchheimer': 3}))
 
@@ -232,7 +234,7 @@ def _execute(config, action, *, targets=None, case_id=None, start_observations=N
         chi, chi_error = None, problem
     allow = config.extrap.allow or os.environ.get('TPMSHX_ALLOW_EXTRAP', '').lower() in ('1', 'true', 'yes')
     options = native._Options(1, ct.sizeof(native._Options), chi is not None, allow, chi or 0.)
-    cache = host.PreparationCacheBridge(config, chi_error)
+    cache = shared.PreparationCache(chi_error)
     context = {'extrap_reasons': cache.extrap_reasons}
     if start_observations is not None:
         start_observations()
@@ -253,7 +255,7 @@ def _execute(config, action, *, targets=None, case_id=None, start_observations=N
             return  # Older preparation libraries also issue this port notification.
         elif stage == 12:
             for name in 'AB':
-                host.validate_fluid_type(getattr(config, 'fluid_' + name).type, name)
+                validate_fluid_type(getattr(config, 'fluid_' + name).type, name)
             if config.zones.enabled and config.zones.axis not in ('continuous', 'grid'):
                 raise NotImplementedError('3D zones support grid or continuous mode only')
         elif stage == 13:
@@ -279,11 +281,11 @@ def _execute(config, action, *, targets=None, case_id=None, start_observations=N
         else:
             raise RuntimeError(f'unknown 3D preparation host stage {stage}')
 
-    with host.volume_operation(action, source, options, host_input, cache) as result:
+    with host.volume_operation(action, source, options, host_input, cache, WaterStateError) as result:
         flow = result.flow
         if action == 'prepare_inlet_mass_capacities':
             return {side: flow.capacities[index] for index, side in enumerate('AB')}
-        resolved = host.resolved_flow_config(config, flow, targets)
+        resolved = shared.resolved_flow_config(config, flow.speeds, targets)
         if action == 'resolve_inlet_flow':
             return resolved
         return _case(result, resolved, case_id, context)

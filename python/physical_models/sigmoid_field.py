@@ -95,8 +95,19 @@ class GeometryLUT:
         if not self._load():
             self._precompute()
             self._save()
-        self._native_lut = _native_lut.LUT(self.L_vals, self.t_vals,
-                                           self.eps_table, self.A0_table)
+        self.bind_tables()
+
+    def bind_tables(self):
+        """Capture the active table axes and interpolation values."""
+        self._native_lut = _native_lut.LUT(self.L_vals, self.t_vals, self.eps_table, self.A0_table)
+
+    def preparation_arrays(self):
+        """Return the current table arrays and interpolation flags."""
+        table = self._native_lut
+        shape = tuple(axis.size for axis in table.axes)
+        if table.epsilon.shape != shape or table.area.shape != shape:
+            raise ValueError('LUT table shape no longer matches its captured axes')
+        return (*table.axes, table.epsilon, table.area), (_native_lut._fast(table.epsilon), _native_lut._fast(table.area))
 
     def _initialize_cache(self, tpms_type, N, cache_dir=None):
         """Set cache identity without calculating or loading table values."""

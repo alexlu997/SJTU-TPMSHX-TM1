@@ -7,7 +7,8 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.cpp_interface import _native_preparation_case as native, preparation_host
-from sjtu_tpmshx.cpp_interface import native_preparation as host
+from sjtu_tpmshx.cpp_interface import native_preparation as binding
+from sjtu_tpmshx.preprocess.two_d import preparation
 from sjtu_tpmshx.physical_models.fluid_props import WaterStateError
 from sjtu_tpmshx.physical_models.tpms_calc import compute
 from sjtu_tpmshx.physical_models.tpms_geometry import compute_geometry
@@ -152,9 +153,10 @@ def test_offset_owned_buffers_survive_diagnostic_aliases(monkeypatch, tmp_path, 
     config = (native_preparation_abi._configuration_mass_flow('Gyroid', ('air', 'water')) if mode == 'uniform'
               else configuration(monkeypatch, tmp_path, mode))
     config.geometry.delta_levelset = .2
-    source = host._input(config, None, 'prepare_flow_case')
+    source, problem = binding.pack_input(config, None, lambda fluid: fluid.u_mps, preparation._spatial_rows)
+    assert problem is None
     if mode == 'sigmoid':
-        lut_cache = host._lut_cache()
+        lut_cache = binding._lut_cache(preparation._lut_cache())
         lut_cache(0, 1, 16, source.lut)
         source.model.load_default_lut = 0
     family = 'uniform' if mode == 'uniform' else 'sigmoid' if mode == 'sigmoid' else 'zoned'
@@ -194,9 +196,10 @@ def test_offset_nested_headers_preserve_result(monkeypatch, tmp_path, mode, fiel
     config = (native_preparation_abi._configuration_mass_flow('Gyroid', ('air', 'water')) if mode == 'uniform'
               else configuration(monkeypatch, tmp_path, mode))
     config.geometry.delta_levelset = .2
-    source = host._input(config, None, 'prepare_flow_case')
+    source, problem = binding.pack_input(config, None, lambda fluid: fluid.u_mps, preparation._spatial_rows)
+    assert problem is None
     if mode == 'sigmoid':
-        host._lut_cache()(0, 1, 16, source.lut)
+        binding._lut_cache(preparation._lut_cache())(0, 1, 16, source.lut)
         source.model.load_default_lut = 0
     family = 'uniform' if mode == 'uniform' else 'sigmoid' if mode == 'sigmoid' else 'zoned'
     result_type = (native._UniformCase if mode == 'uniform' else
