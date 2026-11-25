@@ -34,13 +34,14 @@ def _fake_batches(monkeypatch, *, fail_indices=(), baseline_failure=False, cance
     expected_workers = workers
 
     def evaluate(conditions, *, output_dir, baseline=None, control=RunControl(), workers=1,
-                 on_update=None, pause_check=None, resume_from=None, keep_failed=False,
-                 allow_nu_re_extrapolation=False):
+                 on_update=None, pause_check=None, allow_nu_re_extrapolation=False,
+                 resume_saved=False):
         assert control.backend == backend and workers == expected_workers
         directory = Path(output_dir)
-        directory.mkdir(exist_ok=resume_from is not None)
+        saved = directory / 'batch.json'
+        previous = json.loads(saved.read_text()) if resume_saved and saved.exists() else None
+        directory.mkdir(exist_ok=previous is not None)
         index = -1 if baseline is None else int(directory.name.removeprefix('design_'))
-        previous = resume_from[1] if resume_from is not None else None
         reused = previous is not None and previous['status'] == 'completed'
         if not reused:
             calls.append((conditions, baseline, directory))
@@ -81,7 +82,7 @@ def _fake_batches(monkeypatch, *, fail_indices=(), baseline_failure=False, cance
         control.report_progress(100)
         return result
 
-    monkeypatch.setattr(search, '_evaluate_condition_batch', evaluate)
+    monkeypatch.setattr(search, 'evaluate_compact_condition_batch', evaluate)
     return calls
 
 

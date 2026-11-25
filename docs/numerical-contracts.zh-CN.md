@@ -172,6 +172,7 @@ Python 仅绑定保存态阶段生命周期：`full_2d_stage.py`（二维保存�
 ### 多工况批次与贝叶斯优化
 
 `applications.optimization.multi_condition` 通过 `compute_prepared_run`（60 秒检查点）评估有序工况批次，并由 `resume_condition_batch` 恢复至新目录。
+优化器使用 `evaluate_compact_condition_batch`：返回紧凑摘要，并在原目录内继续已保存的批次；复用已完成成员，保留失败成员且不重新运行。
 默认 `workers = None` 最多启动 4 个原生工作进程，每进程至少分配 2 个 CPU 槽位，平分总 CPU 上限并保持输入顺序与单管理进程暂停／取消控制。
 `run_multi_condition_optimization` 支持 `qLogNEHVI`、`qLogNParEGO` 与 `Sobol` 基于完整合格批次最大化 `(heat_gain_percent, -pressure_ratio)`，或使用 `qLogNEI` 与 `Sobol` 结合 `mass_requirements`（含可选逐工况 `T_out`/`P_out` 限制与 `allow_nu_re_extrapolation`）执行约束最小芯体质量优化。
 `resume_multi_condition_optimization` 将原归档复制到新目录并校验 `optimization-input.json`、Sobol 序列与已保存提议后继续。

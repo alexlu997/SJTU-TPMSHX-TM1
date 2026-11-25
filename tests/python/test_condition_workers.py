@@ -174,7 +174,7 @@ def test_process_pause_drains_workers_and_cancel_takes_precedence(tmp_path, monk
         return bool(pause_requested)
     root = tmp_path / 'paused'
     with pytest.raises(CancelledError if cancel_after_pause else PausedRun):
-        batch._evaluate_condition_batch(conditions, output_dir=root, workers=2,
+        batch.evaluate_compact_condition_batch(conditions, output_dir=root, workers=2,
             pause_check=pause_check, control=_control(tmp_path, iteration=iteration,
                 cancel_check=lambda: cancel_after_pause and bool(pause_seen)))
     record = json.loads((root / 'batch.json').read_text())
@@ -214,7 +214,7 @@ def test_cancel_after_final_paused_worker_is_published(tmp_path, monkeypatch, wh
             search.run_multi_condition_optimization(conditions, method='sobol',
                 n_init=1, n_iter=0, **options)
         else:
-            batch._evaluate_condition_batch(conditions, **options)
+            batch.evaluate_compact_condition_batch(conditions, **options)
     assert cancel
     batch_root = root / 'baseline' if whole_search else root
     assert json.loads((batch_root / 'batch.json').read_text())['status'] == 'cancelled'
@@ -303,7 +303,7 @@ def _run_worker_exit_probe(work_dir, crash_delay_s):
 
 
 @pytest.mark.parametrize('crash_delay_s', [0., 10.5])
-def test_worker_exit_keeps_last_complete_checkpoint(tmp_path, crash_delay_s):
+def test_worker_exit_keeps_last_complete_checkpoint(tmp_path, monkeypatch, crash_delay_s):
     from sjtu_tpmshx.applications.execution.recovery import read_run_checkpoint
 
     root = tmp_path / 'worker-exit'
@@ -373,6 +373,22 @@ def test_worker_exit_keeps_last_complete_checkpoint(tmp_path, crash_delay_s):
     saved, _, _ = read_run_checkpoint(checkpoint)
     assert int(saved.native_state['step'][0]) == 1
     assert not (root / 'condition_003').exists()
+    started = {path.name: path.read_text() for path in root.glob('started-*')}
+    assert set(started) == {'started-0', 'started-1'}
+    # The in-place continuation keeps both failed members and runs only the member that did not start.
+    monkeypatch.setattr(batch, '_run_native_condition', _analytic_worker)
+    conditions = _conditions()
+    conditions[0] = ('crash', *conditions[0][1:])
+    result = batch.evaluate_compact_condition_batch(conditions, output_dir=root, workers=2,
+        control=_control(tmp_path), resume_saved=True)
+    rows = result['conditions']
+    assert [row['status'] for row in rows] == ['failed', 'failed', 'completed']
+    assert [row['recovery_mode'] for row in rows] == ['failed_copy', 'failed_copy', 'new']
+    assert [row['reason'] for row in rows[:2]] == [row['reason'] for row in record['conditions'][:2]]
+    assert {path.name: path.read_text() for path in root.glob('started-*') if path.name != 'started-2'} == started
+    assert rows[2]['worker_pid'] == int((root / 'started-2').read_text())
+    assert result['status'] == 'failed' and result['objectives'] is None
+    assert list(result['summaries']) == ['high']
 
 
 def test_parent_callback_error_is_retained_after_workers_stop(tmp_path, monkeypatch):

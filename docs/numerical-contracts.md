@@ -170,6 +170,7 @@ Active linear solves or chunks finish before returning; there is no forced threa
 ### Multi-condition batches and Bayesian optimization
 
 `applications.optimization.multi_condition` evaluates ordered condition batches using `compute_prepared_run` with 60 s checkpoints and `resume_condition_batch` for recovery into a new directory.
+The optimizer uses `evaluate_compact_condition_batch`, which returns compact summaries and continues a saved batch in place. It reuses completed members and keeps failed members without running them again.
 Default `workers = None` selects at most 4 native worker processes with at least 2 CPU slots each.
 It splits the total CPU limit, keeps input order, and uses one manager process for pause and cancel.
 `run_multi_condition_optimization` supports `qLogNEHVI`, `qLogNParEGO`, and `Sobol` to maximize `(heat_gain_percent, -pressure_ratio)` from complete accepted batches.
