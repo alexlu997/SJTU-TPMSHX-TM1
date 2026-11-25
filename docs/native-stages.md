@@ -178,7 +178,7 @@ Confirm `tpmshx_stage_run_3d_abi_version() == 3` and `tpmshx_stage_capture_3d_ab
 - **Control defaults**: initial and warm SIMPLE budgets default to 2,000 and 600; thermal budget defaults to 20,000. Supply an explicit SIMPLE budget to override both flow budgets (for example 50,000 for full validation). Model-h and EOS control conflicts are rejected before flow.
 - **Result ownership and evaluation**: the transferred result owns `raw`, generic `evidence`, and `evaluation` (`tpmshx_stage_input_v3`), which passes directly to `tpmshx_result_stage_query_v3`. Final SIMPLE fields supply pressure and display; the last completed thermal state supplies mass, thermal pressure, and energy (W and kg/s). `tpmshx_stage_run_3d_get_capture_v1` (`capture_summary(result, include_audit)`) returns cell counts, heat-source sum, pressure-clip count, Nu statistics, and optional audit outlet arrays.
   With an explicit `include_audit` flag, use a 3D result lvalue whose storage stays valid while you use the `audit_outlet` spans.
-  Omit `include_audit` to get the copied scalars from a temporary 3D result.
+  A temporary 3D result requires the scalar call `capture_summary(result)` because even an explicit `false` flag causes a compile error.
 
 C status codes are 0 (result transferred), 1 (invalid input), 2 (water state error), 3 (arithmetic error), and 4 (native failure).
 Status 0 does not imply convergence.

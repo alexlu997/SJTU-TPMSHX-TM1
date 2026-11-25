@@ -173,7 +173,7 @@ Python 保留 LUT 的内存与磁盘存储；缺表时 C++ 在体素分辨率 25
 - **默认控制**：初次与热启动 SIMPLE 预算默认为 2,000 与 600，热学预算默认为 20,000。显式提供 SIMPLE 预算会同时覆盖两项流动预算（例如完整验证使用的 50,000）。Model-h 与 EOS 控制冲突在流动前被拒绝。
 - **结果所有权与评估**：转移后的结果拥有 `raw`、通用 `evidence` 与 `evaluation`（`tpmshx_stage_input_v3`），可直接传入 `tpmshx_result_stage_query_v3`。最终 SIMPLE 场提供压力与显示，最后一次完成的热学状态提供质量、热学压力与能量（单位 W 与 kg/s）。`tpmshx_stage_run_3d_get_capture_v1`（`capture_summary(result, include_audit)`）返回单元数、热源和、压力截断数、Nu 统计及可选审计出口数组。
   显式传入 `include_audit` 时，请使用三维结果左值，并在使用 `audit_outlet` 数组视图期间保留结果的存储空间。
-  对临时三维结果，省略 `include_audit` 即可取得复制的标量。
+  临时三维结果须用单参数调用 `capture_summary(result)` 取得标量，即使显式传入 `false` 也会编译失败。
 
 C 状态码含义为：0（结果已转移，不代表收敛）、1（输入无效）、2（水状态错误）、3（算术错误）与 4（原生失败）。
 取消的结果保留 `raw.stop = 2` 的原始诊断，不包含完成的评估证据。

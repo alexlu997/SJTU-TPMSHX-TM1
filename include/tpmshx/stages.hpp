@@ -251,6 +251,16 @@ inline tpmshx_stage_capture_3d_v1 capture_summary(const RunResult3D&&,bool)=dele
 template<class Source, std::enable_if_t<!std::is_lvalue_reference_v<Source> &&
     std::is_convertible_v<Source, const RunResult3D&>, int> = 0>
 void capture_summary(Source&&,bool)=delete;
+namespace detail {
+// Prefer the reference if a named adapter can also supply a result by value.
+void require_audit_result_lvalue(const RunResult3D&);
+template<class = void> void require_audit_result_lvalue(const RunResult3D&&)=delete;
+}
+template<class Source, class = decltype(detail::require_audit_result_lvalue(std::declval<Source&>()))>
+inline tpmshx_stage_capture_3d_v1 capture_summary(Source& source,bool include_audit) {
+    const RunResult3D& result=source;
+    return capture_summary(result,include_audit);
+}
 
 class SavedPreparedCase3D;
 struct SavedCase3D : tpmshx_stage_saved_case_3d_v3 {
