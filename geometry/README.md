@@ -42,7 +42,7 @@ The [build script](../engineering/scripts/build_native_dependencies.py) has thes
 | --- | --- |
 | `fetch-cmake` | Fetch and check only the existing locked CMake tool. |
 | `build --component geometry` | Generate model data, then configure and build this standalone target. |
-| `verify --component geometry` | Check the locked CMake version and run the three callers. |
+| `verify --component geometry` | Check the locked CMake version, run the three callers, and compare the shared library's exports with `geometry.exports`. |
 | `publish --component geometry` | Build, verify and publish only geometry with `geometry-build.json`. |
 
 Set `--python-lock` to the active interpreter's exact lock when it differs from the default base lock.
