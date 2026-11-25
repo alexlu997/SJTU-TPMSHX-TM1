@@ -7,6 +7,7 @@
 #include <iostream>
 #include <limits>
 #include <string>
+#include <thread>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -93,12 +94,15 @@ void check_saved(const tpmshx::stages::PreparedUniformCase2D& calibrated,tpmshx:
     captured[0]=2;
     require(create(copy)==1 && !handle,"saved range capture flag accepted invalid value");
     captured[0]=0;copy.inlet_recorded=0;
+    // Use explicit thread counts above the default limit for both operations.
+    control.cpu_threads = 12;
     auto state=[&] {
         Run2D run(copy,control);
         require(run.advance_step()==TPMSHX_FULL2D_OUTER_BOUNDARY,"saved stage initial boundary changed");
         require(run.advance_step()==TPMSHX_FULL2D_FLOW,"saved stage flow boundary changed");
         return run.snapshot();
     }();
+    control.cpu_threads = 9;
     {
         Run2D resumed(saved,control,{},&state);
         require(resumed.phase()==TPMSHX_FULL2D_FLOW,"saved v5 lost the restored phase");
@@ -280,7 +284,14 @@ int main(int argc,char** argv) {
         const auto before=failure;
         auto view=*saved.prepared;--view.total_porosity.size;
         tpmshx_stage_saved_case_2d_v5 malformed=saved;malformed.prepared=&view;
-        RunControl control;control.result_id="stage-smoke";control.cpu_threads=2;
+        static_assert(detail::default_cpu_threads(0) == 1);
+        static_assert(detail::default_cpu_threads(4) == 4);
+        static_assert(detail::default_cpu_threads(32) == 8);
+        const auto expected_threads = detail::default_cpu_threads(std::thread::hardware_concurrency());
+        RunControl control;
+        require(control.cpu_threads == expected_threads && RunControl3D{}.cpu_threads == expected_threads,
+                "unexpected default CPU thread count");
+        control.result_id="stage-smoke";control.cpu_threads=2;
         char error[4096]{};
         const auto run_saved=[&](const tpmshx_stage_saved_case_2d_v5& value,const tpmshx_stage_run_request_2d_v4* request,
                                  const tpmshx_stage_run_control_v1* selected,char* message,size_t capacity) {

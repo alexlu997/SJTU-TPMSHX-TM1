@@ -45,6 +45,10 @@ Keep the callback functions and their context valid until you release the run.
 The one-shot `run_case` accepts a temporary prepared owner or saved descriptor.
 For example, `run_case(prepare_case(input, options), control)` transfers the result before the temporary owner expires.
 
+`RunControl` (2D) and `RunControl3D` set `cpu_threads` to the number of logical CPUs the host reports, up to eight.
+If the host reports zero, the default is one thread.
+You can set a positive `cpu_threads` value, including a value above eight, when you start or restore a run.
+
 - **Units**: design inputs (`cell_length_mm`, `wall_thickness_mm`) use mm; saved physical design fields use m. Keep the mm-to-m-to-mm order when forming transport and closure ratios. Heat uses W/m in 2D and W in 3D; mass flow uses kg/s; temperature uses K; pressure uses Pa(abs).
 - **Array layout**: requested and actual grid counts stay distinct fields. Physical 2D fields use shape `(nx, ny)` in C order; 3D fields use `(nx, ny, nz)` in C order; flow fields use `(cross, stream)` order per side.
 - **Single-owner release**: every owned output has one outer `owner` pointer; nested views have null owners. Release each owned result through the library that created it after the last view use. Scalar-only queries (`tpmshx_query_inlet_properties_v2`, `tpmshx_quick_pressure_fractions_v2`) return values and need no release.

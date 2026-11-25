@@ -17,17 +17,13 @@ class _String(str):
 @pytest.mark.parametrize('calls', [
     [((1, 2), {}), ((1,), {'b': 2}), ((), {'a': 1, 'b': 2}),
      ((), {'b': 2, 'a': 1}), ((1, 2), {}), ((), {'a': 1, 'b': 2})],
-    [((value,), {}) for value in
-     (1, True, 1., np.int64(1), np.float16(1), np.bool_(True), 1, True)],
-    [((value,), {}) for value in ('x', _String('x'), 'x', _String('x'))],
     [(('Gyroid', value, .5), {}) for value in
      (np.float16(7), 7., np.float32(7), 7, np.float64(7))],
     [(('Gyroid', value, .5), {}) for value in
      (7., np.float16(7), np.float32(7), 7, np.float64(7))],
     [((value,), {}) for value in (None, None, (1, 2), (1., 2.))],
     [((), {'a': value}) for value in (1, True, 1., np.int32(1))],
-], ids=['call-shapes', 'single-number', 'single-string', 'numpy-first',
-        'python-first', 'none-and-tuple', 'keyword-number'])
+], ids=['call-shapes', 'numpy-first', 'python-first', 'none-and-tuple', 'keyword-number'])
 def test_call_keys_match_functools(calls):
     def describe(*args, **kwargs):
         return tuple(type(value) for value in args), tuple(
@@ -38,6 +34,40 @@ def test_call_keys_match_functools(calls):
     for args, kwargs in calls:
         assert cached(*args, **kwargs) == reference(*args, **kwargs)
         assert cached.cache_info() == reference.cache_info()
+
+
+GEOMETRY = ('Gyroid', 7., .5, 128)
+INLET = ('Gyroid', 7., .5, 5., 380., 101325., 'air', None, False)
+
+
+@pytest.mark.parametrize('calls,misses', [
+    ([GEOMETRY, ('Gyroid', np.float64(7), np.float32(.5), np.int64(128)), ('Gyroid', 7, .5, 128.)], 1),
+    ([GEOMETRY, ('Diamond', 7., .5, 128), ('Gyroid', 7.25, .5, 128), ('Gyroid', 7., .5, 64)], 4),
+    ([INLET, INLET[:-1] + (0,), INLET[:-1] + (np.bool_(False),), INLET[:-1] + (True,),
+      INLET[:-1] + (1,), INLET[:-1] + (1.,)], 2),
+    ([INLET, INLET[:-2] + (_String('x'), False), INLET[:6] + ('water', None, False)], 3),
+    ([(value,) for value in (1, True, 1., np.int64(1), np.bool_(True))], 1),
+    ([(value,) for value in ('x', _String('x'))], 1),
+], ids=['geometry-equal', 'geometry-distinct', 'inlet-bool', 'inlet-text',
+        'single-number', 'single-string'])
+def test_equal_arguments_hit_and_distinct_arguments_miss(calls, misses):
+    """Use value equality for every call shape, as the cached physical functions need."""
+    cached = scalar_cache(maxsize=16)(lambda *args: args)
+    results = [cached(*args) for args in calls]
+    assert cached.cache_info() == (len(calls) - misses, misses, 16, misses)
+    assert all(result == args for result, args in zip(results, calls))
+
+
+def test_native_entries_serve_equal_python_calls():
+    @scalar_cache(maxsize=2)
+    def cached(*args):
+        pytest.fail('The native entry must satisfy the equal Python call')
+
+    cached.store(GEOMETRY, None, 'native geometry')
+    assert cached('Gyroid', np.float64(7), np.float64(.5), np.int64(128)) == 'native geometry'
+    assert cached.lookup(('Gyroid', 7, .5, 128)) == (True, 'native geometry')
+    assert cached.lookup(('Gyroid', 7., .5), {'N': 128}) == (False, None)
+    assert cached.cache_info() == (2, 1, 2, 1)
 
 
 @pytest.mark.parametrize('value', [[], {}, np.array([1])], ids=['list', 'dict', 'array'])
