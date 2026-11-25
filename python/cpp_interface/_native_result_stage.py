@@ -611,7 +611,7 @@ class _Packed:
 
 
 class _Evidence(_Packed):
-    def pack(self, result, query, declaration_dimension):
+    def pack(self, result, query, declaration_dimension, raw_field_names, saved_gates):
         self.result, self.query = result, query
         self.density = self.split = self.invalid_mode_repr = self.dimension_index = self.dimension_slice = None
         self.qualification_error = None
@@ -695,9 +695,8 @@ class _Evidence(_Packed):
         output.absent_records, output.absent_record_count = self.strings(absent), len(absent)
         if query == 2:
             return
-        output.fields, output.field_count = self.named(result.fields,
-            finite_keys=tuple(name for name in result.fields if not name.endswith('_display')))
-        self._qualification(metadata, diagnostics, parameters, dimension)
+        output.fields, output.field_count = self.named(result.fields, finite_keys=raw_field_names(result.fields))
+        self._qualification(metadata, diagnostics, parameters, dimension, saved_gates)
         if query == 3:
             return
         if mode == 'quick_design':
@@ -741,7 +740,7 @@ class _Evidence(_Packed):
                 )
                 output.pressure[index] = self.pointer(row)
 
-    def _qualification(self, metadata, diagnostics, parameters, dimension):
+    def _qualification(self, metadata, diagnostics, parameters, dimension, saved_gates):
         output, result = self.raw, self.result
         detail = _read(diagnostics, 'convergence_detail', {})
         if isinstance(detail, _Fault):
@@ -753,10 +752,7 @@ class _Evidence(_Packed):
         if failure is not None:
             self.fault(ct.byref(output, Evidence.converged.offset), failure)
         gates, failures = [], []
-        for name in ('simple_ok', 'ltne_ok', 'outer_converged', 'fields_finite', 'envelope_ok', 'richardson_ok'):
-            if name not in detail:
-                continue
-            value = detail[name]
+        for name, value in saved_gates(detail):
             flag, failure = _equality_flag(value)
             gates.append(Gate(name=_text(name), value=flag))
             failures.append(failure)

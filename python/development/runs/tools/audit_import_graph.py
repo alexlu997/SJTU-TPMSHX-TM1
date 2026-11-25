@@ -134,24 +134,74 @@ def target_unit(name: str, units: set[str]) -> str | None:
     return None
 
 
-def _invalid_result_import(path: Path, target: str) -> bool:
+def _invalid_result_target(host: bool, target: str, *, constructor: bool = False) -> bool:
     if not target.startswith("sjtu_tpmshx."):
         return False
     area, _, member = target.removeprefix("sjtu_tpmshx.").partition(".")
     module, _, name = member.partition(".")
-    if path.parent == PKG / "postprocess" and path.stem in {"api", "evaluation"}:
+    if host:
         if area == "shared":
             return member.startswith(("_native_", "models._native_"))
         return area == "cpp_interface" and bool(module) and (
-            module != "result_evaluation" or name not in {
+            module != "result_evaluation" or name.partition(".")[0] not in {
                 "", "query_result", "METRICS", "APPLICABILITY", "PHYSICAL_BALANCE", "QUALIFICATION"})
-    if path.parent == PKG / "cpp_interface" and path.stem in {"_native_result_stage", "result_evaluation"}:
-        return (area in {"applications", "compute", "file_io", "physical_models",
-                         "postprocess", "preprocess", "solvers"}
-                or (area == "shared" and module in {"models", "df_surrogate", "io"})
-                or (area == "shared" and module == "domain" and name.split(".", 1)[0] in {"metric_spec", "performance_result"})
-                or (area == "data_types" and module in {"metric_spec", "performance_result"}))
-    return False
+    if area == "shared" and module == "domain":
+        area = "data_types"
+        module, _, name = name.partition(".")
+    return (area in {"applications", "compute", "file_io", "physical_models",
+                     "postprocess", "preprocess", "solvers"}
+            or (area == "shared" and module in {"models", "df_surrogate", "io"})
+            or (constructor and area == "data_types" and module in {"metric_spec", "performance_result"}
+                and name in {"MetricSpec", "MetricValue", "PerformanceResult"}))
+
+
+def _result_boundary_violations(path, tree, package):
+    host = path.parent == PKG / "postprocess" and path.stem in {"api", "evaluation"}
+    binding = path.parent == PKG / "cpp_interface" and path.stem in {"_native_result_stage", "result_evaluation"}
+    if not (host or binding):
+        return
+
+    def check_scope(scope, aliases):
+        # Keep local imports in source order. Functions can use later module imports.
+        aliases = aliases.copy()
+        if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for arg in ast.walk(scope.args):
+                if isinstance(arg, ast.arg):
+                    aliases.pop(arg.arg, None)
+        nested = []
+        pending = [scope]
+        while pending:
+            node = pending.pop()
+            if node is not scope and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                nested.append(node)
+                continue
+            pending.extend(reversed(list(ast.iter_child_nodes(node))))
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                targets = import_targets(node, package)
+                for item in node.names:
+                    if isinstance(node, ast.ImportFrom):
+                        aliases[item.asname or item.name] = targets[0] + "." + item.name
+                    else:
+                        root = item.name.partition(".")[0]
+                        aliases[item.asname or root] = item.name if item.asname else root
+                forbidden = next((target for target in targets if _invalid_result_target(host, target)), None)
+                if forbidden:
+                    yield node.lineno, forbidden
+            elif (host and isinstance(node, ast.Attribute)) or (binding and isinstance(node, ast.Call)):
+                expression = node.func if isinstance(node, ast.Call) else node
+                parts = []
+                while isinstance(expression, ast.Attribute):
+                    parts.append(expression.attr)
+                    expression = expression.value
+                if isinstance(expression, ast.Name) and expression.id in aliases:
+                    target = ".".join((aliases[expression.id], *reversed(parts)))
+                    if _invalid_result_target(host, target, constructor=isinstance(node, ast.Call)):
+                        yield node.lineno, target
+        for child in nested:
+            yield from check_scope(child, aliases)
+
+    for line, target in check_scope(tree, {}):
+        yield f"{path.relative_to(REPO)}:{line}: independent result boundary -> {target}"
 
 
 def _is_sanctioned(edge: tuple[str, str], path: Path, node: ast.AST, module: str) -> bool:
@@ -182,11 +232,9 @@ def main() -> int:
             continue
         package = ('.'.join(py.relative_to(PKG.parent).parts[:-1]) if src_unit == 'tests' and not py.is_relative_to(PKG)
                    else '.'.join(('sjtu_tpmshx', *py.relative_to(PKG).parts[:-1])))
+        violations.extend(_result_boundary_violations(py, tree, package))
         for node in ast.walk(tree):
             names = import_targets(node, package)
-            forbidden = next((name for name in names if _invalid_result_import(py, name)), None)
-            if forbidden:
-                violations.append(f"{py.relative_to(REPO)}:{node.lineno}: independent result boundary -> {forbidden}")
             targets = {target_unit(name, units) for name in names}
             for dst in targets:
                 if dst and dst != src_unit and dst in units:

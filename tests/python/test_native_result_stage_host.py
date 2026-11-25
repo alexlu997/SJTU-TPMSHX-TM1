@@ -10,7 +10,7 @@ import weakref
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.cpp_interface import _native_result as core
+from sjtu_tpmshx.cpp_interface import _native_result as core, _native_result_stage as stage
 from sjtu_tpmshx.data_types.metric_spec import MetricSpec
 from sjtu_tpmshx.data_types.portable_data import mutable_data
 from sjtu_tpmshx.file_io.result_io import load_result
@@ -221,6 +221,32 @@ def test_raw_field_finite_protocol_keeps_original_error(query, value):
         compare(result, query)
 
 
+def test_raw_and_display_fields_keep_distinct_errors(monkeypatch):
+    import ctypes as ct
+
+    result = qualified_result()
+    invalid = 'invalid temperature'
+    result = replace(result, fields=dict(result.fields, Ta=invalid, Ta_display=invalid))
+    errors = []
+    pack_array = stage._Packed.array
+
+    def record_error(packed, value, *, finite_protocol=False):
+        pointer = pack_array(packed, value, finite_protocol=finite_protocol)
+        if isinstance(value, str) and value == invalid:
+            errors.append(packed.array_errors[ct.addressof(pointer.contents)].args)
+        return pointer
+
+    monkeypatch.setattr(stage._Packed, 'array', record_error)
+    with pytest.raises(TypeError) as finite:
+        np.isfinite(np.asarray(invalid))
+    with pytest.raises(TypeError) as conversion:
+        core.array(invalid)
+    with pytest.raises(TypeError) as reported:
+        api.evaluate_qualification(result, required_metrics())
+    assert reported.value.args == finite.value.args
+    assert errors == [finite.value.args, conversion.value.args]
+
+
 @pytest.mark.parametrize('dimension', [2, 3])
 def test_physical_balance_rejects_portable_non_numeric_faces(dimension):
     result = sample_result(dimension)
@@ -288,6 +314,30 @@ def test_gate_comparison_keeps_raw_values_and_short_circuit_order(value, earlier
     metrics = required_metrics()
     assert_observation(observe(lambda: api.evaluate_qualification(result, metrics)),
                        observe(lambda: reference.evaluate_qualification(result, metrics)))
+
+
+@pytest.mark.parametrize('detail,expected', [
+    ({'additional_gate': True, 'envelope_ok': False, 'simple_ok': True},
+     [('simple_ok', True), ('envelope_ok', False)]),
+    ({'additional_gate': False}, []),
+])
+def test_qualification_uses_present_saved_gates_in_contract_order(detail, expected, monkeypatch):
+    result = qualified_result()
+    metadata = mutable_data(result.metadata)
+    metadata['diagnostics']['convergence_detail'] = detail
+    result = replace(result, metadata=metadata)
+    sent = []
+    sequence = stage._Packed.sequence
+
+    def record_gates(packed, kind, values):
+        if kind is stage.Gate:
+            sent.append([gate.name.decode('utf-8') for gate in values])
+        return sequence(packed, kind, values)
+
+    monkeypatch.setattr(stage._Packed, 'sequence', record_gates)
+    convergence = api.evaluate_qualification(result, required_metrics())['convergence']
+    assert sent == [[name for name, _ in expected]]
+    assert list(convergence['gates'].items()) == expected
 
 
 @pytest.mark.parametrize('where,value', [

@@ -30,10 +30,20 @@ def _declaration_dimension(result, query):
     return dimension
 
 
+def _raw_field_names(fields):
+    return tuple(name for name in fields if not name.endswith('_display'))
+
+
+def _saved_gates(detail):
+    for name in ('simple_ok', 'ltne_ok', 'outer_converged', 'fields_finite', 'envelope_ok', 'richardson_ok'):
+        if name in detail:
+            yield name, detail[name]
+
+
 def _validated_query(result, query, metric_spec=None):
     try:
         report, rows = result_evaluation.query_result(
-            result, query, _declaration_dimension, metric_spec=metric_spec)
+            result, query, _declaration_dimension, _raw_field_names, _saved_gates, metric_spec=metric_spec)
         if query == result_evaluation.PHYSICAL_BALANCE:
             return _restore_balance_fields(report, result)
         qualification = _restore_qualification_fields(report['qualification'], result)
@@ -51,7 +61,8 @@ def evaluate(result, metric_spec=None):
 
 
 def evaluate_applicability(result):
-    report, _ = result_evaluation.query_result(result, result_evaluation.APPLICABILITY, _declaration_dimension)
+    report, _ = result_evaluation.query_result(
+        result, result_evaluation.APPLICABILITY, _declaration_dimension, _raw_field_names, _saved_gates)
     return _restore_applicability_fields(report, result.metadata.get('applicability_evidence'))
 
 
@@ -61,7 +72,7 @@ def evaluate_physical_balance(result):
 
 def evaluate_qualification(result, metrics):
     report, _ = result_evaluation.query_result(
-        result, result_evaluation.QUALIFICATION, _declaration_dimension, metrics=metrics)
+        result, result_evaluation.QUALIFICATION, _declaration_dimension, _raw_field_names, _saved_gates, metrics=metrics)
     return _restore_qualification_fields(report, result)
 
 

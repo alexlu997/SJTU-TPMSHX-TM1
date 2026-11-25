@@ -103,10 +103,9 @@ main 推送中仅纯文档变更使用 `docs`，手动触发始终使用 `full`�
 完整矩阵有 27 个作业，包含独立 Linux 结果库构建。较轻层级不能作为完整 CI 耗时或数值研究验收。
 物理变更仍须完成其要求的扩展数值研究；常规 CI 不替代该证据。
 
-`pyproject.toml` 的 `[tool.mypy].files` 显式列出 19 个类型检查文件：覆盖配置、控制器、CLI、统一工作流、当前
-envelope 实现、三模块数据契约与公共 API、后处理指标入口；已删除的转发模块不再列入。
-mypy 检查 envelope、三个阶段 API 和后处理指标入口中的无注解函数体。
-前处理 API 导入的 `_metadata` 模块也使用这项检查。
+`pyproject.toml` 的 `[tool.mypy].files` 列出 21 个类型检查文件，覆盖配置、控制器、CLI、统一工作流、envelope、阶段数据契约与 API，以及结果评估。已删除的转发模块不再列入。
+mypy 检查 envelope、三个阶段 API 及前处理 API 导入的 `_metadata` 模块中的无注解函数体。
+结果评估宿主、原生查询和证据打包模块也使用这项检查。
 `.github/workflows/ci.yml` 的 `scope` 作业对每个非 `docs` 层级的变更执行一次 `ruff check .`，
 并以 `--platform darwin` 和 `--platform win32` 执行 `engineering.scripts.check_types`。
 pytest 分片不执行 ruff 或 mypy。本地检查使用上面的命令。

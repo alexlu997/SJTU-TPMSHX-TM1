@@ -22,14 +22,14 @@ def _spec(value):
     return Spec(*(_text(getattr(value, name)) for name in ('name', 'unit', 'definition_version', 'description')))
 
 
-def query_result(result, query, declaration_dimension, *, metric_spec=None, metrics=None):
+def query_result(result, query, declaration_dimension, raw_field_names, saved_gates, *, metric_spec=None, metrics=None):
     """Return the decoded report and metric rows from the result library."""
     packed = _Evidence()
     output, diagnostics, token = Output(struct_size=ct.sizeof(Output)), core._Diagnostics(), ct.c_uint64()
     error = ct.create_string_buffer(4096)
 
     try:
-        packed.pack(result, query, declaration_dimension)
+        packed.pack(result, query, declaration_dimension, raw_field_names, saved_gates)
         library = core.result_library.get()
         owner = weakref.proxy(packed)
 
