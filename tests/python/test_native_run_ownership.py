@@ -1,5 +1,6 @@
 """Release native owners when an interrupt follows a successful transfer."""
 import ctypes as ct
+from pathlib import Path
 
 import pytest
 
@@ -393,7 +394,7 @@ def test_zone_result_warning_stacklevel_and_solver_only_image_isolation(monkeypa
     assert len(host_caught) == 1
     assert host_caught[0].category is RuntimeWarning
     assert str(host_caught[0].message) == 'divide by zero encountered in divide'
-    assert host_caught[0].filename.endswith('solvers/full_2d.py')
+    assert Path(host_caught[0].filename).parts[-2:] == ('solvers', 'full_2d.py')
 
     monkeypatch.undo()
 
