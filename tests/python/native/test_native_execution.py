@@ -88,17 +88,16 @@ def test_native_cancellation_never_finalizes(monkeypatch, native_path, dimension
 @pytest.mark.parametrize('dimension', [2, 3])
 @pytest.mark.parametrize('selection', ['cpp_sweeps_v1', 'unknown_kernel', 'numba'])
 def test_retired_kernel_requests_fail_before_library_load(monkeypatch, tmp_path, dimension, selection):
-    import ctypes
-
     monkeypatch.setenv('TPMSHX_TRUE_H_KERNEL', selection)
     case = prepare_case(_config(dimension, air_sco2=True), case_id='retired-kernel')
     path = save_case(case, tmp_path/'retired-case.h5')
     monkeypatch.delenv('TPMSHX_TRUE_H_KERNEL')
     saved_case = load_case(path)
 
-    def forbidden(name, *args, **kwargs):
-        pytest.fail(f'Retired kernel request tried to load {name}.')
+    def forbidden(library, *args, **kwargs):
+        pytest.fail(f'Retired kernel request reached the {dimension}D solver library {library}.')
 
-    monkeypatch.setattr(ctypes, 'CDLL', forbidden)
+    loader = 'full_2d_stage.StageDriver' if dimension == 2 else 'full_3d_stage.open_library'
+    monkeypatch.setattr(f'sjtu_tpmshx.cpp_interface.{loader}', forbidden)
     with pytest.raises(ValueError, match='TPMSHX_TRUE_H_KERNEL has been retired'):
         run_case(saved_case)
