@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from sjtu_tpmshx.cpp_interface import full_2d_stage, full_3d_stage
-from sjtu_tpmshx.solvers import full_3d
+from sjtu_tpmshx.solvers import full_2d, full_3d
 from sjtu_tpmshx.run_control.module_ports import RunControl
 from tests.python.native.shared_library import library_path
 
@@ -26,7 +26,7 @@ def stage_control(**options):
 
 
 def stage_module(case):
-    return full_2d_stage if case.grid['dimension'] == 2 else full_3d
+    return full_2d if case.grid['dimension'] == 2 else full_3d
 
 
 def native_3d_arrays(result, shape):
@@ -75,11 +75,12 @@ def run_stage(case, control=None, *, resume_state=None, checkpoint=None, checkpo
 def saved_2d_inputs(case):
     """Return the settings that the saved 2D stage validates before it packs ``case``."""
     driver = full_2d_stage.StageDriver(library_path())
-    entries = full_2d_stage._stage_entries(driver.library)
-    cfg, prepared, _ = full_2d_stage.saved_inputs(
-        case, full_2d_stage.execution_grid(case), check_experiment=entries['check_experiment'],
+    entries = full_2d_stage.stage_entries(driver.library)
+    cfg, prepared, _ = full_2d.saved_inputs(
+        case, full_2d.execution_grid(case),
+        check_experiment=lambda spec: full_2d_stage.check_experiment(entries, spec, full_2d._ERROR_TYPES),
         port_windows_fit=entries['port_windows_fit'])
-    return cfg, prepared, full_2d_stage._run_settings(cfg)
+    return cfg, prepared, full_2d._run_settings(cfg)
 
 
 class _Paused(Exception):

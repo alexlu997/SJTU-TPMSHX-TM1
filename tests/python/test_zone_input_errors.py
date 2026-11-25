@@ -24,7 +24,7 @@ def test_canonical_1d_json_restores_the_same_zone_fields(tmp_path, capsys, axis)
     cfg.to_json(path)
     loaded = ComputeConfig.from_json(path)
     assert isinstance(loaded.zones.config, dict)
-    from sjtu_tpmshx.cpp_interface.full_2d_stage import _zone_objects
+    from sjtu_tpmshx.solvers.full_2d import _zone_objects
     from tests.python.native.stage_interception import saved_2d_inputs
     expected = prepare_case(cfg, case_id='original').design_fields
     case = prepare_case(loaded, case_id='loaded')

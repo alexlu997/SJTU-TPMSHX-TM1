@@ -16,6 +16,7 @@ from sjtu_tpmshx.data_types.model_refs import freeze_value
 from sjtu_tpmshx.file_io.case_io import load_case, save_case
 from sjtu_tpmshx.file_io.result_io import load_result, save_result
 from sjtu_tpmshx.cpp_interface import full_2d_stage
+from sjtu_tpmshx.solvers import full_2d
 from tests.python import native_stage_support
 from tests.python import result_stage_fixture
 
@@ -82,7 +83,7 @@ def _compare(case, tmp_path, monkeypatch):
         raise AssertionError('saved stage must not prepare its inputs again')
     with monkeypatch.context() as patch:
         patch.setattr(preparation_host, 'operation', forbidden)
-        result = full_2d_stage.run_case(case, _control(events))
+        result = full_2d.run_case(case, _control(events))
     actual = _checked_applicability(result, result, case)
     for key in ('Ta', 'Tb', 'Ts'):
         assert np.shares_memory(actual.fields[key], actual.fields[key + '_display'])
@@ -204,7 +205,7 @@ def test_saved_stage_selected_controls(selection, tmp_path, monkeypatch):
     if selection in ('temperature_fou', 'legacy_h_fou'):
         events = []
         with pytest.raises(ValueError) as caught:
-            full_2d_stage.run_case(case, _control(events))
+            full_2d.run_case(case, _control(events))
         assert str(caught.value) == 'invalid native full enthalpy defaults request'
         assert events == []
     else:
@@ -218,17 +219,17 @@ def test_saved_stage_states_and_resume(spatial, pair):
     stage_states = {}
     def collect(target, value):
         target.setdefault(int(value['state.phase'][0]), value)
-    actual = full_2d_stage.run_case(case, _control([]), checkpoint=lambda value: collect(stage_states, value))
+    actual = full_2d.run_case(case, _control([]), checkpoint=lambda value: collect(stage_states, value))
     _checked_applicability(actual, actual, case)
     assert {1, 2}.issubset(stage_states)
     runtime = replace(_control([]), cpu_threads=1)
-    complete = full_2d_stage.run_case(case, runtime)
+    complete = full_2d.run_case(case, runtime)
     _same(replace(complete, result_id=actual.result_id, metadata={
         key: value for key, value in complete.metadata.items() if key != 'runtime_resources'}),
         replace(actual, metadata={key: value for key, value in actual.metadata.items()
                                   if key != 'runtime_resources'}), 'checkpointed run')
     for phase, snapshot in stage_states.items():
-        resumed = full_2d_stage.run_case(case, runtime, resume_state=snapshot)
+        resumed = full_2d.run_case(case, runtime, resume_state=snapshot)
         assert resumed.metadata['continuation']['saved_phase'] == phase
         _same_resumed(resumed, complete, case)
     if not spatial and pair == ('air', 'water'):
@@ -236,7 +237,7 @@ def test_saved_stage_states_and_resume(spatial, pair):
         budget = 'state.result.outer_history.0.model_h_iterations.value.max_iterations'
         saved[budget] = np.zeros_like(saved[budget])
         with pytest.raises(RuntimeError, match='invalid native model-h iteration record'):
-            full_2d_stage.run_case(case, runtime, resume_state=saved)
+            full_2d.run_case(case, runtime, resume_state=saved)
 
 
 def test_experimental_saved_scope_is_checked_for_new_run_and_restore(tmp_path, monkeypatch):
@@ -272,9 +273,9 @@ def test_saved_stage_callback_exception_identity(callback):
         raise failure
     control = replace(_control([]), **{callback: broken})
     with pytest.raises(LookupError) as caught:
-        full_2d_stage.run_case(case, control)
+        full_2d.run_case(case, control)
     assert caught.value is failure
-    full_2d_stage.run_case(case, _control([]))
+    full_2d.run_case(case, _control([]))
 
 
 def test_saved_stage_cancellation_and_checkpoint_error():
@@ -284,14 +285,14 @@ def test_saved_stage_cancellation_and_checkpoint_error():
     control = replace(_control([]), cancel_check=lambda: bool(cancel),
         outer_iteration=lambda *args: cancel.append(True))
     with pytest.raises(CancelledError):
-        full_2d_stage.run_case(case, control)
+        full_2d.run_case(case, control)
     failure = RuntimeError('checkpoint storage failed')
     def broken(value):
         raise failure
     with pytest.raises(RuntimeError) as caught:
-        full_2d_stage.run_case(case, _control([]), checkpoint=broken)
+        full_2d.run_case(case, _control([]), checkpoint=broken)
     assert caught.value is failure
-    full_2d_stage.run_case(case, _control([]))
+    full_2d.run_case(case, _control([]))
 
 
 @pytest.mark.parametrize('mode', ['cfd_smooth', 'experimental'])
@@ -308,20 +309,21 @@ def test_unpacked_saved_settings_use_saved_v4(mode, monkeypatch):
     else:
         settings['df_mode'] = np.str_(mode)
     changed = replace(case, parameters=parameters)
-    original, experiments = full_2d_stage.run_stage, []
-    def observe(driver, case, cfg, prepared, control, entries, experiment, **options):
-        experiments.append(bytes(experiment))
-        return original(driver, case, cfg, prepared, control, entries, experiment, **options)
-    monkeypatch.setattr(full_2d_stage, 'run_stage', observe)
+    original, experiments = full_2d_stage.pack_saved, []
+    def observe(case, cfg, prepared, experiment_spec):
+        saved, uniform, keepalive = original(case, cfg, prepared, experiment_spec)
+        experiments.append(bytes(saved.experiment))
+        return saved, uniform, keepalive
+    monkeypatch.setattr(full_2d_stage, 'pack_saved', observe)
     if mode == 'experimental':
         with pytest.raises(ValueError, match='saved experimental 2D settings lack the fields'):
-            full_2d_stage.run_case(changed, _control([]))
+            full_2d.run_case(changed, _control([]))
         assert experiments == []
         return
-    actual = full_2d_stage.run_case(changed, _control([]))
+    actual = full_2d.run_case(changed, _control([]))
     # The native run reads the experiment record only for experimental D-F.
     assert experiments == [bytes(full_2d_stage._Experiment())]
-    expected = full_2d_stage.run_case(case, _control([]))
+    expected = full_2d.run_case(case, _control([]))
     assert list(actual.fields) == list(expected.fields)
     for name, values in expected.fields.items():
         np.testing.assert_array_equal(actual.fields[name], values, err_msg=name)
@@ -350,7 +352,7 @@ def test_incomplete_stage_protocol_is_rejected(monkeypatch, missing):
 
     monkeypatch.setattr(full_2d_stage, 'StageDriver', Driver)
     with pytest.raises(ValueError, match='incomplete saved 2D stage protocol'):
-        full_2d_stage.run_case(case, _control([]))
+        full_2d.run_case(case, _control([]))
 
 
 @pytest.mark.parametrize('property_name', ['A_0', 'H_sf'])
@@ -361,7 +363,7 @@ def test_application_input_error_stays_after_native_execution(property_name):
     case = replace(case, parameters=parameters)
     events = []
     with pytest.raises(ValueError, match='A_0=.*, H_sf=.* must both be >= 0'):
-        full_2d_stage.run_case(case, _control(events))
+        full_2d.run_case(case, _control(events))
     # The application input check runs after the complete native execution.
     assert any(row[0] == 'outer' for row in events)
 
@@ -373,7 +375,7 @@ def test_model_h_controls_keep_retired_algorithm_rejection(spatial, algorithm):
     case = prepare_case(config, case_id='model-h-rejection')
     events = []
     with pytest.raises(ValueError, match='^invalid native full enthalpy defaults request$'):
-        full_2d_stage.run_case(case, _control(events))
+        full_2d.run_case(case, _control(events))
     assert events == []
 
 
@@ -420,13 +422,13 @@ def test_saved_geometry_precision_and_resume(selection, tmp_path, monkeypatch):
         raise Paused
     for saved in (reference, case):
         with pytest.raises(Paused):
-            full_2d_stage.run_case(saved, _control([]), checkpoint=pause)
+            full_2d.run_case(saved, _control([]), checkpoint=pause)
     native_stage_support.plane_state_equal(snapshots[1], snapshots[0])
     for key in ('input.cell_length', 'input.nu_geometry_ratio', 'input.reference_cell_length'):
         assert key in snapshots[1]
     complete = _compare(case, tmp_path, monkeypatch)
     if selection == 'cell32':
-        actual = full_2d_stage.run_case(case, _control([]), resume_state=snapshots[1])
+        actual = full_2d.run_case(case, _control([]), resume_state=snapshots[1])
         _same_resumed(actual, complete, case)
 
 
@@ -445,7 +447,7 @@ def test_saved_stage_rejects_inconsistent_grid(fault, message):
     else:
         parameters['boundary_openings']['A']['out_profile_frac'][0] += .25
     with pytest.raises(ValueError, match=message):
-        full_2d_stage.run_case(replace(case, parameters=parameters), _control([]))
+        full_2d.run_case(replace(case, parameters=parameters), _control([]))
 
 
 @pytest.mark.parametrize('fault, message', [
@@ -476,7 +478,7 @@ def test_saved_stage_checks_resource_identity(fault, message):
         refs[index] = replace(ref, parameters=params)
     changed = replace(case, metadata={**case.metadata, 'model_roles': roles}, model_refs=refs)
     with pytest.raises(ValueError, match=message):
-        full_2d_stage.run_case(changed, _control([]))
+        full_2d.run_case(changed, _control([]))
 
 
 @pytest.mark.parametrize('fault, message', [
@@ -500,7 +502,7 @@ def test_saved_stage_checks_design_and_drag(fault, message):
         parameters['flow_inputs']['A'][fault] = -1.
     invalid = replace(case, design_fields=fields, parameters=parameters)
     with pytest.raises(ValueError, match=message):
-        full_2d_stage.run_case(invalid, _control([]))
+        full_2d.run_case(invalid, _control([]))
 
 
 @pytest.mark.parametrize('name, field', [('eps', 'eps_arr'), ('r_h', 'r_h_arr')])
@@ -511,11 +513,11 @@ def test_saved_uniform_checks_preserve_scalar_precision(name, field):
     scalar = np.nextafter(np.float64(fields[field][0, 0]), np.inf)
     changed = replace(case, design_fields=fields, parameters={**case.parameters, name: scalar})
     with pytest.raises(ValueError, match='uniform design field'):
-        full_2d_stage.run_case(changed, _control([]))
+        full_2d.run_case(changed, _control([]))
 
 
 def test_saved_grid_direction_matches_actual_solver_direction():
     _, case = _case()
     changed = replace(case, parameters={**case.parameters, 'dir_A': case.parameters['dir_A'] ^ 1})
     with pytest.raises(ValueError, match='direction disagrees with the solver direction'):
-        full_2d_stage.run_case(changed, _control([]))
+        full_2d.run_case(changed, _control([]))

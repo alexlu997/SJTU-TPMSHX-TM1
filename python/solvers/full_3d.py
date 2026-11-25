@@ -18,6 +18,7 @@ from sjtu_tpmshx.physical_models.fluid_props import WaterStateError
 from sjtu_tpmshx.physical_models.nu_correlations import sco2_nu_parameters
 from sjtu_tpmshx.run_control.run_environment import require_f2_mode, run_environment
 from sjtu_tpmshx.run_control.run_warnings import current_warnings, merge_warnings, replay_sco2_notices
+from .stage_execution import link_execution
 
 _DOMAIN_ERRORS = {1: ValueError, 2: WaterStateError, 3: FloatingPointError}
 _CHECKPOINT_PHASES = (1, 2, 6, 7, 8, 9, 10)
@@ -73,7 +74,7 @@ def run_case(case, control, *, resume_state=None, checkpoint=None, checkpoint_du
     detached['_input_resolution'] = resolved_input_record(case, **report['input'])
     detached['last_closure_ranges'] = output['last_closure_ranges']
     detached['stage_diagnostics'] = diagnostics(output['raw_diagnostics'], cfg, case.design_fields)
-    detached['execution_facts'] = full_3d_stage.link_execution(report, case, detached['true_h'])
+    detached['execution_facts'] = link_execution(report, case, detached['true_h'])
     detached['_native_applicability'] = output['native_applicability']
     if 'physical_ledger' in output:
         detached['physical_ledger'] = output['physical_ledger']

@@ -31,8 +31,8 @@ full_3d = importlib.import_module('sjtu_tpmshx.solvers.backends.cpp.full_3d_stag
 assert full_3d is importlib.import_module('sjtu_tpmshx.solvers.full_3d')
 assert callable(full_3d.run_case) and callable(full_3d.capture_result)
 before = importlib.import_module('sjtu_tpmshx.solvers.backends.cpp.full_2d_stage')
-current = importlib.import_module('sjtu_tpmshx.cpp_interface.full_2d_stage')
-assert before is current and before.run_case is current.run_case
+current = importlib.import_module('sjtu_tpmshx.solvers.full_2d')
+assert before is current and callable(before.run_case) and callable(before.capture_result)
 """
 
 

@@ -5,7 +5,7 @@ import pytest
 from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.run_control.module_ports import resolve_control
-from sjtu_tpmshx.cpp_interface import full_2d_stage
+from sjtu_tpmshx.solvers import full_2d
 from tests.python.integration_tm1.integration_support import baseline_config
 
 
@@ -27,7 +27,7 @@ def test_full_prepared_flow_consumes_drag_without_prediction(monkeypatch):
     residuals = []
     control = resolve_control(RunControl(residual=lambda *row: residuals.append(row)))
     states = []
-    result = full_2d_stage.run_case(case, control, checkpoint=states.append)
+    result = full_2d.run_case(case, control, checkpoint=states.append)
     # The last saved boundary holds the inputs and the completed flow grids.
     state = states[-1]
     for index, side in enumerate('AB'):
@@ -42,5 +42,5 @@ def test_full_prepared_flow_consumes_drag_without_prediction(monkeypatch):
     bad = replace(case, parameters={**case.parameters, 'flow_inputs': {**case.parameters['flow_inputs'], 'A': flow}})
     residuals.clear()
     with pytest.raises(ValueError, match='grid disagrees'):
-        full_2d_stage.run_case(bad, control)
+        full_2d.run_case(bad, control)
     assert not residuals

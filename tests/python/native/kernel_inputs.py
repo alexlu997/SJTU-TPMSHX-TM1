@@ -3,8 +3,7 @@
 The functions only select inputs. The production stage validators and the
 bridge tests keep all checks.
 """
-from sjtu_tpmshx.cpp_interface import full_2d_stage
-from sjtu_tpmshx.solvers import full_3d
+from sjtu_tpmshx.solvers import full_2d, full_3d
 from sjtu_tpmshx.data_types.portable_data import mutable_data
 
 
@@ -14,11 +13,11 @@ def _no_experiment(*_):
 
 def full_2d_record(case, *, pressure_shooting=True):
     """Return the 2D settings and grid that the saved production stage packs."""
-    shape = full_2d_stage.execution_grid(case)
-    cfg, prepared, _ = full_2d_stage.saved_inputs(case, shape, check_experiment=_no_experiment,
-                                                   port_windows_fit=None)
+    shape = full_2d.execution_grid(case)
+    cfg, prepared, _ = full_2d.saved_inputs(case, shape, check_experiment=_no_experiment,
+                                            port_windows_fit=None)
     cfg['p_in_shooting'] = pressure_shooting
-    return dict(cfg=cfg, prepared=prepared, settings=full_2d_stage._run_settings(cfg))
+    return dict(cfg=cfg, prepared=prepared, settings=full_2d._run_settings(cfg))
 
 
 def full_3d_record(case, **controls):

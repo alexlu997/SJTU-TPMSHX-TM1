@@ -8,7 +8,7 @@ from sjtu_tpmshx.data_types.compute_config import ComputeConfig
 from sjtu_tpmshx.file_io.case_io import load_case, save_case
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.solvers.api import run_case
-from sjtu_tpmshx.solvers import full_3d
+from sjtu_tpmshx.solvers import full_2d, full_3d
 from sjtu_tpmshx.cpp_interface import full_2d_stage, full_3d_stage
 from tests.python.native.stage_interception import first_state, stage_control
 
@@ -25,7 +25,7 @@ def prepared_case(request):
 def _validate(case):
     """Apply the saved-stage grid validation of the case dimension."""
     if case.grid['dimension'] == 2:
-        full_2d_stage.execution_grid(case)
+        full_2d.execution_grid(case)
     else:
         full_3d.validate_saved_case(case)
 

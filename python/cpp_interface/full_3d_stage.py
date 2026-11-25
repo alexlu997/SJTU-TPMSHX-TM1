@@ -9,19 +9,8 @@ import numpy as np
 from sjtu_tpmshx.run_control.cancellation import CancelledError
 from sjtu_tpmshx.run_control.run_environment import run_environment
 
-from sjtu_tpmshx.cpp_interface._native_result_stage import (
-    Evidence,
-    Input as Evaluation,
-    completed_report,
-    detach_stage_fields,
-    executed_view,
-    execution_view_query as _execution_view_query,
-    link_execution,
-    nu_observation,
-    record,
-    stage_closures,
-    stage_ledger,
-)
+from ._native_result_stage import Evidence, Input as Evaluation, record
+from .solver_library import stage_capture
 from sjtu_tpmshx.cpp_interface._native_preparation_case import _Array as PreparedArray, _Evidence, _Text, _Model, _Nu
 from .preparation_host import borrow_ranges as _ranges, borrow_solver_mesh, pack_saved_resources
 from .solver_library._full_3d_abi import (
@@ -52,7 +41,6 @@ __all__ = [
     'require_saved_stage',
     'execution_view_query',
     'run_saved',
-    'link_execution',
 ]
 
 _U, _Z, _D = ct.c_uint32, ct.c_size_t, ct.c_double
@@ -124,7 +112,7 @@ def borrow_mesh(case, library):
 
 
 def execution_view_query(library):
-    return _execution_view_query(library, 3, _StageResult, _ExecutionView)
+    return stage_capture.execution_view_query(library, 3, _StageResult, _ExecutionView)
 
 
 def bootstrap_query(library):
@@ -338,10 +326,9 @@ class SavedRun(NativeRun):
 
     def __init__(self, library, saved, request, host, errors, state, error_types):
         self.errors = errors
-        self.error_types = error_types
         self.creation_version = saved.abi_version
         super().__init__(library, [ct.POINTER(type(saved)), ct.POINTER(_Request), ct.POINTER(_Host)],
-            [ct.byref(saved), ct.byref(request), ct.byref(host)], host.callbacks, state)
+            [ct.byref(saved), ct.byref(request), ct.byref(host)], host.callbacks, state, error_types=error_types)
 
     def _call(self, function, *args):
         error = ct.create_string_buffer(2048)
@@ -616,7 +603,7 @@ def _detach(r, shape, settings, energy_settings, entry_version, *, emit_audit, c
     result['simple_failures'] = [r.simple_failures[i].decode() for i in range(r.simple_failure_count)]
     result['warnings'] = [r.warnings[i].decode() for i in range(r.warning_count)]
     result['envelope_reasons'] = [r.envelope_reasons[i].decode() for i in range(r.envelope_reason_count)]
-    result['nu_observations'] = {label: nu_observation(value, shape, capture_scalars['nu'][side])
+    result['nu_observations'] = {label: stage_capture.nu_observation(value, shape, capture_scalars['nu'][side])
         for side, (label, value) in enumerate(zip('AB', r.nu_observations))}
     result['final_conductivity'] = tuple([_copy(v, shape) if emit_audit else None for v in r.final_conductivity])
     result['final_rho_cp'] = tuple([_copy(v, shape) if emit_audit else None for v in r.final_rho_cp])
@@ -633,8 +620,6 @@ def run_saved(case, library, abi, table_directory, execution_query, *,
               select_nu, validate_velocity_relaxation,
               cancel_check=None, report_progress=None, iteration=None, outer_iteration=None):
     """Run the saved 3D stage and detach every native output before release."""
-    from ._native_result_stage import copy_applicability
-
     query_bootstrap = bootstrap_query(library)
     shape, cell_mm, wall_mm, nu = validate_case(case, None if mesh is None else mesh.shape)
     cfg, prepared = case.parameters, case.parameters['prepared']
@@ -681,13 +666,14 @@ def run_saved(case, library, abi, table_directory, execution_query, *,
         require_completed(result.raw, bootstrap)
         emit_audit = bool(cfg.get('_emit_audit', False))
         summary = copy_summary(library, result, emit_audit=emit_audit, copy_array=_copy)
-        execution = executed_view(execution_query, result)
-        report = completed_report(library, result)
+        execution = stage_capture.executed_view(execution_query, result)
+        report = stage_capture.completed_report(library, result)
         settings, executed, evidence = execution.settings, execution.execution, result.evidence
         if settings.outer_count != result.raw.outer_count:
             raise RuntimeError('native full 3D effective settings do not match the thermal history')
         records = executed.records.contents
-        fields = detach_stage_fields(evidence, shape, prepared_fields={'K_ss': np.asarray(case.design_fields['K_ss'])})
+        fields = stage_capture.detach_stage_fields(
+            evidence, shape, prepared_fields={'K_ss': np.asarray(case.design_fields['K_ss'])})
         # Keep the complete-driver version used in published full_3d_v5 result records.
         entry_version = 5
         detached = _detach(result.raw, shape, result.resolved, settings, entry_version,
@@ -712,17 +698,17 @@ def run_saved(case, library, abi, table_directory, execution_query, *,
         )
         if detached['mode'] in ('model_h', 'temperature'):
             if evidence.thermal.temperature:
-                output['temperature_evidence'] = stage_ledger(evidence.thermal, records.temperature[0], shape)
+                output['temperature_evidence'] = stage_capture.stage_ledger(evidence.thermal, records.temperature[0], shape)
             output['native_metadata'] = dict(abi=abi, algorithm=executed.algorithm.decode(),
                                              red_black=bool(executed.red_black))
-        _, closure_warnings, last_closure_ranges = stage_closures(records)
+        _, closure_warnings, last_closure_ranges = stage_capture.stage_closures(records)
         output['closure_warnings'] = closure_warnings
         output['last_closure_ranges'] = last_closure_ranges
         output['raw_diagnostics'] = copy_diagnostics(records, evidence)
-        output['native_applicability'] = copy_applicability(
+        output['native_applicability'] = stage_capture.copy_applicability(
             evidence.applicability, case.metadata.get('applicability_inputs', ()))
         if 'temperature_evidence' not in output:
-            output['physical_ledger'] = stage_ledger(evidence.thermal, None, shape)
+            output['physical_ledger'] = stage_capture.stage_ledger(evidence.thermal, None, shape)
         output['sco2_notices'] = tuple([None if raw is None else bytes(raw) for raw in executed.sco2_notices])
     finally:
         if result is not None:
