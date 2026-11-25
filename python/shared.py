@@ -1,7 +1,7 @@
 """Resolve published shared module names to their current owners on first use."""
 from importlib import import_module
 from importlib.machinery import ModuleSpec
-from importlib.util import find_spec, spec_from_file_location
+from importlib.util import find_spec
 import sys
 
 _PACKAGES = {"configs": "model_configs", "domain": "data_types", "models": "physical_models",
@@ -20,6 +20,13 @@ _MOVED = {
         "cancellation", "module_ports", "paused_run", "provenance", "run_environment", "run_warnings")},
 }
 _SEARCH_PATH = __file__
+
+
+def _df_child(name):
+    relative = f"df_surrogate.{name}"
+    if relative in _MOVED:
+        return import_module(f"{__name__}.{relative}")
+    raise AttributeError(f"module '{__package__}.{_PACKAGES['df_surrogate']}' has no attribute {name!r}")
 
 
 class _SharedNames:
@@ -64,10 +71,6 @@ class _SharedNames:
         spec = find_spec(canonical)
         if spec is None:
             return None
-        if fullname == __name__ + ".df_surrogate":
-            # From-imports must search the shared name for the relocated children.
-            search_paths = [_SEARCH_PATH, *spec.submodule_search_locations]
-            return spec_from_file_location(fullname, spec.origin, submodule_search_locations=search_paths)
         alias = ModuleSpec(fullname, self, is_package=spec.submodule_search_locations is not None)
         alias.origin = spec.origin
         alias.has_location = spec.has_location
@@ -85,6 +88,9 @@ class _SharedNames:
         canonical = import_module(module.__spec__.loader_state)
         if hasattr(canonical, "__path__") and _SEARCH_PATH not in canonical.__path__:
             canonical.__path__.insert(0, _SEARCH_PATH)
+        if module.__name__ == __name__ + ".df_surrogate":
+            # A from-import looks up the published child on this package object.
+            canonical.__getattr__ = _df_child
         sys.modules[module.__name__] = canonical
 
 

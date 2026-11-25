@@ -9,7 +9,7 @@ import pytest
 
 from sjtu_tpmshx.development.runs.tools import audit_import_graph as audit
 from sjtu_tpmshx.development.runs.tools.audit_import_graph import LAYERS, import_targets, target_unit, unit_of
-from tests.python.packaging_support import PUBLIC_NAME_CHECK
+from tests.python.packaging_support import PUBLIC_NAME_CHECK, df_package_identity_check
 
 REPO = Path(__file__).resolve().parents[3]
 ROOT = REPO / 'python'
@@ -238,6 +238,12 @@ def test_checkout_keeps_published_submodule_identity():
                     "from pathlib import Path\nimport sjtu_tpmshx\n"
                     "assert Path(sjtu_tpmshx.__file__).resolve() == Path.cwd() / 'python/__init__.py'\n"
                     + PUBLIC_NAME_CHECK], cwd=REPO, check=True, timeout=60)
+
+
+@pytest.mark.parametrize('shared_first', [False, True], ids=['canonical-first', 'shared-first'])
+def test_checkout_keeps_df_package_identity(shared_first):
+    subprocess.run([sys.executable, '-c', df_package_identity_check(shared_first)],
+                   cwd=REPO, check=True, timeout=60)
 
 
 def test_published_sco2_reader_runs_in_a_fresh_interpreter():

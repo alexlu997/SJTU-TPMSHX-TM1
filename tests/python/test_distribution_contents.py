@@ -12,7 +12,7 @@ import zipfile
 import pytest
 
 from engineering.scripts import check_distributions as distributions
-from tests.python.packaging_support import PUBLIC_NAME_CHECK
+from tests.python.packaging_support import PUBLIC_NAME_CHECK, df_package_identity_check
 
 
 @pytest.fixture
@@ -238,14 +238,6 @@ from sjtu_tpmshx.physical_models.co2_correlations import coefficients
 assert coefficients() == load_co2_coefficients() and load_preparation_df_parameters()
 from sjtu_tpmshx.preprocess.offline import load_core, load_segments
 assert callable(load_core) and callable(load_segments)
-from importlib.util import find_spec
-from sjtu_tpmshx.development.runs.cfd_asym import ingest_cfd_kappa, kappa_asym
-from sjtu_tpmshx.shared.df_surrogate import ingest_cfd_kappa as shared_ingest
-from sjtu_tpmshx.shared.df_surrogate import kappa_asym as shared_registry
-from sjtu_tpmshx.shared.df_surrogate.load_sco2_cfd import load_core as shared_core
-assert shared_ingest is ingest_cfd_kappa and shared_registry is kappa_asym
-assert shared_core is load_core
-assert find_spec('sjtu_tpmshx.physical_models.df_surrogate.ingest_cfd_kappa') is None
 from sjtu_tpmshx.development.validation.harness._order_fit import fit_order_loglog
 assert abs(fit_order_loglog([1., .5, .25], [1., .25, .0625]).p - 2.) < 1e-12
 from sjtu_tpmshx.development.runs.tools import build_fast_tier_manifest as manifest
@@ -294,6 +286,11 @@ def test_installed_wheel_runtime(kind):
                                  json.dumps(sorted(distributions.declared_resources(root)))],
                                 cwd=directory, env=env, capture_output=True, text=True, timeout=120)
         assert result.returncode == 0, result.stdout + result.stderr
+        for shared_first in (False, True):
+            code = "import sys\nsys.path.insert(0, sys.argv[1])\n" + df_package_identity_check(shared_first)
+            result = subprocess.run([sys.executable, "-I", "-c", code, str(target)], cwd=directory,
+                                    env=env, capture_output=True, text=True, timeout=60)
+            assert result.returncode == 0, result.stderr
         for module in ("sjtu_tpmshx.shared.df_surrogate.ingest_cfd_kappa",
                        "sjtu_tpmshx.development.runs.cfd_asym.ingest_cfd_kappa"):
             result = subprocess.run([sys.executable, "-m", module, "--help"], cwd=directory,
