@@ -32,6 +32,7 @@ from sjtu_tpmshx.data_types.compute_config import (
     PartialBCConfig,
     SolverConfig,
 )
+from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
 from sjtu_tpmshx.physical_models import fluid_props
 from sjtu_tpmshx.file_io.file_set import staged_files
 from sjtu_tpmshx.physical_models.sco2_props import P_RANGE_PA
@@ -82,8 +83,8 @@ def _reference_valid(df: pd.DataFrame) -> pd.Series:
         & df["ok_hb"]
         & df["ok_heat_flow"]
         & (df["mdot"] > 0)
-        & (df["Tin_C"] + 273.15).between(280.0, 700.0)
-        & (df["Tout_C"] + 273.15).between(280.0, 700.0)
+        & (df["Tin_C"] + CELSIUS_ZERO_K).between(280.0, 700.0)
+        & (df["Tout_C"] + CELSIUS_ZERO_K).between(280.0, 700.0)
         & df["Pin_abs_Pa"].between(*P_RANGE_PA)
         & df["Pout_abs_Pa"].between(*P_RANGE_PA)
     )
@@ -112,12 +113,12 @@ def _config(topology: str, hot: pd.Series, cold: pd.Series,
     return ComputeConfig(
         fluid_A=FluidConfig(
             type="sco2", u_mps=u_hot,
-            T_in_K=float(hot["Tin_C"]) + 273.15,
+            T_in_K=float(hot["Tin_C"]) + CELSIUS_ZERO_K,
             P_in_Pa=float(hot["Pin_abs_Pa"]),
         ),
         fluid_B=FluidConfig(
             type="sco2", u_mps=u_cold,
-            T_in_K=float(cold["Tin_C"]) + 273.15,
+            T_in_K=float(cold["Tin_C"]) + CELSIUS_ZERO_K,
             P_in_Pa=float(cold["Pin_abs_Pa"]),
         ),
         geometry=GeometryConfig(
@@ -140,9 +141,9 @@ def _run_case(topology: str, case: int, dimension: str,
     geo = _solver_geometry(topology)
     model = fluid_props.get("sco2")
     rho_hot = float(model.rho(
-        float(hot["Tin_C"]) + 273.15, float(hot["Pin_abs_Pa"])))
+        float(hot["Tin_C"]) + CELSIUS_ZERO_K, float(hot["Pin_abs_Pa"])))
     rho_cold = float(model.rho(
-        float(cold["Tin_C"]) + 273.15, float(cold["Pin_abs_Pa"])))
+        float(cold["Tin_C"]) + CELSIUS_ZERO_K, float(cold["Pin_abs_Pa"])))
     u_hot = _flow_velocity(float(hot["mdot"]), rho_hot, geo["void_area_m2"])
     u_cold = _flow_velocity(float(cold["mdot"]), rho_cold, geo["void_area_m2"])
 
@@ -167,8 +168,8 @@ def _run_case(topology: str, case: int, dimension: str,
     q_cold = abs(float(cold["Q_kW"])) * 1.0e3
     q_ref = 0.5 * (q_hot + q_cold)
     reference_ok = bool(_reference_valid(pd.DataFrame([hot, cold])).all())
-    t_hot_out_exp = float(hot["Tout_C"]) + 273.15
-    t_cold_out_exp = float(cold["Tout_C"]) + 273.15
+    t_hot_out_exp = float(hot["Tout_C"]) + CELSIUS_ZERO_K
+    t_cold_out_exp = float(cold["Tout_C"]) + CELSIUS_ZERO_K
     t_lo = min(cfg.fluid_A.T_in_K, cfg.fluid_B.T_in_K)
     t_hi = max(cfg.fluid_A.T_in_K, cfg.fluid_B.T_in_K)
     numerical_ok = bool(

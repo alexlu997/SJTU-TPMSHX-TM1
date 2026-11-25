@@ -62,6 +62,7 @@ from sjtu_tpmshx.physical_models.tpms_calc import (
 # (cross-flow, narrow 42×42 port). Internal interstitial flow areas
 # differ between streams since flow direction differs.
 from sjtu_tpmshx.model_configs import load_shanghai_baseline
+from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
 from sjtu_tpmshx.data_types.compute_config import ComputeConfig
 # Audit C3 (2026-05-28): sourced through ComputeConfig.
 _SH = load_shanghai_baseline()
@@ -168,11 +169,11 @@ def main(argv=None) -> None:
 
     for ci in range(16):
         m_air = float(df.iloc[ci, 5])
-        T_Ain  = float(df.iloc[ci, 28]) + 273.15
-        T_Aout_exp = float(df.iloc[ci, 29]) + 273.15
+        T_Ain  = float(df.iloc[ci, 28]) + CELSIUS_ZERO_K
+        T_Aout_exp = float(df.iloc[ci, 29]) + CELSIUS_ZERO_K
         P_Ain  = P_atm + float(df.iloc[ci, 30])
-        T_Bin  = float(df.iloc[ci, 24]) + 273.15
-        T_Bout_exp = float(df.iloc[ci, 25]) + 273.15
+        T_Bin  = float(df.iloc[ci, 24]) + CELSIUS_ZERO_K
+        T_Bout_exp = float(df.iloc[ci, 25]) + CELSIUS_ZERO_K
         m_water = float(df.iloc[ci, 7])
 
         # ── Air-side props at T_Ain (inlet only — no leak, no iter) ──

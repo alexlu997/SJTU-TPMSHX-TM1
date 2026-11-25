@@ -25,6 +25,7 @@ from sjtu_tpmshx.cpp_interface import _native_geometry
 from sjtu_tpmshx.cpp_interface import _native_properties
 from sjtu_tpmshx.cpp_interface._native_result_checks import record_range
 from sjtu_tpmshx.model_configs.model_parameters import load_model_parameters
+from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
 
 _MODEL_PARAMETERS = load_model_parameters()
 
@@ -42,7 +43,6 @@ _AIR_CP_RANGE = tuple(_MODEL_PARAMETERS['air']['cp_temperature_range_K'])
 _WATER_T_RANGE = tuple(_MODEL_PARAMETERS['water']['temperature_range_K'])
 _AIR_CP_COEFFICIENTS = tuple(_MODEL_PARAMETERS['air']['cp_coefficients'])
 _WATER_CP = _MODEL_PARAMETERS['water']['cp']
-_CELSIUS_ZERO = _MODEL_PARAMETERS['constants']['celsius_zero_K']
 _MODEL_H_REFERENCE = _MODEL_PARAMETERS['constants']['model_h_reference_K']
 _AIR_SUTHERLAND = tuple(_MODEL_PARAMETERS['air']['sutherland'])
 _AIR_CONDUCTIVITY = tuple(_MODEL_PARAMETERS['air']['conductivity'])
@@ -54,9 +54,9 @@ _WATER_CONDUCTIVITY = tuple(_MODEL_PARAMETERS['water']['conductivity'])
 def model_h_coefficients(fluid):
     """Existing cp polynomial, temperature origin and model-h reference (K)."""
     if fluid == 'air':
-        return (*_AIR_CP_COEFFICIENTS, _CELSIUS_ZERO, _MODEL_H_REFERENCE)
+        return (*_AIR_CP_COEFFICIENTS, CELSIUS_ZERO_K, _MODEL_H_REFERENCE)
     if fluid == 'water':
-        return (_WATER_CP, 0.0, 0.0, _CELSIUS_ZERO, _MODEL_H_REFERENCE)
+        return (_WATER_CP, 0.0, 0.0, CELSIUS_ZERO_K, _MODEL_H_REFERENCE)
     raise ValueError('model h supports only air and water')
 
 _range_warnings_emitted = set()

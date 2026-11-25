@@ -16,6 +16,7 @@ from numbers import Integral
 from typing import Any, Dict, List, Optional, Tuple, cast
 
 from sjtu_tpmshx.model_configs.df_domain import TRAIN_L_NODES, TRAIN_T_NODES
+from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
 
 
 # ---------------------------------------------------------------- types
@@ -345,12 +346,12 @@ def parse_unit_value(value: float, unit_text: str,
     if family == 'temp':
         want_K = (temp_unit == 'K')
         if u in ('k', 'kelvin'):
-            return value if want_K else value - 273.15
+            return value if want_K else value - CELSIUS_ZERO_K
         if u in ('c', '°c', 'celsius', 'degc'):
-            return value + 273.15 if want_K else value
+            return value + CELSIUS_ZERO_K if want_K else value
         if u in ('f', '°f', 'fahrenheit', 'degf'):
-            K = (value - 32.0) * 5.0 / 9.0 + 273.15
-            return K if want_K else K - 273.15
+            K = (value - 32.0) * 5.0 / 9.0 + CELSIUS_ZERO_K
+            return K if want_K else K - CELSIUS_ZERO_K
         return None
     raise ValueError(f"unknown family {family!r}")
 

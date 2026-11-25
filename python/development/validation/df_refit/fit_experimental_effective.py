@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize_scalar
 
+from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
 from sjtu_tpmshx.physical_models.df_surrogate.experimental_correction import (
     correction_scale, hx_velocity_bounds)
 from sjtu_tpmshx.physical_models.df_surrogate.full_core_3cell_fixed_v2 import FullCore3CellFixedDFV2
@@ -84,7 +85,7 @@ def evaluate_sco2() -> tuple[pd.DataFrame, list[tuple[str, str, float, float, fl
         K0, cF0 = FullCore3CellFixedDFV2(tp).predict(7.0, 0.6)
         u = g.mdot.to_numpy(float) / (g.rho.to_numpy(float) * A)
         rho_in = PropsSI(
-            "D", "T", g.Tin_C.to_numpy(float) + 273.15,
+            "D", "T", g.Tin_C.to_numpy(float) + CELSIUS_ZERO_K,
             "P", g.Pin_abs_Pa.to_numpy(float), "CO2")
         u_in = g.mdot.to_numpy(float) / (np.asarray(rho_in) * A)
         u_lo, u_hi = hx_velocity_bounds("sco2", tp)
@@ -142,7 +143,7 @@ def fit_water_hx() -> tuple[pd.DataFrame, pd.DataFrame]:
         raw = load_water_cases(tp)
         quality_valid = ~(raw.dp_nonphysical | raw.dup_row)
         T = (0.5 * (raw["水进口温度/℃"].to_numpy(float)
-                    + raw["水出口温度/℃"].to_numpy(float)) + 273.15)
+                    + raw["水出口温度/℃"].to_numpy(float)) + CELSIUS_ZERO_K)
         from sjtu_tpmshx.physical_models.fluid_props import check_water_state
         check_water_state('water', T,
                           0.5 * (raw.water_P_in_abs_Pa + raw.water_P_out_abs_Pa),
@@ -214,9 +215,9 @@ def fit_air_hx() -> tuple[pd.DataFrame, pd.DataFrame]:
         g = raw.loc[included]
         G = g["样机空气流量kg/s"].to_numpy(float) / A_FLOW[tp]
         T_bar = (0.5 * (g["空气进口温度/℃"].to_numpy(float)
-                        + g["空气出口温度/℃"].to_numpy(float)) + 273.15)
+                        + g["空气出口温度/℃"].to_numpy(float)) + CELSIUS_ZERO_K)
         P_in = P_ATM + g["空气进口压力/Pa"].to_numpy(float)
-        T_in = g["空气进口温度/℃"].to_numpy(float) + 273.15
+        T_in = g["空气进口温度/℃"].to_numpy(float) + CELSIUS_ZERO_K
         u_in = G * R_AIR * T_in / P_in
         u_lo, u_hi = hx_velocity_bounds("air", tp)
         if np.any((u_in < u_lo - 1e-12) | (u_in > u_hi + 1e-12)):

@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 from sjtu_tpmshx.data_types.compute_config import SCO2_P_RANGE_PA
 from sjtu_tpmshx.data_types.validator import format_unit_value
 from sjtu_tpmshx.model_configs.df_domain import TRAIN_L, TRAIN_T
+from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
 from sjtu_tpmshx.physical_models.tpms_calc import geometry as tpms_geometry, adaptive_grid
 from sjtu_tpmshx.applications.gui.ui.fmt import duration as _fmt_dur
 from sjtu_tpmshx.applications.gui.ui.window_config import FIELD_UNITS, POSITIVE_FIELDS, parse_field_value
@@ -1130,7 +1131,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
                     v = float(txt)
                     if fam_target is not None and fam_target[0] == 'temp':
                         if getattr(self, '_temp_unit', 'K') == 'C':
-                            v += 273.15
+                            v += CELSIUS_ZERO_K
                     import math as _math
                     # robustness-hardening: float("nan") parses fine and
                     # `nan <= 0` is False — nan/inf sailed through here.
