@@ -207,19 +207,24 @@ class SensitivityDialog(QDialog):
 
     def _run_sweep(self):
         from .window_config import _parse_fluid_label
-        fluid = _parse_fluid_label(getattr(self._window, 'combo_fluidA', None))
-        if fluid != 'air':
-            self._invalidate_grid(message="Fluid A must be Air.")
-            self._hint.setText(
-                f"Cannot run: Fluid A must be Air (selected: {fluid}). " + _SCOPE_NOTE)
-            return
-        self._hint.setText(_SCOPE_NOTE)
         key_x = self._combo_x.currentData()
         key_y = self._combo_y.currentData()
         key_m = self._combo_m.currentData()
-        if key_x == key_y:
-            self._window.statusBar().showMessage(
-                "Sweep axes must differ.", 5000)
+        try:
+            fluid = _parse_fluid_label(getattr(self._window, 'combo_fluidA', None))
+            if fluid != 'air':
+                self._invalidate_grid(message="Fluid A must be Air.")
+                self._hint.setText(
+                    f"Cannot run: Fluid A must be Air (selected: {fluid}). " + _SCOPE_NOTE)
+                return
+            self._hint.setText(_SCOPE_NOTE)
+            if key_x == key_y:
+                self._window.statusBar().showMessage("Sweep axes must differ.", 5000)
+                return
+            fixed = self._collect_fixed_params((key_x, key_y))
+        except ValueError as exc:
+            self._invalidate_grid(message=str(exc))
+            self._hint.setText(f"Cannot run: {exc} " + _SCOPE_NOTE)
             return
         try:
             n = max(3, min(25, int(self._le_steps.text())))
@@ -229,12 +234,6 @@ class SensitivityDialog(QDialog):
         lo_y, hi_y = self._range_for(key_y)
         xs = np.linspace(lo_x, hi_x, n)
         ys = np.linspace(lo_y, hi_y, n)
-        try:
-            fixed = self._collect_fixed_params((key_x, key_y))
-        except ValueError as exc:
-            self._invalidate_grid(message=str(exc))
-            self._hint.setText(f"Cannot run: {exc} " + _SCOPE_NOTE)
-            return
         grid = np.zeros((n, n))
         # The per-row event pump must not let visible selectors get ahead of
         # the input snapshot being evaluated.

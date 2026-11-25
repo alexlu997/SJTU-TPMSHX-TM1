@@ -10,12 +10,12 @@ from sjtu_tpmshx.run_control.run_warnings import range_context
 from sjtu_tpmshx.physical_models import fluid_props as _registry
 from sjtu_tpmshx.physical_models.fluid_props import Props as Props
 from sjtu_tpmshx.cpp_interface import _native_properties
-from sjtu_tpmshx.physical_models.tpms_calc import nu_from_Re
+from sjtu_tpmshx.physical_models.tpms_calc import nu_from_Re, nu_re_window as nu_re_window
 from sjtu_tpmshx.physical_models.nu_correlations import (
     DESIGN_NU_REFERENCE_STATES as DESIGN_NU_REFERENCE_STATES,
-    NU_RE_FIT_RANGE,        # air 幂律拟合 Re 窗 (400,16000)
-    WATER_NU_RE_RANGE,      # 拓扑专属水侧 Nu 关联式验证 Re 域 (新式)
-    SCO2_NU_RE_RANGE,       # sCO2 CFD 拟合 Re 域 (2600,128000), Diamond+Gyroid
+    NU_RE_FIT_RANGE as NU_RE_FIT_RANGE,
+    WATER_NU_RE_RANGE as WATER_NU_RE_RANGE,
+    SCO2_NU_RE_RANGE as SCO2_NU_RE_RANGE,
     nu_water_topo,
     nu_sco2_topo,
     _warn_extrap, _warn_water_nu, _warn_sco2_nu, record_quick_sco2_pr_notice,
@@ -37,21 +37,6 @@ def record_native_design_ranges(fluid, topo, temperature, reynolds):
         _warn_sco2_nu(max(reynolds, 1.), max(reynolds, 1.), topo, reynolds)
     else:
         raise ValueError(f'unknown fluid {fluid!r}')
-
-
-def nu_re_window(fluid: str):
-    """该流体 Nu 关联式的验证 Re 域 (lo, hi)。域外 = 外推, 低置信。
-    air → 项目幂律拟合窗 (400,16000); water → 拓扑专属 (90,51000);
-    sco2 → 光滑壁单胞 CFD 拟合 (2600,128000), Diamond+Gyroid
-    (2026-07-15, 局部体物性 Re_b 覆盖; 失效带见 nu_correlations)。"""
-    if fluid == "water":
-        return WATER_NU_RE_RANGE
-    if fluid == "sco2":
-        return SCO2_NU_RE_RANGE
-    if fluid == "co2":
-        from .co2_correlations import RE_RANGE
-        return RE_RANGE
-    return NU_RE_FIT_RANGE
 
 
 def fluid_props(fluid: str, T_K: float, P_Pa: float) -> Props:

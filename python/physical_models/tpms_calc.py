@@ -82,16 +82,19 @@ from .nu_correlations import (  # noqa: F401 - existing public re-exports
     SCO2_NU_RE_RANGE,
 )
 
-# Per-fluid Re fit windows for the compute()-level out-of-range warning. The
-# Nu correlations have DIFFERENT validated Re ranges per fluid; warning every
-# fluid against the air window (400,16000) mis-flagged in-range water/sCO2 and
-# silently passed out-of-range sCO2 below 9000 (audit 2026-06-28 N5).
-_RE_FIT_RANGE_BY_FLUID = {
-    'air': NU_RE_FIT_RANGE,
-    'water': WATER_NU_RE_RANGE,
-    'sco2': SCO2_NU_RE_RANGE,
-    'co2': (3000., 60000.),
-}
+
+def nu_re_window(fluid: str):
+    """Return the validated Reynolds number range for the fluid's Nu correlation."""
+    if fluid == 'air':
+        return NU_RE_FIT_RANGE
+    if fluid == 'water':
+        return WATER_NU_RE_RANGE
+    if fluid == 'sco2':
+        return SCO2_NU_RE_RANGE
+    if fluid == 'co2':
+        from .co2_correlations import RE_RANGE
+        return RE_RANGE
+    raise ValueError(f'unknown fluid {fluid!r}')
 
 
 # ── Geometry-only interface ────────────────────────────────────
@@ -122,7 +125,9 @@ def adaptive_grid(L_domain: float, H_domain: float,
 
 def _reynolds_notice(tpms_type, Re, fluid_type):
     """Return the existing uncached standalone inlet Re notice."""
-    lo, hi = _RE_FIT_RANGE_BY_FLUID.get(fluid_type, NU_RE_FIT_RANGE)
+    from .fluid_props import get
+
+    lo, hi = nu_re_window(get(fluid_type).name)
     if not (lo <= Re <= hi):
         return (f"{tpms_type}: Re = {Re:.1f} is outside the validated range "
                 f"[{lo:.0f}, {hi:.0f}]. Correlation accuracy may be reduced.")

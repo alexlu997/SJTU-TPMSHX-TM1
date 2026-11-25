@@ -165,6 +165,16 @@ def test_config_from_window_optional_widgets_missing():
     assert not cfg.is_3d
 
 
+@pytest.mark.parametrize('label', ['Helium', 'Heavy water', 'sCO₂ blend'])
+def test_config_from_window_rejects_unknown_fluid_label(label):
+    with pytest.raises(ValueError, match=label):
+        config_from_window(_StubWindow(fluidB=label))
+
+
+def test_config_from_window_empty_fluid_uses_air():
+    assert config_from_window(_StubWindow(fluidB='')).fluid_B.type == 'air'
+
+
 def test_config_from_window_temp_to_K_hook_called():
     """The window's ``_temp_to_K`` hook converts °C → K. The adapter
     must use it instead of raw float()."""

@@ -64,6 +64,13 @@ def test_unknown_fluid_raises():
         fp.get('mercury')
 
 
+def test_design_nu_re_window_rejects_unknown_fluid():
+    from sjtu_tpmshx.physical_models.design_fluids import nu_re_window
+
+    with pytest.raises(ValueError, match='helium'):
+        nu_re_window('helium')
+
+
 def test_case_insensitive():
     assert fp.get('AIR') is fp.get('air')
     assert fp.get(' Water ') is fp.get('water')

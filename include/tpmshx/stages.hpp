@@ -246,6 +246,23 @@ inline tpmshx_stage_capture_3d_v1 capture_summary(const RunResult3D& result,bool
         "native 3D capture summary failed");
     return output;
 }
+// A temporary adapter can own the result that supplies the audit spans.
+inline tpmshx_stage_capture_3d_v1 capture_summary(const RunResult3D&&,bool)=delete;
+template<class Source, std::enable_if_t<!std::is_lvalue_reference_v<Source> &&
+    std::is_convertible_v<Source, const RunResult3D&>, int> = 0>
+void capture_summary(Source&&,bool)=delete;
+namespace detail {
+// Prefer the reference if a named adapter can also supply a result by value.
+void require_audit_result_lvalue(const RunResult3D&);
+template<class = void> void require_audit_result_lvalue(const RunResult3D&&)=delete;
+}
+template<class... Explicit, class Source, std::enable_if_t<
+    sizeof...(Explicit)==0 && std::is_lvalue_reference_v<Source>,int> = 0>
+inline auto capture_summary(Source&& source,bool include_audit)
+    -> decltype(detail::require_audit_result_lvalue(source),tpmshx_stage_capture_3d_v1{}) {
+    const RunResult3D& result=source;
+    return capture_summary(result,include_audit);
+}
 
 class SavedPreparedCase3D;
 struct SavedCase3D : tpmshx_stage_saved_case_3d_v3 {
