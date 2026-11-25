@@ -15,11 +15,12 @@ here reach it via ``self`` through the ``Main_Menu`` MRO.
 UI orchestration reaches prepare_case / run_case / evaluate through
 the common workflow on ComputeOrchestrator workers. RunControl selects the numerical
 backend; presentation stays in the UI. Deps are stable
-imports (PySide6 widgets, ui.fmt._fmt_dur, ui.ui_constants constants,
-time). The mixin uses ``self`` for window state. ``ui/main_window.py`` defines
-``class Main_Menu(..., RunControllerMixin, QMainWindow)``; external wiring
-(ui_builders btn_run, command_palette, signal_router, orch signal
-connections) resolves on the live window through the MRO.
+imports (PySide6 widgets, ui.fmt.duration, ui.ui_constants constants,
+time). The mixin uses ``self`` for window state.
+The ``Main_Menu`` class in ``ui/main_window.py`` inherits from ``RunControllerMixin``.
+The Compute button and command palette use the window's ``run_calculation`` method.
+The signal router connects orchestrator signals to methods on the same window.
+Python finds these methods through the window class's method resolution order.
 """
 
 from __future__ import annotations

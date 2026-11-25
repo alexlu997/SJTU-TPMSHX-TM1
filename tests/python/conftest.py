@@ -70,7 +70,7 @@ def _heavy_norm(nodeid: str) -> str:
 
     Node-ids differ by prefix depending on the pytest invocation cwd
     (``tests/python/test_x.py::t`` from repo root vs ``tests/...``
-    from the package dir); test file basenames are unique across the
+    from the package directory). Test file basenames are unique across the
     ``tests/python`` directory and its subdirectories. This keeps the key stable.
     """
     file_part, sep, rest = nodeid.replace('\\', '/').partition('::')
