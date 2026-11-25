@@ -771,6 +771,25 @@ def verify_published(directory: Path, host: str, component: str, log: Path) -> N
     print(f"PASS: {host} published images agree with the export manifests", flush=True)
 
 
+def verify_installed_sdk_headers(prefix: Path) -> None:
+    """Compare installed filenames with the public header tables in both SDK guides."""
+    headers = [path for path in prefix.rglob("*") if path.suffix in {".h", ".hpp"} and path.is_file()]
+    directories = {path.parent for path in headers}
+    if len(directories) != 1 or any(path.name != "tpmshx" for path in directories):
+        raise RuntimeError(f"Expected the SDK headers in one tpmshx directory under {prefix}")
+    installed = {path.name for path in headers}
+
+    for name in ("native-stages.md", "native-stages.zh-CN.md"):
+        guide = (ROOT / "docs" / name).read_text(encoding="utf-8")
+        table = guide.partition('<a id="sdk-public-headers"></a>')[2].lstrip().split("\n\n", 1)[0]
+        documented = set(re.findall(r"`([^`]+)`", table))
+        if not documented:
+            raise RuntimeError(f"Missing public SDK header table in {name}")
+        if installed != documented:
+            raise RuntimeError(f"Installed SDK headers differ from {name}: "
+                               f"missing={sorted(documented - installed)}, extra={sorted(installed - documented)}")
+
+
 def check_stages(cache: Path, host: str, python: Path, lock: Path, component: str) -> None:
     """Build the installed public SDK and run callers outside the source tree."""
     require_component(host, component)
@@ -806,6 +825,7 @@ def check_stages(cache: Path, host: str, python: Path, lock: Path, component: st
         independent = Path(temporary)
         prefix = independent / "sdk"
         run([cmake, "--install", stage_build, "--config", "Release", "--prefix", prefix], log)
+        verify_installed_sdk_headers(prefix)
         shutil.copytree(ROOT / "examples/cpp", independent / "examples")
         sources = ["examples"]
         if component == "all":

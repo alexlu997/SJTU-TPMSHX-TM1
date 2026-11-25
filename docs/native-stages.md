@@ -213,6 +213,24 @@ The returned `tpmshx_quick_run_result_v1` (release with `tpmshx_quick_run_releas
 Cancellation returns status 6 and publishes no result.
 Python binds preparation in `python/cpp_interface/_native_quick_prepare.py`, execution in `python/cpp_interface/quick_design.py`, and Quick Design metrics through Result ABI 3 (`tpmshx_result_stage_query_v3`).
 
+## Installed public headers
+
+Each component selection installs the headers in this table. The default location is `include/tpmshx/`.
+The selected components determine which libraries are available for linking.
+Use an empty installation prefix for this exact set. CMake keeps files from previous installations in a reused prefix.
+
+<a id="sdk-public-headers"></a>
+
+| Interface | Headers |
+| --- | --- |
+| Stage calls and run state | `stages.hpp`, `stage_run_c_api.h`, `stage_run_3d_c_api.h`, `quick_design_stage_c_api.h`, `run_state_c_api.h` |
+| Geometry and grids | `geometry_c_api.h`, `grid_c_api.h`, `zones_c_api.h`, `field_continuous_c_api.h`, `field_lut_c_api.h`, `field_sigmoid_c_api.h` |
+| Preparation and properties | `preparation_c_api.h`, `preparation_case_c_api.h`, `preparation_case_3d_c_api.h`, `preparation_df_c_api.h`, `preparation_flow_c_api.h`, `property_c_api.h` |
+| Solver and flow | `solver_c_api.h`, `full_2d_c_api.h`, `full_2d_run_c_api.h`, `full_3d_c_api.h`, `full_3d_run_c_api.h`, `simple_c_api_types.h`, `simple_2d_c_api.h`, `simple_3d_c_api.h` |
+| Thermal models | `thermal_c_api.h`, `enthalpy_driver_c_api.h`, `model_h_c_api.h`, `temperature_driver_c_api.h` |
+| Physical and numerical evidence | `closure_evidence_c_api.h`, `physical_ledger_c_api.h`, `property_sampling_c_api.h`, `temperature_evidence_c_api.h` |
+| Result evaluation | `result_c_api.h`, `result_balance_c_api.h`, `result_checks_c_api.h`, `result_metrics_c_api.h`, `result_stage_c_api.h` |
+
 ## Build, install, and SDK examples
 
 The root CMake project builds and installs the stage SDK from prepared local dependencies without fetching sources or replacing published Python runtime libraries.

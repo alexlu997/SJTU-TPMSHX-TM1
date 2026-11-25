@@ -336,10 +336,14 @@ def test_installed_result_stage_has_no_eos_or_python_runtime(result_build, monke
         runs.append((tuple(map(str, command)), kwargs))
         return original(command, *args, **kwargs)
 
+    checked_prefixes = []
+    monkeypatch.setattr(native, 'verify_installed_sdk_headers', checked_prefixes.append)
     monkeypatch.setattr(native, 'run', record)
     monkeypatch.setenv('PYTHONPATH', '/must-not-reach-native-caller')
     monkeypatch.setenv('VIRTUAL_ENV', '/must-not-reach-native-caller')
     native.check_stages(cache, host, python, lock, 'result')
+    install, = (command for command in commands if '--install' in command)
+    assert checked_prefixes == [Path(install[install.index('--prefix') + 1])]
     configure = next(command for command in commands if '-DTPMSHX_COMPONENTS=result' in command)
     assert f'-DTPMSHX_RESULT_BUILD_DIR={cache / "build" / f"result-{host}"}' in configure
     assert not any('COOLPROP' in part for command in commands for part in command)
