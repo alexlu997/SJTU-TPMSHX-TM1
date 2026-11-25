@@ -514,10 +514,10 @@ def run_optimize(window, *, resume_file=None):
             elif method == 'qlognei':
                 raise ValueError('请先导入含 mass_requirements 的工况 JSON，给出密度和每个工况的性能限值')
         else:
-            from sjtu_tpmshx.applications.optimization.multi_condition import _saved_condition_config
+            from sjtu_tpmshx.applications.optimization.multi_condition import saved_condition_config
             frozen = json.loads(Path(resume_file).with_name('optimization-input.json').read_text(encoding='utf-8'))
             rows = frozen['conditions']
-            cfg = _saved_condition_config(rows[0])
+            cfg = saved_condition_config(rows[0])
             spec, method = frozen['field_spec'], frozen['method']
             params = {key: frozen[key] for key in ('n_init', 'n_iter', 'q_batch', 'seed')}
             params['resume_file'] = resume_file

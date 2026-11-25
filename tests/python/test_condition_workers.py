@@ -40,6 +40,8 @@ def _analytic_worker(index, case_file, directory, library, threads, checkpoint_f
                 if first_condition != 'crash' and monotonic() > deadline:
                     raise TimeoutError('The second test worker did not start.')
                 sleep(.01)
+            if label == 'crash':
+                (started.parent / 'both-workers-ready').write_text(str(monotonic()))
         control.iteration(label)
         control.outer_iteration(1, 2)
         control.residual('A', 1, .01)
@@ -52,6 +54,7 @@ def _analytic_worker(index, case_file, directory, library, threads, checkpoint_f
             sleep(crash_delay_s)
             # Manager-backed cancellation must not expose a cross-process semaphore lock.
             assert not hasattr(batch._batch_cancel, '_cond')
+            (started.parent / 'before-os-exit').write_text(str(monotonic()))
             os._exit(17)
         if first_condition == 'crash' and index == 1:
             # Keep this slot occupied until the parent detects the broken pool.
@@ -292,7 +295,7 @@ def _run_worker_exit_probe(work_dir, crash_delay_s):
             batch.evaluate_condition_batch(
                 conditions, output_dir=root, workers=2, control=_control(work_path))
         except BrokenProcessPool:
-            pass
+            (root / 'after-broken-pool').write_text(str(monotonic()))
         else:
             raise AssertionError('Expected BrokenProcessPool when worker exits')
         remaining = set(active_children()) - previous_children
@@ -300,6 +303,158 @@ def _run_worker_exit_probe(work_dir, crash_delay_s):
             raise AssertionError(f'Child processes stayed active: {remaining!r}')
     finally:
         batch._run_native_condition = original
+
+
+def _worker_exit_diagnostics(root, started):
+    elapsed = {}
+    for phase in ('both-workers-ready', 'before-os-exit', 'after-broken-pool'):
+        try:
+            elapsed[phase] = round(float((root / phase).read_text()) - started, 3)
+        except (OSError, ValueError):
+            elapsed[phase] = None
+    try:
+        status = json.loads((root / 'batch.json').read_text())['status']
+    except (OSError, ValueError, KeyError, TypeError):
+        status = None
+    return f'phase_elapsed_s={elapsed}, saved_batch_status={status!r}'
+
+
+def _stop_windows_probe_tree(probe_pid):
+    """Bound the wait after taskkill receives a kill request."""
+    try:
+        helper = subprocess.Popen(['taskkill', '/F', '/T', '/PID', str(probe_pid)],
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError as error:
+        return f' Windows taskkill could not start ({error}).'
+    try:
+        helper.wait(timeout=5)
+        return ''
+    except subprocess.TimeoutExpired as error:
+        note = f' Windows taskkill PID {helper.pid} timed out after {error.timeout} s.'
+    except OSError as error:
+        note = f' Windows taskkill PID {helper.pid} wait failed ({error}).'
+    try:
+        helper.kill()
+    except OSError as error:
+        note += f' Its kill request failed ({error}).'
+    try:
+        helper.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        note += f' Windows taskkill PID {helper.pid} did not exit after the kill request.'
+    except OSError as error:
+        note += f' Could not confirm its exit ({error}).'
+    return note
+
+
+def _fail_worker_exit_timeout(proc, root, probe_started, crash_delay_s, *, windows):
+    returncode_before_kill = proc.poll()
+    diagnostics = _worker_exit_diagnostics(root, probe_started)
+    cleanup_note = ''
+    pids = []
+    if root.is_dir():
+        for marker in sorted(root.glob('started-*')):
+            try:
+                pid = int(marker.read_text().strip())
+            except (OSError, ValueError):
+                continue
+            pids.append((marker.name, pid))
+    if windows:
+        cleanup_note = _stop_windows_probe_tree(proc.pid)
+    else:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+    for _, pid in pids:
+        try:
+            os.kill(pid, signal.SIGKILL if hasattr(signal, 'SIGKILL') else signal.SIGTERM)
+        except OSError:
+            pass
+    try:
+        proc.kill()
+    except OSError:
+        pass
+    try:
+        stdout, stderr = proc.communicate(timeout=5)
+    except subprocess.TimeoutExpired:
+        # Windows reader threads close their streams when the last writer exits.
+        if not windows:
+            for stream in (proc.stdout, proc.stderr):
+                if stream is not None:
+                    stream.close()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            cleanup_note += f' Probe PID {proc.pid} did not stop after the kill request.'
+        stdout, stderr = '<pipe stayed open after process-tree kill>', ''
+    pytest.fail(
+        f'worker exit probe timed out after 45 s (crash_delay_s={crash_delay_s}, '
+        f'probe_pid={proc.pid}, started_pids={pids}, returncode_before_kill={returncode_before_kill}, '
+        f'{diagnostics}).{cleanup_note}\nstdout:\n{stdout}\nstderr:\n{stderr}')
+
+
+def test_windows_probe_reports_timeout_while_pipe_writer_is_open(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    from unittest.mock import Mock
+
+    read_fd, write_fd = os.pipe()
+    pipe = os.fdopen(read_fd, 'rb')
+    reading = Event()
+
+    def read_to_eof():
+        with pipe:
+            reading.set()
+            return pipe.read()
+
+    probe_stdout = Mock(wraps=pipe)
+    probe_stdout.close.side_effect = AssertionError('Cleanup tried to close the reader-owned pipe.')
+    probe = Mock(pid=700, stdout=probe_stdout, stderr=None)
+    probe.poll.return_value = 0
+    probe.communicate.side_effect = subprocess.TimeoutExpired('probe', 5)
+    monkeypatch.setattr(subprocess, 'Popen', Mock())
+    # Release the writer before joining its reader, including when the check fails.
+    with ThreadPoolExecutor(max_workers=1) as pool, os.fdopen(write_fd, 'wb'):
+        reader = pool.submit(read_to_eof)
+        reading.wait()
+        with pytest.raises(pytest.fail.Exception, match='pipe stayed open') as caught:
+            _fail_worker_exit_timeout(probe, tmp_path, monotonic(), 0., windows=True)
+        assert 'returncode_before_kill=0' in str(caught.value)
+        assert not reader.done() and not pipe.closed
+    assert reader.result() == b'' and pipe.closed
+    probe.wait.assert_called_once_with(timeout=5)
+
+
+@pytest.mark.parametrize('start_fails', [False, True], ids=['helper-stays-alive', 'helper-start-fails'])
+def test_windows_probe_cleanup_signals_each_pid_after_taskkill_failure(tmp_path, monkeypatch, start_fails):
+    from unittest.mock import Mock, call
+
+    for index, pid in enumerate((701, 702)):
+        (tmp_path / f'started-{index}').write_text(str(pid))
+    probe = Mock(pid=700)
+    probe.poll.return_value = None
+    probe.communicate.return_value = ('', '')
+    helper = Mock(pid=703)
+    helper.wait.side_effect = subprocess.TimeoutExpired('taskkill', 5)
+    launch = Mock(side_effect=FileNotFoundError('taskkill') if start_fails else None, return_value=helper)
+    monkeypatch.setattr(subprocess, 'Popen', launch)
+    signal_pid = Mock()
+    monkeypatch.setattr(os, 'kill', signal_pid)
+
+    with pytest.raises(pytest.fail.Exception) as caught:
+        _fail_worker_exit_timeout(probe, tmp_path, monotonic(), 10.5, windows=True)
+    message = str(caught.value)
+    assert 'probe_pid=700' in message and "started_pids=[('started-0', 701), ('started-1', 702)]" in message
+    launch.assert_called_once_with(['taskkill', '/F', '/T', '/PID', '700'],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    assert [item.args[0] for item in signal_pid.call_args_list] == [701, 702]
+    probe.kill.assert_called_once_with()
+    if start_fails:
+        assert 'could not start' in message
+    else:
+        assert 'taskkill PID 703' in message and 'did not exit' in message
+        assert helper.wait.call_args_list == [call(timeout=5), call(timeout=5)]
+        helper.kill.assert_called_once_with()
 
 
 @pytest.mark.parametrize('crash_delay_s', [0., 10.5])
@@ -314,6 +469,7 @@ def test_worker_exit_keeps_last_complete_checkpoint(tmp_path, monkeypatch, crash
     )
     if os.name != 'nt':
         popen_kwargs['start_new_session'] = True
+    probe_started = monotonic()
     proc = subprocess.Popen(
         [sys.executable, '-c',
          'import sys; '
@@ -325,45 +481,10 @@ def test_worker_exit_keeps_last_complete_checkpoint(tmp_path, monkeypatch, crash
     try:
         stdout, stderr = proc.communicate(timeout=45)
     except subprocess.TimeoutExpired:
-        pids = []
-        if root.is_dir():
-            for marker in sorted(root.glob('started-*')):
-                try:
-                    pid = int(marker.read_text().strip())
-                except (OSError, ValueError):
-                    continue
-                pids.append((marker.name, pid))
-        if os.name == 'nt':
-            subprocess.run(
-                ['taskkill', '/F', '/T', '/PID', str(proc.pid)],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
-            )
-        else:
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except OSError:
-                pass
-        for _, pid in pids:
-            try:
-                os.kill(pid, signal.SIGKILL if hasattr(signal, 'SIGKILL') else signal.SIGTERM)
-            except OSError:
-                pass
-        try:
-            proc.kill()
-        except OSError:
-            pass
-        try:
-            stdout, stderr = proc.communicate(timeout=5)
-        except subprocess.TimeoutExpired:
-            for stream in (proc.stdout, proc.stderr):
-                if stream is not None:
-                    stream.close()
-            proc.wait(timeout=5)
-            stdout, stderr = '<pipe stayed open after process-tree kill>', ''
-        pytest.fail(
-            f'worker exit probe timed out after 45 s (crash_delay_s={crash_delay_s}, '
-            f'started_pids={pids})\nstdout:\n{stdout}\nstderr:\n{stderr}')
-    assert proc.returncode == 0, f'probe exited with {proc.returncode}\nstdout:\n{stdout}\nstderr:\n{stderr}'
+        _fail_worker_exit_timeout(proc, root, probe_started, crash_delay_s, windows=os.name == 'nt')
+    assert proc.returncode == 0, (
+        f'probe exited with {proc.returncode}, {_worker_exit_diagnostics(root, probe_started)}'
+        f'\nstdout:\n{stdout}\nstderr:\n{stderr}')
     record = json.loads((root / 'batch.json').read_text())
     assert record['status'] == 'failed' and record['objectives'] is None
     statuses = [row['status'] for row in record['conditions']]

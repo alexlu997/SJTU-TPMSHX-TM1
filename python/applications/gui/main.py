@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
 )
 
 from sjtu_tpmshx.data_types.compute_config import SCO2_P_RANGE_PA
-from sjtu_tpmshx.physical_models.df_surrogate._domain import TRAIN_L, TRAIN_T
+from sjtu_tpmshx.model_configs.df_domain import TRAIN_L, TRAIN_T
 from sjtu_tpmshx.physical_models.tpms_calc import geometry as tpms_geometry, adaptive_grid
 from sjtu_tpmshx.applications.gui.ui.fmt import duration as _fmt_dur
 from sjtu_tpmshx.applications.gui.ui.mixins import (RunHistoryMixin, DialogsMixin, ZonePanelMixin,
