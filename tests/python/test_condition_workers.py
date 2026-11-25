@@ -40,6 +40,8 @@ def _analytic_worker(index, case_file, directory, library, threads, checkpoint_f
                 if first_condition != 'crash' and monotonic() > deadline:
                     raise TimeoutError('The second test worker did not start.')
                 sleep(.01)
+            if label == 'crash':
+                (started.parent / 'both-workers-ready').write_text(str(monotonic()))
         control.iteration(label)
         control.outer_iteration(1, 2)
         control.residual('A', 1, .01)
@@ -52,6 +54,7 @@ def _analytic_worker(index, case_file, directory, library, threads, checkpoint_f
             sleep(crash_delay_s)
             # Manager-backed cancellation must not expose a cross-process semaphore lock.
             assert not hasattr(batch._batch_cancel, '_cond')
+            (started.parent / 'before-os-exit').write_text(str(monotonic()))
             os._exit(17)
         if first_condition == 'crash' and index == 1:
             # Keep this slot occupied until the parent detects the broken pool.
@@ -292,7 +295,7 @@ def _run_worker_exit_probe(work_dir, crash_delay_s):
             batch.evaluate_condition_batch(
                 conditions, output_dir=root, workers=2, control=_control(work_path))
         except BrokenProcessPool:
-            pass
+            (root / 'after-broken-pool').write_text(str(monotonic()))
         else:
             raise AssertionError('Expected BrokenProcessPool when worker exits')
         remaining = set(active_children()) - previous_children
@@ -300,6 +303,20 @@ def _run_worker_exit_probe(work_dir, crash_delay_s):
             raise AssertionError(f'Child processes stayed active: {remaining!r}')
     finally:
         batch._run_native_condition = original
+
+
+def _worker_exit_diagnostics(root, started):
+    elapsed = {}
+    for phase in ('both-workers-ready', 'before-os-exit', 'after-broken-pool'):
+        try:
+            elapsed[phase] = round(float((root / phase).read_text()) - started, 3)
+        except (OSError, ValueError):
+            elapsed[phase] = None
+    try:
+        status = json.loads((root / 'batch.json').read_text())['status']
+    except (OSError, ValueError, KeyError, TypeError):
+        status = None
+    return f'phase_elapsed_s={elapsed}, saved_batch_status={status!r}'
 
 
 @pytest.mark.parametrize('crash_delay_s', [0., 10.5])
@@ -314,6 +331,7 @@ def test_worker_exit_keeps_last_complete_checkpoint(tmp_path, monkeypatch, crash
     )
     if os.name != 'nt':
         popen_kwargs['start_new_session'] = True
+    probe_started = monotonic()
     proc = subprocess.Popen(
         [sys.executable, '-c',
          'import sys; '
@@ -325,6 +343,9 @@ def test_worker_exit_keeps_last_complete_checkpoint(tmp_path, monkeypatch, crash
     try:
         stdout, stderr = proc.communicate(timeout=45)
     except subprocess.TimeoutExpired:
+        returncode_before_kill = proc.poll()
+        diagnostics = _worker_exit_diagnostics(root, probe_started)
+        cleanup_note = ''
         pids = []
         if root.is_dir():
             for marker in sorted(root.glob('started-*')):
@@ -334,10 +355,13 @@ def test_worker_exit_keeps_last_complete_checkpoint(tmp_path, monkeypatch, crash
                     continue
                 pids.append((marker.name, pid))
         if os.name == 'nt':
-            subprocess.run(
-                ['taskkill', '/F', '/T', '/PID', str(proc.pid)],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
-            )
+            try:
+                subprocess.run(
+                    ['taskkill', '/F', '/T', '/PID', str(proc.pid)], timeout=5,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
+                )
+            except subprocess.TimeoutExpired as exc:
+                cleanup_note = f' Windows taskkill timed out after {exc.timeout} s.'
         else:
             try:
                 os.killpg(proc.pid, signal.SIGKILL)
@@ -358,12 +382,18 @@ def test_worker_exit_keeps_last_complete_checkpoint(tmp_path, monkeypatch, crash
             for stream in (proc.stdout, proc.stderr):
                 if stream is not None:
                     stream.close()
-            proc.wait(timeout=5)
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                cleanup_note += f' Probe PID {proc.pid} did not stop after the kill request.'
             stdout, stderr = '<pipe stayed open after process-tree kill>', ''
         pytest.fail(
             f'worker exit probe timed out after 45 s (crash_delay_s={crash_delay_s}, '
-            f'started_pids={pids})\nstdout:\n{stdout}\nstderr:\n{stderr}')
-    assert proc.returncode == 0, f'probe exited with {proc.returncode}\nstdout:\n{stdout}\nstderr:\n{stderr}'
+            f'probe_pid={proc.pid}, started_pids={pids}, returncode_before_kill={returncode_before_kill}, '
+            f'{diagnostics}).{cleanup_note}\nstdout:\n{stdout}\nstderr:\n{stderr}')
+    assert proc.returncode == 0, (
+        f'probe exited with {proc.returncode}, {_worker_exit_diagnostics(root, probe_started)}'
+        f'\nstdout:\n{stdout}\nstderr:\n{stderr}')
     record = json.loads((root / 'batch.json').read_text())
     assert record['status'] == 'failed' and record['objectives'] is None
     statuses = [row['status'] for row in record['conditions']]
