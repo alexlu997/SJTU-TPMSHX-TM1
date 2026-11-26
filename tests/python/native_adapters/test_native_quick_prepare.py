@@ -513,7 +513,7 @@ sys.addaudithook(capture)
 from sjtu_tpmshx.applications.design.sizing import dP_fracs
 from sjtu_tpmshx.preprocess.api import prepare_quick_design
 from sjtu_tpmshx.run_control.run_warnings import range_observations, warning_scope
-from tests.python.test_native_quick_prepare import _args, _case
+from tests.python.native_adapters.test_native_quick_prepare import _args, _case
 for fluid in (_case(T_in_h=1200.), _case(hot_fluid='sco2', T_in_c=1200.)):
     args = _args(case=fluid)
     case = prepare_quick_design(**args, case_id='one-image')

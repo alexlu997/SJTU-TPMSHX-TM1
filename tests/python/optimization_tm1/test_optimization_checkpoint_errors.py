@@ -8,8 +8,8 @@ from sjtu_tpmshx.run_control.cancellation import CancelledError
 from sjtu_tpmshx.file_io import text_file
 from sjtu_tpmshx.applications.optimization import multi_condition as batch
 from sjtu_tpmshx.applications.optimization import multi_condition_optimizer as search
-from tests.python.test_multi_condition_batch import _conditions, _native, _patch_solve
-from tests.python.test_multi_condition_batch import native_control as native_control
+from tests.python.optimization_tm1.test_multi_condition_batch import _conditions, _native, _patch_solve
+from tests.python.optimization_tm1.test_multi_condition_batch import native_control as native_control
 from tests.python.optimization_support import _checkpoint_fault, _conditions as search_conditions
 
 

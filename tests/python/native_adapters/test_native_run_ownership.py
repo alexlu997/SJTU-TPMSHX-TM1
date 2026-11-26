@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.python import test_native_run_adapter as plane
+from tests.python.native_adapters import test_native_run_adapter as plane
 
 from tests.python.native.shared_library import library_path
 from sjtu_tpmshx.preprocess.api import prepare_case
@@ -360,7 +360,7 @@ def test_zone_result_warning_stacklevel_and_solver_only_image_isolation(monkeypa
     from sjtu_tpmshx.cpp_interface import _native_result as core
     from sjtu_tpmshx.cpp_interface import _native_result_stage as wire
     from sjtu_tpmshx.physical_models.zone_config import Zone, ZoneConfig
-    from tests.python import test_native_prepare_spatial_adapter as spatial
+    from tests.python.native_adapters import test_native_prepare_spatial_adapter as spatial
     from tests.python.native_preparation_abi import _configuration_fluids
 
     # Pin floating-point RuntimeWarning provenance across the zone_temperatures wrapper.

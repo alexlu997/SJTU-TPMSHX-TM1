@@ -76,7 +76,7 @@ Items marked **(new fluid)** apply only when you add a new working fluid.
 ### 4. Existing tests to extend
 
 - **Native property and Nu checks**: [tests/python/native/test_fluid_properties.py](../tests/python/native/test_fluid_properties.py) and [tests/cpp/fluid_properties_smoke.cpp](../tests/cpp/fluid_properties_smoke.cpp).
-- **Python model and Nu contracts**: [tests/python/models_tm1/test_fluid_props.py](../tests/python/models_tm1/test_fluid_props.py), [tests/python/models_tm1/test_nu_correlations.py](../tests/python/models_tm1/test_nu_correlations.py), [tests/python/test_fluid_type_validation.py](../tests/python/test_fluid_type_validation.py), and [tests/python/test_sco2_nu_modes.py](../tests/python/test_sco2_nu_modes.py).
+- **Python model and Nu contracts**: [tests/python/models_tm1/test_fluid_props.py](../tests/python/models_tm1/test_fluid_props.py), [tests/python/models_tm1/test_nu_correlations.py](../tests/python/models_tm1/test_nu_correlations.py), [tests/python/native_adapters/test_fluid_type_validation.py](../tests/python/native_adapters/test_fluid_type_validation.py), and [tests/python/test_sco2_nu_modes.py](../tests/python/test_sco2_nu_modes.py).
 - **Catalog, config, and stage preparation**: [tests/python/models_tm1/test_catalog.py](../tests/python/models_tm1/test_catalog.py), [tests/python/test_compute_config_roundtrip.py](../tests/python/test_compute_config_roundtrip.py), [tests/python/preprocess/test_2d_tm1.py](../tests/python/preprocess/test_2d_tm1.py), [tests/python/preprocess/test_3d_tm1.py](../tests/python/preprocess/test_3d_tm1.py), and [tests/python/io_tm1/test_case_io.py](../tests/python/io_tm1/test_case_io.py).
 - **GUI fluid input wiring**: [tests/python/test_fluid_input.py](../tests/python/test_fluid_input.py).
 

@@ -17,7 +17,7 @@ from sjtu_tpmshx.file_io.result_io import load_result
 from sjtu_tpmshx.postprocess import api
 from tests.python.native.result_reference import api as reference
 from tests.python.native.test_result_metrics import quick_result
-from tests.python.test_native_result_balance import assert_values, observe, assert_observation
+from tests.python.native_adapters.test_native_result_balance import assert_values, observe, assert_observation
 from tests.python.test_conservative_energy_results import result_fixture
 from tests.python.test_temperature_face_results import temperature_fixture
 from tests.python.postprocess_tm1.test_physical_balance import sample_result
@@ -265,7 +265,7 @@ def test_nested_record_error_is_read_at_its_original_boundary(name):
 
 @pytest.mark.parametrize('query', ['evaluate', 'applicability', 'physical_balance', 'qualification'])
 def test_missing_stage_symbol_is_a_deployment_error(monkeypatch, query):
-    from tests.python.test_native_result_loader import LibraryStub
+    from tests.python.native_adapters.test_native_result_loader import LibraryStub
     handle = LibraryStub(tpmshx_result_abi_version_v1=lambda: 3)
     monkeypatch.setattr(core.ct, 'CDLL', lambda _: handle)
     library = core.result_library.open('historical-result-image')

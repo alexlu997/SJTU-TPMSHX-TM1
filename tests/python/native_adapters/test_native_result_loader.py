@@ -14,7 +14,7 @@ from sjtu_tpmshx.cpp_interface import _native_result as native
 from sjtu_tpmshx.cpp_interface import stage_libraries
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 
 
 class LibraryStub(SimpleNamespace):

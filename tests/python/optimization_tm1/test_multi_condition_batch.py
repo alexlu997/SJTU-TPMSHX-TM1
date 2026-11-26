@@ -290,7 +290,7 @@ def test_solver_patch_restores_lazily_imported_recovery():
 
     child = subprocess.run([sys.executable, '-c', '''
 import pytest
-from tests.python.test_multi_condition_batch import _patch_solve
+from tests.python.optimization_tm1.test_multi_condition_batch import _patch_solve
 from sjtu_tpmshx.solvers import api
 original = api.run_case
 with pytest.MonkeyPatch.context() as patch:

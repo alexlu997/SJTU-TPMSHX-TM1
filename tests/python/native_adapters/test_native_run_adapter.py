@@ -7,7 +7,7 @@ from itertools import product
 import numpy as np
 import pytest
 
-from tests.python.test_native_prepare_adapter import _same
+from tests.python.native_adapters.test_native_prepare_adapter import _same
 from tests.python.native.shared_library import library_path
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.run_control.module_ports import RunControl

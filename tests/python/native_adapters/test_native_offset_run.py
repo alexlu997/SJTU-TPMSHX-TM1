@@ -7,9 +7,9 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.preprocess.api import prepare_case
-from tests.python import test_native_run_adapter as adapter
-from tests.python import test_native_prepare_spatial_adapter as spatial
-from tests.python.test_native_prepare_adapter import _same
+from tests.python.native_adapters import test_native_run_adapter as adapter
+from tests.python.native_adapters import test_native_prepare_spatial_adapter as spatial
+from tests.python.native_adapters.test_native_prepare_adapter import _same
 from sjtu_tpmshx.file_io.case_io import load_case, save_case
 from sjtu_tpmshx.cpp_interface import full_2d_stage as stage
 from sjtu_tpmshx.solvers import full_2d

@@ -16,7 +16,7 @@ from sjtu_tpmshx.run_control.cancellation import CancelledError
 from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.file_io.result_io import load_result
 from sjtu_tpmshx.applications.optimization import multi_condition as batch
-from tests.python.test_multi_condition_batch import _baseline, _conditions, _native
+from tests.python.optimization_tm1.test_multi_condition_batch import _baseline, _conditions, _native
 
 
 def _analytic_worker(index, case_file, directory, library, threads, checkpoint_file=None,
@@ -502,7 +502,7 @@ def test_worker_exit_keeps_last_complete_checkpoint(tmp_path, monkeypatch, crash
     from sjtu_tpmshx.applications.execution.recovery import read_run_checkpoint
 
     root = tmp_path / 'worker-exit'
-    repo_root = Path(__file__).resolve().parents[2]
+    repo_root = Path(__file__).resolve().parents[3]
     # Run the crash pool in a child process so a timeout fails cleanly without killing an xdist worker.
     popen_kwargs = dict(
         cwd=str(repo_root), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
@@ -513,7 +513,7 @@ def test_worker_exit_keeps_last_complete_checkpoint(tmp_path, monkeypatch, crash
     proc = subprocess.Popen(
         [sys.executable, '-c',
          'import sys; '
-         'from tests.python.test_condition_workers import _run_worker_exit_probe; '
+         'from tests.python.optimization_tm1.test_condition_workers import _run_worker_exit_probe; '
          '_run_worker_exit_probe(sys.argv[1], int(sys.argv[2]), float(sys.argv[3]))',
          str(tmp_path), str(crash_index), str(crash_delay_s)],
         **popen_kwargs,

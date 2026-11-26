@@ -9,7 +9,7 @@ from sjtu_tpmshx.file_io.case_io import load_case, save_case
 from sjtu_tpmshx.physical_models import sigmoid_field, tpms_calc, tpms_geometry
 from sjtu_tpmshx.preprocess import api
 from tests.python import native_preparation_abi
-from tests.python.test_native_prepare_adapter import _capture, _same
+from tests.python.native_adapters.test_native_prepare_adapter import _capture, _same
 
 
 @pytest.fixture(autouse=True)

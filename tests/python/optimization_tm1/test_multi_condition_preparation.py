@@ -19,7 +19,7 @@ from sjtu_tpmshx.run_control.module_ports import resolve_control
 @pytest.mark.parametrize('direction', range(6))
 @pytest.mark.parametrize('design_mode', ['uniform', 'grid', 'continuous'])
 def test_fixed_flow_matches_native_faces_after_density_update(direction, design_mode):
-    from tests.python.test_native_prepare_adapter import _same
+    from tests.python.native_adapters.test_native_prepare_adapter import _same
 
     shape, lengths = (30, 30, 30), (.04, .05, .06)
 

@@ -11,7 +11,7 @@ from sjtu_tpmshx.data_types.performance_result import MetricValue, PerformanceRe
 from sjtu_tpmshx.file_io.metrics_io import load_metrics, save_metrics
 from sjtu_tpmshx.applications.optimization.multi_condition import aggregate_multi_condition
 from tests.python.test_module_result_mapping import _synthetic_results
-from tests.python.test_multi_condition import _row
+from tests.python.optimization_tm1.test_multi_condition import _row
 
 
 @pytest.mark.parametrize('name,unit', [

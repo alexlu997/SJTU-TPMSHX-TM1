@@ -16,7 +16,7 @@ from tests.python.native.shared_library import library_path
 
 @pytest.mark.slow
 def test_independent_stage_fields_metrics_and_qualification():
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[3]
     evidence = Path(os.environ.get('TPMSHX_STAGE_RESULT_DIR', root / '.cache/native-deps/build/stage-result'))
     if not (evidence / 'fields.tsv').is_file():
         if os.environ.get('TPMSHX_REQUIRE_NATIVE_DEPS_TESTS'):
@@ -50,7 +50,7 @@ def test_independent_quick_design_stage(sample):
     from sjtu_tpmshx.postprocess.api import evaluate
     from sjtu_tpmshx.solvers.api import run_case
 
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[3]
     directory = Path(os.environ.get('TPMSHX_QUICK_STAGE_RESULT_DIR',
         root / '.cache/native-deps/build/quick-design-stage-result')) / sample
     if not (directory / 'fields.tsv').is_file():

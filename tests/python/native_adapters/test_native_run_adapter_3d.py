@@ -10,7 +10,7 @@ import warnings
 import numpy as np
 import pytest
 
-from tests.python.test_native_prepare_adapter import _same
+from tests.python.native_adapters.test_native_prepare_adapter import _same
 from tests.python.native.shared_library import library_path
 from sjtu_tpmshx.preprocess.api import prepare_case
 from sjtu_tpmshx.run_control.cancellation import CancelledError
@@ -23,7 +23,7 @@ from sjtu_tpmshx.solvers.api import run_case
 from sjtu_tpmshx.solvers import full_3d
 from sjtu_tpmshx.cpp_interface import full_3d_stage
 from tests.python import native_stage_support
-from tests.python.test_native_run_adapter import _hdf_scalars
+from tests.python.native_adapters.test_native_run_adapter import _hdf_scalars
 
 
 def _control(events=None, library=None, **kwargs):
@@ -441,7 +441,7 @@ def test_unknown_capture_abi_is_rejected_before_execution(monkeypatch):
       ('xy', ('water', 'co2')), ('xyz', ('sco2', 'air')),
       ('asymmetric', ('water', 'air')), ('grid', ('air', 'air')))]])
 def test_public_applicability_uses_native_selection(dimension, layout, pair, monkeypatch, tmp_path):
-    from tests.python import test_native_run_adapter as two
+    from tests.python.native_adapters import test_native_run_adapter as two
     if dimension == 2:
         _, case = two._case(layout, pair)
     else:
@@ -461,7 +461,7 @@ def test_spatial_sco2_notice_keeps_saved_field_precision(monkeypatch, tmp_path):
 
 def _compare_public_applicability(case, monkeypatch, tmp_path, *, control=None):
     """Check native applicability against the independent Python selection of the same run."""
-    from tests.python import test_native_run_adapter as two
+    from tests.python.native_adapters import test_native_run_adapter as two
     from sjtu_tpmshx.solvers import full_2d
     from sjtu_tpmshx.postprocess.api import evaluate
     control = _control() if control is None else control
@@ -493,7 +493,7 @@ def _compare_public_applicability(case, monkeypatch, tmp_path, *, control=None):
 @pytest.mark.parametrize('dimension', [2, 3])
 @pytest.mark.parametrize('change', ['missing', 'empty', 'uncaptured', 'no-finite', 'host-fields', 'host-notices'])
 def test_public_applicability_keeps_saved_and_host_evidence(dimension, change, monkeypatch, tmp_path):
-    from tests.python import test_native_run_adapter as two
+    from tests.python.native_adapters import test_native_run_adapter as two
     from sjtu_tpmshx.run_control.run_warnings import record_warning
     if dimension == 2:
         _, case = two._case()
@@ -531,7 +531,7 @@ def test_public_applicability_keeps_saved_and_host_evidence(dimension, change, m
 
 @pytest.mark.parametrize('dimension', [2, 3])
 def test_applicability_transfer_error_releases_without_fallback(dimension, monkeypatch):
-    from tests.python import test_native_run_adapter as two
+    from tests.python.native_adapters import test_native_run_adapter as two
     if dimension == 2:
         _, case = two._case()
     else:
