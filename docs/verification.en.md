@@ -160,7 +160,7 @@ Configuration alone does not show a CI pass.
 
 ## Collaboration and merge
 
-Codex and Claude share the project rules in [AGENTS.md](../AGENTS.md). Use the
+Codex, Claude, and Antigravity share the project rules in [AGENTS.md](../AGENTS.md). Use the
 [collaboration workflow](collaboration.md) for task ownership, worktrees,
 environments, synchronization, and handoff.
 

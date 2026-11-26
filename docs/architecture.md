@@ -45,6 +45,41 @@ See [include/tpmshx/](../include/tpmshx/), [tests/cpp/](../tests/cpp/), [C++ int
 | Alias resolver [python/shared.py](../python/shared.py) | Resolves historical `sjtu_tpmshx.shared.*` and `sjtu_tpmshx.solvers.backends.cpp.*` paths to canonical owners without code duplication. [python/solvers/backends/cpp.py](../python/solvers/backends/cpp.py) imports its search path. [packaging_support.py](../tests/python/packaging_support.py), [test_three_module_imports.py](../tests/python/architecture/test_three_module_imports.py), and [test_distribution_contents.py](../tests/python/test_distribution_contents.py) test these aliases in checkouts and wheels. Local `.cache/` scripts also use them. |
 | Live library directory `sjtu_tpmshx/solvers/native/lib/<host>/` | Git-ignored path where [build_native_dependencies.py](../engineering/scripts/build_native_dependencies.py) publishes the four libraries for source runs. `provenance.py` defines `PUBLISHED_LIBRARY_DIR`; `module_ports.py`, `stage_libraries.py`, `_native_geometry.py`, and `launch-macos.command` read it. Frozen desktop builds load `native/`. Run `build_native_dependencies.py verify-published` with the `.venv-path` interpreter for the [published native image check](verification.en.md#published-native-images). It compares published exports against the geometry, preparation, solver, and result manifests and prints each build record (`build.json` and `*-build.json`). |
 
+## Directory owners
+
+This table gives the contents of each directory. Do not duplicate correlations or physical constants between these layers.
+The [Python layer owners](#python-layer-owners) table gives the responsibilities of the Python directories.
+
+| Path | Contents |
+| --- | --- |
+| [preprocess/](../preprocess/), [solver/](../solver/), [postprocess/](../postprocess/) | C++ preparation, solving, and evaluation. |
+| [geometry/](../geometry/) | C++ geometry. |
+| [numerics/](../numerics/) | Common numerical functions. |
+| [include/tpmshx/](../include/tpmshx/) | C and C++ headers. |
+| [tests/cpp/](../tests/cpp/) | Native caller tests. |
+| [python/applications/](../python/applications/) | Application workflows. GUI components are in `gui/ui/` and controllers are in `gui/controllers/`. |
+| [python/preprocess/](../python/preprocess/) | Python preparation stage. It produces new `CaseData`. |
+| [python/solvers/](../python/solvers/) | Python solver stage. It produces new `FieldResult`. |
+| [python/postprocess/](../python/postprocess/) | Python evaluation stage. It produces new `PerformanceResult` and `MetricValue`. |
+| [python/data_types/](../python/data_types/) | Portable types, including the stage data types. |
+| [python/physical_models/](../python/physical_models/), [python/model_configs/](../python/model_configs/) | Models with standalone model queries and their caches, and model resources. |
+| [python/file_io/](../python/file_io/), [python/run_control/](../python/run_control/) | File I/O and run controls. |
+| [python/cpp_interface/](../python/cpp_interface/) | Native calls. |
+| [tests/python/](../tests/python/) | Python tests. |
+| [python/development/](../python/development/) | Validation and tools. |
+| [engineering/](../engineering/) | Build scripts, packaging, and dependency locks. |
+
+## Binding import limits
+
+Bindings in `python/cpp_interface/` obey these import limits.
+`python -m sjtu_tpmshx.development.runs.tools.audit_import_graph --fail-on-violations` checks them.
+
+- A binding can import `run_control`, `model_configs`, and `data_types` modules, but not the modules of the stage data types.
+- The stage data types are `CaseData`, `ModelRef`, `FieldResult`, `MetricSpec`, `MetricValue`, and `PerformanceResult`.
+  A binding does not build these types. It imports them only under `TYPE_CHECKING`.
+- The exception is `python/cpp_interface/preparation_host.py`. It imports `ModelRef` for the check of a saved model reference.
+- A binding does not import stage, application, physical-model, file I/O, `compute`, or development modules.
+
 <a id="retained-python-responsibilities"></a>
 
 ## Python layer owners
