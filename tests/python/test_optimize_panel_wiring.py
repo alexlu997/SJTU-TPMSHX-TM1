@@ -193,7 +193,7 @@ def test_optimization_bounds_show_complete_decimal_values(window, width):
 
     previous_size = window.size()
     previous_page = page.stack.currentIndex()
-    previous_tab = window._active_tab
+    previous_tab = window.workbench.active_tab
     window.workbench.switch_tab('pareto')
     page.stack.setCurrentIndex(0)
     window.resize(width, 932)
@@ -850,7 +850,7 @@ def test_field_preview_belongs_to_optimization_and_keeps_other_figures(window, d
 
     page.show_field_preview(study['history'][0]['x_decision'])
 
-    assert window._active_tab == 'pareto'
+    assert window.workbench.active_tab == 'pareto'
     assert page.stack.currentIndex() == 2
     assert page.result_tabs.currentWidget() is page.field_canvas
     assert window.canvas_layout.figure.axes == geometry_axes
