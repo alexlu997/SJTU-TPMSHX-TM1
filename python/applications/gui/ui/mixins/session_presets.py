@@ -10,7 +10,7 @@ from __future__ import annotations
 # never imported — the "Save Preset" action raised NameError on first use.
 from PySide6.QtWidgets import QInputDialog, QMessageBox, QTableWidgetItem
 
-from sjtu_tpmshx.applications.gui.ui.window_config import DOMAIN_SHAPE_NOTICE, validate_domain_shape
+from sjtu_tpmshx.applications.gui.ui.window_config import DOMAIN_SHAPE_NOTICE, LINE_EDITS, validate_domain_shape
 from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
 
 
@@ -28,7 +28,6 @@ def shanghai_field_defaults(*, is_3d: bool) -> dict[str, str]:
         'le_Lcell': '7.0',
         'le_t':     '0.6',
         'le_ks':    '16.0',   # Shanghai SS solid k_s
-        'le_rho_s': '7900',
         'le_mass_flowA': '0.02276073333333333',
         'le_mass_flowB': '0.0864722781',
         'le_uA':    '22.058558981502337',
@@ -257,7 +256,6 @@ class SessionPresetsMixin:
             for r, row in enumerate(rows):
                 for c, value in enumerate(row):
                     table.setItem(r, c, QTableWidgetItem(value))
-            self._zone_grid = None  # derived by config_from_window, never persisted
             from sjtu_tpmshx.applications.gui.ui.zone_table import zone_resize
             zone_resize(self)
             self._pareto_x_decision = zones['pareto_x_decision']
@@ -380,9 +378,9 @@ class SessionPresetsMixin:
             if not isinstance(values, dict):
                 raise ValueError(f'Invalid {section}.')
             if section == 'line_edits':
-                # Former rectangular files also stored this unused polygon field.
+                # Older files can contain unused polygon and solid-density inputs.
                 values = {name: value for name, value in values.items()
-                          if name != 'le_mesh_density'}
+                          if name not in ('le_mesh_density', 'le_rho_s')}
             required = {n for n in allowed if getattr(self, n, None) is not None}
             if section == 'combos':
                 required.add('combo_shape')
@@ -405,21 +403,23 @@ class SessionPresetsMixin:
             for name, value in values.items():
                 if name not in allowed:
                     continue  # retain the shared preset allow-list boundary
-                if section == 'line_edits' and type(value) not in (str, int, float):
-                    raise ValueError(f'Invalid text field: {name}')
-                mass_mode = combos.get('combo_dim') == 1 and combos.get('combo_inlet_mode' + name[-1], 0) == 1
-                inactive = (name in ('le_uA', 'le_uB') and mass_mode
-                            or name in ('le_mass_flowA', 'le_mass_flowB') and not mass_mode)
-                if section == 'line_edits' and str(value).strip() and not inactive:
+                if section == 'line_edits':
+                    if type(value) not in (str, int, float):
+                        raise ValueError(f'Invalid text field: {name}')
+                    spec = LINE_EDITS[name]
+                    mass_mode = combos.get('combo_dim') == 1 and combos.get('combo_inlet_mode' + name[-1]) == 1
+                    if (not str(value).strip() or spec.when == 'velocity' and mass_mode
+                            or spec.when == 'mass_flow' and not mass_mode):
+                        continue
                     try:
                         number = float(value)
                         if not math.isfinite(number):
                             raise ValueError()
-                        if name in ('le_Nx', 'le_Ny', 'le_Nz'):
+                        if spec.family == 'count':
                             int(str(value))
                     except (TypeError, ValueError):
                         raise ValueError(f'Invalid numeric field: {name}') from None
-                    if name in ('le_TinA', 'le_TinB'):
+                    if spec.family == 'temp':
                         kelvin = number + CELSIUS_ZERO_K if temp_unit == 'C' else number
                         if kelvin <= 0:
                             raise ValueError(f'{name}: Must be above 0 K')
@@ -575,21 +575,7 @@ class SessionPresetsMixin:
     # ─────────────────────────────────────────────────────────
     #  Session auto-persist (restores last-used field state)
     # ─────────────────────────────────────────────────────────
-    _SESSION_LINE_EDITS = (
-        'le_L', 'le_H', 'le_Lz', 'le_Lcell', 'le_t', 'le_ks',
-        'le_uA', 'le_TinA', 'le_PinA', 'le_uB', 'le_TinB', 'le_PinB',
-        'le_mass_flowA', 'le_mass_flowB',
-        'le_Nx', 'le_Ny', 'le_Nz',
-        'le_rho_s',
-        'le_pipeA_in_ctr', 'le_pipeA_in_w',
-        'le_pipeA_out_ctr', 'le_pipeA_out_w',
-        'le_pipeB_in_ctr', 'le_pipeB_in_w',
-        'le_pipeB_out_ctr', 'le_pipeB_out_w',
-        'le_pipeA_in_z_ctr', 'le_pipeA_in_z_w',
-        'le_pipeA_out_z_ctr', 'le_pipeA_out_z_w',
-        'le_pipeB_in_z_ctr', 'le_pipeB_in_z_w',
-        'le_pipeB_out_z_ctr', 'le_pipeB_out_z_w',
-    )
+    _SESSION_LINE_EDITS = tuple(LINE_EDITS)
     _SESSION_COMBOS = (
         'combo_dim', 'combo_tpms', 'combo_grid',
         'combo_df_mode', 'combo_sco2_nu_mode',

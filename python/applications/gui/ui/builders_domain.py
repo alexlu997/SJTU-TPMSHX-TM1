@@ -1,4 +1,4 @@
-"""Build geometry, TPMS, material, grid and compute-resource input sections.
+"""Build geometry, TPMS, grid and compute-resource input sections.
 
 The dimensionality toggle controls the shared registry of 3D-only widgets.
 """
@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 
 from .theme import get_theme
 from .builders_base import right_align_combo
+from .window_config import LINE_EDITS
 
 
 
@@ -58,9 +59,9 @@ def build_domain_sections(window, lay):
     # Domain Geometry
     g, _sec_dg = default_factory().section(lay, "  域几何", _T_NEUTRAL, _F_NEUTRAL)
     window._ia_sections['domain_geometry'] = _sec_dg
-    window.le_L        = default_factory().row(g, 0, "长度 <i>L</i> [m]", "0.182")
-    window.le_H        = default_factory().row(g, 1, "横向尺寸 <i>H</i> [m]", "0.042")
-    window.le_Lz       = default_factory().row(g, 2, "厚度 <i>L<sub>z</sub></i> [m]", "0.042")
+    window.le_L = f.row(g, 0, *LINE_EDITS['le_L'].editor_text('长度'))
+    window.le_H = f.row(g, 1, *LINE_EDITS['le_H'].editor_text('横向尺寸'))
+    window.le_Lz = f.row(g, 2, *LINE_EDITS['le_Lz'].editor_text('厚度'))
     window._lbl_Lz     = g.itemAtPosition(2, 0).widget()
     window._3d_only_widgets += [window.le_Lz, window._lbl_Lz]
 
@@ -86,10 +87,9 @@ def build_domain_sections(window, lay):
     window.combo_tpms.setCurrentIndex(1)  # default Gyroid
     window.combo_tpms.setStyleSheet(_COMBO)
     default_factory().add_row(g0, 0, "拓扑类型", right_align_combo(window.combo_tpms))
-    window.le_Lcell = default_factory().row(g0, 1, "胞元 <i>L</i><sub>cell</sub> [mm]", "7.0")
-    # t=0.6 mm is the Shanghai specimen and a supported fixed-CFD node.
-    window.le_t     = default_factory().row(g0, 2, "壁厚 <i>t</i> [mm]", "0.6")
-    window.le_ks    = default_factory().row(g0, 3, "热导率 <i>k</i><sub>s</sub> [W/(m·K)]", "16.0")
+    window.le_Lcell = f.row(g0, 1, *LINE_EDITS['le_Lcell'].editor_text('胞元'))
+    window.le_t = f.row(g0, 2, *LINE_EDITS['le_t'].editor_text('壁厚'))
+    window.le_ks = f.row(g0, 3, *LINE_EDITS['le_ks'].editor_text('热导率'))
     btn_tpms = QPushButton("计算 TPMS 几何")
     btn_tpms.setFixedHeight(28); btn_tpms.setStyleSheet(t.style('BTN_SECONDARY'))
     btn_tpms.setToolTip("Compute porosity, specific area, hydraulic diameter, k_ss from current L_cell / t")
@@ -103,22 +103,12 @@ def build_domain_sections(window, lay):
     window._v_A0   = default_factory().res_row(gC, 1, "<i>A</i><sub>0</sub> [m<sup>-1</sup>]")
     window._v_Dh   = default_factory().res_row(gC, 2, "<i>D<sub>h</sub></i> [mm]")
     window._v_Kss  = default_factory().res_row(gC, 3, "<i>K</i><sub>ss</sub> [W/(m·K)]")
-    # Material density is used for mass; fluid cp comes from the property model.
-    # Steady LTNE has no solid heat-storage term.
-    g2, _sec_mat = default_factory().section(lay, "  材料属性", _T_NEUTRAL, _F_NEUTRAL)
-    window._ia_sections['material'] = _sec_mat
-    window.le_rho_s = default_factory().row(g2, 0, "<i>&rho;</i><sub>s</sub> [kg/m³]", "7900")
-    # Optimization uses rho_s for solid mass; steady LTNE has no solid storage term.
-    window.le_rho_s.setToolTip(
-        "固体密度：用于优化设计的质量计算，并随工况保存。"
-        "当前稳态 LTNE 固体能量方程没有储热项，不直接使用该密度。")
-
     # ── Grid Settings (rect mode) ──
     g4, sec_solver_rect = default_factory().section(lay, "  网格设置", _T_NEUTRAL, _F_NEUTRAL)
     window._ia_sections['grid_rect'] = sec_solver_rect
-    window.le_Nx = default_factory().row(g4, 0, "网格 <i>N<sub>x</sub></i>", "30")
-    window.le_Ny = default_factory().row(g4, 1, "网格 <i>N<sub>y</sub></i>", "20")
-    window.le_Nz = default_factory().row(g4, 2, "网格 <i>N<sub>z</sub></i>（三维）", "5")
+    window.le_Nx = f.row(g4, 0, *LINE_EDITS['le_Nx'].editor_text('网格'))
+    window.le_Ny = f.row(g4, 1, *LINE_EDITS['le_Ny'].editor_text('网格'))
+    window.le_Nz = f.row(g4, 2, *LINE_EDITS['le_Nz'].editor_text('三维网格'))
     window._lbl_Nz = g4.itemAtPosition(2, 0).widget()
     window._3d_only_widgets += [window.le_Nz, window._lbl_Nz]
 

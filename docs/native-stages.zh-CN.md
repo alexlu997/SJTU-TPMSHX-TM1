@@ -89,6 +89,8 @@ Python 按原顺序去重合并算例通知与运行期 `nu-evidence` 警告，�
 该查询不创建所有者，无需释放调用。
 可传入将缓存钩子置空且 `validate_grid_stage = 0` 的 `tpmshx_preparation_callbacks_v1`，以同步接收范围、通知和浮点事件。
 独立的 `tpms_calc.compute` 选择注册流体、几何、共享缓存、逐次 `K_ss` 查询及警告策略。其 `inlet_query` 通过 `python/cpp_interface/inlet_properties.py` 调用此入口。
+可选关键字参数 `df_mode` 默认为 `cfd_smooth`。选择 `experimental` 时，返回的渗透率、惯性系数和压降梯度应用所选实验修正。
+共享缓存保存基准值。CO₂ 在两种模式下均使用固定修正。
 
 ## 空间几何总质量流量
 

@@ -239,25 +239,36 @@ def compute(tpms_type: str,
             T_in_K: float,
             P_in_Pa: float,
             k_s: float,
-            fluid_type: str = 'air', *, sco2_nu=None, co2_geometry=False) -> dict:
+            fluid_type: str = 'air', *, sco2_nu=None, co2_geometry=False,
+            df_mode='cfd_smooth') -> dict:
     """Return cached properties plus solid conductivity ``K_ss`` [W/(m·K)].
 
     See ``_compute_cached`` for the other fields. ``K_ss`` uses the current
     CHI_S setting and ``k_s`` on every call, including cache hits.
 
-    Production uses the fixed water+sCO2 CFD closure; environment state does
-    not select a different backend. Experimental correction, when requested,
-    is applied by the caller after assembling these CFD properties.
+    The default uses the fixed CFD D-F table. In experimental mode, apply the
+    selected campaign correction to K_df, cF_df and dP_per_L on the copy.
+    Single-phase CO₂ always uses its fixed factors.
 
     Return a fresh shallow copy with scalar values on every call.
     """
+    from .df_surrogate.experimental_correction import DF_MODES, EXPERIMENTAL
     from .fluid_props import check_water_state
+
+    if df_mode not in DF_MODES:
+        raise ValueError(f'Unsupported D-F mode {df_mode!r}')
     check_water_state(fluid_type, T_in_K, P_in_Pa, where='compute inlet')
     # Production V2 closure is fluid-independent and fixed for a TPMS/L/t
     # geometry.
     result, records = _compute_cached(tpms_type, L_cell_mm, t_mm, u, T_in_K,
                                      P_in_Pa, fluid_type, sco2_nu, co2_geometry)
     result = dict(result)
+    fluid = fluid_type.strip().lower()
+    if df_mode == EXPERIMENTAL and fluid != 'co2':
+        from sjtu_tpmshx.cpp_interface._native_df import pressure_gradient
+        from .df_surrogate.experimental_correction import apply_correction
+        K, cF, _ = apply_correction(tpms_type, fluid, L_cell_mm, t_mm, result['K_df'], result['cF_df'], u)
+        result.update(K_df=K, cF_df=cF, dP_per_L=pressure_gradient(result['rho'], result['mu'], u, K, cF))
     from sjtu_tpmshx.cpp_interface import _native_geometry
     from .tpms_props import _resolve_chi_s
     eps = result['epsilon']
