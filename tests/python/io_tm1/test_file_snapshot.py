@@ -7,7 +7,7 @@ import pytest
 
 from sjtu_tpmshx.file_io import file_snapshot as snapshot
 from sjtu_tpmshx.file_io.result_io import load_result, save_result
-from tests.python.test_workflow_recovery import stages as stages
+from tests.python.execution_tm1.test_workflow_recovery import stages as stages
 
 
 def test_result_replacement_and_source_removal_preserve_the_snapshot(tmp_path, stages):

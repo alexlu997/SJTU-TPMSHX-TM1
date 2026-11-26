@@ -15,7 +15,7 @@ from sjtu_tpmshx.development.runs.tools.check_locked_environment import (
 )
 
 
-_ROOT = Path(__file__).resolve().parents[2]
+_ROOT = Path(__file__).resolve().parents[3]
 
 
 def test_reference_packages_match_their_test_and_offline_consumers():

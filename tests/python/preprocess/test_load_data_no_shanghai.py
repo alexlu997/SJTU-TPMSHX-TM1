@@ -19,7 +19,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 
 # Raw training Excel is a local asset (data/ is gitignored) — skip cleanly
 # on checkouts without it (CI) instead of FileNotFoundError.

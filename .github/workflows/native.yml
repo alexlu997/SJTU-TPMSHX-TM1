@@ -77,7 +77,7 @@ jobs:
         shell: bash
         env:
           TM1_WHEEL_DIR: .cache/distribution-check
-        run: '"$CI_PYTHON" -m pytest tests/python/test_distribution_contents.py -q'
+        run: '"$CI_PYTHON" -m pytest tests/python/engineering_tm1/test_distribution_contents.py -q'
       - name: Save Python wheels for isolated postprocessing
         uses: actions/upload-artifact@v7
         with:

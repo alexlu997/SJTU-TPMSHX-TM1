@@ -274,7 +274,7 @@ def test_installed_wheel_runtime(kind):
     import json
 
     wheel, = (Path(directory).resolve() / kind).glob("*.whl")
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[3]
     env = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
     with TemporaryDirectory(prefix="tm1-wheel-") as directory:
         target = Path(directory) / "installed"

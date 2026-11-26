@@ -303,7 +303,7 @@ assert api.run_case is original and recovery.run_case is original
 
 @pytest.mark.parametrize('fluid', ['co2', 'sco2'])
 def test_real_fluid_batch_reaches_the_original_solver_and_keeps_failure(tmp_path, monkeypatch, fluid, native_control):
-    from tests.python.test_co2_model import co2_config
+    from tests.python.preprocess.test_co2_model import co2_config
     from sjtu_tpmshx.preprocess.api import prepare_inlet_mass_capacities
     config = co2_config(3)
     config.fluid_A.type = fluid

@@ -57,7 +57,7 @@ for count, path in enumerate((packaged, packaged, packaged.relative_to(Path.cwd(
     resources.load_co2_coefficients(path)
     if reads[packaged.name] != count:
         raise SystemExit(f'Explicit CO2 file reads: {reads}')
-'''], cwd=Path(__file__).resolve().parents[2], check=True, timeout=30)
+'''], cwd=Path(__file__).resolve().parents[3], check=True, timeout=30)
 
 
 @pytest.mark.parametrize('section,key,value', [
@@ -137,7 +137,7 @@ def test_quick_design_catalog_checks_versions_and_returns_owned_defaults():
 
 
 def test_native_coefficient_generation_needs_only_standard_library():
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[3]
     probe = subprocess.run([sys.executable, '-S', '-c', '''
 import sys
 from engineering.scripts.generate_native_model_coefficients import header, df_header

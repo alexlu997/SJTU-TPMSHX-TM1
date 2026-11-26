@@ -7,7 +7,7 @@ tests/python/test_native_prepare_spatial_adapter.py
 tests/python/test_native_prepare_offset.py
 tests/python/test_native_preparation_cache_bridge.py
 tests/python/test_native_preparation_spatial_host_boundary.py
-tests/python/test_preparation_cache.py
+tests/python/models_tm1/test_preparation_cache.py
 tests/python/test_native_stage_run.py
 tests/python/test_native_stage_capture.py
 tests/python/test_native_run_adapter_3d.py
