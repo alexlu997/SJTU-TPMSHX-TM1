@@ -2,78 +2,76 @@
 from __future__ import annotations
 
 import os
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QMainWindow, QMessageBox
 from sjtu_tpmshx.data_types.compute_config import ComputeConfig, SolverConfig
 from tests.python.gui_worker_support import win as win
 from tests.python.window_stubs import _StubWindow
-from sjtu_tpmshx.applications.gui.ui.mixins.run_controller import RunControllerMixin
+from sjtu_tpmshx.applications.gui.ui.single_run import SingleRun
 from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
 
 
-class _Status:
-    def __init__(self): self.msgs = []
-    def showMessage(self, *a, **k): self.msgs.append(a)
+@pytest.fixture
+def run():
+    window = QMainWindow()
+    yield SingleRun(window)
+    window.deleteLater()
 
 
-# ── U5: high-velocity notice — blank u_B inherits u_A ───────────────────────
-def _win_uv(uA, uB):
-    st = _Status()
-    cfg = config_from_window(_StubWindow(uA=uA, uB=uB), force_3d=False)
-    return SimpleNamespace(statusBar=lambda: st), cfg, st
+def _config_uv(uA, uB):
+    return config_from_window(_StubWindow(uA=uA, uB=uB), force_3d=False)
 
 
-def test_highvel_notice_blank_uB_inherits_uA():
+def test_highvel_notice_blank_uB_inherits_uA(run):
     """uA=20 (high velocity), uB blank -> u_B inherits u_A -> notice must fire."""
-    window, cfg, st = _win_uv("20", "")
-    RunControllerMixin._maybe_highvel_notice(window, cfg)
-    assert st.msgs, "blank u_B zeroed the high-velocity check (notice suppressed)"
-    assert "请关注收敛与压降" in st.msgs[0][0]
+    cfg = _config_uv("20", "")
+    run._maybe_highvel_notice(cfg)
+    assert run.window.statusBar().currentMessage(), "blank u_B zeroed the high-velocity check (notice suppressed)"
+    assert "请关注收敛与压降" in run.window.statusBar().currentMessage()
 
 
-def test_highvel_notice_below_threshold_silent():
-    window, cfg, st = _win_uv("5", "")
-    RunControllerMixin._maybe_highvel_notice(window, cfg)
-    assert not st.msgs
+def test_highvel_notice_below_threshold_silent(run):
+    cfg = _config_uv("5", "")
+    run._maybe_highvel_notice(cfg)
+    assert not run.window.statusBar().currentMessage()
 
 
-def test_highvel_notice_both_blank_silent():
-    window, cfg, st = _win_uv("", "")
-    RunControllerMixin._maybe_highvel_notice(window, cfg)
-    assert not st.msgs
+def test_highvel_notice_both_blank_silent(run):
+    cfg = _config_uv("", "")
+    run._maybe_highvel_notice(cfg)
+    assert not run.window.statusBar().currentMessage()
 
 
-def test_highvel_notice_high_uB_only():
-    window, cfg, st = _win_uv("5", "20")
-    RunControllerMixin._maybe_highvel_notice(window, cfg)
-    assert st.msgs
+def test_highvel_notice_high_uB_only(run):
+    cfg = _config_uv("5", "20")
+    run._maybe_highvel_notice(cfg)
+    assert run.window.statusBar().currentMessage()
 
 
 @pytest.mark.parametrize('mass_sides', ['A', 'B', 'AB'])
-def test_highvel_notice_excludes_mass_flow_speeds(mass_sides):
-    window, cfg, st = _win_uv('20', '20')
+def test_highvel_notice_excludes_mass_flow_speeds(run, mass_sides):
+    cfg = _config_uv('20', '20')
     for side in mass_sides:
         getattr(cfg, 'fluid_' + side).mass_flow_kg_s = .003
-    RunControllerMixin._maybe_highvel_notice(window, cfg)
+    run._maybe_highvel_notice(cfg)
     if mass_sides == 'AB':
-        assert not st.msgs
+        assert not run.window.statusBar().currentMessage()
     else:
-        message = st.msgs[0][0]
+        message = run.window.statusBar().currentMessage()
         assert f'u_{mass_sides}=' not in message
         assert f'u_{"B" if mass_sides == "A" else "A"}=20.0' in message
 
 
-def test_stored_high_speed_does_not_warn_for_low_prescribed_speed():
-    window, cfg, st = _win_uv('20', '5')
+def test_stored_high_speed_does_not_warn_for_low_prescribed_speed(run):
+    cfg = _config_uv('20', '5')
     cfg.fluid_A.mass_flow_kg_s = .003
-    RunControllerMixin._maybe_highvel_notice(window, cfg)
-    assert not st.msgs
+    run._maybe_highvel_notice(cfg)
+    assert not run.window.statusBar().currentMessage()
 
 
 # ── U4: Large-grid confirm reflects the actual refine setting ───────────────
@@ -81,26 +79,26 @@ def _grid_config(nx, ny, nz):
     return ComputeConfig(solver=SolverConfig(Nx=nx, Ny=ny, Nz=nz))
 
 
-def test_large_grid_no_confirm_when_refine_off():
+def test_large_grid_no_confirm_when_refine_off(run):
     """40^3 = 64000 actual cells with refine OFF is below the 100k threshold ->
     no confirm dialog. Pre-fix the unconditional +16 inflated it to
     56^3 = 175616 and popped a spurious 'Large 3D Grid' confirm."""
     cfg = _grid_config(40, 40, 40)
     with patch.object(QMessageBox, 'question') as q, \
          patch.object(QMessageBox, 'warning'):
-        proceed, est, label = RunControllerMixin._preflight_3d(None, cfg)
+        proceed, est, label = run._preflight_3d(cfg)
     q.assert_not_called()
     assert proceed is True
     assert est == 64000
     assert label == "40×40×40"
 
 
-def test_large_grid_confirms_using_total_input_counts():
+def test_large_grid_confirms_using_total_input_counts(run):
     cfg = _grid_config(50, 50, 50)
     with patch.object(QMessageBox, 'question',
                       return_value=QMessageBox.StandardButton.Yes) as q, \
          patch.object(QMessageBox, 'warning'):
-        proceed, est, label = RunControllerMixin._preflight_3d(None, cfg)
+        proceed, est, label = run._preflight_3d(cfg)
     q.assert_called_once()
     assert proceed is True
     assert est == 50 ** 3
@@ -111,9 +109,9 @@ def test_large_grid_confirms_using_total_input_counts():
 
 
 @pytest.mark.parametrize('answer', [QMessageBox.StandardButton.Yes, QMessageBox.StandardButton.No])
-def test_large_grid_keeps_confirmation_choice(answer):
+def test_large_grid_keeps_confirmation_choice(run, answer):
     with patch.object(QMessageBox, 'question', return_value=answer):
-        proceed, _, _ = RunControllerMixin._preflight_3d(None, _grid_config(50, 50, 50))
+        proceed, _, _ = run._preflight_3d(_grid_config(50, 50, 50))
     assert proceed == (answer == QMessageBox.StandardButton.Yes)
 
 
@@ -121,9 +119,9 @@ def test_too_few_z_cells_reject_before_preflight_and_launch(win, monkeypatch):
     win.combo_dim.setCurrentIndex(1)
     win.le_Nz.setText('1')
     with patch.object(QMessageBox, 'warning') as warning, \
-         patch.object(win, '_preflight_grid') as grid, \
-         patch.object(win.compute, 'start') as start:
-        win.run_calculation()
+         patch.object(win.single_run, 'preflight_grid') as grid, \
+         patch.object(win.single_run.compute, 'start') as start:
+        win.single_run.submit()
     assert 'Nz must be >= 2' in warning.call_args.args[2]
     grid.assert_not_called()
     start.assert_not_called()
@@ -151,23 +149,20 @@ def test_run_captures_once_for_preflight_advice_and_worker(win, monkeypatch, dim
         observed.append(cfg)
         return True
 
-    monkeypatch.setattr(win, '_preflight_grid', grid)
-    monkeypatch.setattr(win, '_preflight_3d', grid_3d)
-    monkeypatch.setattr(win, '_maybe_highvel_notice', advice)
-    monkeypatch.setattr(win.compute, 'start', start)
+    monkeypatch.setattr(win.single_run, 'preflight_grid', grid)
+    monkeypatch.setattr(win.single_run, '_preflight_3d', grid_3d)
+    monkeypatch.setattr(win.single_run, '_maybe_highvel_notice', advice)
+    monkeypatch.setattr(win.single_run.compute, 'start', start)
     with patch('sjtu_tpmshx.applications.gui.ui.window_config.config_from_window', wraps=config_from_window) as capture:
-        win.run_calculation()
+        win.single_run.submit()
     capture.assert_called_once_with(win, strict=True, force_3d=bool(dimension))
     assert len(observed) == 3 + dimension
     assert all(config is observed[0] for config in observed)
-    if dimension:
-        win._compute_3d_watchdog.stop()
 
 
 @pytest.mark.parametrize('dimension', [0, 1])
 @pytest.mark.parametrize('zone_axis', [None, 'x', 'y', 'grid', 'continuous'])
-def test_grid_preflight_uses_captured_geometry_ports_and_temperatures(win, monkeypatch, dimension, zone_axis):
-    from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
+def test_grid_preflight_uses_captured_geometry_ports_and_temperatures(run, win, monkeypatch, dimension, zone_axis):
     from sjtu_tpmshx.applications.gui.ui.preflight import Preflight
 
     win.combo_dim.setCurrentIndex(dimension)
@@ -184,7 +179,7 @@ def test_grid_preflight_uses_captured_geometry_ports_and_temperatures(win, monke
         return Preflight()
 
     monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.preflight.compute_preflight', preflight)
-    assert Main_Menu._preflight_grid(SimpleNamespace(), cfg)
+    assert run.preflight_grid(cfg)
     inputs = captured[0]
     assert (inputs['L'], inputs['H'], inputs['Lz']) == (
         cfg.geometry.L_dom_m, cfg.geometry.H_dom_m, cfg.geometry.Lz_m)
@@ -203,8 +198,7 @@ def test_grid_preflight_uses_captured_geometry_ports_and_temperatures(win, monke
 @pytest.mark.parametrize('graded', [False, True])
 @pytest.mark.parametrize('is_3d,direction',
                          [(False, d) for d in range(4)] + [(True, d) for d in range(6)])
-def test_zero_width_ports_use_prepared_full_face_geometry(win, monkeypatch, graded, is_3d, direction):
-    from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
+def test_zero_width_ports_use_prepared_full_face_geometry(run, win, monkeypatch, graded, is_3d, direction):
     from sjtu_tpmshx.preprocess.api import prepare_case
     from sjtu_tpmshx.applications.gui.ui.preflight import Preflight, compute_preflight
 
@@ -231,7 +225,7 @@ def test_zero_width_ports_use_prepared_full_face_geometry(win, monkeypatch, grad
         return Preflight()
 
     monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.preflight.compute_preflight', preflight)
-    assert Main_Menu._preflight_grid(win, cfg)
+    assert run.preflight_grid(cfg)
     report = captured['report']
     assert not report.errors, report.errors
     counts = (20, 22, 24) if is_3d else ((20, 22) if graded else (36, 38))
@@ -264,8 +258,7 @@ def test_zero_width_ports_use_prepared_full_face_geometry(win, monkeypatch, grad
 @pytest.mark.parametrize('is_3d', [False, True])
 @pytest.mark.parametrize('side', ['A', 'B'])
 @pytest.mark.parametrize('empty_end', ['in', 'out'])
-def test_mixed_zero_width_ports_still_block_preflight(win, is_3d, side, empty_end):
-    from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
+def test_mixed_zero_width_ports_still_block_preflight(run, win, is_3d, side, empty_end):
 
     win.combo_dim.setCurrentIndex(int(is_3d))
     win.combo_grid.setCurrentIndex(win.combo_grid.findData(False))
@@ -281,17 +274,16 @@ def test_mixed_zero_width_ports_still_block_preflight(win, is_3d, side, empty_en
         cfg.validate_static_inputs()
     with patch.object(QMessageBox, 'exec', return_value=QMessageBox.StandardButton.Ok), \
          patch.object(QMessageBox, 'setText') as text:
-        assert not Main_Menu._preflight_grid(win, cfg)
+        assert not run.preflight_grid(cfg)
     end_label = 'inlet' if empty_end == 'in' else 'outlet'
     assert f'Fluid {side} {end_label} covers 0 cells' in text.call_args.args[0]
 
 
-def test_captured_invalid_geometry_still_blocks_grid_checks(monkeypatch):
-    from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
+def test_captured_invalid_geometry_still_blocks_grid_checks(run, monkeypatch):
     cfg = ComputeConfig()
     cfg.geometry.L_dom_m = -1.
     with patch.object(QMessageBox, 'critical') as error, \
          patch('sjtu_tpmshx.applications.gui.ui.preflight.compute_preflight') as grid:
-        assert not Main_Menu._preflight_grid(None, cfg)
+        assert not run.preflight_grid(cfg)
     error.assert_called_once()
     grid.assert_not_called()
