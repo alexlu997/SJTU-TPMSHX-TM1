@@ -20,7 +20,7 @@ from tests.python.test_multi_condition_batch import _baseline, _conditions, _nat
 
 
 def _analytic_worker(index, case_file, directory, library, threads, checkpoint_file=None,
-                     *, crash_delay_s=0.):
+                     *, crash_delay_s=None):
     from sjtu_tpmshx.applications.execution import recovery
 
     def solve(case, control, *, checkpoint, checkpoint_due, resume_state):
@@ -37,7 +37,7 @@ def _analytic_worker(index, case_file, directory, library, threads, checkpoint_f
             while len(list(started.parent.glob('started-*'))) < 2:
                 control.check_cancelled()
                 # The crash probe bounds both workers with one process-tree timeout.
-                if first_condition != 'crash' and monotonic() > deadline:
+                if crash_delay_s is None and monotonic() > deadline:
                     raise TimeoutError('The second test worker did not start.')
                 sleep(.01)
             if label == 'crash':
@@ -56,7 +56,7 @@ def _analytic_worker(index, case_file, directory, library, threads, checkpoint_f
             assert not hasattr(batch._batch_cancel, '_cond')
             (started.parent / 'before-os-exit').write_text(str(monotonic()))
             os._exit(17)
-        if first_condition == 'crash' and index == 1:
+        if crash_delay_s is not None and index < 2:
             # Keep this slot occupied until the parent detects the broken pool.
             batch._batch_cancel.wait()
             control.check_cancelled()
@@ -279,21 +279,60 @@ def test_completed_batch_replay_retains_objectives_without_workers(tmp_path, mon
     assert [item[1].result_id for item in result['results']] == [item[1].result_id for item in original['results']]
 
 
-def _run_worker_exit_probe(work_dir, crash_delay_s):
+def _delay_second_worker(patch, root):
+    """Register the second worker while the pool manager watches only the first."""
+    from concurrent.futures import ProcessPoolExecutor
+    from multiprocessing import connection
+    from threading import Event
+
+    spawn = ProcessPoolExecutor._spawn_process
+    wait = connection.wait
+    wake_sent, watching_first = Event(), Event()
+
+    def observe_wait(handles, timeout=None):
+        if timeout is None and len(handles) == 3:
+            # Two pipes and the first worker's sentinel belong to this wait.
+            wake_sent.wait()
+            if not handles[1].poll():
+                watching_first.set()
+        return wait(handles, timeout)
+
+    def start_worker(pool):
+        if pool._processes:
+            # The first worker must own the peer condition before the second starts.
+            while not (root / 'started-0').is_file():
+                sleep(.01)
+            with pytest.MonkeyPatch.context() as wait_patch:
+                wait_patch.setattr(connection, 'wait', observe_wait)
+                pool._executor_manager_thread_wakeup.wakeup()
+                wake_sent.set()
+                watching_first.wait()
+        spawn(pool)
+
+    patch.setattr(ProcessPoolExecutor, '_spawn_process', start_worker)
+
+
+def _worker_exit_conditions(crash_index):
+    conditions = _conditions()
+    conditions[crash_index] = ('crash', *conditions[crash_index][1:])
+    return conditions
+
+
+def _run_worker_exit_probe(work_dir, crash_index, crash_delay_s):
     from concurrent.futures.process import BrokenProcessPool
     from multiprocessing import active_children
 
     work_path = Path(work_dir)
     previous_children = set(active_children())
-    original = batch._run_native_condition
-    batch._run_native_condition = partial(_analytic_worker, crash_delay_s=crash_delay_s)
-    try:
-        conditions = _conditions()
-        conditions[0] = ('crash', *conditions[0][1:])
-        root = work_path / 'worker-exit'
+    root = work_path / 'worker-exit'
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(batch, '_run_native_condition', partial(_analytic_worker, crash_delay_s=crash_delay_s))
+        # In CPython 3.12.0 the manager takes the submit lock to clear a wake.
+        if crash_index == 1 and sys.version_info >= (3, 12, 1):
+            _delay_second_worker(patch, root)
         try:
             batch.evaluate_condition_batch(
-                conditions, output_dir=root, workers=2, control=_control(work_path))
+                _worker_exit_conditions(crash_index), output_dir=root, workers=2, control=_control(work_path))
         except BrokenProcessPool:
             (root / 'after-broken-pool').write_text(str(monotonic()))
         else:
@@ -301,8 +340,6 @@ def _run_worker_exit_probe(work_dir, crash_delay_s):
         remaining = set(active_children()) - previous_children
         if remaining:
             raise AssertionError(f'Child processes stayed active: {remaining!r}')
-    finally:
-        batch._run_native_condition = original
 
 
 def _worker_exit_diagnostics(root, started):
@@ -457,8 +494,8 @@ def test_windows_probe_cleanup_signals_each_pid_after_taskkill_failure(tmp_path,
         helper.kill.assert_called_once_with()
 
 
-@pytest.mark.parametrize('crash_delay_s', [0., 10.5])
-def test_worker_exit_keeps_last_complete_checkpoint(tmp_path, monkeypatch, crash_delay_s):
+@pytest.mark.parametrize('crash_index,crash_delay_s', [(0, 0.), (1, 10.5)], ids=['0.0', '10.5'])
+def test_worker_exit_keeps_last_complete_checkpoint(tmp_path, monkeypatch, crash_index, crash_delay_s):
     from sjtu_tpmshx.applications.execution.recovery import read_run_checkpoint
 
     root = tmp_path / 'worker-exit'
@@ -474,8 +511,8 @@ def test_worker_exit_keeps_last_complete_checkpoint(tmp_path, monkeypatch, crash
         [sys.executable, '-c',
          'import sys; '
          'from tests.python.test_condition_workers import _run_worker_exit_probe; '
-         '_run_worker_exit_probe(sys.argv[1], float(sys.argv[2]))',
-         str(tmp_path), str(crash_delay_s)],
+         '_run_worker_exit_probe(sys.argv[1], int(sys.argv[2]), float(sys.argv[3]))',
+         str(tmp_path), str(crash_index), str(crash_delay_s)],
         **popen_kwargs,
     )
     try:
@@ -489,7 +526,7 @@ def test_worker_exit_keeps_last_complete_checkpoint(tmp_path, monkeypatch, crash
     assert record['status'] == 'failed' and record['objectives'] is None
     statuses = [row['status'] for row in record['conditions']]
     assert statuses == ['failed', 'failed', 'not_run'], [row['reason'] for row in record['conditions']]
-    checkpoint = root / 'condition_001/run/checkpoint.h5'
+    checkpoint = root / record['conditions'][crash_index]['checkpoint_file']
     assert checkpoint.is_file()
     saved, _, _ = read_run_checkpoint(checkpoint)
     assert int(saved.native_state['step'][0]) == 1
@@ -498,10 +535,8 @@ def test_worker_exit_keeps_last_complete_checkpoint(tmp_path, monkeypatch, crash
     assert set(started) == {'started-0', 'started-1'}
     # The in-place continuation keeps both failed members and runs only the member that did not start.
     monkeypatch.setattr(batch, '_run_native_condition', _analytic_worker)
-    conditions = _conditions()
-    conditions[0] = ('crash', *conditions[0][1:])
-    result = batch.evaluate_compact_condition_batch(conditions, output_dir=root, workers=2,
-        control=_control(tmp_path), resume_saved=True)
+    result = batch.evaluate_compact_condition_batch(_worker_exit_conditions(crash_index),
+        output_dir=root, workers=2, control=_control(tmp_path), resume_saved=True)
     rows = result['conditions']
     assert [row['status'] for row in rows] == ['failed', 'failed', 'completed']
     assert [row['recovery_mode'] for row in rows] == ['failed_copy', 'failed_copy', 'new']
