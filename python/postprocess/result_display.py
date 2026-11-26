@@ -126,19 +126,11 @@ def extrapolation_model_label(metadata: dict | None) -> str:
 
 
 def extrapolation_watermark(metadata: dict | None, reasons, *, multiline: bool = False) -> str:
-    """Build figure watermark text from the recorded run model and reasons.
-
-    When historical or minimal metadata omits the recorded Darcy-Forchheimer
-    model reference, keep the reason visible and identify the missing
-    provenance explicitly instead of guessing a model name.
-    """
+    """Build figure watermark text from the recorded run model and reasons."""
     items = list(dict.fromkeys(str(reason) for reason in (reasons or ()) if reason))
     if not items:
         return ''
-    try:
-        prefix = f'⚠ {extrapolation_model_label(metadata)} extrapolated'
-    except ValueError:
-        prefix = '⚠ Model provenance missing — extrapolated'
+    prefix = f'⚠ {extrapolation_model_label(metadata)} extrapolated'
     if multiline:
         short = [item.split(' (')[0].rstrip('.') for item in items]
         return prefix + '\n' + '\n'.join(short)

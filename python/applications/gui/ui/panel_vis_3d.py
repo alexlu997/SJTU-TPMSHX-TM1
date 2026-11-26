@@ -1587,11 +1587,11 @@ class ThreeDVisPanel(QWidget):
         ax.set_title(
             f"{spec.label} — slice {axis.upper()} = {coord_mm:.2f} mm",
             color=t['ax_text'])
-        wm = getattr(self, '_watermark_text', None)
+        wm = self._watermark_text
         if wm:
             fig.tight_layout(rect=[0.0, 0.04, 1.0, 1.0])
             wm_line = ' | '.join(line.strip() for line in wm.splitlines() if line.strip())
-            fig.text(0.5, 0.005, wm_line, color=t.get('warn', '#B45309'),
+            fig.text(0.5, 0.005, wm_line, color=t['warn'],
                      fontsize=8, ha='center', va='bottom', fontweight='bold', alpha=0.85)
         else:
             fig.tight_layout()

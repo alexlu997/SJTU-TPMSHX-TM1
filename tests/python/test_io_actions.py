@@ -956,7 +956,10 @@ def test_result_status_survives_notification_and_mode_switch(
             extrap_reasons=reasons.copy(),
             diagnostics={'mode': mode, 'envelope_valid': envelope,
                          'convergence_detail': {'outer_converged': outer}},
-            metadata={'source': {'name': f'accepted-{index}'}},
+            metadata={
+                'source': {'name': f'accepted-{index}'},
+                'model_refs': [{'name': 'darcy_forchheimer', 'version': 'cfd_full_core_3cell_fixed_v2'}],
+            },
             residuals={'Q_A': 10., 'Q_B': -9., 'Q_net': 1.,
                        'energy_imbalance_rel': .1},
             fields={key: field for key in
@@ -1003,7 +1006,10 @@ def test_result_status_survives_notification_and_mode_switch(
         assert rows['dP_B [Pa]'] == '6.00'
         assert rows['Ta_min [K]'] == '300.00'
         assert rows['Ta_max [K]'] == '307.00'
-        assert json.loads(rows['metadata']) == {'source': {'name': f'accepted-{index}'}}
+        assert json.loads(rows['metadata']) == {
+            'source': {'name': f'accepted-{index}'},
+            'model_refs': [{'name': 'darcy_forchheimer', 'version': 'cfd_full_core_3cell_fixed_v2'}],
+        }
         for key, value in (('converged', converged), ('envelope_valid', envelope),
                            ('outer_converged', outer), ('warnings', expected_warnings),
                            ('extrap_reasons', reasons)):

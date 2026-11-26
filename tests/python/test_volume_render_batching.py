@@ -107,6 +107,7 @@ def test_slice_popup_uses_actual_layer_and_full_domain(monkeypatch, axis):
     panel.plotter = Mock()
     panel.status = Mock()
     panel._slice_actor_name = 'slice'
+    panel._watermark_text = None
     panel._popup_dialogs = []
     panel._clim_for = lambda _: (300., 305.)
     panel._save_figure = Mock()

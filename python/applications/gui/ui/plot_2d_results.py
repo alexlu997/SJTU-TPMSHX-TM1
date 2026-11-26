@@ -296,7 +296,10 @@ def finalize_plots(window, field="temp"):
     window._update_tout(-1)
 
     # Keep the applicability warning visible with every field plot.
-    _wm_text = extrapolation_watermark(getattr(result, 'metadata', None), result.extrap_reasons)
+    _wm_text = (
+        extrapolation_watermark(result.metadata, result.extrap_reasons)
+        if result.extrap_reasons else ''
+    )
     if _wm_text:
         from sjtu_tpmshx.applications.gui.ui.theme import get_theme as _gt
         _tw = _gt().get('warn', '#B45309')

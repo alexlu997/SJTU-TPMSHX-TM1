@@ -443,7 +443,7 @@ class TabViewMixin:
         if '_' in name:
             _h, _sub = name.split('_', 1)
             name = f"{_h}<sub>{_sub}</sub>"
-        fmt = hd.get('fmt', '.2f')
+        fmt = hd['fmt']
         self._hover_label.setText(
             f"x={x_mm:.1f}mm, y={y_mm:.1f}mm  |  Cell ({i},{j}): {name} = {val:{fmt}} {unit}")
 

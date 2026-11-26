@@ -781,11 +781,24 @@ _EXPECTED_DISPLAY_KEYS = {
     3: frozenset(('Ta', 'Tb', 'Ts', 'vmag_A', 'vmag_B', 'P_fA', 'P_fB', 'L_mm', 't_mm')),
 }
 
+_EXPECTED_PANEL_KEYS = {
+    'Ta': 'Ta',
+    'Tb': 'Tb',
+    'Ts': 'Ts',
+    'vmag_A': 'vmag',
+    'vmag_B': 'vmag_B',
+    'P_fA': 'P_kPa',
+    'P_fB': 'P_B_kPa',
+    'L_mm': 'L_mm',
+    't_mm': 't_mm',
+}
+
 
 @pytest.mark.parametrize('active_b', [True, False])
 def test_result_display_table_maps_real_2d_and_3d_results_by_dimension_and_phase(
         native_result, active_b):
     """Check 2: required display keys exist in real 2D/3D results by dimension and phase."""
+    from sjtu_tpmshx.data_types.persistence_validation import validate_result
     from sjtu_tpmshx.postprocess.result_display import (
         COLORMAP_CHOICES, COLORMAP_QUANTITIES, DEFAULT_COLORMAPS,
         PANEL_FIELD_SPECS, RESULT_FIELD_SPECS, field_spec,
@@ -802,19 +815,32 @@ def test_result_display_table_maps_real_2d_and_3d_results_by_dimension_and_phase
         # Mirror solver/stage_capture_3d.cpp:478, which omits inactive-B flow arrays.
         inactive_keys = ('P_gauge_B', 'P_report_B', 'P_fB_display', 'ucB', 'vcB', 'wcB', 'vmag_B')
         reduced_fields = {k: v for k, v in fields.fields.items() if k not in inactive_keys}
-        source = replace(fields, fields=reduced_fields, metadata=metadata)
-        performance = evaluate(fields)
+        reduced_field_meta = {
+            k: v for k, v in fields.field_metadata.items() if k not in inactive_keys
+        }
+        reduced_pressure = {k: v for k, v in fields.pressure_evidence.items() if k != 'B'}
+        source = replace(
+            fields,
+            fields=reduced_fields,
+            field_metadata=reduced_field_meta,
+            pressure_evidence=reduced_pressure,
+            metadata=metadata,
+        )
     else:
         source = fields
-        performance = evaluate(fields)
+    validate_result(source)
+    performance = evaluate(source)
+    if not active_b:
+        assert performance.metrics['dP_B'].status == 'insufficient_data'
+        assert performance.metrics['dP_B'].value is None
     result = to_compute_result(source, performance)
 
-    # Independent expected key sets catch any dropped row in RESULT_FIELD_SPECS.
+    # Independent expected key sets catch any dropped row or swapped A/B panel key.
     expected_keys = _EXPECTED_DISPLAY_KEYS[dimension]
     declared_for_dim = {key for key, spec in RESULT_FIELD_SPECS.items() if dimension in spec.dims}
     assert declared_for_dim == expected_keys
     assert set(RESULT_FIELD_SPECS) == _EXPECTED_DISPLAY_KEYS[3]
-    assert len(PANEL_FIELD_SPECS) == len(RESULT_FIELD_SPECS)
+    assert set(PANEL_FIELD_SPECS) == set(_EXPECTED_PANEL_KEYS.values())
 
     assert result.metadata['tpms'] == source.metadata['parameters']['tpms_type']
     expected_delta = (
@@ -835,8 +861,11 @@ def test_result_display_table_maps_real_2d_and_3d_results_by_dimension_and_phase
     expected_shape = result.fields['Ta'].shape
     for key in _EXPECTED_DISPLAY_KEYS[3]:
         spec = RESULT_FIELD_SPECS[key]
+        expected_panel_key = _EXPECTED_PANEL_KEYS[key]
         assert spec.key == key
-        assert field_spec(spec.key) is spec and field_spec(spec.panel_key) is spec
+        assert spec.panel_key == expected_panel_key
+        assert PANEL_FIELD_SPECS[expected_panel_key] is spec
+        assert field_spec(spec.key) is spec and field_spec(expected_panel_key) is spec
         assert spec.quantity in COLORMAP_QUANTITIES
         assert spec.default_cmap in COLORMAP_CHOICES
         assert spec.default_cmap == DEFAULT_COLORMAPS[spec.quantity]

@@ -114,12 +114,16 @@ def test_reveal_respects_reduced_motion_and_parent_lifetime(parent, monkeypatch)
     monkeypatch.delenv('QT_REDUCED_MOTION')
     assert is_reduced_motion() is False
     try:
-        apply_saved_reduced_motion({'reduced_motion': 'true'})
+        assert apply_saved_reduced_motion({'reduced_motion': 'true'}) is True
+        assert apply_saved_reduced_motion({}) is True
         assert is_reduced_motion() is True
         reveal(parent)
         assert parent.graphicsEffect() is None
         pulse_glow(parent)
         assert parent.graphicsEffect() is None
+        assert apply_saved_reduced_motion({'reduced_motion': 'false'}) is False
+        assert apply_saved_reduced_motion({}) is False
+        assert is_reduced_motion() is False
     finally:
         set_reduced_motion(False)
     child = QWidget(parent)

@@ -120,11 +120,8 @@ def test_extrapolation_watermarks_name_recorded_model_without_constdf(win, mode)
         extrapolation_model_label({})
     with pytest.raises(ValueError, match='darcy_forchheimer'):
         extrapolation_model_label({'darcy_forchheimer': {'mode': 'experimental', 'A': {'campaign': 'c'}}})
-    missing_wm = extrapolation_watermark({}, ['V2 wall thickness must be inside the 0.3..0.5 mm CFD grid.'])
-    assert 'Model provenance missing' in missing_wm
-    assert 'V2 wall thickness' in missing_wm
-    assert 'ConstDF-v1' not in missing_wm
-    assert 'D-F model' not in missing_wm
+    with pytest.raises(ValueError, match='darcy_forchheimer'):
+        extrapolation_watermark({}, ['V2 wall thickness must be inside the 0.3..0.5 mm CFD grid.'])
     assert extrapolation_watermark({}, []) == ''
 
     result = _result(mode)

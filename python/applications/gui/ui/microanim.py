@@ -103,7 +103,7 @@ def apply_saved_reduced_motion(saved: dict[str, str]) -> bool:
     """Apply a saved reduced-motion preference loaded from appearance settings."""
     value = saved.get('reduced_motion')
     if value in ('true', 'false'):
-        return set_reduced_motion(value == 'true')
+        set_reduced_motion(value == 'true')
     return _reduced_motion_preference
 
 
