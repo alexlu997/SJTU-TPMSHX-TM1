@@ -54,7 +54,7 @@ Parameter-page changes, rail expansion, and computation-detail expansion use an 
 
 UI animation and preset 3D views use independent precise timers for high-refresh interaction. Slow frames advance by actual elapsed time without a backlog. Actual 3D frame rate also depends on rendering load. Rotation and view transitions can reduce volume sampling detail adaptively. Static quality returns after motion.
 
-This affects interactive display only. Computation fields and complete exports stay unchanged. Set `QT_REDUCED_MOTION=1` to disable these transitions and 3D view animations.
+This affects interactive display only. Computation fields and complete exports stay unchanged. Set the saved `reduced_motion` preference or `QT_REDUCED_MOTION=1` to disable these transitions and 3D view animations.
 
 After computation, the visible field is drawn first. Other plots are generated and cached on first display or export. Phase/slice changes update the visible plot. New results clear previous plot caches. High-resolution 3D volumes are likewise generated per field on demand.
 
@@ -179,7 +179,7 @@ slice, new slice popups, and their images use these limits. Values outside
 the limits use endpoint colors. Display limits do not change field data.
 Both limits must be finite and Max must exceed Min.
 
-For 3D designs, the 3D Size / Wall Thickness Field tab shows the full XYZ parameter field. Rotate, zoom, select L/t, adjust opacity, or move XY/YZ/XZ slices. This samples the continuous design without another solve. It displays spatial cell size and wall thickness, not a CAD preview of the TPMS surface. Temperature, speed, pressure, size/wall, and sensitivity maps use `turbo`.
+For 3D designs, the 3D Size / Wall Thickness Field tab shows the full XYZ parameter field. Rotate, zoom, select L/t, adjust opacity, or move XY/YZ/XZ slices. This samples the continuous design without another solve. It displays spatial cell size and wall thickness, not a CAD preview of the TPMS surface. Temperature maps default to `coolwarm`, speed and pressure maps default to `viridis`, and design size/wall and sensitivity maps default to `turbo`; per-quantity colormap choices (`coolwarm`, `turbo`, `viridis`, `cividis`) persist with appearance settings.
 Speed uses each fluid's complete field range. Pressure shares the A/B range by default.
 Clear the pressure shared-scale checkbox to use each fluid's range. These ranges stay fixed between slices.
 With the temperature shared-scale checkbox selected, all three phases use the same complete field range, contour levels, and ticks.
@@ -190,7 +190,7 @@ The 3D volume uses the physical cell centres on both uniform and nonuniform grid
 Exterior half cells keep the nearest centre value. Each field's display data loads on first selection.
 3D slices snap to the nearest cell centre. The scene, popup, coordinate label, and exported image use that same layer.
 Historical display arrays stay unchanged in saved files. The current GUI reads the original temperature, velocity, and report pressure fields.
-The 2D, 3D, and slice popup views use the same colormaps. Each quantity keeps its units.
+The 2D, 3D, and slice popup views use the active per-quantity colormaps. Both 2D and 3D displays show absolute pressure fields in kPa, while pressure drops (ΔP), raw pressure arrays, and CSV/NPZ exports keep Pa (with the existing `P_kPa` key in kPa).
 After a solve, the selected field appears first. The volume loads when you first select 3D.
 Drag with the left mouse button anywhere on the geometry canvas to rotate it. Use the wheel to zoom.
 The thread control accepts Auto or an explicit limit on macOS and Windows.

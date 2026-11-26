@@ -503,6 +503,7 @@ class ThreeDVisPanel(QWidget):
         self._flow_dir = '+x'                        # Fluid A arrow direction
         self._flow_dir_B = None                      # Fluid B arrow direction
         self._ports = {}
+        self._watermark_text: Optional[str] = None
         self._tween_animation: Optional[QVariantAnimation] = None
         self._tween_end_pose = None
         self._tween_previous_update_rate = None
@@ -550,6 +551,7 @@ class ThreeDVisPanel(QWidget):
         self._flow_dir = None if flow_dir is None else str(flow_dir or '+x')
         self._flow_dir_B = str(flow_dir_B) if flow_dir_B else None
         self._ports = {'A': ports_A, 'B': ports_B}
+        self._watermark_text = None
 
         candidate = {
             'Ta': Ta, 'Tb': Tb, 'Ts': Ts,
@@ -657,18 +659,19 @@ class ThreeDVisPanel(QWidget):
         remains the primary visual, while the reader still can't miss the
         extrapolation flag in a screenshot or presentation slide.
         """
+        self._watermark_text = str(text) if text else None
         pl = self.plotter
         try:
             pl.remove_actor('_extrap_watermark', render=False)
         except Exception:
             pass
-        if not text:
+        if not self._watermark_text:
             pl.render()
             return
         t = get_theme()
         try:
             _wm = pl.add_text(
-                str(text).replace('⚠', 'Warning:'),
+                self._watermark_text.replace('⚠', 'Warning:'),
                 # upper_left, not lower_left: the lower-left corner already holds
                 # the XYZ orientation triad + the Qt status strip below, so the
                 # watermark there read as a cramped pile. Top-left is clear.
@@ -790,14 +793,12 @@ class ThreeDVisPanel(QWidget):
                           for edges, pos in zip(self._edges_mm, wpos))
             parts = [f"Cursor: ({wpos[0]:.1f}, {wpos[1]:.1f}, {wpos[2]:.1f}) mm",
                      f"Cell {index}"]
-            for fkey in ('Ta', 'Tb', 'Ts', 'vmag', 'vmag_B',
-                         'P_kPa', 'P_B_kPa'):
+            for fkey, spec in PANEL_FIELD_SPECS.items():
                 if fkey in self._arrays:
                     try:
                         val = float(self._arrays[fkey][index])
                     except Exception:
                         continue
-                    spec = PANEL_FIELD_SPECS[fkey]
                     parts.append(f"{spec.title_plain} = "
                                  f"{val:{spec.fmt[1:]}}")
         except Exception:
@@ -1586,7 +1587,14 @@ class ThreeDVisPanel(QWidget):
         ax.set_title(
             f"{spec.label} — slice {axis.upper()} = {coord_mm:.2f} mm",
             color=t['ax_text'])
-        fig.tight_layout()
+        wm = getattr(self, '_watermark_text', None)
+        if wm:
+            fig.tight_layout(rect=[0.0, 0.04, 1.0, 1.0])
+            wm_line = ' | '.join(line.strip() for line in wm.splitlines() if line.strip())
+            fig.text(0.5, 0.005, wm_line, color=t.get('warn', '#B45309'),
+                     fontsize=8, ha='center', va='bottom', fontweight='bold', alpha=0.85)
+        else:
+            fig.tight_layout()
 
         lay = QVBoxLayout(dlg)
         toolbar = NavigationToolbar(canvas, dlg)

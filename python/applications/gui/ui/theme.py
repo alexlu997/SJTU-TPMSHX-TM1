@@ -34,29 +34,33 @@ def get_colormap_overrides() -> dict[str, str]:
     return dict(_cmap_overrides)
 
 
-def set_cmap(quantity: str, cmap: str | None, *, persist: bool = False) -> str:
-    """Set or reset the colormap for one quantity family."""
+def set_cmap(quantity: str, cmap: str | None, *, persist: bool = False) -> bool:
+    """Set or reset the colormap for one quantity family.
+
+    When ``persist`` is True, write the setting before updating live state and
+    return False without changing the active colormap if storage fails.
+    """
     if quantity not in COLORMAP_QUANTITIES:
         raise ValueError(
             f"Unknown colormap quantity {quantity!r}, expected {COLORMAP_QUANTITIES}")
     if cmap is None:
         resolved = DEFAULT_COLORMAPS[quantity]
-        _cmap_overrides.pop(quantity, None)
     else:
         if cmap not in COLORMAP_CHOICES:
             raise ValueError(
                 f"Unknown colormap {cmap!r}, expected {COLORMAP_CHOICES}")
         resolved = cmap
-        if cmap == DEFAULT_COLORMAPS[quantity]:
-            _cmap_overrides.pop(quantity, None)
-        else:
-            _cmap_overrides[quantity] = cmap
     if persist:
         from sjtu_tpmshx.applications.gui.controllers.user_storage import (
             save_appearance_setting,
         )
-        save_appearance_setting(f'cmap_{quantity}', resolved)
-    return resolved
+        if not save_appearance_setting(f'cmap_{quantity}', resolved):
+            return False
+    if resolved == DEFAULT_COLORMAPS[quantity]:
+        _cmap_overrides.pop(quantity, None)
+    else:
+        _cmap_overrides[quantity] = resolved
+    return True
 
 
 def apply_saved_colormaps(saved: dict[str, str]) -> None:

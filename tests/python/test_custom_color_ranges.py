@@ -78,6 +78,7 @@ def test_popup_and_saved_image_use_manual_limits_with_colored_out_of_range_value
     panel.restore_color_ranges({'mode': 'custom', 'ranges': {'Ta': [300., 310.]}})
     try:
         set_cmap('temperature', 'cividis')
+        panel.set_watermark('⚠ cfd_full_core_3cell_fixed_v2 (experimental) extrapolated\nWall thickness out of range')
         panel._show_slice_popup('z', 1.5)
         figure = panel._popup_dialogs[0].findChild(FigureCanvasQTAgg).figure
         contour = figure.axes[0].collections[0]
@@ -86,10 +87,22 @@ def test_popup_and_saved_image_use_manual_limits_with_colored_out_of_range_value
         assert contour.extend == 'both'
         assert contour.cmap(contour.norm(290.)) == contour.cmap(0.)
         assert contour.cmap(contour.norm(320.)) == contour.cmap(1.)
+        wm_texts = [item.get_text() for item in figure.texts]
+        assert len(wm_texts) == 1
+        assert 'cfd_full_core_3cell_fixed_v2 (experimental)' in wm_texts[0]
+        assert 'ConstDF-v1' not in wm_texts[0]
         output = tmp_path / 'slice.png'
         monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: (str(output), ''))
         panel._save_figure(figure, 'z', 1.5, 'Ta')
         assert output.stat().st_size > 1000
+        svg_output = tmp_path / 'slice.svg'
+        monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: (str(svg_output), ''))
+        panel._save_figure(figure, 'z', 1.5, 'Ta')
+        assert 'cfd_full_core_3cell_fixed_v2 (experimental)' in svg_output.read_text(encoding='utf-8')
+        panel.set_watermark(None)
+        panel._show_slice_popup('z', 1.5)
+        cleared_figure = panel._popup_dialogs[-1].findChild(FigureCanvasQTAgg).figure
+        assert cleared_figure.texts == []
         np.testing.assert_array_equal(values, before)
     finally:
         set_cmap('temperature', None)

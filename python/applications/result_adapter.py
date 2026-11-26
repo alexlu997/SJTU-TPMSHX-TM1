@@ -98,17 +98,12 @@ def to_compute_result(result, performance):
             metadata[key] = mutable_data(result.metadata[key])
     if 'inlet_inputs' in parameters:
         metadata['inlet_inputs'] = mutable_data(parameters['inlet_inputs'])
-    run_geometry = (parameters.get('run_settings') or {}).get('geometry') or {}
-    tpms = parameters.get('tpms_type')
-    if tpms is None:
-        tpms = run_geometry.get('tpms')
-    if tpms is not None:
-        metadata['tpms'] = str(tpms)
-    delta = parameters.get('delta_levelset')
-    if delta is None:
-        delta = run_geometry.get('delta_levelset')
-    if delta is not None:
-        metadata['delta_levelset'] = float(delta)
+    delta_levelset = (
+        parameters['run_settings']['geometry']['delta_levelset']
+        if dimension == 2 else parameters['delta_levelset']
+    )
+    metadata['tpms'] = str(parameters['tpms_type'])
+    metadata['delta_levelset'] = float(delta_levelset)
     metadata.update(darcy_forchheimer=mutable_data(result.metadata['df_metadata']),
                     quantity_basis=result.metadata['quantity_basis'], units={'Q': unit},
                     source_result_id=result.result_id, case_id=result.case_id,

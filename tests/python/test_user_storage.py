@@ -121,14 +121,33 @@ def test_output_directory_is_independent_of_launch_directory(user_locations, tmp
 
 
 def test_appearance_write_failure_does_not_replace_saved_choice(user_locations, monkeypatch):
+    from sjtu_tpmshx.applications.gui.ui.microanim import is_reduced_motion, set_reduced_motion
+    from sjtu_tpmshx.applications.gui.ui.theme import resolve_cmap, set_cmap
+
     assert user_storage.save_appearance_setting('theme', 'dark')
-    def failed_write(*args):
-        raise OSError('read only')
-    monkeypatch.setattr(user_storage, '_write', failed_write)
-    assert not user_storage.save_appearance_setting('theme', 'light')
-    assert user_storage.load_appearance_settings()['theme'] == 'dark'
-    with pytest.raises(ValueError):
-        user_storage.save_appearance_setting('accent', '#nothex')
+    try:
+        assert set_cmap('pressure', 'cividis', persist=True) is True
+        assert set_reduced_motion(True, persist=True) is True
+        assert resolve_cmap('P_fA') == 'cividis'
+        assert is_reduced_motion() is True
+
+        def failed_write(*args):
+            raise OSError('read only')
+
+        monkeypatch.setattr(user_storage, '_write', failed_write)
+        assert not user_storage.save_appearance_setting('theme', 'light')
+        assert user_storage.load_appearance_settings()['theme'] == 'dark'
+        assert set_cmap('pressure', 'turbo', persist=True) is False
+        assert resolve_cmap('P_fA') == 'cividis'
+        assert user_storage.load_appearance_settings()['cmap_pressure'] == 'cividis'
+        assert set_reduced_motion(False, persist=True) is False
+        assert is_reduced_motion() is True
+        assert user_storage.load_appearance_settings()['reduced_motion'] == 'true'
+        with pytest.raises(ValueError):
+            user_storage.save_appearance_setting('accent', '#nothex')
+    finally:
+        set_cmap('pressure', None)
+        set_reduced_motion(False)
 
 
 @pytest.mark.parametrize('active_task', ['compute', 'optimization', 'quick_design'])

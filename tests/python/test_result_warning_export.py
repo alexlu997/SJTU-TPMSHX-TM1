@@ -110,8 +110,22 @@ def test_converged_outside_range_result_keeps_design_rejection_in_gui_and_export
 
 @pytest.mark.parametrize('mode', ['2d', '3d'])
 def test_extrapolation_watermarks_name_recorded_model_without_constdf(win, mode):
+    from sjtu_tpmshx.postprocess.result_display import (
+        extrapolation_model_label, extrapolation_watermark,
+    )
     from types import SimpleNamespace
     from tests.python.gui_workbench_support import _result
+
+    with pytest.raises(ValueError, match='darcy_forchheimer'):
+        extrapolation_model_label({})
+    with pytest.raises(ValueError, match='darcy_forchheimer'):
+        extrapolation_model_label({'darcy_forchheimer': {'mode': 'experimental', 'A': {'campaign': 'c'}}})
+    missing_wm = extrapolation_watermark({}, ['V2 wall thickness must be inside the 0.3..0.5 mm CFD grid.'])
+    assert 'Model provenance missing' in missing_wm
+    assert 'V2 wall thickness' in missing_wm
+    assert 'ConstDF-v1' not in missing_wm
+    assert 'D-F model' not in missing_wm
+    assert extrapolation_watermark({}, []) == ''
 
     result = _result(mode)
     result.extrap_reasons = ['V2 wall thickness must be inside the 0.3..0.5 mm CFD grid.']

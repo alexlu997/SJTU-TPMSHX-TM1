@@ -112,36 +112,37 @@ def field_spec(key: str) -> ResultFieldSpec:
 
 
 def extrapolation_model_label(metadata: dict | None) -> str:
-    """Return the recorded Darcy-Forchheimer model name for one result."""
-    meta = metadata or {}
-    df = meta.get('darcy_forchheimer') or {}
+    """Return the recorded Darcy-Forchheimer model ID for one result."""
+    if not isinstance(metadata, dict):
+        raise ValueError('Result metadata must provide the recorded darcy_forchheimer model reference')
+    df = metadata.get('darcy_forchheimer')
     mode = df.get('mode') if isinstance(df, dict) else None
-    for ref in meta.get('model_refs') or ():
+    for ref in metadata.get('model_refs') or ():
         if isinstance(ref, dict) and ref.get('name') == 'darcy_forchheimer':
             version = ref.get('version')
-            if version:
-                return f'{version} ({mode})' if mode == 'experimental' else str(version)
-    if isinstance(df, dict):
-        for side in ('A', 'B'):
-            row = df.get(side)
-            if isinstance(row, dict) and row.get('campaign'):
-                campaign = str(row['campaign'])
-                return f'{campaign} ({mode})' if mode == 'experimental' else campaign
-        if mode:
-            return f'D-F ({mode})'
-    return 'D-F model'
+            if isinstance(version, str) and version.strip():
+                return f'{version} ({mode})' if mode == 'experimental' else version
+    raise ValueError('Result metadata is missing the recorded darcy_forchheimer model reference')
 
 
 def extrapolation_watermark(metadata: dict | None, reasons, *, multiline: bool = False) -> str:
-    """Build figure watermark text from the recorded run model and reasons."""
+    """Build figure watermark text from the recorded run model and reasons.
+
+    When historical or minimal metadata omits the recorded Darcy-Forchheimer
+    model reference, keep the reason visible and identify the missing
+    provenance explicitly instead of guessing a model name.
+    """
     items = list(dict.fromkeys(str(reason) for reason in (reasons or ()) if reason))
     if not items:
         return ''
-    label = extrapolation_model_label(metadata)
+    try:
+        prefix = f'⚠ {extrapolation_model_label(metadata)} extrapolated'
+    except ValueError:
+        prefix = '⚠ Model provenance missing — extrapolated'
     if multiline:
         short = [item.split(' (')[0].rstrip('.') for item in items]
-        return f'⚠ {label} extrapolated\n' + '\n'.join(short)
-    return f'⚠ {label} extrapolated: ' + ' | '.join(items)
+        return prefix + '\n' + '\n'.join(short)
+    return prefix + ': ' + ' | '.join(items)
 
 
 def display_fields_2d(temperature, pressure, velocity):

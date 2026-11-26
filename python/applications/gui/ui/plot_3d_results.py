@@ -169,13 +169,17 @@ def _render_2d_slices_from_3d(window, res, field=None):
     v_spec_a, v_spec_b = RESULT_FIELD_SPECS['vmag_A'], RESULT_FIELD_SPECS['vmag_B']
     t_specs = [RESULT_FIELD_SPECS[key] for key in ('Ta', 'Tb', 'Ts')]
 
+    p_slice_a = None
+    p_slice_b = None
+    if field in (None, 'pres'):
+        p_slice_a = P_Pa[:, :, k_mid] * p_spec_a.display_scale
+        p_slice_b = P_Pa_B[:, :, k_mid] * p_spec_b.display_scale if has_B else None
+
     plot_jobs = [
         ('canvas_temp', _plot_3d_temperature,
             (Ta[:, :, k_mid], Tb[:, :, k_mid], Ts[:, :, k_mid], xc, yc, z_info)),
         ('canvas_pres', _plot_3d_pressure,
-            (P_Pa[:, :, k_mid],
-             P_Pa_B[:, :, k_mid] if has_B else None,
-             xc, yc, res.dP_A_Pa, dP_B, z_info)),
+            (p_slice_a, p_slice_b, xc, yc, res.dP_A_Pa, dP_B, z_info)),
         ('canvas_vel', _plot_3d_velocity_slice,
             (vmag_A[:, :, k_mid],
              vmag_B[:, :, k_mid] if has_B else None,
@@ -203,9 +207,12 @@ def _render_2d_slices_from_3d(window, res, field=None):
                 if key == 'pres':
                     control = getattr(window, 'chk_shared_pressure_scale', None)
                     shared = control is None or control.isChecked()
-                    full_fields = ([P_Pa * p_spec_a.display_scale]
-                                   + ([P_Pa_B * p_spec_b.display_scale] if has_B else []))
-                    kwargs['color_limits'] = field_color_limits(full_fields, shared)
+                    raw_fields = [P_Pa] + ([P_Pa_B] if has_B else [])
+                    scale = p_spec_a.display_scale
+                    kwargs['color_limits'] = [
+                        (lo * scale, hi * scale)
+                        for lo, hi in field_color_limits(raw_fields, shared)
+                    ]
                     kwargs['shared'] = shared
                 else:
                     full_fields = [vmag_A] + ([vmag_B] if has_B else [])
@@ -215,16 +222,16 @@ def _render_2d_slices_from_3d(window, res, field=None):
                 fields = [Ta[:, :, k_mid], Tb[:, :, k_mid], Ts[:, :, k_mid]]
                 if unit == '°C':
                     fields = [a - CELSIUS_ZERO_K for a in fields]
-                names, field_unit = [spec.symbol for spec in t_specs], unit
+                names, field_unit, field_fmt = [spec.symbol for spec in t_specs], unit, '.2f'
             elif attr == 'canvas_pres':
-                fields = [P_Pa[:, :, k_mid] * p_spec_a.display_scale]
-                names, field_unit = [p_spec_a.symbol], p_spec_a.display_unit
+                fields = [p_slice_a]
+                names, field_unit, field_fmt = [p_spec_a.symbol], p_spec_a.display_unit, '.5f'
                 if has_B:
-                    fields.append(P_Pa_B[:, :, k_mid] * p_spec_b.display_scale)
+                    fields.append(p_slice_b)
                     names.append(p_spec_b.symbol)
             else:
                 fields = [vmag_A[:, :, k_mid]]
-                names, field_unit = [v_spec_a.symbol], v_spec_a.display_unit
+                names, field_unit, field_fmt = [v_spec_a.symbol], v_spec_a.display_unit, '.2f'
                 if has_B:
                     fields.append(vmag_B[:, :, k_mid])
                     names.append(v_spec_b.symbol)
@@ -232,6 +239,7 @@ def _render_2d_slices_from_3d(window, res, field=None):
             canvas._hover_data = {
                 'fields': [fields[i] for i in indices],
                 'names': [names[i] for i in indices], 'unit': field_unit,
+                'fmt': field_fmt,
                 'Nx': Nx, 'Ny': Ny, 'L': float(np.sum(dx)), 'H': float(np.sum(dy)),
                 'dx_arr': dx, 'dy_arr': dy, 'slice_index': k_mid,
             }
@@ -327,16 +335,15 @@ def _plot_3d_temperature(canvas, Ta_slice, Tb_slice, Ts_slice, xc, yc, z_info,
     canvas.draw()
 
 
-def _plot_3d_pressure(canvas, P_slice_A, P_slice_B, xc, yc, dP_A, dP_B, z_info,
+def _plot_3d_pressure(canvas, P_slice_A_kPa, P_slice_B_kPa, xc, yc, dP_A, dP_B, z_info,
                       phase=None, color_limits=None, shared=True):
-    """Show absolute pressure with shared A/B limits by default."""
+    """Show absolute pressure slices supplied in kPa with shared A/B limits by default."""
     theme = _get_theme()
     specs = [RESULT_FIELD_SPECS['P_fA']]
-    fields = [P_slice_A * specs[0].display_scale]
-    if P_slice_B is not None:
-        spec_b = RESULT_FIELD_SPECS['P_fB']
-        specs.append(spec_b)
-        fields.append(P_slice_B * spec_b.display_scale)
+    fields = [P_slice_A_kPa]
+    if P_slice_B_kPa is not None:
+        specs.append(RESULT_FIELD_SPECS['P_fB'])
+        fields.append(P_slice_B_kPa)
     limits = color_limits or field_color_limits(fields, shared)
     indices = range(len(fields)) if phase is None else [min(phase, len(fields) - 1)]
     axes = np.atleast_1d(_begin_canvas_plot(canvas, 1, len(indices)))

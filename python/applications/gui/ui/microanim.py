@@ -82,16 +82,21 @@ _reduced_motion_preference = False
 
 
 def set_reduced_motion(enabled: bool, *, persist: bool = False) -> bool:
-    """Set the reduced-motion preference and optionally save it with appearance settings."""
+    """Set the reduced-motion preference and optionally save it with appearance settings.
+
+    When ``persist`` is True, write the setting before updating live state and
+    return False without changing the active preference if storage fails.
+    """
     global _reduced_motion_preference
     value = bool(enabled)
-    _reduced_motion_preference = value
     if persist:
         from sjtu_tpmshx.applications.gui.controllers.user_storage import (
             save_appearance_setting,
         )
-        save_appearance_setting('reduced_motion', 'true' if value else 'false')
-    return value
+        if not save_appearance_setting('reduced_motion', 'true' if value else 'false'):
+            return False
+    _reduced_motion_preference = value
+    return True
 
 
 def apply_saved_reduced_motion(saved: dict[str, str]) -> bool:

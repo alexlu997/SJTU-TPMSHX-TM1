@@ -108,8 +108,9 @@ class MatplotlibCanvas(FigureCanvas):
         inches = pixels * self.device_pixel_ratio / self.figure.dpi
         self.figure.set_size_inches(np.nextafter(inches, np.inf), forward=False)
 
-    def plot_pressure(self, P_fA, P_fB, N_x, N_y, L, H, mode="",
+    def plot_pressure(self, P_A_kPa, P_B_kPa, N_x, N_y, L, H, mode="",
                        dx_arr=None, dy_arr=None, shared=True):
+        """Plot Fluid A and Fluid B absolute pressure fields supplied in kPa."""
         _t = get_theme()
         from matplotlib.gridspec import GridSpec
 
@@ -129,14 +130,12 @@ class MatplotlibCanvas(FigureCanvas):
         self.axes = [axes_p]
 
         spec_a, spec_b = RESULT_FIELD_SPECS['P_fA'], RESULT_FIELD_SPECS['P_fB']
-        p_a = P_fA * spec_a.display_scale
-        p_b = P_fB * spec_b.display_scale
         p_data = [
-            (p_a, spec_a, "Fluid A"),
-            (p_b, spec_b, "Fluid B"),
+            (P_A_kPa, spec_a, "Fluid A"),
+            (P_B_kPa, spec_b, "Fluid B"),
         ]
         _Lmm, _Hmm = L * 1000.0, H * 1000.0
-        limits = field_color_limits([p_a, p_b], shared)
+        limits = field_color_limits([P_A_kPa, P_B_kPa], shared)
         for ax, (field, spec, subtitle), (lo, hi) in zip(axes_p, p_data, limits):
             ax.set_facecolor(_t['ax_bg'])
             _Xp, _Yp, _Fp = pad_field_to_edges(x, y, field, _Lmm, _Hmm)

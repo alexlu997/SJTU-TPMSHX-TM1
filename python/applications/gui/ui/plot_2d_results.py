@@ -167,6 +167,7 @@ def plot_temperature_3panel(window, r, _t, zones=None):
         'fields': [[Ta, Tb, Ts][i] for i in selected],
         'names': [specs[i].symbol for i in selected],
         'unit': unit,
+        'fmt': '.2f',
         'L': L, 'H': H, 'Nx': N_x, 'Ny': N_y,
         'dx_arr': _dx, 'dy_arr': _dy,
     }
@@ -214,7 +215,7 @@ def finalize_plots(window, field="temp"):
         control = getattr(window, 'chk_shared_pressure_scale', None)
         shared = control is None or control.isChecked()
         if len(selected) == 2:
-            window.canvas_pres.plot_pressure(P_fA, P_fB, N_x, N_y, L, H, mode_label,
+            window.canvas_pres.plot_pressure(p_disp[0], p_disp[1], N_x, N_y, L, H, mode_label,
                                              dx_arr=r.get('dx_arr'), dy_arr=r.get('dy_arr'), shared=shared)
         else:
             from .matplotlib_canvas import pad_field_to_edges
@@ -243,6 +244,7 @@ def finalize_plots(window, field="temp"):
             'fields': [p_disp[i] for i in selected],
             'names': [p_specs[i].symbol for i in selected],
             'unit': spec_a.display_unit,
+            'fmt': '.5f',
             'L': L, 'H': H, 'Nx': N_x, 'Ny': N_y,
             'dx_arr': _dx, 'dy_arr': _dy,
         }
@@ -286,6 +288,7 @@ def finalize_plots(window, field="temp"):
             'fields': [[UmagA, UmagB][i] for i in selected],
             'names': [v_specs[i].symbol for i in selected],
             'unit': spec_a.display_unit,
+            'fmt': '.2f',
             'L': L, 'H': H, 'Nx': N_x, 'Ny': N_y,
             'dx_arr': _dx, 'dy_arr': _dy,
         }

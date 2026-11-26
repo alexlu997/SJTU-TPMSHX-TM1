@@ -78,7 +78,8 @@ def test_hover_reads_original_cell_on_nonuniform_grid(monkeypatch, position, ind
     raw = np.arange(12.).reshape(2, 3, 2)
     panel = SimpleNamespace(_grid=object(), plotter=Mock(), status=Mock(), _last_hover_text='',
         _edges_mm=([0., 1., 10.], [0., 2., 7., 8.], [0., 3., 10.]),
-        _arrays={'Ta': 300. + raw, 'vmag': 10. + raw})
+        _arrays={'Ta': 300. + raw, 'vmag': 10. + raw,
+                 'L_mm': 4. + raw * .1, 't_mm': .3 + raw * .01})
     event = Mock()
     event.GetEventPosition.return_value = (4, 5)
     ThreeDVisPanel._on_mouse_move(panel, event, None)
@@ -86,6 +87,8 @@ def test_hover_reads_original_cell_on_nonuniform_grid(monkeypatch, position, ind
     assert f'Cell {index}' in text
     assert f'Ta (K) = {300. + raw[index]:.1f}' in text
     assert f'speed A (m/s) = {10. + raw[index]:.2f}' in text
+    assert f'L (mm) = {4. + raw[index] * .1:.2f}' in text
+    assert f't (mm) = {.3 + raw[index] * .01:.3f}' in text
 
 
 @pytest.mark.parametrize('axis', ['x', 'y', 'z'])

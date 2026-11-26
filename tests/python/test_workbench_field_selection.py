@@ -53,7 +53,8 @@ def test_narrow_field_colorbars_keep_distinct_absolute_labels(dimension, field, 
             _plot_3d_temperature(canvas, temperature, temperature + .1,
                                  temperature + .2, x, y, '', phase=phase)
         elif field == 'pres':
-            _plot_3d_pressure(canvas, pressure, pressure + .1, x, y, .4, .4, '', phase=phase)
+            _plot_3d_pressure(canvas, pressure / 1000., (pressure + .1) / 1000.,
+                              x, y, .4, .4, '', phase=phase)
         else:
             _plot_3d_velocity_slice(canvas, velocity, velocity, x, y, '', phase=phase)
     FigureCanvasAgg(canvas.fig).draw()
