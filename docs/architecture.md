@@ -47,7 +47,7 @@ See [include/tpmshx/](../include/tpmshx/), [tests/cpp/](../tests/cpp/), [C++ int
 
 ## Directory owners
 
-Each layer has one owner directory. Do not duplicate correlations or physical constants between these layers.
+This table gives the contents of each directory. Do not duplicate correlations or physical constants between these layers.
 The [Python layer owners](#python-layer-owners) table gives the responsibilities of the Python directories.
 
 | Path | Contents |
@@ -58,7 +58,9 @@ The [Python layer owners](#python-layer-owners) table gives the responsibilities
 | [include/tpmshx/](../include/tpmshx/) | C and C++ headers. |
 | [tests/cpp/](../tests/cpp/) | Native caller tests. |
 | [python/applications/](../python/applications/) | Application workflows. GUI components are in `gui/ui/` and controllers are in `gui/controllers/`. |
-| [python/preprocess/](../python/preprocess/), [python/solvers/](../python/solvers/), [python/postprocess/](../python/postprocess/) | Python stage packages. They produce new `CaseData`, `FieldResult`, and `PerformanceResult` and `MetricValue`. |
+| [python/preprocess/](../python/preprocess/) | Python preparation stage. It produces new `CaseData`. |
+| [python/solvers/](../python/solvers/) | Python solver stage. It produces new `FieldResult`. |
+| [python/postprocess/](../python/postprocess/) | Python evaluation stage. It produces new `PerformanceResult` and `MetricValue`. |
 | [python/data_types/](../python/data_types/) | Portable types, including the stage data types. |
 | [python/physical_models/](../python/physical_models/), [python/model_configs/](../python/model_configs/) | Models with standalone model queries and their caches, and model resources. |
 | [python/file_io/](../python/file_io/), [python/run_control/](../python/run_control/) | File I/O and run controls. |

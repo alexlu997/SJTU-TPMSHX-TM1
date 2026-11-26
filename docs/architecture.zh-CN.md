@@ -51,7 +51,7 @@ Quick Design、保存态工况运行、离线评估和运行恢复分别从对�
 
 ## 目录所有者
 
-每个分层只有一个所有者目录。各分层之间不重复关联式或物理常数。
+下表列出各目录的内容。各分层之间不重复关联式或物理常数。
 Python 目录的职责见 [Python 分层所有者](#python-分层所有者)表。
 
 | 路径 | 内容 |
@@ -62,7 +62,9 @@ Python 目录的职责见 [Python 分层所有者](#python-分层所有者)表�
 | [include/tpmshx/](../include/tpmshx/) | C 与 C++ 头文件。 |
 | [tests/cpp/](../tests/cpp/) | 原生调用方测试。 |
 | [python/applications/](../python/applications/) | 应用工作流。GUI 组件位于 `gui/ui/`，控制器位于 `gui/controllers/`。 |
-| [python/preprocess/](../python/preprocess/)、[python/solvers/](../python/solvers/)、[python/postprocess/](../python/postprocess/) | Python 阶段包，分别生成新的 `CaseData`、`FieldResult`，以及 `PerformanceResult` 与 `MetricValue`。 |
+| [python/preprocess/](../python/preprocess/) | Python 前处理阶段，生成新的 `CaseData`。 |
+| [python/solvers/](../python/solvers/) | Python 求解阶段，生成新的 `FieldResult`。 |
+| [python/postprocess/](../python/postprocess/) | Python 评估阶段，生成新的 `PerformanceResult` 与 `MetricValue`。 |
 | [python/data_types/](../python/data_types/) | 可移植类型，包括各阶段数据类型。 |
 | [python/physical_models/](../python/physical_models/)、[python/model_configs/](../python/model_configs/) | 模型及独立模型查询与其缓存，以及模型资源。 |
 | [python/file_io/](../python/file_io/)、[python/run_control/](../python/run_control/) | 文件 I/O 与运行控制。 |
