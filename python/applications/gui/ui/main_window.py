@@ -21,6 +21,7 @@ from sjtu_tpmshx.applications.gui.ui.mixins import (RunHistoryMixin, DialogsMixi
                        FluidInputMixin, RunControllerMixin, RunResultsMixin,
                        AppearanceMixin, SessionPresetsMixin,
                        ShortcutsMixin, IOActionsMixin)
+from sjtu_tpmshx.applications.gui.ui.theme import get_theme
 from sjtu_tpmshx.applications.gui.ui.ui_constants import (
     TOAST_MS_BRIEF, TOAST_MS_MED,
 )
@@ -547,17 +548,18 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         # arbitrary HTML in the modal. (Qt RichText doesn't run JS but
         # still parses tags; we escape every cell to be safe.) — 2026-04-29
         import html as _html_esc
+        t = get_theme()
         rows = "".join(
             f"<tr><td style='padding:4px 14px 4px 0;'>{_html_esc.escape(str(lbl))}</td>"
-            f"<td style='padding:4px 14px 4px 0; color:#6b7280;'>"
+            f"<td style='padding:4px 14px 4px 0; color:{t['sub_fg']};'>"
             f"<code>{_html_esc.escape(str(name))}</code></td>"
-            f"<td style='padding:4px 0; color:#DC2626;'>"
+            f"<td style='padding:4px 0; color:{t['err']};'>"
             f"{_html_esc.escape(str(val))}</td></tr>"
             for lbl, name, val in bad[:30])
         html = (
             f"<h3 style='margin:0 0 8px 0;'>"
             f"{len(bad)} 个无效输入</h3>"
-            "<p style='margin:0 0 10px 0; color:#6b7280;'>"
+            f"<p style='margin:0 0 10px 0; color:{t['sub_fg']};'>"
             "运行计算前请先修正下列字段；悬停字段可查看原因。</p>"
             "<table style='border-collapse:collapse;'>"
             f"{rows}</table>")
@@ -639,6 +641,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             return True
 
         import html as _h
+        t = get_theme()
 
         def _rows(items, color):
             return "".join(
@@ -648,24 +651,24 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         sev_html = []
         if report.errors:
             sev_html.append(
-                f"<h4 style='margin:8px 0 4px 0; color:#DC2626;'>"
+                f"<h4 style='margin:8px 0 4px 0; color:{t['err']};'>"
                 f"{len(report.errors)} error"
                 f"{'s' if len(report.errors) != 1 else ''}</h4>"
-                f"<ul style='margin:0;'>{_rows(report.errors, '#DC2626')}</ul>")
+                f"<ul style='margin:0;'>{_rows(report.errors, t['err'])}</ul>")
         if report.warnings:
             sev_html.append(
-                f"<h4 style='margin:8px 0 4px 0; color:#B45309;'>"
+                f"<h4 style='margin:8px 0 4px 0; color:{t['search_hl']};'>"
                 f"{len(report.warnings)} warning"
                 f"{'s' if len(report.warnings) != 1 else ''}</h4>"
-                f"<ul style='margin:0;'>{_rows(report.warnings, '#B45309')}</ul>")
+                f"<ul style='margin:0;'>{_rows(report.warnings, t['search_hl'])}</ul>")
         if report.info:
             sev_html.append(
-                f"<h4 style='margin:8px 0 4px 0; color:#6b7280;'>Info</h4>"
-                f"<ul style='margin:0;'>{_rows(report.info, '#6b7280')}</ul>")
+                f"<h4 style='margin:8px 0 4px 0; color:{t['sub_fg']};'>Info</h4>"
+                f"<ul style='margin:0;'>{_rows(report.info, t['sub_fg'])}</ul>")
 
         html = (
             "<h3 style='margin:0 0 8px 0;'>Grid preflight</h3>"
-            "<p style='margin:0 0 8px 0; color:#6b7280;'>"
+            f"<p style='margin:0 0 8px 0; color:{t['sub_fg']};'>"
             "Reviewed wall-refine fit, inlet/outlet coverage, "
             "and Richardson budget.</p>" + "".join(sev_html))
 
