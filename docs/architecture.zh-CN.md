@@ -47,6 +47,30 @@ Quick Design、保存态工况运行、离线评估和运行恢复分别从对�
 | 别名解析器 [python/shared.py](../python/shared.py) | 在不复制代码的前提下将历史 `sjtu_tpmshx.shared.*` 与 `sjtu_tpmshx.solvers.backends.cpp.*` 路径解析至规范所有者。[python/solvers/backends/cpp.py](../python/solvers/backends/cpp.py) 导入其搜索路径；[packaging_support.py](../tests/python/packaging_support.py)、[test_three_module_imports.py](../tests/python/architecture/test_three_module_imports.py) 与 [test_distribution_contents.py](../tests/python/test_distribution_contents.py) 在源码检出与安装 wheel 中测试这些别名，本地 `.cache/` 脚本亦使用这些别名。 |
 | 现行原生库目录 `sjtu_tpmshx/solvers/native/lib/<host>/` | 被 Git 忽略的目录，由 [build_native_dependencies.py](../engineering/scripts/build_native_dependencies.py) 为源码运行发布四个原生库。`provenance.py` 定义 `PUBLISHED_LIBRARY_DIR`，`module_ports.py`、`stage_libraries.py`、`_native_geometry.py` 与 `launch-macos.command` 读取该目录；冻结桌面包从 `native/` 加载。使用 `.venv-path` 解释器运行 `build_native_dependencies.py verify-published` 执行[已发布原生库检查](verification.md#published-native-images)；该命令将已发布导出符号与几何、准备、求解和结果库的 `.exports` 清单比对，并输出各库构建记录（`build.json` 与 `*-build.json`）。 |
 
+<a id="directory-owners"></a>
+
+## 目录所有者
+
+每个分层只有一个所有者目录。各分层之间不重复关联式或物理常数。
+Python 目录的职责见 [Python 分层所有者](#python-分层所有者)表。
+
+| 路径 | 内容 |
+| --- | --- |
+| [preprocess/](../preprocess/)、[solver/](../solver/)、[postprocess/](../postprocess/) | C++ 前处理、求解与评估。 |
+| [geometry/](../geometry/) | C++ 几何。 |
+| [numerics/](../numerics/) | 通用数值函数。 |
+| [include/tpmshx/](../include/tpmshx/) | C 与 C++ 头文件。 |
+| [tests/cpp/](../tests/cpp/) | 原生调用方测试。 |
+| [python/applications/](../python/applications/) | 应用工作流。GUI 组件位于 `gui/ui/`，控制器位于 `gui/controllers/`。 |
+| [python/preprocess/](../python/preprocess/)、[python/solvers/](../python/solvers/)、[python/postprocess/](../python/postprocess/) | Python 阶段包，分别生成新的 `CaseData`、`FieldResult`，以及 `PerformanceResult` 与 `MetricValue`。 |
+| [python/data_types/](../python/data_types/) | 可移植类型，包括各阶段数据类型。 |
+| [python/physical_models/](../python/physical_models/)、[python/model_configs/](../python/model_configs/) | 模型及独立模型查询与其缓存，以及模型资源。 |
+| [python/file_io/](../python/file_io/)、[python/run_control/](../python/run_control/) | 文件 I/O 与运行控制。 |
+| [python/cpp_interface/](../python/cpp_interface/) | 原生调用。 |
+| [tests/python/](../tests/python/) | Python 测试。 |
+| [python/development/](../python/development/) | 验证与工具。 |
+| [engineering/](../engineering/) | 构建脚本、打包与依赖锁。 |
+
 <a id="retained-python-responsibilities"></a>
 
 ## Python 分层所有者
