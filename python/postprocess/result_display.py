@@ -115,12 +115,11 @@ def extrapolation_model_label(metadata: dict | None) -> str:
     """Return the recorded Darcy-Forchheimer model ID for one result."""
     if not isinstance(metadata, dict):
         raise ValueError('Result metadata must provide the recorded darcy_forchheimer model reference')
-    df = metadata.get('darcy_forchheimer')
-    mode = df.get('mode') if isinstance(df, dict) else None
     for ref in metadata.get('model_refs') or ():
         if isinstance(ref, dict) and ref.get('name') == 'darcy_forchheimer':
             version = ref.get('version')
             if isinstance(version, str) and version.strip():
+                mode = metadata['darcy_forchheimer']['mode']
                 return f'{version} ({mode})' if mode == 'experimental' else version
     raise ValueError('Result metadata is missing the recorded darcy_forchheimer model reference')
 

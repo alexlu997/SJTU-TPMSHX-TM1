@@ -958,6 +958,7 @@ def test_result_status_survives_notification_and_mode_switch(
                          'convergence_detail': {'outer_converged': outer}},
             metadata={
                 'source': {'name': f'accepted-{index}'},
+                'darcy_forchheimer': {'mode': 'cfd_smooth'},
                 'model_refs': [{'name': 'darcy_forchheimer', 'version': 'cfd_full_core_3cell_fixed_v2'}],
             },
             residuals={'Q_A': 10., 'Q_B': -9., 'Q_net': 1.,
@@ -1008,6 +1009,7 @@ def test_result_status_survives_notification_and_mode_switch(
         assert rows['Ta_max [K]'] == '307.00'
         assert json.loads(rows['metadata']) == {
             'source': {'name': f'accepted-{index}'},
+            'darcy_forchheimer': {'mode': 'cfd_smooth'},
             'model_refs': [{'name': 'darcy_forchheimer', 'version': 'cfd_full_core_3cell_fixed_v2'}],
         }
         for key, value in (('converged', converged), ('envelope_valid', envelope),

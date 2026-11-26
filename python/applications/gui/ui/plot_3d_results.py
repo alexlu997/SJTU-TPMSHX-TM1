@@ -106,10 +106,8 @@ def finalize_plots_3d(window) -> bool:
                 ports_A=f.get('ports_A'), ports_B=f.get('ports_B'),
             )
             # Surrogate-extrapolation watermark from the run's recorded model.
-            _txt = (
-                extrapolation_watermark(res.metadata, res.extrap_reasons, multiline=True)
-                if res.extrap_reasons else ''
-            )
+            _txt = extrapolation_watermark(
+                res.metadata, res.extrap_reasons, multiline=True)
             if _txt:
                 try:
                     panel.set_watermark(_txt)
@@ -251,10 +249,7 @@ def _render_2d_slices_from_3d(window, res, field=None):
             _log.warning(f"[3D->2D {attr}] {e}")
 
     # Keep the run's model-extrapolation watermark visible on 2D slice canvases.
-    _wm_text = (
-        extrapolation_watermark(res.metadata, res.extrap_reasons)
-        if res.extrap_reasons else ''
-    )
+    _wm_text = extrapolation_watermark(res.metadata, res.extrap_reasons)
     if _wm_text:
         from sjtu_tpmshx.applications.gui.ui.theme import get_theme as _gt
         _tw = _gt().get('warn', '#B45309')

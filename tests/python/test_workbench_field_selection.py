@@ -181,7 +181,7 @@ def test_3d_slice_phase_and_probe_use_same_nonuniform_cell():
              dz=np.array([.001, .002, .007]), Lx=.1, Ly=.05, Lz=.01, dir_B=1)
     f['vmag_A'] = np.sqrt(f['ucA']**2 + f['vcA']**2 + f['wcA']**2)
     f['vmag_B'] = np.sqrt(f['ucB']**2 + f['vcB']**2 + f['wcB']**2)
-    result = SimpleNamespace(fields=f, dP_A_Pa=10., dP_B_Pa=20., extrap_reasons=[])
+    result = ComputeResult(fields=f, dP_A_Pa=10., dP_B_Pa=20., extrap_reasons=[])
     window = SimpleNamespace(cache=ResultCache(), _slice_result_id=id(result),
                              _slice_index=2, _field_phase=1, _temp_unit='C',
                              _slice_label=QLabel(), _slice_slider=QSlider(),
