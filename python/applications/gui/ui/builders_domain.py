@@ -14,21 +14,23 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .builders_base import right_align_combo
 from .inspector_drawer import CollapsibleBand
 from .symbols import SYM
 from .theme import get_theme
 from .window_config import LINE_EDITS
 
+LABEL_COL_MIN_W = 118
+
 
 def _on_dim_changed(window):
-    """Toggle visibility of 3D-only inputs based on Dimensionality combo."""
+    """Toggle visibility of 3D-only inputs and valid flow directions by dimension."""
     is_3d = window.combo_dim.currentIndex() == 1
     window.lbl_domain_shape.setText("长方体" if is_3d else "矩形")
     for widget in getattr(window, "_3d_only_widgets", []):
         widget.setVisible(is_3d)
-    from .builders_fluids import refresh_inlet_mode
+    from .builders_fluids import refresh_inlet_mode, sync_direction_items
 
+    sync_direction_items(window, is_3d)
     for side in "AB":
         if hasattr(window, "le_mass_flow" + side):
             refresh_inlet_mode(window, side)
@@ -64,6 +66,7 @@ def _make_band_grid(
     grid.setContentsMargins(16, 10, 16, 12)
     grid.setVerticalSpacing(8)
     grid.setHorizontalSpacing(10)
+    grid.setColumnMinimumWidth(0, LABEL_COL_MIN_W)
     grid.setColumnStretch(0, 0)
     grid.setColumnStretch(1, 1)
     band.set_body(body)
@@ -104,7 +107,7 @@ def build_domain_sections(window, lay):
     window.combo_dim.setStyleSheet(combo_qss)
     window.combo_dim.currentIndexChanged.connect(lambda *_: _on_dim_changed(window))
     window.combo_dim.setToolTip("选择求解器的计算维度；结果中的场图 / 三维只切换显示方式。")
-    f.add_row(g_dom, 4, "计算维度", right_align_combo(window.combo_dim))
+    f.add_row(g_dom, 4, "计算维度", window.combo_dim)
     lay.addWidget(sec_dom)
 
     # TPMS structure (solid k_s lives here in 几何)
@@ -117,7 +120,7 @@ def build_domain_sections(window, lay):
     window.combo_tpms.addItems(["Diamond", "Gyroid"])
     window.combo_tpms.setCurrentIndex(1)
     window.combo_tpms.setStyleSheet(combo_qss)
-    f.add_row(g_tpms, 0, "拓扑类型", right_align_combo(window.combo_tpms))
+    f.add_row(g_tpms, 0, "拓扑类型", window.combo_tpms)
     window.le_Lcell = f.row(g_tpms, 1, *LINE_EDITS["le_Lcell"].editor_text("胞元"))
     window.le_t = f.row(g_tpms, 2, *LINE_EDITS["le_t"].editor_text("壁厚"))
     window.le_ks = f.row(g_tpms, 3, *LINE_EDITS["le_ks"].editor_text("热导率"))
@@ -149,7 +152,7 @@ def build_domain_sections(window, lay):
         "端口与壁面加密在开口边缘和壁面集中布置网格，Nx/Ny/Nz 包含全部加密单元。\n"
         "上海水—空气预设使用端口加密；修改几何后需重新检查网格精度。"
     )
-    f.add_row(g_grid, 3, "网格方案", right_align_combo(window.combo_grid))
+    f.add_row(g_grid, 3, "网格方案", window.combo_grid)
     lay.addWidget(sec_grid)
 
     # Correlation applicability policy

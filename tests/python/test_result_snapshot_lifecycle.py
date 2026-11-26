@@ -145,10 +145,11 @@ def test_new_publication_replaces_snapshot_even_if_renderer_raises(
     assert not win.cache.has_results(old_mode)
     assert win.results.summary()['Q_W'] == accepted.Q_W
     unit = 'W' if new_mode == '3d' else 'W/m'
-    assert win._sb_labels['q'].text() == f'{accepted.Q_W:.{2 if new_mode == "3d" else 1}f} {unit}'
-    assert 'preset: accepted-333' in win._sb_labels['q'].toolTip()
-    assert 'accepted-111' not in win._sb_labels['q'].toolTip()
-    assert win._sb_labels['tout'].text() == '683.00 / 633.00'
+    items = win.readout_strip.items()
+    assert f'{items[0].value} {items[0].unit}' == f'{accepted.Q_W:.{2 if new_mode == "3d" else 1}f} {unit}'
+    assert 'preset: accepted-333' in win.readout_strip.toolTip()
+    assert 'accepted-111' not in win.readout_strip.toolTip()
+    assert f'{items[3].value} / {items[4].value}' == '683.00 / 633.00'
     assert win.btn_export.isEnabled()
     assert not win.workbench.volume_ready
     assert not win.workbench.rendered_slices

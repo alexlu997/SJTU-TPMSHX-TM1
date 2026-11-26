@@ -239,9 +239,8 @@ class FieldResults:
         window.workbench.update_tab_visibility()
         window.workbench.switch_tab('temp', foreground=False)
         if _finalize_ok:
-            if window.combo_dim.currentIndex() == 0:
-                from sjtu_tpmshx.applications.gui.ui.layout_drawer import draw_layout
-                draw_layout(window, switch_tab=False)
+            from sjtu_tpmshx.applications.gui.ui.layout_drawer import refresh_last_2d_thumbnail
+            refresh_last_2d_thumbnail(window)
             window.statusBar().showMessage("Done.", TOAST_MS_MED)
         return _finalize_ok
 
@@ -253,11 +252,18 @@ class FieldResults:
         success = False
         try:
             if provenance is not None:
+                import datetime
+                from sjtu_tpmshx.run_control.provenance import SOURCE_ROOT, repository_revision
+
                 axes = ('dx', 'dy', 'dz') if mode == '3d' else ('dx_arr', 'dy_arr')
                 recorded = deepcopy(provenance)
                 recorded['actual_grid'] = [
                     len(result.fields[key]) if result.fields.get(key) is not None else '?'
                     for key in axes]
+                recorded.setdefault('completed_at', datetime.datetime.now().strftime('%H:%M:%S'))
+                commit = (repository_revision(SOURCE_ROOT)['revision'] or '')[:7]
+                if commit:
+                    recorded.setdefault('commit', commit)
                 result.metadata['run_provenance'] = recorded
             self.publish(result)
             published = True

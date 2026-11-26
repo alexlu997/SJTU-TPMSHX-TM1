@@ -183,11 +183,33 @@ def test_tpms_computed_is_visible_before_and_after_calculation(win):
 
 
 def test_diagnostics_reachable_via_run_info_and_dialogs(win, monkeypatch):
+    from PySide6.QtWidgets import QLabel, QPushButton
+    from sjtu_tpmshx.data_types.compute_result import ComputeResult
+
     calls = []
     monkeypatch.setattr(win.results, 'show_diag_dialog', lambda: calls.append(True))
-    assert win.btn_run_info.isVisibleTo(win)
-    win.dialogs.show_diagnostics()
-    assert len(calls) == 1
+    win.results.publish(ComputeResult(Q_W=42.0, converged=True, diagnostics={'mode': '2d'}))
+    win.results.refresh_summary()
+    app = QApplication.instance()
+
+    for drawer_open in (True, False):
+        win.appearance.set_drawer_open(drawer_open)
+        app.processEvents()
+        assert win.btn_run_info.isVisibleTo(win)
+        win.btn_run_info.click()
+        app.processEvents()
+        pop = win._run_info_popover
+        assert pop.isVisible()
+        diag_btn = next(
+            b for b in pop.findChildren(QPushButton)
+            if any(lbl.text() == "诊断详情…" for lbl in b.findChildren(QLabel))
+        )
+        assert diag_btn.isEnabled()
+        diag_btn.click()
+        app.processEvents()
+        pop.close()
+    assert len(calls) == 2
+    win.appearance.set_drawer_open(True)
 
 
 def test_group_badge_counts_empty_field(win):
@@ -705,7 +727,7 @@ def test_field_menu_revert_is_debranded(win):
         menu = QApplication.activePopupWidget()
         try:
             texts.extend(action.text() for action in menu.actions())
-            next(a for a in menu.actions() if a.text() == '恢复算例工况默认值').trigger()
+            next(a for a in menu.actions() if a.text() == '恢复默认算例值').trigger()
         finally:
             menu.close()
 
@@ -713,8 +735,8 @@ def test_field_menu_revert_is_debranded(win):
     QTimer.singleShot(0, choose)
     win.le_L.contextMenuEvent(QContextMenuEvent(QContextMenuEvent.Reason.Mouse, QPoint(), QPoint()))
     message = win.statusBar().currentMessage()
-    assert '恢复算例工况默认值' in texts
-    assert '已恢复算例工况默认值' in message
+    assert '恢复默认算例值' in texts
+    assert '已恢复默认算例值' in message
     assert not any('Shanghai' in text for text in [*texts, message])
 
 

@@ -270,7 +270,7 @@ _THEMES: dict[str, dict[str, Any]] = {
             shadow_key=(20, 19, 16, 24),
             shadow_drawer_ambient=(20, 19, 16, 22),
             shadow_drawer_key=(20, 19, 16, 34),
-            scrim=(18, 18, 16, 72),
+            scrim=(18, 18, 16, 40),
         ),
     ),
     "dark": _build_p2_theme(
@@ -306,7 +306,7 @@ _THEMES: dict[str, dict[str, Any]] = {
             shadow_key=(0, 0, 0, 130),
             shadow_drawer_ambient=(0, 0, 0, 118),
             shadow_drawer_key=(0, 0, 0, 168),
-            scrim=(0, 0, 0, 128),
+            scrim=(0, 0, 0, 72),
         ),
     ),
 }

@@ -33,7 +33,7 @@ class RunStatusCard(QFrame):
         summary_row.setSpacing(12)
         self.title = QLabel("准备计算")
         self.title.setObjectName("runStatusTitle")
-        self.elapsed = QLabel("设置工况后开始")
+        self.elapsed = QLabel("设置参数后开始")
         self.elapsed.setObjectName("runStatusElapsed")
         self.elapsed.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         summary_row.addWidget(self.title)

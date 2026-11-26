@@ -1,10 +1,13 @@
-"""Result drawer bands, two-tier readout strip, and stale-input detection."""
+"""Result drawer bands, per-point probe readouts, readout strip, and stale detection."""
 from __future__ import annotations
 
 import math
+from dataclasses import asdict
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPointF, Qt
+from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
+    QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -22,7 +25,52 @@ from .symbols import SYM
 from .theme import RADIUS_BTN, get_theme
 
 
-def _build_kv_row(parent_layout: QVBoxLayout, label_text: str, *, theme: dict) -> tuple[QLabel, QLabel]:
+def evaluate_result_status(result, summary: dict) -> tuple[str, str]:
+    """Return a single ``(kind, label)`` status shared across header, drawer, and popover."""
+    if result is None:
+        return ("idle", "尚未计算")
+    converged = summary.get("converged")
+    if converged is False:
+        return ("err", "未收敛")
+    qualification = summary.get("qualification") or {}
+    design_ok = qualification.get("design", {}).get("eligible")
+    extrap_ok = qualification.get("applicability", {}).get("passed")
+    phys_ok = qualification.get("physical", {}).get("passed")
+    env_ok = summary.get("envelope_valid")
+    has_notice = (
+        design_ok is False
+        or extrap_ok is False
+        or phys_ok is False
+        or env_ok is False
+        or bool(summary.get("warnings"))
+        or bool(summary.get("extrap"))
+    )
+    if has_notice:
+        return ("warn", "完成 · 有提示")
+    if converged is True:
+        return ("ok", "已收敛")
+    return ("idle", "状态未知")
+
+
+def _status_dot_icon(color_hex: str, size: int = 8) -> QIcon:
+    """Render a crisp anti-aliased colored status dot for header controls."""
+    dpr = 2
+    px = size * dpr
+    pm = QPixmap(px, px)
+    pm.setDevicePixelRatio(float(dpr))
+    pm.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pm)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(color_hex))
+    painter.drawEllipse(QPointF(size / 2.0, size / 2.0), size * 0.42, size * 0.42)
+    painter.end()
+    return QIcon(pm)
+
+
+def _build_kv_row(
+    parent_layout: QVBoxLayout, label_text: str, *, theme: dict
+) -> tuple[QLabel, QLabel]:
     row = QWidget()
     row.setStyleSheet("background: transparent;")
     hl = QHBoxLayout(row)
@@ -63,10 +111,134 @@ def _build_action_row(
         f"border: none; border-radius: {RADIUS_BTN}px; text-align: left; "
         "padding: 0 16px; font-size: 9.5pt; font-weight: 400; }"
         f"QPushButton:hover {{ background: {theme['row_hover']}; }}"
+        f"QPushButton:disabled {{ color: {theme['tert']}; }}"
     )
     btn.clicked.connect(callback)
     parent_layout.addWidget(btn)
     return btn
+
+
+def _clear_layout(layout) -> None:
+    while layout.count():
+        item = layout.takeAt(0)
+        w = item.widget()
+        if w is not None:
+            w.hide()
+            w.setParent(None)
+            w.deleteLater()
+
+
+def add_sample_point(window, x_mm: float, y_mm: float) -> bool:
+    """Record a physical probe coordinate on the accepted result and refresh drawer cards."""
+    if not window.cache.has_any_results():
+        return False
+    from .coord_inspector import _resolve_fields
+
+    rows = _resolve_fields(window, float(x_mm), float(y_mm))
+    if not rows:
+        return False
+    points = getattr(window, "_probe_sample_points", None)
+    if points is None:
+        points = []
+        window._probe_sample_points = points
+    points.append((float(x_mm), float(y_mm)))
+    refresh_sample_points(window)
+    return True
+
+
+def clear_sample_points(window) -> None:
+    """Clear all per-point 3-phase readouts in the result drawer."""
+    window._probe_sample_points = []
+    refresh_sample_points(window)
+
+
+def refresh_sample_points(window) -> None:
+    """Render per-point 3-phase readout cards from the accepted result."""
+    container = getattr(window, "_probe_points_layout", None)
+    if container is None:
+        return
+    _clear_layout(container)
+    theme = get_theme()
+    points: list[tuple[float, float]] = list(getattr(window, "_probe_sample_points", ()))
+    band = getattr(window, "_result_readout_band", None)
+    if band is not None:
+        band.header.set_title(f"读数 {len(points)}" if points else "读数")
+
+    if not window.cache.has_any_results() or not points:
+        hint = QLabel("点击二维结果场图添加定点三相读数")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(
+            f"color: {theme['tert']}; font-size: 9pt; padding: 8px 16px; "
+            "background: transparent; border: none;"
+        )
+        container.addWidget(hint)
+        return
+
+    from .coord_inspector import _resolve_fields
+
+    for idx, (x_mm, y_mm) in enumerate(points, start=1):
+        rows = _resolve_fields(window, x_mm, y_mm)
+        by_key = {k: (v, u) for k, v, u in rows}
+
+        card_wrap = QWidget()
+        card_wrap.setStyleSheet("background: transparent;")
+        cw = QVBoxLayout(card_wrap)
+        cw.setContentsMargins(16, 6, 16, 6)
+        cw.setSpacing(4)
+
+        head = QHBoxLayout()
+        head.setContentsMargins(0, 0, 0, 0)
+        head.setSpacing(6)
+        tag = QLabel(f"#{idx}")
+        tag.setStyleSheet(
+            f"color: {theme['fg']}; font-size: 9.5pt; font-weight: 600; "
+            "background: transparent; border: none;"
+        )
+        coord = QLabel(f"<i>x</i> {x_mm:.1f} · <i>y</i> {y_mm:.1f}\u202fmm")
+        coord.setTextFormat(Qt.TextFormat.RichText)
+        coord.setStyleSheet(
+            f"color: {theme['tert']}; font-family: {theme['mono_family']}; "
+            "font-size: 8.5pt; background: transparent; border: none;"
+        )
+        head.addWidget(tag)
+        head.addStretch(1)
+        head.addWidget(coord)
+        cw.addLayout(head)
+
+        box = QFrame()
+        box.setStyleSheet(
+            f"QFrame {{ background: {theme['sunken']}; "
+            f"border: 1px solid {theme['border']}; border-radius: {RADIUS_BTN}px; }}"
+        )
+        bl = QHBoxLayout(box)
+        bl.setContentsMargins(8, 6, 8, 6)
+        bl.setSpacing(6)
+        for key, sym_html in (
+            ("T_fA", SYM["T_fA"]),
+            ("T_fB", SYM["T_fB"]),
+            ("T_s", SYM["T_s"]),
+        ):
+            val, unit = by_key.get(key, ("—", ""))
+            cell = QWidget()
+            cell.setStyleSheet("background: transparent; border: none;")
+            cl = QVBoxLayout(cell)
+            cl.setContentsMargins(2, 0, 2, 0)
+            cl.setSpacing(1)
+            k_lbl = QLabel(sym_html)
+            k_lbl.setTextFormat(Qt.TextFormat.RichText)
+            k_lbl.setStyleSheet(
+                f"color: {theme['sub']}; font-size: 8.5pt; background: transparent; border: none;"
+            )
+            v_lbl = QLabel(f"{val}\u202f{unit}".strip() if val != "—" else "—")
+            v_lbl.setStyleSheet(
+                f"color: {theme['fg']}; font-family: {theme['mono_family']}; "
+                "font-size: 9pt; font-weight: 600; background: transparent; border: none;"
+            )
+            cl.addWidget(k_lbl)
+            cl.addWidget(v_lbl)
+            bl.addWidget(cell, 1)
+        cw.addWidget(box)
+        container.addWidget(card_wrap)
 
 
 def build_result_drawer_content(window) -> QWidget:
@@ -79,6 +251,7 @@ def build_result_drawer_content(window) -> QWidget:
     vlay.setSpacing(0)
 
     window._sb_labels = {}
+    window._probe_sample_points = []
 
     # Band 1: 计算状态
     status_band = CollapsibleBand(
@@ -88,7 +261,7 @@ def build_result_drawer_content(window) -> QWidget:
         expanded=True,
         actions=[
             ("日志", window.dialogs.show_solve_log),
-            ("诊断", window.dialogs.show_diagnostics),
+            ("诊断", window.results.show_diag_dialog),
         ],
     )
     st_body = status_band.body_layout()
@@ -116,18 +289,22 @@ def build_result_drawer_content(window) -> QWidget:
     window._sb_labels["design"].setWordWrap(True)
     vlay.addWidget(check_band)
 
-    # Band 3: 读数
-    readout_band = CollapsibleBand("读数", collapsible=True, expanded=True)
-    rd_body = readout_band.body_layout()
-    _, window._sb_labels["q"] = _build_kv_row(rd_body, f"换热量 {SYM['Q']}", theme=theme)
-    _, window._sb_labels["dpa"] = _build_kv_row(rd_body, f"压降 {SYM['dP_A']} [Pa]", theme=theme)
-    _, window._sb_labels["dpb"] = _build_kv_row(rd_body, f"压降 {SYM['dP_B']} [Pa]", theme=theme)
-    unit = "°C" if getattr(window, "_temp_unit", "K") == "C" else "K"
-    window._lbl_sidebar_tout_unit, window._sb_labels["tout"] = _build_kv_row(
-        rd_body, f"出口温度 A / B [{unit}]", theme=theme
+    # Band 3: 读数 (per-point 3-phase readouts; whole-device KPIs live in bottom ReadoutStrip)
+    readout_band = CollapsibleBand(
+        "读数",
+        collapsible=True,
+        expanded=True,
+        actions=[("清除", lambda: clear_sample_points(window))],
     )
-    window._sb_labels["tout"].setWordWrap(True)
+    window._result_readout_band = readout_band
+    rd_host = QWidget()
+    rd_host.setStyleSheet("background: transparent;")
+    window._probe_points_layout = QVBoxLayout(rd_host)
+    window._probe_points_layout.setContentsMargins(0, 2, 0, 6)
+    window._probe_points_layout.setSpacing(2)
+    readout_band.body_layout().addWidget(rd_host)
     vlay.addWidget(readout_band)
+    refresh_sample_points(window)
 
     # Band 4: 画布
     canvas_band = CollapsibleBand("画布", collapsible=True, expanded=True)
@@ -146,18 +323,19 @@ def build_result_drawer_content(window) -> QWidget:
         window.result_export.export_figure,
         theme=theme,
     )
-    _build_action_row(
+    window._btn_drawer_export_results = _build_action_row(
         cv_body,
-        "导出完整结果 — CSV + NPZ",
+        "导出完整结果 — CSV",
         window.result_export.export_results,
         theme=theme,
     )
-    _build_action_row(
+    window._btn_drawer_open_folder = _build_action_row(
         cv_body,
         "打开运行目录",
-        lambda: window.dialogs.open_output_folder(),
+        lambda: window.dialogs.open_output_folder(scope="single"),
         theme=theme,
     )
+    window._btn_drawer_open_folder.setEnabled(False)
     vlay.addWidget(canvas_band)
 
     vlay.addStretch(1)
@@ -166,7 +344,7 @@ def build_result_drawer_content(window) -> QWidget:
 
 
 def result_metric_texts(window) -> dict[str, str]:
-    """Format the published result for the readout strip, drawer, and run history."""
+    """Format the published result for the readout strip and run history."""
     d = window.results.summary()
     is_3d = d.get("mode") == "3d"
 
@@ -185,17 +363,71 @@ def result_metric_texts(window) -> dict[str, str]:
     }
 
 
+def _values_equal(a, b) -> bool:
+    if isinstance(a, bool) or isinstance(b, bool):
+        return a == b
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        if math.isnan(a) and math.isnan(b):
+            return True
+        return math.isclose(float(a), float(b), rel_tol=1e-7, abs_tol=1e-9)
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(_values_equal(a[k], b[k]) for k in a)
+    if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
+        return len(a) == len(b) and all(_values_equal(x, y) for x, y in zip(a, b))
+    return a == b
+
+
+def _compare_config_snapshots(window, saved_cfg: dict) -> bool:
+    """Compare current window inputs against a saved ComputeConfig snapshot dict."""
+    from .window_config import config_from_window
+
+    try:
+        is_3d = window.combo_dim.currentIndex() == 1
+        cur_cfg = asdict(config_from_window(window, strict=True, force_3d=is_3d))
+    except Exception:
+        return True
+
+    if bool(cur_cfg.get("is_3d")) != bool(saved_cfg.get("is_3d")):
+        return True
+    if cur_cfg.get("df_mode") != saved_cfg.get("df_mode"):
+        return True
+    if (cur_cfg.get("extrap") or {}).get("allow") != (saved_cfg.get("extrap") or {}).get("allow"):
+        return True
+    if not _values_equal(cur_cfg.get("sco2_nu"), saved_cfg.get("sco2_nu")):
+        return True
+
+    for section in ("geometry", "solver", "bc_A", "bc_B", "zones"):
+        if not _values_equal(cur_cfg.get(section), saved_cfg.get(section)):
+            return True
+
+    for side in ("fluid_A", "fluid_B"):
+        cf = dict(cur_cfg.get(side) or {})
+        sf = dict(saved_cfg.get(side) or {})
+        # In 3D mass-flow mode, u_mps is derived by the solver and read-only in the UI.
+        if cf.get("mass_flow_kg_s") is not None and sf.get("mass_flow_kg_s") is not None:
+            cf.pop("u_mps", None)
+            sf.pop("u_mps", None)
+        if not _values_equal(cf, sf):
+            return True
+    return False
+
+
 def is_result_stale(window) -> bool:
-    """Return True when active case inputs differ from the published result."""
+    """Return True when active case inputs differ from the accepted result."""
     result = window.cache.get_result()
     if result is None:
         return False
     provenance = result.metadata.get("run_provenance")
     saved_preset = provenance.get("preset") if isinstance(provenance, dict) else None
     if not isinstance(saved_preset, dict):
+        saved_cfg = (
+            provenance.get("config_snapshot") if isinstance(provenance, dict) else None
+        ) or result.metadata.get("config_snapshot")
+        if isinstance(saved_cfg, dict):
+            return _compare_config_snapshots(window, saved_cfg)
         return False
 
-    from .window_config import LINE_EDITS, field_active
+    from .window_config import LINE_EDITS, field_active, mass_flow_active
 
     is_3d = window.combo_dim.currentIndex() == 1
     for name, spec in LINE_EDITS.items():
@@ -209,17 +441,29 @@ def is_result_stale(window) -> bool:
     cur_unit = current.get("temp_unit", "K")
     sav_unit = saved_preset.get("temp_unit", "K")
 
+    cur_combos = current.get("combos", {})
+    sav_combos = saved_preset.get("combos", {})
     for key in window.case_files.PRESET_COMBOS:
-        if current.get("combos", {}).get(key) != saved_preset.get("combos", {}).get(key):
+        if not is_3d and key in ("combo_inlet_modeA", "combo_inlet_modeB"):
+            continue
+        if cur_combos.get(key) != sav_combos.get(key):
             return True
+
+    cur_checks = current.get("checks", {})
+    sav_checks = saved_preset.get("checks", {})
     for key in window.case_files.PRESET_CHECKS:
-        if current.get("checks", {}).get(key) != saved_preset.get("checks", {}).get(key):
+        if cur_checks.get(key) != sav_checks.get(key):
             return True
 
     cur_edits = current.get("line_edits", {})
     sav_edits = saved_preset.get("line_edits", {})
     for name, spec in LINE_EDITS.items():
         if not field_active(window, spec, is_3d=is_3d):
+            continue
+        # In 3D mass-flow mode, le_uA / le_uB displays the solver-resolved speed.
+        if name == "le_uA" and mass_flow_active(window, "A"):
+            continue
+        if name == "le_uB" and mass_flow_active(window, "B"):
             continue
         raw_c = str(cur_edits.get(name, "")).strip()
         raw_s = str(sav_edits.get(name, "")).strip()
@@ -237,6 +481,17 @@ def is_result_stale(window) -> bool:
                 return True
         except ValueError:
             return True
+
+    if cur_checks.get("chk_zones"):
+        if not _values_equal(current.get("zone_inputs"), saved_preset.get("zone_inputs")):
+            return True
+    if not _values_equal(current.get("continuous_field"), saved_preset.get("continuous_field")):
+        return True
+    if not _values_equal(
+        current.get("sco2_nu_parameters") or {},
+        saved_preset.get("sco2_nu_parameters") or {},
+    ):
+        return True
     return False
 
 
@@ -253,15 +508,12 @@ def refresh_result_sidebar(window) -> None:
     labels = getattr(window, "_sb_labels", None)
     theme = get_theme()
     values = result_metric_texts(window)
+    result = window.cache.get_result()
     d = window.results.summary()
-    has_result = window.cache.has_any_results()
+    has_result = result is not None
+    status_kind, status_text = evaluate_result_status(result, d)
 
     if labels:
-        labels["q"].setText(f"{values['Q']} {values['Q_unit']}".strip())
-        labels["dpa"].setText(values["dP_A"])
-        labels["dpb"].setText(values["dP_B"])
-        labels["tout"].setText(f"{values['ToutA']} / {values['ToutB']}")
-
         good = theme["ok"]
         warn = theme["warn"]
         err = theme["err"]
@@ -275,50 +527,39 @@ def refresh_result_sidebar(window) -> None:
                 f"font-family: {theme['mono_family']}; font-size: 9.5pt; font-weight: 600;"
             )
 
-        if not has_result:
-            _mark("status", "尚未计算", None)
-        elif d.get("converged") is False:
-            _mark("status", "未收敛", "err")
-        elif d.get("warnings") or d.get("extrap"):
-            _mark("status", "完成 · 有提示", False)
-        else:
-            _mark("status", "已收敛", True)
+        status_ok = {"ok": True, "warn": False, "err": "err", "idle": None}[status_kind]
+        _mark("status", status_text, status_ok)
 
+        qualification = d.get("qualification", {})
+        phys_passed = qualification.get("physical", {}).get("passed")
         rel = d.get("closure_rel")
         labels["closure"].setToolTip(d.get("closure_basis", "两侧焓流"))
         if rel is not None and rel == rel:
-            _mark(
-                "closure",
-                f"{abs(rel) * 100:.1f}\u202f%",
-                d.get("qualification", {}).get("physical", {}).get("passed"),
-            )
+            _mark("closure", f"{abs(rel) * 100:.1f}\u202f%", phys_passed)
         else:
             _mark("closure", "—", None)
 
         env = d.get("envelope_valid")
         _mark(
             "envelope",
-            "有效 ✓" if env else ("失效 ⚠" if env is not None else "—"),
+            "有效 ✓" if env is True else ("失效 ⚠" if env is False else "—"),
             env if env is not None else None,
         )
 
-        qualification = d.get("qualification", {})
-        fails = 0
-        for key, passed in (
-            ("extrap", qualification.get("applicability", {}).get("passed")),
-            ("design", qualification.get("design", {}).get("eligible")),
-        ):
+        extrap_passed = qualification.get("applicability", {}).get("passed")
+        design_passed = qualification.get("design", {}).get("eligible")
+        for key, passed in (("extrap", extrap_passed), ("design", design_passed)):
             _mark(
                 key,
                 "通过 ✓" if passed is True else "未通过 ⚠" if passed is False else "未核实",
                 passed,
             )
-            if passed is False:
-                fails += 1
-        if d.get("qualification", {}).get("physical", {}).get("passed") is False:
-            fails += 1
-        if env is False:
-            fails += 1
+
+        checks_verdicts = [phys_passed, extrap_passed, design_passed]
+        if d.get("mode") == "3d" or env is not None:
+            checks_verdicts.append(env)
+        fails = sum(1 for v in checks_verdicts if v is False)
+        unknowns = sum(1 for v in checks_verdicts if v is None)
 
         check_lbl = getattr(window, "_lbl_check_summary", None)
         if check_lbl is not None:
@@ -332,6 +573,12 @@ def refresh_result_sidebar(window) -> None:
                 check_lbl.setText(f"{fails} 项未通过")
                 check_lbl.setStyleSheet(
                     f"color: {theme['warn']}; font-size: 11px; font-weight: 600; "
+                    "background: transparent;"
+                )
+            elif unknowns > 0:
+                check_lbl.setText("部分未核实")
+                check_lbl.setStyleSheet(
+                    f"color: {theme['tert']}; font-size: 11px; font-weight: 500; "
                     "background: transparent;"
                 )
             else:
@@ -355,6 +602,19 @@ def refresh_result_sidebar(window) -> None:
             f"{f'{ws:.1f} s' if isinstance(ws, (int, float)) else '—'}"
         )
 
+    btn_export = getattr(window, "_btn_drawer_export_results", None)
+    if btn_export is not None:
+        btn_export.setText(
+            "导出完整结果 — CSV + NPZ" if d.get("mode") == "3d" else "导出完整结果 — CSV"
+        )
+        btn_export.setEnabled(has_result)
+
+    btn_folder = getattr(window, "_btn_drawer_open_folder", None)
+    if btn_folder is not None:
+        btn_folder.setEnabled(window.dialogs.resolve_output_directory(scope="single") is not None)
+
+    refresh_sample_points(window)
+
     # Update bottom two-tier ReadoutStrip
     strip = getattr(window, "readout_strip", None)
     if strip is not None:
@@ -369,57 +629,68 @@ def refresh_result_sidebar(window) -> None:
         notice = None
         if has_result:
             extrap_list = d.get("extrap") or []
-            if d.get("converged") is False:
+            if status_kind == "err":
                 notice = ReadoutNotice("未收敛", "结果仅供参考，请核查诊断", kind="err")
             elif extrap_list:
-                notice = ReadoutNotice("外推提示", f"{len(extrap_list)} 项超拟合范围", kind="warn")
-            elif d.get("warnings"):
-                notice = ReadoutNotice("运行提示", f"{len(d['warnings'])} 条提示，见诊断", kind="warn")
+                first_reason = str(extrap_list[0]).split("（")[0].strip()
+                if len(first_reason) > 36:
+                    first_reason = first_reason[:35] + "…"
+                if len(extrap_list) > 1:
+                    first_reason = f"{first_reason}（共 {len(extrap_list)} 项）"
+                notice = ReadoutNotice("外推提示", first_reason, kind="warn")
+            elif status_kind == "warn":
+                warn_list = d.get("warnings") or []
+                detail = str(warn_list[0])[:36] if warn_list else "请核查诊断详情"
+                notice = ReadoutNotice("运行提示", detail, kind="warn")
         strip.set_items(items)
         strip.set_notice(notice)
         strip.set_stale(is_result_stale(window))
 
-    # Update header status pill (btn_run_info)
     refresh_header_status(window)
 
 
 def refresh_header_status(window) -> None:
-    """Update the header run-info trigger text and status dot."""
+    """Update the header run-info trigger text and painted status dot."""
     btn = getattr(window, "btn_run_info", None)
     if btn is None:
         return
     theme = get_theme()
-    has_result = window.cache.has_any_results()
-    d = window.results.summary() if has_result else {}
+    result = window.cache.get_result()
+    d = window.results.summary() if result is not None else {}
     elapsed = getattr(window, "_last_elapsed_s", None)
     dur = fmt_duration(elapsed) if isinstance(elapsed, (int, float)) else ""
 
     if not window.single_run.is_idle():
         dot_color = theme["accent_fg"]
         text = "正在求解…"
-    elif not has_result:
-        dot_color = theme["tert"]
-        text = "尚未计算"
-    elif d.get("converged") is False:
-        dot_color = theme["err"]
-        text = f"未收敛 · {dur}" if dur else "未收敛"
-    elif d.get("warnings") or d.get("extrap"):
-        dot_color = theme["warn"]
-        prefix = "上次结果" if window.workbench.active_tab == "layout" else "完成"
-        text = f"{prefix} · 有提示 · {dur}" if dur else f"{prefix} · 有提示"
     else:
-        dot_color = theme["ok"]
-        prefix = "上次结果" if window.workbench.active_tab == "layout" else "完成"
-        text = f"{prefix} · {dur}" if dur else prefix
+        status_kind, _ = evaluate_result_status(result, d)
+        if status_kind == "idle" and result is None:
+            dot_color = theme["tert"]
+            text = "尚未计算"
+        elif status_kind == "err":
+            dot_color = theme["err"]
+            text = f"未收敛 · {dur}" if dur else "未收敛"
+        elif status_kind == "warn":
+            dot_color = theme["warn"]
+            prefix = "上次结果" if window.workbench.active_tab == "layout" else "完成"
+            text = f"{prefix} · 有提示 · {dur}" if dur else f"{prefix} · 有提示"
+        elif status_kind == "ok":
+            dot_color = theme["ok"]
+            prefix = "上次结果" if window.workbench.active_tab == "layout" else "完成"
+            text = f"{prefix} · {dur}" if dur else prefix
+        else:
+            dot_color = theme["tert"]
+            text = "状态未知"
 
-    btn.setText(f"●  {text}  ▾")
+    btn.setIcon(_status_dot_icon(dot_color))
+    btn.setText(f"{text}  ▾")
     btn.setStyleSheet(
         f"QPushButton {{ background: {theme['panel']}; color: {theme['fg']}; "
         f"border: 1px solid {theme['border']}; border-radius: {RADIUS_BTN}px; "
         "padding: 0 10px; font-size: 9.5pt; font-weight: 500; }"
         f"QPushButton:hover {{ background: {theme['hover']}; border-color: {theme['border_strong']}; }}"
     )
-    btn.setProperty("statusColor", dot_color)
 
 
 def update_result_sidebar_visibility(window) -> None:

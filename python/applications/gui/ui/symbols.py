@@ -1,14 +1,5 @@
-"""ISO 80000-1 rich-text symbols and table header view for the GUI."""
+"""ISO 80000-1 rich-text and Matplotlib symbols for the GUI."""
 from __future__ import annotations
-
-import math
-from typing import Any, Mapping, Sequence
-
-from PySide6.QtCore import QPointF, Qt
-from PySide6.QtGui import QColor, QFont, QPainter, QPen, QTextDocument
-from PySide6.QtWidgets import QHeaderView, QWidget
-
-from .theme import get_theme
 
 IT_STACK = "'Helvetica Neue', 'Arial', sans-serif"
 RM_STACK = "'Helvetica Neue', 'PingFang SC', 'Arial', sans-serif"
@@ -150,79 +141,3 @@ MPL: dict[str, str] = {
 def mpl_qd_row(topo: str, l_val: float, t_val: float) -> str:
     """Format a Quick Design row label for Matplotlib axes."""
     return rf"{topo}  $\mathit{{L}}$ {l_val:g} · $\mathit{{t}}$ {t_val:g}"
-
-
-class RichHeaderView(QHeaderView):
-    """Horizontal table header that paints rich-text ISO 80000-1 column titles."""
-
-    def __init__(
-        self,
-        columns: Sequence[tuple[str, str, str]] = (),
-        tokens: Mapping[str, Any] | None = None,
-        parent: QWidget | None = None,
-    ) -> None:
-        super().__init__(Qt.Orientation.Horizontal, parent)
-        self._columns: list[tuple[str, str, str]] = list(columns)
-        self._tokens: dict[str, Any] = dict(get_theme())
-        if tokens is not None:
-            self._tokens.update(tokens)
-
-    def set_columns(self, columns: Sequence[tuple[str, str, str]]) -> None:
-        """Replace the column specifications as ``(html, plain_text, align)`` tuples."""
-        self._columns = list(columns)
-        self.viewport().update()
-
-    def apply_theme(self, tokens: Mapping[str, Any]) -> None:
-        """Update header colors from Style P2 theme tokens."""
-        self._tokens.update(tokens)
-        self.viewport().update()
-
-    def _make_doc(self, html: str, align_ch: str) -> QTextDocument:
-        doc = QTextDocument()
-        doc.setDocumentMargin(0)
-        font = QFont("PingFang SC")
-        font.setPixelSize(12)
-        font.setWeight(QFont.Weight.DemiBold)
-        doc.setDefaultFont(font)
-        opt = doc.defaultTextOption()
-        if align_ch == "r":
-            opt.setAlignment(Qt.AlignmentFlag.AlignRight)
-            al = "right"
-        elif align_ch == "c":
-            opt.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-            al = "center"
-        else:
-            opt.setAlignment(Qt.AlignmentFlag.AlignLeft)
-            al = "left"
-        doc.setDefaultTextOption(opt)
-        doc.setHtml(
-            f'<div align="{al}" style="color:{self._tokens["sub"]}; '
-            f'font-size:11.5px; font-weight:600; white-space:nowrap;">{html}</div>'
-        )
-        return doc
-
-    def rich_width_hint(self, logical_index: int) -> int:
-        """Return the minimum pixel width needed to display a header section."""
-        if not (0 <= logical_index < len(self._columns)):
-            return 0
-        html, _, align_ch = self._columns[logical_index]
-        doc = self._make_doc(html, align_ch)
-        return int(math.ceil(doc.idealWidth())) + 18
-
-    def paintSection(self, painter: QPainter, rect, logicalIndex: int) -> None:
-        painter.save()
-        painter.fillRect(rect, QColor(self._tokens["sunken"]))
-        painter.setPen(QPen(QColor(self._tokens["border"]), 0.5))
-        painter.drawLine(
-            QPointF(rect.left(), rect.bottom() - 0.25),
-            QPointF(rect.right(), rect.bottom() - 0.25),
-        )
-        if 0 <= logicalIndex < len(self._columns):
-            html, _, align_ch = self._columns[logicalIndex]
-            doc = self._make_doc(html, align_ch)
-            pad = 8
-            doc.setTextWidth(max(12, rect.width() - 2 * pad))
-            dy = (rect.height() - doc.size().height()) / 2.0
-            painter.translate(rect.left() + pad, rect.top() + dy)
-            doc.drawContents(painter)
-        painter.restore()

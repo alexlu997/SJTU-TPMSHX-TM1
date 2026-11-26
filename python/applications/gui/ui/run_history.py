@@ -144,17 +144,22 @@ class RunHistory:
         # File actions
         load_file = menu.addAction("加载配置文件…")
         load_file.triggered.connect(window.case_files.load_config)
-        resume = menu.addAction("继续已有任务…")
+        resume = menu.addAction("继续已保存的计算…")
         resume.triggered.connect(lambda: window.single_run.resume())
+        load_link = menu.addAction("载入可复现链接…")
+        load_link.triggered.connect(window.history.load_reproducible_link)
 
         # User-saved presets
-        try:
-            user = window.case_files.store.load_user_presets()
-        except Exception:
-            user = []
         menu.addSeparator()
         uh = menu.addAction("我的预设")
         uh.setEnabled(False)
+        try:
+            user = window.case_files.store.load_user_presets()
+        except Exception as exc:
+            err_act = menu.addAction("   (预设读取失败)")
+            err_act.setEnabled(False)
+            err_act.setToolTip(str(exc))
+            user = ()
         for p in user:
             name = p.get("name")
             if not name:
@@ -192,8 +197,8 @@ class RunHistory:
             clr.triggered.connect(self.clear_recent_runs)
 
         # Workspaces
-        ws_list = getattr(window.case_files, "WORKSPACE_NAMES", ("A", "B", "C"))
-        active_ws = getattr(window.case_files, "active_workspace", "A")
+        ws_list = window.case_files.WORKSPACES
+        active_ws = window.case_files.active_workspace
         menu.addSeparator()
         wh = menu.addAction("工作区")
         wh.setEnabled(False)
@@ -475,9 +480,11 @@ class RunHistory:
         provenance = result.metadata.get("run_provenance") if result is not None else None
         if provenance is None:
             return
-        ts = datetime.datetime.now().strftime("%H:%M:%S")
+        ts = str(provenance.get("completed_at") or datetime.datetime.now().strftime("%H:%M:%S"))
         self._last_run_ts = ts
-        commit = (repository_revision(SOURCE_ROOT)["revision"] or "")[:7]
+        commit = str(
+            provenance.get("commit") or (repository_revision(SOURCE_ROOT)["revision"] or "")[:7]
+        )
         grid = "×".join(map(str, provenance["input_grid"]))
         actual_grid = "×".join(map(str, provenance["actual_grid"]))
         dur = fmt_duration(elapsed)
@@ -489,105 +496,175 @@ class RunHistory:
             + (f"  ·  commit: {commit}" if commit else "")
         )
         self._last_provenance_tip = tip
-        for key in ("q", "dpa", "dpb", "tout"):
+        strip = getattr(self.window, "readout_strip", None)
+        if strip is not None:
+            strip.setToolTip(tip)
+        for key in ("status", "iters"):
             lbl = getattr(self.window, "_sb_labels", {}).get(key)
             if lbl is not None:
                 lbl.setToolTip(tip)
 
     def build_run_info_data(self) -> RunInfoData:
-        """Assemble plain-value metadata for the header ``RunInfoPopover``."""
+        """Assemble metadata strictly from the accepted result and its recorded provenance."""
+        from sjtu_tpmshx.applications.gui.ui.builders_sidebar import evaluate_result_status
+
         window = self.window
         result = window.cache.get_result()
         provenance = result.metadata.get("run_provenance") if result is not None else None
+        if not isinstance(provenance, dict):
+            provenance = None
         summary = window.results.summary() if result is not None else {}
 
+        _FLUID_LABELS = ("Air", "Water", "sCO₂", "CO₂")
+        _FLUID_TYPE_MAP = {"air": "Air", "water": "Water", "sco2": "sCO₂", "co2": "CO₂"}
+        _TPMS_LABELS = ("Diamond", "Gyroid")
+
         info_rows: list[RunInfoRow] = []
-        if provenance is not None:
-            mode_text = str(provenance.get("mode", "")).upper()
-            in_grid = "×".join(map(str, provenance.get("input_grid", ())))
-            act_grid = "×".join(map(str, provenance.get("actual_grid", ())))
-            preset_name = preset_display(provenance.get("preset_source") or "")
-            info_rows.append(RunInfoRow("预设", preset_name))
+        if result is not None:
+            saved_preset = provenance.get("preset") if provenance else None
+            cfg_snap = (
+                (provenance.get("config_snapshot") if provenance else None)
+                or result.metadata.get("config_snapshot")
+            )
+            mode_text = str((provenance or {}).get("mode") or summary.get("mode") or "").upper()
+            preset_name = preset_display((provenance or {}).get("preset_source") or "")
+            info_rows.append(RunInfoRow("预设", preset_name or "—"))
             info_rows.append(RunInfoRow("维度", mode_text or "—"))
-            grid_val = act_grid if in_grid == act_grid else f"{in_grid} → {act_grid}"
-            info_rows.append(RunInfoRow("网格", grid_val or "—"))
-            if self._last_run_ts:
-                info_rows.append(RunInfoRow("完成时间", self._last_run_ts))
+
+            topo = ""
+            fluids_text = ""
+            domain_text = ""
+            cell_text = ""
+            if isinstance(cfg_snap, dict):
+                geom = cfg_snap.get("geometry") or {}
+                topo = str(geom.get("tpms") or "")
+                fa = _FLUID_TYPE_MAP.get(str((cfg_snap.get("fluid_A") or {}).get("type", "")).lower(), "")
+                fb = _FLUID_TYPE_MAP.get(str((cfg_snap.get("fluid_B") or {}).get("type", "")).lower(), "")
+                if fa or fb:
+                    fluids_text = f"{fa or '—'} / {fb or '—'}"
+                L_m = geom.get("L_dom_m")
+                H_m = geom.get("H_dom_m")
+                Lz_m = geom.get("Lz_m")
+                if isinstance(L_m, (int, float)) and isinstance(H_m, (int, float)):
+                    if mode_text == "3D" and isinstance(Lz_m, (int, float)):
+                        domain_text = f"{L_m * 1000:g} × {H_m * 1000:g} × {Lz_m * 1000:g}\u202fmm"
+                    else:
+                        domain_text = f"{L_m * 1000:g} × {H_m * 1000:g}\u202fmm"
+                lc = geom.get("L_cell_mm")
+                tw = geom.get("t_wall_mm")
+                if isinstance(lc, (int, float)) and isinstance(tw, (int, float)):
+                    cell_text = f"L {lc:g}\u202fmm · t {tw:g}\u202fmm"
+            elif isinstance(saved_preset, dict):
+                combos = saved_preset.get("combos") or {}
+                edits = saved_preset.get("line_edits") or {}
+                t_idx = combos.get("combo_tpms")
+                if isinstance(t_idx, int) and 0 <= t_idx < len(_TPMS_LABELS):
+                    topo = _TPMS_LABELS[t_idx]
+                fa_idx = combos.get("combo_fluidA")
+                fb_idx = combos.get("combo_fluidB")
+                if isinstance(fa_idx, int) and isinstance(fb_idx, int):
+                    fa = _FLUID_LABELS[fa_idx] if 0 <= fa_idx < len(_FLUID_LABELS) else "—"
+                    fb = _FLUID_LABELS[fb_idx] if 0 <= fb_idx < len(_FLUID_LABELS) else "—"
+                    fluids_text = f"{fa} / {fb}"
+                try:
+                    L_mm = float(edits["le_L"]) * 1000.0
+                    H_mm = float(edits["le_H"]) * 1000.0
+                    if mode_text == "3D" and edits.get("le_Lz"):
+                        Lz_mm = float(edits["le_Lz"]) * 1000.0
+                        domain_text = f"{L_mm:g} × {H_mm:g} × {Lz_mm:g}\u202fmm"
+                    else:
+                        domain_text = f"{L_mm:g} × {H_mm:g}\u202fmm"
+                except (KeyError, TypeError, ValueError):
+                    pass
+                lc_txt = str(edits.get("le_Lcell", "")).strip()
+                tw_txt = str(edits.get("le_t", "")).strip()
+                if lc_txt and tw_txt:
+                    cell_text = f"L {lc_txt}\u202fmm · t {tw_txt}\u202fmm"
+
+            if topo:
+                info_rows.append(RunInfoRow("拓扑", topo))
+            if fluids_text:
+                info_rows.append(RunInfoRow("流体 A / B", fluids_text))
+            if domain_text:
+                info_rows.append(RunInfoRow("计算域", domain_text))
+            if cell_text:
+                info_rows.append(RunInfoRow("胞元参数", cell_text))
+
+            if provenance is not None:
+                in_grid = "×".join(map(str, provenance.get("input_grid", ())))
+                act_grid = "×".join(map(str, provenance.get("actual_grid", ())))
+                grid_val = act_grid if in_grid == act_grid else f"{in_grid} → {act_grid}"
+                if grid_val:
+                    info_rows.append(RunInfoRow("网格", grid_val))
+                completed_at = provenance.get("completed_at") or self._last_run_ts
+                if completed_at:
+                    info_rows.append(RunInfoRow("完成时间", str(completed_at)))
             elapsed = getattr(window, "_last_elapsed_s", None)
             if isinstance(elapsed, (int, float)):
                 info_rows.append(RunInfoRow("耗时", fmt_duration(elapsed)))
-        else:
-            preset_name = preset_display(getattr(window.case_files, "active_preset_name", ""))
-            dim_text = "3D" if getattr(window, "combo_dim", None) and window.combo_dim.currentIndex() == 1 else "2D"
-            info_rows.append(RunInfoRow("预设", preset_name))
-            info_rows.append(RunInfoRow("维度", dim_text))
 
-        # Surface CO2 CFD geometry table source whenever CO2 fluid is active.
-        from sjtu_tpmshx.applications.gui.ui.window_config import fluid_types_from_window
+            co2_meta = result.metadata.get("co2")
+            if isinstance(co2_meta, dict):
+                sides = [str(s) for s in (co2_meta.get("sides") or ()) if s]
+                common_geom = str(co2_meta.get("common_geometry") or "").strip()
+                label = "CO₂ CFD 查表"
+                if common_geom and "cfd" not in common_geom.lower():
+                    label = f"{label} · {common_geom}"
+                if sides:
+                    label = f"{label} ({', '.join(sides)})"
+                info_rows.append(
+                    RunInfoRow("CO₂ 几何来源", label, tone="accent_fg", weight=600)
+                )
 
-        active_fluids = fluid_types_from_window(window)
-        has_co2 = "co2" in active_fluids.values() or (
-            result is not None and "co2" in result.metadata
-        )
-        if has_co2:
-            info_rows.append(
-                RunInfoRow("CO₂ 几何来源", "CO₂ CFD 查表", tone="accent_fg", weight=600)
+            recorded_rev = (
+                (provenance.get("commit") if provenance else None)
+                or (
+                    (result.metadata.get("provenance") or {}).get("revision")
+                    if isinstance(result.metadata.get("provenance"), dict)
+                    else None
+                )
             )
-
-        commit = (repository_revision(SOURCE_ROOT)["revision"] or "")[:7]
-        if commit:
-            info_rows.append(RunInfoRow("版本", commit, tone="tert", weight=400))
+            if recorded_rev:
+                info_rows.append(
+                    RunInfoRow("版本", str(recorded_rev)[:7], tone="tert", weight=400)
+                )
+        else:
+            info_rows.append(RunInfoRow("状态", "尚未完成计算", tone="tert", weight=400))
 
         status_rows: list[RunInfoRow] = []
         if not window.single_run.is_idle():
             status_kind = "run"
             status_text = "正在求解"
-        elif result is None:
-            status_kind = "idle"
-            status_text = "尚未计算"
         else:
-            converged = result.converged
-            qualification = summary.get("qualification", {})
-            design_ok = qualification.get("design", {}).get("eligible")
-            extrap_ok = qualification.get("applicability", {}).get("passed")
-            if converged is False:
-                status_kind = "err"
-                status_text = "未收敛"
-            elif design_ok is False or extrap_ok is False:
-                status_kind = "warn"
-                status_text = "已收敛 · 存在提示"
-            elif converged is True:
-                status_kind = "ok"
-                status_text = "已收敛"
-            else:
-                status_kind = "idle"
-                status_text = "状态未知"
-
-            rel = summary.get("closure_rel")
-            if isinstance(rel, (int, float)) and rel == rel:
-                phys_ok = qualification.get("physical", {}).get("passed")
-                status_rows.append(
-                    RunInfoRow(
-                        "能量闭合",
-                        f"{abs(rel) * 100:.2f}\u202f%",
-                        tone="ok" if phys_ok else ("warn" if phys_ok is False else "fg"),
+            status_kind, status_text = evaluate_result_status(result, summary)
+            if result is not None:
+                qualification = summary.get("qualification", {})
+                design_ok = qualification.get("design", {}).get("eligible")
+                rel = summary.get("closure_rel")
+                if isinstance(rel, (int, float)) and rel == rel:
+                    phys_ok = qualification.get("physical", {}).get("passed")
+                    status_rows.append(
+                        RunInfoRow(
+                            "能量闭合",
+                            f"{abs(rel) * 100:.2f}\u202f%",
+                            tone="ok" if phys_ok else ("warn" if phys_ok is False else "fg"),
+                        )
                     )
-                )
-            iters = (summary.get("iters") or {}).get("iter_outer")
-            if iters is not None:
-                status_rows.append(RunInfoRow("外迭代", str(iters)))
-            if design_ok is not None:
-                status_rows.append(
-                    RunInfoRow(
-                        "设计资格",
-                        "合格" if design_ok else "未通过",
-                        tone="ok" if design_ok else "warn",
+                iters = (summary.get("iters") or {}).get("iter_outer")
+                if iters is not None:
+                    status_rows.append(RunInfoRow("外迭代", str(iters)))
+                if design_ok is not None:
+                    status_rows.append(
+                        RunInfoRow(
+                            "设计资格",
+                            "合格" if design_ok else "未通过",
+                            tone="ok" if design_ok else "warn",
+                        )
                     )
-                )
 
         has_log = bool((window.single_run.compute.last_log() or "").strip())
         has_diag = result is not None
-        has_folder = window.dialogs.resolve_output_directory() is not None
+        has_folder = window.dialogs.resolve_output_directory(scope="single") is not None
         return RunInfoData(
             info_rows=tuple(info_rows),
             status_kind=status_kind,

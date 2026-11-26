@@ -149,9 +149,10 @@ def test_real_gui_compute_drafts_units_and_export(win, monkeypatch, tmp_path, di
     unit = 'W/m' if dimension == 2 else 'W'
     assert result.metadata['source_result_id']
     assert result.metadata['units']['Q'] == win.results.summary()['Q_unit'] == unit
-    assert win._sb_labels['q'].text().endswith(' ' + unit)
+    items = win.readout_strip.items()
+    assert items[0].unit == unit
     assert (win.cache.get_result().T_out_A_K, win.cache.get_result().T_out_B_K) == (result.T_out_A_K, result.T_out_B_K)
-    assert float(win._sb_labels['tout'].text().split(' / ')[0]) == pytest.approx(result.T_out_A_K - 273.15, abs=.051)
+    assert float(items[3].value) == pytest.approx(result.T_out_A_K - 273.15, abs=.051)
     assert result.fields['dir_A'] == config.bc_A.dir
     assert result.fields['Ta'].shape[0] != 99
     np.testing.assert_allclose(
@@ -192,18 +193,26 @@ def test_real_gui_compute_drafts_units_and_export(win, monkeypatch, tmp_path, di
         QTimer.singleShot(0, read_and_close)
         return original_dialog_exec(dialog)
     monkeypatch.setattr(QDialog, 'exec', inspect_diagnostics)
-    assert win.btn_parameter_diagnostics.isVisible()
-    win.btn_parameter_diagnostics.click()
+    from PySide6.QtWidgets import QLabel, QPushButton
+    assert win.btn_run_info.isVisible()
+    win.btn_run_info.click()
+    QApplication.processEvents()
+    pop = win._run_info_popover
+    diag_btn = next(
+        b for b in pop.findChildren(QPushButton)
+        if any(lbl.text() == '诊断详情…' for lbl in b.findChildren(QLabel))
+    )
+    diag_btn.click()
+    pop.close()
     assert len(diagnostic_views) == 1
     visible, title, diagnostic_text = diagnostic_views[0]
     assert visible and title == '诊断详情'
     assert diagnostic_text == win.results.diagnostic_text()
     assert all(f'⚠ {warning}' in diagnostic_text for warning in result.warnings)
     assert win.workbench.active_tab == 'temp'
-    assert unit in win._sb_labels['q'].text()
-    assert win._result_heading.isVisible()
-    assert f'{dimension}D' in win._result_heading.text()
-    assert '[°C]' in win._lbl_sidebar_tout_unit.text()
+    items = win.readout_strip.items()
+    assert items[0].unit == unit
+    assert items[3].unit == '°C' and items[4].unit == '°C'
     for width in (900, 1440):
         win.resize(width, 720 if width == 900 else 900)
         _wait_for(lambda: win._canvas_scroll.verticalScrollBar().maximum() == 0,

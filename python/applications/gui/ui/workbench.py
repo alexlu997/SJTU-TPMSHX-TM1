@@ -373,14 +373,6 @@ class Workbench:
         same_tab = tab == prev_tab and not from_quick_design
         self.active_tab = tab
 
-        # Sync drawer tab selection when switching between case and result pages.
-        drawer = getattr(window, "inspector_drawer", None)
-        if drawer is not None:
-            if tab in ("temp", "pres", "vel", "3d") and prev_tab not in ("temp", "pres", "vel", "3d"):
-                drawer.set_current_index(3)
-            elif tab == "layout" and drawer.current_index() == 3:
-                drawer.set_current_index(getattr(window, "_param_page", 0))
-
         page_key = (
             "opt"
             if tab == "pareto"
@@ -425,7 +417,7 @@ class Workbench:
 
             fs = getattr(window, "_2d_field_seg", None)
             if fs is not None:
-                fs.setVisible(tab in ("temp", "pres", "vel"))
+                fs.setVisible(tab in ("temp", "pres", "vel", "3d"))
             if tab in ("temp", "pres", "vel", "3d"):
                 self.result_view = "3d" if tab == "3d" else "2d"
                 paint = getattr(window, "_paint_result_seg", None)
@@ -533,6 +525,16 @@ class Workbench:
             f"<i>x</i>={x_mm:.1f}\u202fmm, <i>y</i>={y_mm:.1f}\u202fmm  |  "
             f"Cell ({i},{j}): {name} = {val:{fmt}}\u202f{unit}"
         )
+
+    def on_canvas_click(self, event):
+        """Record a clicked physical coordinate as a per-point 3-phase readout."""
+        if getattr(event, "button", None) != 1:
+            return
+        if event.inaxes is None or event.xdata is None or event.ydata is None:
+            return
+        from sjtu_tpmshx.applications.gui.ui.builders_sidebar import add_sample_point
+
+        add_sample_point(self.window, float(event.xdata), float(event.ydata))
 
     def detach_3d_window(self):
         """Reparent canvas_3d into a standalone QDialog and show it."""

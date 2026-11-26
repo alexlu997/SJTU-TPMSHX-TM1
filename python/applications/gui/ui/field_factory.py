@@ -44,13 +44,19 @@ def default_factory() -> "FieldFactory":
 class UnitLineEdit(QLineEdit):
     """Line edit with an Alignment Rule A muted unit suffix painted inside the field.
 
-    The underlying ``text()`` stays exact for parsing, serialization, and undo.
+    The underlying ``text()`` stays exact in SI storage units for parsing,
+    serialization, and undo. Unfocused display formats numbers to 6 significant
+    digits in ``display_unit``; focus switches the suffix to ``raw_unit`` so the
+    displayed unit always matches the editable numeric value.
     """
 
     def __init__(
         self,
         text: str = "",
         unit: str = "",
+        *,
+        display_unit: str = "",
+        display_scale: float = 1.0,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(text, parent)
@@ -60,18 +66,35 @@ class UnitLineEdit(QLineEdit):
         self._unit_label = QLabel(self)
         self._unit_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self._unit_label.setObjectName("fieldUnitSuffix")
+        self._raw_unit = (unit or "").strip()
+        self._display_unit = (display_unit or self._raw_unit).strip()
+        self._display_scale = float(display_scale)
         self._unit = ""
-        self.set_unit(unit)
+        self._apply_suffix(self._display_unit)
 
     def unit(self) -> str:
-        """Return the muted unit suffix text."""
+        """Return the active muted unit suffix text."""
         return self._unit
 
+    def set_display_unit(self, display_unit: str, display_scale: float = 1.0) -> None:
+        """Configure scaled unfocused display (e.g. Pa -> kPa, m -> mm)."""
+        self._display_unit = (display_unit or self._raw_unit).strip()
+        self._display_scale = float(display_scale)
+        self._apply_suffix(self._raw_unit if self.hasFocus() else self._display_unit)
+        self.update()
+
     def set_unit(self, unit: str) -> None:
-        """Update the muted unit suffix inside the right edge of the field."""
+        """Update the raw unit suffix (and display unit when unscaled)."""
+        clean = (unit or "").strip()
+        self._raw_unit = clean
+        if self._display_scale == 1.0:
+            self._display_unit = clean
+        self._apply_suffix(self._raw_unit if self.hasFocus() else self._display_unit)
+
+    def _apply_suffix(self, text: str) -> None:
         from sjtu_tpmshx.applications.gui.ui.theme import get_theme
 
-        self._unit = (unit or "").strip()
+        self._unit = (text or "").strip()
         if self._unit:
             t = get_theme()
             self._unit_label.setText(self._unit)
@@ -99,15 +122,34 @@ class UnitLineEdit(QLineEdit):
         super().resizeEvent(event)
         self._position_unit()
 
-    def paintEvent(self, event) -> None:
-        raw = self.text()
-        if self.hasFocus() or len(raw) <= 8:
-            super().paintEvent(event)
-            return
+    def focusInEvent(self, event) -> None:
+        super().focusInEvent(event)
+        if self._raw_unit != self._unit:
+            self._apply_suffix(self._raw_unit)
+        self.update()
+
+    def focusOutEvent(self, event) -> None:
+        super().focusOutEvent(event)
+        if self._display_unit != self._unit:
+            self._apply_suffix(self._display_unit)
+        self.update()
+
+    def formatted_display_text(self) -> str:
+        """Return the 6-significant-digit unfocused display text without mutating ``text()``."""
+        raw = self.text().strip()
+        if not raw:
+            return raw
         from sjtu_tpmshx.applications.gui.ui.fmt import display_number
 
-        shown = display_number(raw)
-        if shown == raw:
+        return display_number(raw, scale=self._display_scale)
+
+    def paintEvent(self, event) -> None:
+        raw = self.text()
+        if self.hasFocus() or not raw.strip():
+            super().paintEvent(event)
+            return
+        shown = self.formatted_display_text()
+        if shown == raw and self._display_scale == 1.0:
             super().paintEvent(event)
             return
         from PySide6.QtGui import QPainter

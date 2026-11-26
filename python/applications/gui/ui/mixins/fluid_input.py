@@ -186,7 +186,7 @@ class FluidInputMixin:
             le = getattr(self, field_name, None)
             if le is not None and hasattr(le, 'set_unit'):
                 le.set_unit(unit_display)
-        for attr in ('_lbl_TinA_unit', '_lbl_TinB_unit', '_lbl_sidebar_tout_unit'):
+        for attr in ('_lbl_TinA_unit', '_lbl_TinB_unit'):
             lbl = getattr(self, attr, None)
             if lbl is None:
                 continue

@@ -8,13 +8,10 @@ from __future__ import annotations
 
 
 def preset_display(name):
-    """De-branded DISPLAY name for a preset (2026-07-03 user request):
-    the internal key keeps its historical 'Shanghai (…)' spelling (presets
-    dict, session files, tests), but every user-visible surface (command
-    palette, status bar, session overview) shows 算例工况 instead."""
+    """De-branded display name for a preset while keeping internal keys unchanged."""
     if not name:
         return name
-    return str(name).replace("Shanghai", "算例工况")
+    return str(name).replace("Shanghai", "默认算例")
 
 
 def display_number(text, scale=1.0):
@@ -24,7 +21,7 @@ def display_number(text, scale=1.0):
     except (TypeError, ValueError):
         return str(text)
     if value != 0 and (abs(value) >= 1e6 or abs(value) < 1e-3):
-        return f"{value:.4e}"
+        return f"{value:.5e}"
     if value == int(value) and abs(value) < 1e6:
         return str(int(value))
     return f"{value:.6g}"

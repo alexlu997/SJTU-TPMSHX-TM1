@@ -140,7 +140,7 @@ def test_failed_visible_redraw_clears_old_plot_and_same_tab_retries(win, monkeyp
     win.results.finalize_plots()
     win.workbench.switch_tab('temp')
     assert win.canvas_temp.fig.axes
-    assert win.canvas_temp._hover_data['names'] == ['T_fA']
+    assert win.canvas_temp._hover_data['names'] == ['T_fA', 'T_fB', 'T_s']
     render = plot_2d_results.finalize_plots
     attempts = []
 

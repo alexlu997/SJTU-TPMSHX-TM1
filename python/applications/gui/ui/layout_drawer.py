@@ -1,36 +1,134 @@
 """Geometry domain preview drawer for 2D and 3D case layouts in Style P2."""
 from __future__ import annotations
 
+import numpy as np
 from PySide6.QtWidgets import QMessageBox
+
+from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
 
 from .symbols import MPL
 from .theme import get_theme, resolve_cmap
+from .vis3d_constants import field_color_limits
 
 
-def _draw_last_2d_thumbnail(window) -> None:
-    """Render a compact 2D temperature thumbnail inset when a 2D result is cached."""
+def _remove_thumb_axes(fig, canvas) -> None:
+    for ax in getattr(canvas, "_thumb_axes", ()):
+        if ax in fig.axes:
+            fig.delaxes(ax)
+    canvas._thumb_axes = ()
+
+
+def _render_2d_thumbnail_axes(window, fig) -> bool:
+    """Draw the accepted 2D temperature field below the 2D domain in physical mm."""
     result = window.cache.get_result("2d")
     if result is None:
-        return
-    Ta = result.fields.get("Ta")
+        return False
+    fields = result.fields or {}
+    Ta = fields.get("Ta")
     if Ta is None:
-        return
-    theme = get_theme()
-    fig = window.canvas_layout.fig
-    fig.subplots_adjust(top=0.92, bottom=0.34)
-    inset = fig.add_axes([0.70, 0.04, 0.24, 0.20])
-    inset.imshow(
-        Ta.T,
-        origin="lower",
-        aspect="auto",
-        cmap=resolve_cmap("temperature"),
+        return False
+
+    nx, ny = Ta.shape
+    L = float(fields.get("L") or 0.0)
+    H = float(fields.get("H") or 0.0)
+    dx = fields.get("dx_arr")
+    dy = fields.get("dy_arr")
+    if dx is not None and len(dx) == nx:
+        x_edges = np.concatenate(([0.0], np.cumsum(np.asarray(dx, dtype=float)) * 1000.0))
+    else:
+        x_edges = np.linspace(0.0, L * 1000.0 if L > 0 else float(nx), nx + 1)
+    if dy is not None and len(dy) == ny:
+        y_edges = np.concatenate(([0.0], np.cumsum(np.asarray(dy, dtype=float)) * 1000.0))
+    else:
+        y_edges = np.linspace(0.0, H * 1000.0 if H > 0 else float(ny), ny + 1)
+
+    unit = "°C" if getattr(window, "_temp_unit", "K") == "C" else "K"
+    offset = CELSIUS_ZERO_K if unit == "°C" else 0.0
+    temps = [fields[k] for k in ("Ta", "Tb", "Ts") if fields.get(k) is not None]
+    sync = bool(
+        getattr(window, "chk_sync_colorbar_T", None)
+        and window.chk_sync_colorbar_T.isChecked()
     )
-    inset.set_xticks([])
-    inset.set_yticks([])
-    inset.set_title("上次结果", color=theme["sub"], fontsize=8.5, pad=3)
+    if sync and len(temps) >= 1:
+        lo, hi = field_color_limits(temps, shared=True)[0]
+    elif len(temps) >= 2:
+        lo, hi = field_color_limits(temps[:2], shared=True)[0]
+    else:
+        lo, hi = field_color_limits([Ta], shared=True)[0]
+    lo -= offset
+    hi -= offset
+    data = np.asarray(Ta, dtype=float) - offset
+
+    theme = get_theme()
+    inset = fig.add_axes([0.11, 0.10, 0.76, 0.27])
+    cax = fig.add_axes([0.89, 0.10, 0.020, 0.27])
+    mesh = inset.pcolormesh(
+        x_edges,
+        y_edges,
+        data.T,
+        cmap=resolve_cmap("temperature"),
+        vmin=lo,
+        vmax=hi,
+        shading="flat",
+    )
+    inset.set_xlim(x_edges[0], x_edges[-1])
+    inset.set_ylim(y_edges[0], y_edges[-1])
+    inset.set_aspect("equal", adjustable="box")
+    inset.set_facecolor(theme["ax_bg"])
+    inset.set_xlabel(MPL["x_mm"], color=theme["ax_text"], fontsize=9)
+    inset.set_ylabel(MPL["y_mm"], color=theme["ax_text"], fontsize=9)
+    inset.tick_params(colors=theme["ax_text"], labelsize=8.5)
+    inset.set_title(
+        "上次结果 · 流体 A",
+        loc="left",
+        color=theme["sub"],
+        fontsize=9.5,
+        pad=4,
+    )
+    inset.set_title(
+        f"{MPL['T_fA']} [{unit}]",
+        loc="right",
+        color=theme["sub"],
+        fontsize=9.5,
+        pad=4,
+    )
     for sp in inset.spines.values():
         sp.set_edgecolor(theme["border_strong"])
         sp.set_linewidth(0.8)
+
+    cb = fig.colorbar(mesh, cax=cax)
+    cb.ax.tick_params(colors=theme["ax_text"], labelsize=8)
+    cb.outline.set_edgecolor(theme["border_strong"])
+    cb.outline.set_linewidth(0.7)
+    window.canvas_layout._thumb_axes = (inset, cax)
+    return True
+
+
+def _draw_last_2d_thumbnail(window) -> None:
+    """Position the 2D domain and render the accepted 2D temperature thumbnail below it."""
+    canvas = window.canvas_layout
+    fig = canvas.fig
+    _remove_thumb_axes(fig, canvas)
+    if _render_2d_thumbnail_axes(window, fig):
+        main_ax = canvas.axes[0][0] if getattr(canvas, "axes", None) else None
+        if main_ax is not None:
+            main_ax.set_position([0.11, 0.49, 0.76, 0.41])
+
+
+def refresh_last_2d_thumbnail(window) -> None:
+    """Refresh only the 2D accepted-result thumbnail without reading draft inputs."""
+    canvas = getattr(window, "canvas_layout", None)
+    if canvas is None or getattr(canvas, "_layout_mode", None) != "2d":
+        return
+    fig = canvas.fig
+    _remove_thumb_axes(fig, canvas)
+    main_ax = canvas.axes[0][0] if getattr(canvas, "axes", None) else None
+    if _render_2d_thumbnail_axes(window, fig):
+        if main_ax is not None:
+            main_ax.set_position([0.11, 0.49, 0.76, 0.41])
+    elif main_ax is not None:
+        main_ax.set_position([0.11, 0.14, 0.80, 0.76])
+    canvas.draw_idle()
 
 
 def draw_layout(window, *, switch_tab: bool = True):
@@ -43,6 +141,7 @@ def draw_layout(window, *, switch_tab: bool = True):
         return
 
     window.canvas_layout._preview_axes = None
+    window.canvas_layout._thumb_axes = ()
     window.canvas_layout.fig.clear()
     Lmm, Hmm = L * 1000, H * 1000
     theme = get_theme()
@@ -54,6 +153,7 @@ def draw_layout(window, *, switch_tab: bool = True):
         except ValueError:
             QMessageBox.warning(window, "输入错误", "请先填写计算域厚度 Lz。")
             return
+        window.canvas_layout._layout_mode = "3d"
         ax = window.canvas_layout.fig.add_subplot(111, projection="3d")
         window.canvas_layout.axes = [[ax]]
         window.canvas_layout._preview_axes = ax
@@ -64,6 +164,7 @@ def draw_layout(window, *, switch_tab: bool = True):
         ax.set_facecolor(theme["fig_bg"])
     else:
         canvas = window.canvas_layout
+        canvas._layout_mode = "2d"
         if hasattr(canvas, "_orig_wheel_event"):
             canvas.wheelEvent = canvas._orig_wheel_event
         ax = canvas.fig.add_subplot(111)
@@ -220,8 +321,6 @@ def draw_layout_rect(window, ax, L, H, Lmm, Hmm):
                     )
                     if f0 > 0.001:
                         ax.axvline(x=p0, color=theme["zone_fill"], ls="--", lw=0.8, alpha=0.6)
-
-    ax.text(cx, cy, "计算域", color=theme["ax_text"], ha="center", va="center", fontsize=10, fontweight="bold", alpha=0.28)
 
     zmgr = getattr(window, "_zone_handle_mgr", None)
     if zmgr is not None:

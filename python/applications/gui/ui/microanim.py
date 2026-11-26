@@ -236,6 +236,15 @@ def toast(parent, text, kind="success", duration_ms=2200, copy_payload=None):
     parent_w = parent.width(); parent_h = parent.height()
     x = parent_w - w - margin
     y_off = parent_h - h - margin - 40  # final rest pos
+
+    if is_reduced_motion():
+        pill.setGeometry(x, y_off, w, h)
+        pill.show()
+        pill.raise_()
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(max(0, duration_ms), pill, pill.deleteLater)
+        return pill
+
     y_start = y_off + 12  # short travel keeps the message easy to track
     pill.setGeometry(x, y_start, w, h)
     pill.show()

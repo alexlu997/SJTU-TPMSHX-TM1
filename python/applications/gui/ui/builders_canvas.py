@@ -42,12 +42,40 @@ _TAB_TO_QUANTITY = {
 }
 
 
+_3D_FIELD_TO_QUANTITY = {
+    "T_fA": ("temperature", "温度"),
+    "T_fB": ("temperature", "温度"),
+    "T_s": ("temperature", "温度"),
+    "P_fA": ("pressure", "压力"),
+    "P_fB": ("pressure", "压力"),
+    "U_mag_A": ("speed", "速度"),
+    "U_mag_B": ("speed", "速度"),
+}
+
+
 def _active_cmap_quantity(window) -> tuple[str, str]:
     tab = window.workbench.active_tab
+    if tab == "3d":
+        panel = getattr(window, "canvas_3d", None)
+        field_3d = getattr(panel, "_field", None) if panel is not None else None
+        if field_3d in _3D_FIELD_TO_QUANTITY:
+            return _3D_FIELD_TO_QUANTITY[field_3d]
     if tab in _TAB_TO_QUANTITY:
         return _TAB_TO_QUANTITY[tab]
     card = window.workbench.resolve_2d_view_card()
     return _TAB_TO_QUANTITY.get(card, ("temperature", "温度"))
+
+
+def _apply_colormap_refresh(window) -> None:
+    """Propagate an accepted colormap update to 2D fields, 2D thumbnail, and 3D view."""
+    from .layout_drawer import refresh_last_2d_thumbnail
+    from .plot_2d_results import redraw_result_fields
+
+    redraw_result_fields(window)
+    refresh_last_2d_thumbnail(window)
+    panel_3d = getattr(window, "canvas_3d", None)
+    if panel_3d is not None and hasattr(panel_3d, "refresh_colormaps"):
+        panel_3d.refresh_colormaps()
 
 
 def _open_colormap_popover(window) -> None:
@@ -66,26 +94,24 @@ def _open_colormap_popover(window) -> None:
         def _on_select(cmap_name: str) -> None:
             q_key, _ = _active_cmap_quantity(window)
             if not set_cmap(q_key, cmap_name, persist=True):
+                pop.set_colormap(resolve_cmap(q_key))
                 QMessageBox.warning(
                     window, "设置未保存", "无法写入色阶设置，请检查用户配置目录。"
                 )
                 return
-            from .plot_2d_results import redraw_result_fields
-
-            redraw_result_fields(window)
+            _apply_colormap_refresh(window)
             window.statusBar().showMessage(f"已切换色阶：{cmap_name}", 3000)
 
         def _on_reset() -> None:
             q_key, _ = _active_cmap_quantity(window)
             if not set_cmap(q_key, None, persist=True):
+                pop.set_colormap(resolve_cmap(q_key))
                 QMessageBox.warning(
                     window, "设置未保存", "无法重置色阶设置，请检查用户配置目录。"
                 )
                 return
             pop.set_colormap(resolve_cmap(q_key))
-            from .plot_2d_results import redraw_result_fields
-
-            redraw_result_fields(window)
+            _apply_colormap_refresh(window)
             window.statusBar().showMessage("已恢复默认色阶", 3000)
 
         pop.colormap_selected.connect(_on_select)
@@ -200,23 +226,24 @@ def _build_canvas_toolbar(window, vlay, t, theme):
     window._paint_2d_seg = _paint_2d_seg
     field_seg.hide()
 
-    # Segmented phase selector: 流体 A | 流体 B | 固体
-    window._field_phase = getattr(window, "_field_phase", 0)
+    # Segmented phase selector: 流体 A | 流体 B | 固体 | 全部
+    window._field_phase = getattr(window, "_field_phase", None)
     window._field_phase_seg = QFrame()
     window._field_phase_seg.setStyleSheet(seg_shell_qss)
     phase_row = QHBoxLayout(window._field_phase_seg)
     phase_row.setContentsMargins(2, 2, 2, 2)
     phase_row.setSpacing(2)
     window._field_phase_btns = []
-    for index, label in enumerate(("流体 A", "流体 B", "固体")):
+    window._field_phase_values = (0, 1, 2, None)
+    for label, phase_val in (("流体 A", 0), ("流体 B", 1), ("固体", 2), ("全部", None)):
         button = QPushButton(label)
         button.setFixedHeight(24)
         button.setCheckable(True)
         button.setCursor(Qt.CursorShape.PointingHandCursor)
-        button.setToolTip("显示该相的真实计算场；不会重新求解")
+        button.setToolTip("显示该相或全部相的真实计算场；不会重新求解")
 
-        def _pick_phase(_checked=False, i=index):
-            window._field_phase = i
+        def _pick_phase(_checked=False, pv=phase_val):
+            window._field_phase = pv
             refresh_field_controls(window)
             from .plot_2d_results import redraw_result_fields
 
@@ -407,8 +434,10 @@ def refresh_field_controls(window):
 
     window._field_toolbar.setVisible(True)
     window._field_primary_controls.setVisible(not optimizing)
+    if hasattr(window, "_2d_field_seg"):
+        window._2d_field_seg.setVisible(is_result)
     window._result_view_switch.setVisible(is_result)
-    window.btn_colormap.setVisible(is_field)
+    window.btn_colormap.setVisible(is_result)
     window.btn_view_result.setVisible(tab == "layout")
     if hasattr(window, "btn_update_geometry"):
         window.btn_update_geometry.setVisible(tab == "layout")
@@ -418,18 +447,21 @@ def refresh_field_controls(window):
     result = window.cache.get_result("3d")
     b_source = "dir_B" if tab in ("pres", "vel") else "Tb"
     has_b = result is None or result.fields.get(b_source) is not None
-    phase = getattr(window, "_field_phase", 0)
+    phase = getattr(window, "_field_phase", None)
     if (tab in ("pres", "vel") and phase == 2) or (phase == 1 and not has_b):
         phase = window._field_phase = 0
         from .plot_2d_results import redraw_result_fields
 
         redraw_result_fields(window)
-    window._field_phase_seg.setVisible(is_field)
+    window._field_phase_seg.setVisible(is_result)
+    phase_values = getattr(window, "_field_phase_values", (0, 1, 2))
     for i, btn in enumerate(window._field_phase_btns):
-        btn.setVisible(i != 2 or tab == "temp")
-        btn.setEnabled(i != 1 or has_b)
-        btn.setChecked(i == phase)
-        btn.setStyleSheet(window._phase_styles[0 if i == phase else 1])
+        pv = phase_values[i] if i < len(phase_values) else i
+        btn.setVisible(pv != 2 or tab in ("temp", "3d"))
+        btn.setEnabled(pv != 1 or has_b)
+        active = phase == pv
+        btn.setChecked(active)
+        btn.setStyleSheet(window._phase_styles[0 if active else 1])
 
     slice_controls = getattr(window, "_slice_controls", None)
     if slice_controls is not None:
@@ -500,7 +532,7 @@ def _build_canvas_content(window, vlay, t):
     eb_lay.setSpacing(16)
     eb_lay.addWidget(_empty)
 
-    btn_preset = QPushButton("载入算例工况")
+    btn_preset = QPushButton("载入默认算例")
     btn_preset.setMinimumHeight(30)
     btn_preset.setStyleSheet(t.style("BTN_SECONDARY"))
     btn_preset.setToolTip("载入内置上海基准算例（3D Gyroid）")
@@ -724,6 +756,7 @@ def _connect_canvas_interactions(window, vlay, theme):
 
     for c in (window.canvas_temp, window.canvas_pres, window.canvas_vel):
         c.mpl_connect("motion_notify_event", window.workbench.on_hover)
+        c.mpl_connect("button_press_event", window.workbench.on_canvas_click)
 
 
 def build_canvas_area(window):

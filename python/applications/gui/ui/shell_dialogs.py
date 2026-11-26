@@ -34,7 +34,8 @@ class ShellDialogs:
         ("算例计算", "Ctrl+1"),
         ("计算结果", "Ctrl+2"),
         ("优化设计", "Ctrl+3"),
-        ("快速设计 / 结果 2D·3D 切换", "Ctrl+4"),
+        ("结果 2D·3D 切换", "Ctrl+4"),
+        ("快速设计", "Ctrl+5"),
         ("收起 / 展开导航栏", "Ctrl+\\"),
         ("收起 / 展开检查器", "Ctrl+]"),
         ("专注当前画布", "F"),
@@ -58,10 +59,6 @@ class ShellDialogs:
         from sjtu_tpmshx.applications.gui.ui.session_overview import open_overview
 
         open_overview(self.window)
-
-    def show_diagnostics(self) -> None:
-        """Open the result diagnostics dialog."""
-        self.window.results.show_diag_dialog()
 
     def show_solve_log(self) -> None:
         """Show a read-only viewer for the last captured solver stdout."""
@@ -106,19 +103,35 @@ class ShellDialogs:
         v.addLayout(btn_row)
         dlg.exec()
 
-    def resolve_output_directory(self) -> Path | None:
-        """Return the active run or optimization directory if one exists on disk."""
-        result = self.window.cache.get_result()
+    def resolve_output_directory(self, *, scope: str = "auto") -> Path | None:
+        """Return the task-scoped run or optimization directory if it exists on disk."""
+        window = self.window
+        if scope == "auto":
+            in_qd = (
+                getattr(window, "page_stack", None) is not None
+                and window.page_stack.currentWidget() is window.quick_design
+            )
+            scope = "optimization" if (not in_qd and window.workbench.active_tab == "pareto") else "single"
+
         candidates: list[object] = []
-        if result is not None:
-            recovery = result.metadata.get("recovery")
-            if isinstance(recovery, dict):
-                candidates.append(recovery.get("directory"))
-        candidates.append(getattr(self.window.single_run, "active_directory", None))
-        opt = getattr(self.window, "optimization", None)
-        if opt is not None:
-            candidates.append(getattr(opt, "study_dir", None))
-            candidates.append(getattr(opt, "active_directory", None))
+        if scope == "optimization":
+            opt = getattr(window, "optimization", None)
+            if opt is not None:
+                job = getattr(opt, "_job", None)
+                if job is not None:
+                    candidates.append(getattr(job, "output_dir", None))
+                candidates.append(getattr(opt, "last_output_dir", None))
+        elif scope == "single":
+            if not window.single_run.is_idle():
+                candidates.append(getattr(window.single_run, "active_directory", None))
+            result = window.cache.get_result()
+            if result is not None:
+                recovery = result.metadata.get("recovery")
+                if isinstance(recovery, dict):
+                    candidates.append(recovery.get("directory"))
+        else:
+            raise ValueError(f"Unknown output directory scope: {scope!r}")
+
         for raw in candidates:
             if not raw:
                 continue
@@ -127,9 +140,9 @@ class ShellDialogs:
                 return path if path.is_dir() else path.parent
         return None
 
-    def open_output_folder(self, path: str | Path | None = None) -> bool:
-        """Open the current run output folder in the system file manager."""
-        folder = Path(path) if path is not None else self.resolve_output_directory()
+    def open_output_folder(self, path: str | Path | None = None, *, scope: str = "auto") -> bool:
+        """Open the task-scoped output folder in the system file manager."""
+        folder = Path(path) if path is not None else self.resolve_output_directory(scope=scope)
         if folder is None or not folder.exists():
             QMessageBox.information(
                 self.window,

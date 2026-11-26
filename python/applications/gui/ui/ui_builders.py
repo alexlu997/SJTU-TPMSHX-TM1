@@ -87,8 +87,10 @@ def _open_run_info_popover(window) -> None:
     if pop is None:
         pop = RunInfoPopover(data, parent=window)
         pop.log_requested.connect(window.dialogs.show_solve_log)
-        pop.diagnostics_requested.connect(window.dialogs.show_diagnostics)
-        pop.open_folder_requested.connect(lambda: window.dialogs.open_output_folder())
+        pop.diagnostics_requested.connect(window.results.show_diag_dialog)
+        pop.open_folder_requested.connect(
+            lambda: window.dialogs.open_output_folder(scope="single")
+        )
         window._run_info_popover = pop
     else:
         pop.apply_theme(get_theme())
@@ -347,6 +349,24 @@ def build_ui(window):
                 dots.get("result"),
                 str(d.get("mode", "")).upper(),
             )
+        opt_rep = getattr(window.optimization, "report", None)
+        if not window.optimization.is_idle():
+            page_meta["opt"] = ("run", "搜索中")
+        elif isinstance(opt_rep, dict):
+            n_feas = opt_rep.get("n_feasible")
+            n_tot = len(opt_rep.get("history") or ())
+            if isinstance(n_feas, int) and n_feas > 0:
+                page_meta["opt"] = ("ok", f"{n_feas} 可行")
+            elif n_tot > 0:
+                page_meta["opt"] = ("warn", f"{n_tot} 方案")
+        if not window.quick_design.is_idle():
+            page_meta["qd"] = ("run", "筛选中")
+        else:
+            qd_designs = getattr(window.quick_design, "designs", None) or getattr(
+                window.quick_design, "_designs", None
+            )
+            if isinstance(qd_designs, (list, tuple)) and qd_designs:
+                page_meta["qd"] = ("ok", f"{len(qd_designs)} 方案")
         expanded.set_page_meta(page_meta)
 
     window._refresh_workbench_navigation = refresh_navigation
@@ -459,27 +479,76 @@ def build_param_tabs(window) -> InspectorDrawer:
             ("结果", result_page),
         ),
         current_index=0,
-        opened=True,
+        opened=window.appearance.is_drawer_open("run"),
     )
     window.inspector_drawer = drawer
     window._param_panel = drawer
-    window._param_page = 0
+    window._param_page = window.appearance.drawer_tab_for("run")
 
-    def _on_drawer_tab_changed(index: int) -> None:
-        if index in (0, 1, 2):
-            window._param_page = index
+    # Compact parameter sub-bar shown only when inspecting 参数 from the 结果 page.
+    theme = get_theme()
+    subbar = QWidget()
+    subbar.setStyleSheet(f"background: {theme['panel']}; border: none;")
+    sb_lay = QHBoxLayout(subbar)
+    sb_lay.setContentsMargins(16, 6, 16, 6)
+    sb_lay.setSpacing(4)
+    sub_on = (
+        f"QPushButton {{ background: {theme['seg_on']}; color: {theme['fg']}; "
+        f"border: 1px solid {theme['border']}; border-radius: 5px; "
+        "font-size: 11px; font-weight: 600; padding: 2px 10px; }"
+    )
+    sub_off = (
+        f"QPushButton {{ background: transparent; color: {theme['sub']}; "
+        "border: none; border-radius: 5px; font-size: 11px; font-weight: 400; "
+        "padding: 2px 10px; }"
+        f"QPushButton:hover {{ color: {theme['fg']}; }}"
+    )
+    sub_btns: list[QPushButton] = []
 
-    drawer.tab_changed.connect(_on_drawer_tab_changed)
+    def _sync_result_param_btns() -> None:
+        cur = getattr(window, "_param_page", 0)
+        for j, b in enumerate(sub_btns):
+            b.setChecked(j == cur)
+            b.setStyleSheet(sub_on if j == cur else sub_off)
+
+    def _pick_result_param(idx: int) -> None:
+        window._param_page = idx
+        drawer.set_stack_index(idx)
+        _sync_result_param_btns()
+
+    for idx, cap in enumerate(("几何", "边界", "求解")):
+        btn = QPushButton(cap)
+        btn.setCheckable(True)
+        btn.setFixedHeight(22)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.clicked.connect(lambda _c=False, i=idx: _pick_result_param(i))
+        sb_lay.addWidget(btn)
+        sub_btns.append(btn)
+    sb_lay.addStretch(1)
+    subbar.hide()
+    drawer.layout().insertWidget(2, subbar)
+    window._result_param_subbar = subbar
+    window._sync_result_param_btns = _sync_result_param_btns
+    _sync_result_param_btns()
+
+    drawer.tab_changed.connect(window.appearance.record_drawer_tab)
     drawer.close_requested.connect(lambda: window.appearance.set_drawer_open(False))
 
     def select_param_page(index: int) -> None:
         idx = max(0, min(2, int(index)))
         window._param_page = idx
-        drawer.set_current_index(idx)
+        if window.workbench.active_tab in ("temp", "pres", "vel", "3d"):
+            drawer.set_strip_entries([("结果", 3), ("参数", idx)], active_strip_index=1)
+            window.appearance.record_drawer_tab(1)
+            _sync_result_param_btns()
+        else:
+            drawer.set_current_index(idx)
+            window.appearance.record_drawer_tab(idx)
         if hasattr(window, "_refresh_workbench_navigation"):
             window._refresh_workbench_navigation()
 
     window._select_param_page = select_param_page
+    window.appearance.sync_drawer_visibility()
     refresh_group_badges(window)
     return drawer
 

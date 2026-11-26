@@ -338,6 +338,10 @@ class BandHeader(QWidget):
             return
         super().keyPressEvent(event)
 
+    def set_title(self, title: str) -> None:
+        """Update the band header title text."""
+        self._title_label.setText(title)
+
     def set_expanded(self, expanded: bool) -> None:
         """Update the chevron direction for expanded or collapsed state."""
         self._expanded = expanded
@@ -475,6 +479,10 @@ class CollapsibleBand(QWidget):
         """Return True when the section body is visible."""
         return self._expanded
 
+    def set_title(self, title: str) -> None:
+        """Update the band header title text."""
+        self.header.set_title(title)
+
     def set_expanded(self, expanded: bool) -> None:
         """Expand or collapse the section body."""
         if self._expanded == expanded:
@@ -521,6 +529,7 @@ class InspectorDrawer(QFrame):
         self._opened = opened
         self._compact = compact
         self._tab_titles: list[str] = []
+        self._tab_stack_map: list[int] = []
 
         self.setObjectName("inspectorDrawer")
         self.setFixedWidth(DRAWER_WIDTH_COMPACT if compact else DRAWER_WIDTH)
@@ -589,11 +598,34 @@ class InspectorDrawer(QFrame):
         for title, widget in tabs:
             self._tab_titles.append(title)
             self._stack.addWidget(self._wrap_scroll(widget))
+        self._tab_stack_map = list(range(len(self._tab_titles)))
         self.tab_strip.set_tabs(self._tab_titles, current_index=current_index)
         if self._tab_titles:
             idx = max(0, min(current_index, len(self._tab_titles) - 1))
             self._stack.setCurrentIndex(idx)
         self._refresh_scrollbars()
+
+    def set_strip_entries(
+        self,
+        entries: Sequence[tuple[str, int]],
+        active_strip_index: int = 0,
+    ) -> None:
+        """Display a subset/remapping of existing stack pages in the top tab strip."""
+        labels = [label for label, _ in entries]
+        self._tab_stack_map = [stack_idx for _, stack_idx in entries]
+        clamped = max(0, min(active_strip_index, len(labels) - 1)) if labels else 0
+        self.tab_strip.set_tabs(labels, current_index=clamped)
+        if self._tab_stack_map:
+            self._stack.setCurrentIndex(self._tab_stack_map[clamped])
+
+    def set_stack_index(self, stack_index: int) -> None:
+        """Select a stack page directly without altering the displayed strip labels."""
+        if 0 <= stack_index < self._stack.count():
+            self._stack.setCurrentIndex(stack_index)
+
+    def strip_index(self) -> int:
+        """Return the active index in the displayed top tab strip."""
+        return self.tab_strip.current_index()
 
     def add_tab(self, title: str, content: QWidget) -> int:
         """Append a tab to the drawer and return its index."""
@@ -616,16 +648,17 @@ class InspectorDrawer(QFrame):
         self.tab_strip.set_tabs(())
 
     def current_index(self) -> int:
-        """Return the active tab index."""
+        """Return the active stack index."""
         return self._stack.currentIndex()
 
     def set_current_index(self, index: int) -> None:
-        """Select the active tab by index."""
+        """Select a stack page by index and synchronize the top tab strip."""
         if not self._tab_titles:
             return
-        clamped = max(0, min(index, len(self._tab_titles) - 1))
-        self.tab_strip.set_current_index(clamped)
+        clamped = max(0, min(index, self._stack.count() - 1))
         self._stack.setCurrentIndex(clamped)
+        if clamped in self._tab_stack_map:
+            self.tab_strip.set_current_index(self._tab_stack_map.index(clamped))
 
     def is_open(self) -> bool:
         """Return True when the drawer is open."""
@@ -663,9 +696,12 @@ class InspectorDrawer(QFrame):
         painter.drawRoundedRect(rect, 12.0, 12.0)
         painter.end()
 
-    def _on_tab_changed(self, index: int) -> None:
-        self._stack.setCurrentIndex(index)
-        self.tab_changed.emit(index)
+    def _on_tab_changed(self, strip_idx: int) -> None:
+        if 0 <= strip_idx < len(self._tab_stack_map):
+            self._stack.setCurrentIndex(self._tab_stack_map[strip_idx])
+        elif 0 <= strip_idx < self._stack.count():
+            self._stack.setCurrentIndex(strip_idx)
+        self.tab_changed.emit(strip_idx)
 
     def _on_close_clicked(self) -> None:
         self.close_requested.emit()

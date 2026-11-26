@@ -96,6 +96,8 @@ class CaseFiles:
             label.setText(f"Ceff: G={settings.alpha_G}, D={settings.alpha_D}\n{settings.parameter_version}"
                           if settings.parameter_version else "未导入标定参数")
             label.setToolTip(f"{settings.source}\n{settings.applicability}")
+        from sjtu_tpmshx.applications.gui.ui.builders_sidebar import refresh_stale_indicator
+        refresh_stale_indicator(window)
 
     def resync_undo_baseline(self):
         """Start an undo checkpoint at the final restored/displayed values."""
@@ -406,7 +408,14 @@ class CaseFiles:
                             raise ValueError(f'{name}: Must be above 0 K')
                 if section == 'combos':
                     widget = getattr(window, name, None)
-                    count = widget.count() if widget else 0
+                    if name in ('combo_dirA', 'combo_dirB'):
+                        target_dim = combos.get(
+                            'combo_dim',
+                            window.combo_dim.currentIndex() if hasattr(window, 'combo_dim') else 0,
+                        )
+                        count = 6 if target_dim == 1 else 4
+                    else:
+                        count = widget.count() if widget else 0
                     if type(value) is not int or (widget is not None and
                                                 not 0 <= value < count):
                         raise ValueError(f'Unsupported selection: {name}')

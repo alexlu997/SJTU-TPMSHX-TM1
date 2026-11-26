@@ -45,7 +45,7 @@ def _attach_context_menu(window, le, attr):
             f"QMenu::item:disabled{{color:{theme['sub_fg']};}}")
         menu.addSeparator()
 
-        act_revert = menu.addAction("恢复算例工况默认值")
+        act_revert = menu.addAction("恢复默认算例值")
         act_revert.triggered.connect(
             lambda: _revert_field_to_default(window, le, attr))
 
@@ -122,7 +122,7 @@ def _revert_field_to_default(window, le, attr):
     except Exception:
         pass
     window.statusBar().showMessage(
-        f"{attr} 已恢复算例工况默认值（{val}）。", 4000)
+        f"{attr} 已恢复默认算例值（{val}）。", 4000)
 
 
 def _copy_with_unit(le, unit_txt):

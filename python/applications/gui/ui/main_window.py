@@ -102,6 +102,7 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
         self._apply_accessibility()
         self._install_field_help()
         self._attach_field_validation()
+        self._attach_stale_listeners()
         self._install_status_log()
         self.history.rebuild_recent_menu()
         self._install_undo_stack()
@@ -639,6 +640,32 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
             le.editingFinished.connect(cb)
             self.signals.adopt(le.editingFinished, cb,
                                 sender=le)
+
+    def _attach_stale_listeners(self):
+        """Refresh the readout-strip stale badge on every physical input edit."""
+        from sjtu_tpmshx.applications.gui.ui.builders_sidebar import refresh_stale_indicator
+
+        def _refresh(*_args):
+            refresh_stale_indicator(self)
+
+        for attr in LINE_EDITS:
+            le = getattr(self, attr, None)
+            if le is not None:
+                le.textChanged.connect(_refresh)
+                self.signals.adopt(le.textChanged, _refresh, sender=le)
+        for name in self.case_files.PRESET_COMBOS:
+            combo = getattr(self, name, None)
+            if combo is not None:
+                combo.currentIndexChanged.connect(_refresh)
+                self.signals.adopt(combo.currentIndexChanged, _refresh, sender=combo)
+        for name in self.case_files.PRESET_CHECKS:
+            chk = getattr(self, name, None)
+            if chk is not None:
+                chk.toggled.connect(_refresh)
+                self.signals.adopt(chk.toggled, _refresh, sender=chk)
+        if hasattr(self, "zone_table"):
+            self.zone_table.itemChanged.connect(_refresh)
+            self.signals.adopt(self.zone_table.itemChanged, _refresh, sender=self.zone_table)
 
     def _refresh_field_validation(self):
         """Commit/validate current text without recording an undo or recent edit."""

@@ -669,9 +669,10 @@ class OptimizationPage(QWidget):
                                   + ('XYZ' if is_3d else 'XY') + ' 连续场')
         rows, requirements = self.conditions, self.mass_requirements
         n = len(rows) if rows else 1
-        self.condition_summary.setText(f'{n} 个工况 · ' + ('逐项限值：' if requirements else '等权：')
+        self.condition_summary.setText(
+            f'目标：{"逐项达标" if requirements else f"{n} 工况均值"} · '
             + '、'.join(row['condition_id'] for row in rows) if rows else
-            '单工况 · 当前窗口输入；总流量按实际入口速度分布与孔隙率积分换算')
+            '目标：当前工况 · 窗口输入；总流量按实际入口速度分布与孔隙率积分换算')
         params = self.parameters
         budget = params['n_init'].value() + params['n_iter'].value() * params['q_batch'].value()
         objective = (f'目标：芯体质量最小；所有工况满足换热与两侧压降要求\n'

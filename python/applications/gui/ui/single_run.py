@@ -125,10 +125,12 @@ class SingleRun(QObject):
             if not confirmed:
                 return
 
+        from dataclasses import asdict as _asdict
         files = window.case_files
         preset = deepcopy(files.capture_current_preset('Run inputs'))
         axes = 'xyz' if config.is_3d else 'xy'
         provenance = dict(preset=preset, preset_source=files.active_preset_name or '—', mode=mode,
+                          config_snapshot=_asdict(config),
                           input_grid=[preset['line_edits']['le_N' + axis] for axis in axes])
         directory = files.store.base_dir / 'runs' / ('run-' + uuid4().hex)
         started = self._start(config, directory, provenance, checkpoint_interval=60.,
@@ -174,6 +176,7 @@ class SingleRun(QObject):
         provenance = dict(preset=source.get('preset') if source else None,
                           preset_source=source.get('preset_source', '') if source else f'保存的工况：{case.case_id}',
                           mode=f"{case.grid['dimension']}d", resumed_from=str(path),
+                          config_snapshot=mutable_data(case.config_snapshot),
                           input_grid=[getattr(config.solver, axis) for axis in axes])
         directory = path.parent.parent / ('run-' + uuid4().hex)
         if self._start(config, directory, provenance, checkpoint_interval=interval,

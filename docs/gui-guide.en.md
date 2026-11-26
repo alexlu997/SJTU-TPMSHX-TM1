@@ -4,36 +4,34 @@
 
 ## Load a case, run it and view results
 
-1. Start `sjtu_tpmshx.main`. Select a preset with Load at the top. The left Case Parameters rail has Geometry, Boundary, and Solver pages. Enter structure/dimension, fluid inlets/openings, then grid/solver settings.
-
-   Drag the divider to change rail width. Collapse it with the title control or `Ctrl+\`. Expand or select a group to restore parameters, values, scroll position, and width.
+1. Start `sjtu_tpmshx.main`. Select Load in the left navigation rail to choose a preset or file. Press `Ctrl+\` to expand the 232 px navigation rail for workspaces and recent runs. The right push inspector drawer shows Geometry, Boundary, and Solver tabs on the Case page. Toggle it with the header control or `Ctrl+]`; each page remembers its own open state and selected tab.
    For 3D, each inlet can prescribe velocity or total mass flow in kg/s.
    In mass-flow mode, velocity is read-only and shows its last resolved value.
    Auto-fill or the next compute resolves it from current inlet state,
    porosity, and actual openings. Geometry edits keep the prescribed kg/s.
    The 2D interface keeps velocity inputs. Imported optimization conditions
    independently prescribe each condition's total flows.
-   Port coordinates accept length units on both transverse axes. For example, `21 mm` gives `0.021 m`.
+   Port coordinates display in mm and inlet pressures display in kPa when unfocused, and show exact m / Pa values while editing; explicit units such as `21 mm` convert to `0.021 m`.
    An inlet flow accepts `g/s` or `kg/s`. Solid conductivity accepts `W/(m·K)`.
    Press Enter to convert an input to the field unit.
-2. Select Start Compute at the rail bottom, or press Ctrl+R. The status card below the canvas shows elapsed time. Expand Details for actual solver iterations and notices. Its separate Cancel control stays available when the rail is collapsed.
+2. Select Start Compute in the header, or press `Ctrl+R`. The status card below the canvas shows elapsed time. Expand Details for actual solver iterations and notices. Its separate Cancel control stays available when the inspector is closed.
 
 Cancellation waits for the current native computation step. 3D coarse-grid initialization also responds.
 There is no forced thread termination or fixed cancellation delay. The card does not predict remaining time.
 
    The main window shows neither live residual curves nor empty placeholders. Solvers still execute and record convergence/conservation checks. Terminal states distinguish completion, notices, nonconvergence, failure, and cancellation. Captured complete logs become available through Computation Log afterward. Nonconvergence or an unavailable 3D view is not styled as normal success.
-3. Open Field Results after computation. Select temperature, velocity, or pressure and fluid A/B. Temperature also supports the solid. Move the z-slice slider for 3D fields.
+3. Open Results (`Ctrl+2`) after computation. Select temperature, velocity, or pressure, choose Fluid A, Fluid B, Solid, or All, and adjust colormaps from Colormap. Move the z-slice slider for 3D fields.
 
-   Field/Volume changes display mode only. Case parameters determine computation dimension.
+   Field/3D (`Ctrl+4`) changes display mode only. Case parameters determine computation dimension. Press `Ctrl+5` to open Quick Design.
 
    The first 3D view prepares its modules while the interface remains responsive. Result display and optimization previews share this preparation.
    Compute controls stay locked until result display finishes. Closing waits for preparation to finish.
    Font setup, widget creation, and drawing can still cause a short pause on first use.
 
-   Below the field, inspect duty, both pressure drops, outlet temperatures, and convergence diagnostics. Summary collapses the readings. More → Diagnostics Details opens diagnostics. Focus or `F` hides parameters and the summary to enlarge the current canvas. Toggle again to restore previous expansion states.
+   The bottom readout strip shows duty, both pressure drops, outlet temperatures, and extrapolation notices. Summary toggles the strip. The Result drawer shows status, checks, click-sampled per-point three-phase readouts, and canvas actions. Open diagnostics from the header run-info badge, the Result drawer, or rail Settings → Diagnostics. Focus or `F` hides the inspector and bottom strip to enlarge the current canvas. Toggle again to restore previous states.
 
-   Editing the next configuration keeps current-result provenance and units. Displayable values do not show acceptance.
-4. Save stores configuration. Export stores results or the current image. 2D results use CSV. 3D results use CSV plus field NPZ. Phase/slice choices affect display and image export only.
+   Editing the next configuration keeps current-result provenance and units, and flags the bottom strip with an edited-inputs badge. Displayable values do not show acceptance.
+4. Select Save in the left rail to store configuration. Select Export to store results or the current image. 2D results use CSV. 3D results use CSV plus field NPZ. Phase/slice choices affect display and image export only.
 
    The 3D NPZ stores available complete XYZ temperatures. It also stores both sides' three velocity components and magnitudes in m/s, and display `P_fA/P_fB` in Pa. Other arrays are `L_mm/t_mm` in mm and `dx/dy/dz` in m. Previous A-side `vmag/P_kPa` keys stay. Display pressure uses the current result's reference.
 

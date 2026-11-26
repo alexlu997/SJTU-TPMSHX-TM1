@@ -521,10 +521,27 @@ def test_stale_readout_badge_and_co2_run_info_provenance(win):
     win.results.refresh_summary()
     assert not win.readout_strip.is_stale()
 
+    # Editing inputs updates stale badge via actual widget signals (no manual refresh).
+    win.chk_allow_extrap.setChecked(not win.chk_allow_extrap.isChecked())
+    assert win.readout_strip.is_stale()
+    win.chk_allow_extrap.setChecked(not win.chk_allow_extrap.isChecked())
+    assert not win.readout_strip.is_stale()
     win.le_L.setText('0.25')
-    refresh_stale_indicator(win)
     assert win.readout_strip.is_stale()
 
-    win.combo_fluidA.setCurrentIndex(3)  # CO2
-    info = win.history.build_run_info_data()
-    assert any('CO₂ CFD 查表' in row.value for row in info.info_rows)
+    # Non-CO2 accepted result must NOT show CO2 CFD source when draft is changed to CO2.
+    win.combo_fluidA.setCurrentIndex(3)
+    info_air = win.history.build_run_info_data()
+    assert not any('CO₂ CFD 查表' in row.value for row in info_air.info_rows)
+
+    # Accepted CO2 result shows CO2 CFD source even if draft is switched back to Air.
+    co2_result = _result('2d')
+    co2_result.metadata['run_provenance'] = dict(
+        preset=preset, preset_source='Shanghai (2D Gyroid)', mode='2d',
+        input_grid=['20', '20'], actual_grid=[4, 3],
+    )
+    co2_result.metadata['co2'] = dict(sides=['A'], common_geometry='co2_cfd')
+    win.results.publish(co2_result)
+    win.combo_fluidA.setCurrentIndex(0)
+    info_co2 = win.history.build_run_info_data()
+    assert any('CO₂ CFD 查表' in row.value for row in info_co2.info_rows)
