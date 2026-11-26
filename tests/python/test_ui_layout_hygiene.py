@@ -424,8 +424,6 @@ def test_no_raw_hex_outside_theme():
     glow hints, docstrings/comments."""
     import re
     allow_files = {"theme.py"}
-    # Moved unchanged from gui/main.py; follow-up GUI-HEX-1 will move them to theme tokens.
-    allow_hex = {"main_window.py": {"#DC2626", "#B45309", "#6b7280"}}
     bad = []
     for p, src in _ui_sources():
         name = os.path.basename(p)
@@ -441,8 +439,6 @@ def test_no_raw_hex_outside_theme():
                     continue
                 # microanim deep glow hints tuple: ('#tok-resolved', '#deep', '…')
                 if name == "microanim.py":
-                    continue
-                if m.group(1) in allow_hex.get(name, ()):
                     continue
                 bad.append(f"{name}:{i}: {line.strip()[:90]}")
     assert not bad, "raw hex outside theme:\n" + "\n".join(bad)
@@ -485,6 +481,63 @@ def test_dialog_theme_applies_first_and_changed_styles_only(monkeypatch):
     finally:
         set_theme(previous_theme)
         app.setStyleSheet(previous_style)
+
+
+@pytest.mark.parametrize('theme_name', ['light', 'dark'])
+def test_preflight_dialogs_use_active_theme_tokens(win, monkeypatch, theme_name):
+    """Input and grid preflight HTML must use active theme tokens."""
+    from PySide6.QtWidgets import QMessageBox
+    from sjtu_tpmshx.applications.gui.ui.preflight import Preflight
+    from sjtu_tpmshx.applications.gui.ui.theme import get_theme, get_theme_name, set_theme
+    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+
+    previous_theme = get_theme_name()
+    original_L = win.le_L.text()
+    original_page = win._param_page
+    dialogs = []
+    monkeypatch.setattr(
+        QMessageBox, 'exec',
+        lambda box: dialogs.append(box.text()) or QMessageBox.StandardButton.Ok)
+    monkeypatch.setattr(
+        'sjtu_tpmshx.applications.gui.ui.preflight.compute_preflight',
+        lambda **_kwargs: Preflight(
+            errors=['grid error'], warnings=['grid warning'], info=['grid info']))
+    try:
+        cfg = config_from_window(win, strict=True)
+        set_theme('dark' if theme_name == 'light' else 'light')
+        other_tokens = get_theme()
+        set_theme(theme_name)
+        tokens = get_theme()
+
+        win.le_L.setText('')
+        assert not win._validate_inputs_preflight()
+        assert not win._preflight_grid(cfg)
+    finally:
+        set_theme(previous_theme)
+        win.le_L.setText(original_L)
+        win._refresh_field_validation()
+        win._select_param_page(original_page)
+
+    assert len(dialogs) == 2
+    input_html, grid_html = dialogs
+    for key in ('err', 'search_hl', 'sub_fg'):
+        assert tokens[key] != other_tokens[key]
+
+    assert f"color:{tokens['sub_fg']};'><code>le_L</code>" in input_html
+    assert f"color:{tokens['sub_fg']};'>运行计算前请先修正下列字段" in input_html
+    assert f"color:{tokens['err']};'>(empty)" in input_html
+    assert other_tokens['err'] not in input_html
+    assert other_tokens['sub_fg'] not in input_html
+
+    assert f"color:{tokens['err']};'>1 error</h4>" in grid_html
+    assert f"color:{tokens['err']};'>grid error</li>" in grid_html
+    assert f"color:{tokens['search_hl']};'>1 warning</h4>" in grid_html
+    assert f"color:{tokens['search_hl']};'>grid warning</li>" in grid_html
+    assert f"color:{tokens['sub_fg']};'>Info</h4>" in grid_html
+    assert f"color:{tokens['sub_fg']};'>grid info</li>" in grid_html
+    assert f"color:{tokens['sub_fg']};'>Reviewed wall-refine fit" in grid_html
+    for key in ('err', 'search_hl', 'sub_fg'):
+        assert other_tokens[key] not in grid_html
 
 
 def test_result_label_state_and_unit_hint():
