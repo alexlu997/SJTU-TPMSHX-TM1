@@ -99,14 +99,17 @@ Targeted pytest files that start no heavy work, `ruff`, `audit_import_graph`, an
 Light jobs can run in parallel.
 
 1. One coordinator approves the heavy-job slot for all runs on this machine.
-   The slot is held from the approval until the task cancels the job or its process has exited.
+   The slot is held from the approval until the task withdraws the job before its start,
+   or until the job and its subprocesses have stopped.
 2. Before a heavy job, ask the coordinator for the slot. Start the job only after the approval.
 3. When you get the approval, set `Heavy job: approved` in your status file.
 4. When the job starts, set `Heavy job: yes`.
-5. When the process has exited or you cancel the job, set `Heavy job: no`. Tell the coordinator.
-6. Before each approval, the coordinator reads the status files in `.cache/active-tasks/`.
+5. If you withdraw the job before it starts, set `Heavy job: no`. The slot is free at once. Tell the coordinator.
+6. If you cancel a running job, keep `Heavy job: yes` until the computation and all its subprocesses have stopped.
+   Then set `Heavy job: no`. Tell the coordinator.
+7. Before each approval, the coordinator reads the status files in `.cache/active-tasks/`.
    The coordinator approves no job while another file shows `Heavy job: approved` or `Heavy job: yes`.
-7. After a restart, the coordinator finds the current slot holder and its process state.
+8. After a restart, the coordinator finds the current slot holder and its process state.
 
 ## Task status
 
@@ -504,8 +507,9 @@ Then measure their combined allocation, even if no files were removed.
    Report added, removed, and remaining directory allocation and the measured change in volume free space.
    If the total is still more than the machine limit, record the excess in the same handoff.
    Also record the next action there.
-   Any bulk delete, including rebuildable caches, task-owned temporary files, and research material,
-   needs an exact list that the user approved.
+   Without user approval, delete only named rebuildable caches and this task's own temporary files.
+   Deletion of research material needs user approval, also for one file.
+   Any bulk delete, including rebuildable caches and task-owned temporary files, needs an exact list that the user approved.
    Age or directory name alone is not a selection rule.
 
 ## Tool instruction entry points
