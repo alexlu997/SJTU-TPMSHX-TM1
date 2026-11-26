@@ -185,7 +185,7 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
         # next to freshly-reset inputs.
         self.case_files.invalidate_results_for_preset_load()
         self._apply_shanghai_defaults()
-        self.statusBar().showMessage("Parameters reset to Shanghai Electric preset.", TOAST_MS_MED)
+        self.statusBar().showMessage("已重置为默认算例参数。", TOAST_MS_MED)
 
     # ─────────────────────────────────────────────────────────
     #  Shanghai presets + deferred 3D init

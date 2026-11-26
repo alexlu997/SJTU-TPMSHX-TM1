@@ -286,7 +286,15 @@ def build_result_drawer_content(window) -> QWidget:
     _, window._sb_labels["envelope"] = _build_kv_row(ck_body, "压缩性包络", theme=theme)
     _, window._sb_labels["extrap"] = _build_kv_row(ck_body, "适用范围", theme=theme)
     _, window._sb_labels["design"] = _build_kv_row(ck_body, "设计资格", theme=theme)
-    window._sb_labels["design"].setWordWrap(True)
+    design_reason = QLabel()
+    design_reason.setWordWrap(True)
+    design_reason.setStyleSheet(
+        f"color: {theme['warn']}; font-size: 11px; font-weight: 400; "
+        "background: transparent; padding: 0 2px 4px 2px;"
+    )
+    design_reason.hide()
+    ck_body.addWidget(design_reason)
+    window._sb_labels["design_reason"] = design_reason
     vlay.addWidget(check_band)
 
     # Band 3: 读数 (per-point 3-phase readouts; whole-device KPIs live in bottom ReadoutStrip)
@@ -332,7 +340,7 @@ def build_result_drawer_content(window) -> QWidget:
     window._btn_drawer_open_folder = _build_action_row(
         cv_body,
         "打开运行目录",
-        lambda: window.dialogs.open_output_folder(scope="single"),
+        lambda: window.dialogs.open_output_folder(scope="accepted_result"),
         theme=theme,
     )
     window._btn_drawer_open_folder.setEnabled(False)
@@ -384,7 +392,7 @@ def _compare_config_snapshots(window, saved_cfg: dict) -> bool:
     try:
         is_3d = window.combo_dim.currentIndex() == 1
         cur_cfg = asdict(config_from_window(window, strict=True, force_3d=is_3d))
-    except Exception:
+    except (ValueError, TypeError):
         return True
 
     if bool(cur_cfg.get("is_3d")) != bool(saved_cfg.get("is_3d")):
@@ -396,7 +404,7 @@ def _compare_config_snapshots(window, saved_cfg: dict) -> bool:
     if not _values_equal(cur_cfg.get("sco2_nu"), saved_cfg.get("sco2_nu")):
         return True
 
-    for section in ("geometry", "solver", "bc_A", "bc_B", "zones"):
+    for section in ("geometry", "solver", "flags", "bc_A", "bc_B", "zones"):
         if not _values_equal(cur_cfg.get(section), saved_cfg.get(section)):
             return True
 
@@ -590,28 +598,50 @@ def refresh_result_sidebar(window) -> None:
 
         reasons = qualification_reasons(qualification, d.get("applicability_evidence"))
         labels["design"].setToolTip("\n".join(reasons))
-        if reasons:
-            labels["design"].setText(
-                labels["design"].text() + "：" + reasons[0].split("（实际 ")[0]
-            )
+        reason_lbl = labels.get("design_reason")
+        if reason_lbl is not None:
+            specific = [
+                r.split("（实际 ")[0].strip()
+                for r in reasons
+                if r.strip() and r.strip() != "关联式适用范围未通过"
+            ]
+            if not specific and design_passed is False and d.get("extrap"):
+                specific = [str(d["extrap"][0]).split("（")[0].strip()]
+            if specific:
+                reason_lbl.setText(specific[0])
+                reason_lbl.setStyleSheet(
+                    f"color: {theme['warn']}; font-size: 11px; font-weight: 400; "
+                    "background: transparent; padding: 0 2px 4px 2px;"
+                )
+                reason_lbl.show()
+            else:
+                reason_lbl.clear()
+                reason_lbl.hide()
+
+        from sjtu_tpmshx.applications.gui.ui.field_results import recorded_elapsed_s
 
         it = (d.get("iters") or {}).get("iter_outer")
-        ws = d.get("wall_s")
+        ws = recorded_elapsed_s(result)
         labels["iters"].setText(
             f"{it if it is not None else '—'} · "
-            f"{f'{ws:.1f} s' if isinstance(ws, (int, float)) else '—'}"
+            f"{fmt_duration(ws) if isinstance(ws, (int, float)) else '—'}"
         )
 
+    export_label = "导出完整结果 — CSV + NPZ" if d.get("mode") == "3d" else "导出完整结果 — CSV"
     btn_export = getattr(window, "_btn_drawer_export_results", None)
     if btn_export is not None:
-        btn_export.setText(
-            "导出完整结果 — CSV + NPZ" if d.get("mode") == "3d" else "导出完整结果 — CSV"
-        )
+        btn_export.setText(export_label)
         btn_export.setEnabled(has_result)
+    act_export = getattr(window, "_act_export_results", None)
+    if act_export is not None:
+        act_export.setText(export_label)
+        act_export.setEnabled(has_result)
 
     btn_folder = getattr(window, "_btn_drawer_open_folder", None)
     if btn_folder is not None:
-        btn_folder.setEnabled(window.dialogs.resolve_output_directory(scope="single") is not None)
+        btn_folder.setEnabled(
+            window.dialogs.resolve_output_directory(scope="accepted_result") is not None
+        )
 
     refresh_sample_points(window)
 
@@ -654,10 +684,12 @@ def refresh_header_status(window) -> None:
     btn = getattr(window, "btn_run_info", None)
     if btn is None:
         return
+    from sjtu_tpmshx.applications.gui.ui.field_results import recorded_elapsed_s
+
     theme = get_theme()
     result = window.cache.get_result()
     d = window.results.summary() if result is not None else {}
-    elapsed = getattr(window, "_last_elapsed_s", None)
+    elapsed = recorded_elapsed_s(result)
     dur = fmt_duration(elapsed) if isinstance(elapsed, (int, float)) else ""
 
     if not window.single_run.is_idle():

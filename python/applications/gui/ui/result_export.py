@@ -273,7 +273,11 @@ class ResultExport:
                                 facecolor=canvas.fig.get_facecolor())
             if ext in ('png', 'pdf'):
                 save_kwargs['metadata'] = meta
-            canvas.fig.savefig(path, **save_kwargs)
+            from sjtu_tpmshx.applications.gui.ui.typography import publication_export_fonts
+
+            with publication_export_fonts(canvas.fig):
+                canvas.fig.savefig(path, **save_kwargs)
+            canvas.draw_idle()
             window.statusBar().showMessage(
                 f"Exported {dpi} DPI → {path}", 6000)
         except Exception as e:

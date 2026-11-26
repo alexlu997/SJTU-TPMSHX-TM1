@@ -1,10 +1,7 @@
 """Display formatting for durations, preset names and recorded qualification."""
 from __future__ import annotations
 
-
-
-
-
+import math
 
 
 def preset_display(name):
@@ -20,9 +17,11 @@ def display_number(text, scale=1.0):
         value = float(text) * scale
     except (TypeError, ValueError):
         return str(text)
+    if not math.isfinite(value):
+        return str(text)
     if value != 0 and (abs(value) >= 1e6 or abs(value) < 1e-3):
         return f"{value:.5e}"
-    if value == int(value) and abs(value) < 1e6:
+    if value.is_integer() and abs(value) < 1e6:
         return str(int(value))
     return f"{value:.6g}"
 

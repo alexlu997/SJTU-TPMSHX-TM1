@@ -198,6 +198,9 @@ def test_real_gui_compute_drafts_units_and_export(win, monkeypatch, tmp_path, di
     win.btn_run_info.click()
     QApplication.processEvents()
     pop = win._run_info_popover
+    pop_texts = [lbl.text() for lbl in pop.findChildren(QLabel)]
+    assert '维度' in pop_texts
+    assert f'{dimension}D' in pop_texts
     diag_btn = next(
         b for b in pop.findChildren(QPushButton)
         if any(lbl.text() == '诊断详情…' for lbl in b.findChildren(QLabel))

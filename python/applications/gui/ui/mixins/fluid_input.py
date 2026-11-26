@@ -234,8 +234,10 @@ class FluidInputMixin:
         self._discard_temperature_history()
         self.case_files.resync_undo_baseline()
         self.results.refresh_summary()
+        from sjtu_tpmshx.applications.gui.ui.layout_drawer import refresh_last_2d_thumbnail
         from sjtu_tpmshx.applications.gui.ui.plot_2d_results import redraw_result_fields
         redraw_result_fields(self)
+        refresh_last_2d_thumbnail(self)
         self.statusBar().showMessage(
             f"Temperature display switched to {self._temp_unit}.", 3000)
 
@@ -244,9 +246,7 @@ class FluidInputMixin:
         self.results.refresh_summary()
 
     def _on_dir_changed(self):
-        """Show the actual transverse axis for each port coordinate under Rule A."""
-        from sjtu_tpmshx.applications.gui.ui.field_factory import _split_trailing_unit
-        from sjtu_tpmshx.applications.gui.ui.window_config import LINE_EDITS
+        """Show the actual transverse axis for each port pair row under Rule A."""
         from sjtu_tpmshx.data_types.validator import cross_axes_for_dir
         for combo, prefix in [(self.combo_dirA, 'pipeA'),
                               (self.combo_dirB, 'pipeB')]:
@@ -256,13 +256,9 @@ class FluidInputMixin:
                 c1, c2 = 'Y', 'Z'
             for end, port in (('in', '入口'), ('out', '出口')):
                 for key, axis in (('', c1), ('z_', c2)):
-                    for kind, title in (('ctr', '中心'), ('w', '宽度')):
-                        name = f'{prefix}_{end}_{key}{kind}'
-                        label = getattr(self, f'_lbl_{name}', None)
-                        if label is not None:
-                            text, _ = LINE_EDITS['le_' + name].editor_text(f'{port} {axis} 向{title}')
-                            clean, _ = _split_trailing_unit(text)
-                            label.setText(clean)
+                    row_lbl = getattr(self, f'_lbl_{prefix}_{end}_{key}row', None)
+                    if row_lbl is not None:
+                        row_lbl.setText(f'{port} {axis.lower()}')
 
     def _dir_int(self, combo):
         # 0=+x 1=-x 2=+y 3=-y 4=+z 5=-z (z-dirs: 3D only)

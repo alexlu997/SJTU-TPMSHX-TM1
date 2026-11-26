@@ -174,14 +174,14 @@ class SingleRun(QObject):
 
         axes = ('Nx', 'Ny', 'Nz') if config.is_3d else ('Nx', 'Ny')
         provenance = dict(preset=source.get('preset') if source else None,
-                          preset_source=source.get('preset_source', '') if source else f'保存的工况：{case.case_id}',
+                          preset_source=source.get('preset_source', '') if source else f'已保存算例：{case.case_id}',
                           mode=f"{case.grid['dimension']}d", resumed_from=str(path),
                           config_snapshot=mutable_data(case.config_snapshot),
                           input_grid=[getattr(config.solver, axis) for axis in axes])
         directory = path.parent.parent / ('run-' + uuid4().hex)
         if self._start(config, directory, provenance, checkpoint_interval=interval,
                        saved_provenance=source, resume_checkpoint=(path, saved, case)):
-            window.statusBar().showMessage(f'正在继续已保存工况，结果目录：{directory}')
+            window.statusBar().showMessage(f'正在继续已保存算例，结果目录：{directory}')
 
     def _start(self, config, directory, provenance, *, checkpoint_interval, saved_provenance,
                grid_cells=None, resume_checkpoint=None):
@@ -313,6 +313,22 @@ class SingleRun(QObject):
             card.title.setText("正在显示结果")
             card.cancel_button.setEnabled(False)
             card.pause_button.setEnabled(False)
+            if isinstance(self.provenance, dict):
+                import datetime
+                from sjtu_tpmshx.run_control.provenance import SOURCE_ROOT, repository_revision
+
+                self.provenance.setdefault(
+                    'completed_at', datetime.datetime.now().strftime('%H:%M:%S')
+                )
+                result_rev = (
+                    (result.metadata.get('provenance') or {}).get('revision')
+                    if isinstance(getattr(result, 'metadata', None), dict)
+                    and isinstance(result.metadata.get('provenance'), dict)
+                    else None
+                )
+                rev = str(result_rev or (repository_revision(SOURCE_ROOT)['revision'] or ''))[:7]
+                if rev:
+                    self.provenance.setdefault('commit', rev)
             success = window.results.present(result, mode=self.compute.current_mode(),
                                              provenance=self.provenance, elapsed=self.compute.last_elapsed())
         finally:

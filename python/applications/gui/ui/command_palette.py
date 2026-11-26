@@ -458,7 +458,7 @@ def build_actions(w) -> list[Action]:
         shortcut="Ctrl+Shift+R",
     )
     add(
-        "导出计算结果（CSV / NPZ）…",
+        "导出计算结果…",
         "计算",
         w.result_export.export_results,
         keywords=("save", "csv", "export", "npz"),

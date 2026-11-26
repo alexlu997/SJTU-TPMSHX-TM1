@@ -20,6 +20,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from sjtu_tpmshx.postprocess.result_display import PANEL_FIELD_SPECS
+
 from .builders_base import MenuToolButton
 from .builders_sidebar import update_result_sidebar_visibility
 from .colormap_popover import ColormapPopover
@@ -41,16 +43,73 @@ _TAB_TO_QUANTITY = {
     "pres": ("pressure", "压力"),
 }
 
-
-_3D_FIELD_TO_QUANTITY = {
-    "T_fA": ("temperature", "温度"),
-    "T_fB": ("temperature", "温度"),
-    "T_s": ("temperature", "温度"),
-    "P_fA": ("pressure", "压力"),
-    "P_fB": ("pressure", "压力"),
-    "U_mag_A": ("speed", "速度"),
-    "U_mag_B": ("speed", "速度"),
+_QTY_LABELS = {
+    "temperature": "温度",
+    "speed": "速度",
+    "pressure": "压力",
+    "design": "胞元",
 }
+
+_QTY_KEYS = ("temperature", "speed", "pressure", "design")
+_PHASE_CODE_FOR_VAL = {0: "A", 1: "B", 2: "solid"}
+
+
+def _available_3d_panel_fields(window) -> set[str]:
+    panel = getattr(window, "canvas_3d", None)
+    arrays = getattr(panel, "_arrays", None) if panel is not None else None
+    if isinstance(arrays, dict) and arrays:
+        return set(arrays.keys())
+    result = window.cache.get_result("3d")
+    if result is None:
+        return set()
+    fields = result.fields or {}
+    return {
+        spec.panel_key
+        for spec in PANEL_FIELD_SPECS.values()
+        if fields.get(spec.key) is not None
+    }
+
+
+def _resolve_3d_panel_field(
+    avail: set[str], quantity: str, preferred_phase: str | None = None
+) -> str | None:
+    if preferred_phase is not None:
+        for pkey, spec in PANEL_FIELD_SPECS.items():
+            if pkey in avail and spec.quantity == quantity and spec.phase == preferred_phase:
+                return pkey
+    for pkey, spec in PANEL_FIELD_SPECS.items():
+        if pkey in avail and spec.quantity == quantity:
+            return pkey
+    return None
+
+
+def _select_3d_header_field(
+    window, *, quantity: str | None = None, phase_code: str | None = None
+) -> bool:
+    panel = getattr(window, "canvas_3d", None)
+    if panel is None:
+        return False
+    avail = _available_3d_panel_fields(window)
+    cur_spec = PANEL_FIELD_SPECS.get(getattr(panel, "_field", None))
+    target_qty = quantity or (cur_spec.quantity if cur_spec is not None else "temperature")
+    target_phase = phase_code if phase_code is not None else (
+        cur_spec.phase if cur_spec is not None else "A"
+    )
+    target_key = _resolve_3d_panel_field(avail, target_qty, target_phase)
+    if target_key is None:
+        return False
+    if hasattr(panel, "select_field"):
+        ok = bool(panel.select_field(target_key))
+    else:
+        combo = getattr(panel, "combo_field", None)
+        idx = combo.findData(target_key) if combo is not None else -1
+        if idx >= 0:
+            combo.setCurrentIndex(idx)
+            ok = True
+        else:
+            ok = False
+    refresh_field_controls(window)
+    return ok
 
 
 def _active_cmap_quantity(window) -> tuple[str, str]:
@@ -58,8 +117,9 @@ def _active_cmap_quantity(window) -> tuple[str, str]:
     if tab == "3d":
         panel = getattr(window, "canvas_3d", None)
         field_3d = getattr(panel, "_field", None) if panel is not None else None
-        if field_3d in _3D_FIELD_TO_QUANTITY:
-            return _3D_FIELD_TO_QUANTITY[field_3d]
+        spec = PANEL_FIELD_SPECS.get(field_3d)
+        if spec is not None:
+            return spec.quantity, _QTY_LABELS.get(spec.quantity, "温度")
     if tab in _TAB_TO_QUANTITY:
         return _TAB_TO_QUANTITY[tab]
     card = window.workbench.resolve_2d_view_card()
@@ -199,27 +259,58 @@ def _build_canvas_toolbar(window, vlay, t, theme):
 
     window.combo_2d_field.currentIndexChanged.connect(_on_2d_field_changed)
 
-    # Segmented 2D quantity selector: 温度 | 速度 | 压力
+    # Segmented quantity selector: 温度 | 速度 | 压力 (plus 3D-only 胞元 L button)
     field_seg = QFrame()
     field_seg.setStyleSheet(seg_shell_qss)
     seg_lay = QHBoxLayout(field_seg)
     seg_lay.setContentsMargins(2, 2, 2, 2)
     seg_lay.setSpacing(2)
     window._2d_field_btns = []
-    for i, cap in enumerate(("温度", "速度", "压力")):
+    window._field_qty_keys = _QTY_KEYS
+    for i, (cap, qkey) in enumerate(
+        (("温度", "temperature"), ("速度", "speed"), ("压力", "pressure"))
+    ):
         btn = QPushButton(cap)
         btn.setFixedHeight(24)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setToolTip("单击切换 2D 显示物理量")
-        btn.clicked.connect(lambda _c=False, idx=i: window.combo_2d_field.setCurrentIndex(idx))
+        btn.setToolTip("单击切换当前视图显示物理量")
+
+        def _pick_qty(_c=False, idx=i, qty=qkey):
+            if window.workbench.active_tab == "3d":
+                _select_3d_header_field(window, quantity=qty)
+            else:
+                window.combo_2d_field.setCurrentIndex(idx)
+
+        btn.clicked.connect(_pick_qty)
         seg_lay.addWidget(btn)
         window._2d_field_btns.append(btn)
         _attach_canvas_menu(window, btn, ("temp", "vel", "pres")[i])
 
+    btn_design = QPushButton("胞元 L")
+    btn_design.setFixedHeight(24)
+    btn_design.setCursor(Qt.CursorShape.PointingHandCursor)
+    btn_design.setToolTip("单击切换三维胞元设计场")
+    btn_design.clicked.connect(lambda _c=False: _select_3d_header_field(window, quantity="design"))
+    btn_design.hide()
+    seg_lay.addWidget(btn_design)
+    window._3d_design_field_btn = btn_design
+
     def _paint_2d_seg():
+        design_btn = getattr(window, "_3d_design_field_btn", None)
+        if window.workbench.active_tab == "3d":
+            panel = getattr(window, "canvas_3d", None)
+            spec = PANEL_FIELD_SPECS.get(getattr(panel, "_field", None)) if panel is not None else None
+            cur_qty = spec.quantity if spec is not None else None
+            for j, b in enumerate(window._2d_field_btns):
+                b.setStyleSheet(seg_on_qss if _QTY_KEYS[j] == cur_qty else seg_off_qss)
+            if design_btn is not None:
+                design_btn.setStyleSheet(seg_on_qss if cur_qty == "design" else seg_off_qss)
+            return
         cur = window.combo_2d_field.currentIndex()
         for j, b in enumerate(window._2d_field_btns):
             b.setStyleSheet(seg_on_qss if j == cur else seg_off_qss)
+        if design_btn is not None:
+            design_btn.setStyleSheet(seg_off_qss)
 
     _paint_2d_seg()
     window._2d_field_seg = field_seg
@@ -243,6 +334,11 @@ def _build_canvas_toolbar(window, vlay, t, theme):
         button.setToolTip("显示该相或全部相的真实计算场；不会重新求解")
 
         def _pick_phase(_checked=False, pv=phase_val):
+            if window.workbench.active_tab == "3d":
+                code = _PHASE_CODE_FOR_VAL.get(pv)
+                if code is not None:
+                    _select_3d_header_field(window, phase_code=code)
+                return
             window._field_phase = pv
             refresh_field_controls(window)
             from .plot_2d_results import redraw_result_fields
@@ -395,10 +491,10 @@ def _build_canvas_toolbar(window, vlay, t, theme):
     window.btn_focus_view.clicked.connect(window.appearance.toggle_focus)
     view_toolbar.addWidget(window.btn_focus_view)
 
-    btn_export = MenuToolButton(t.style("BTN_TERTIARY"))
+    btn_export = MenuToolButton(t.style("BTN_SECONDARY"))
     btn_export.setText("导出")
     btn_export.setIcon(icon("download", _t["sub"]))
-    btn_export.setToolTip("导出计算结果（CSV + NPZ）或当前图像（PNG / SVG / PDF）")
+    btn_export.setToolTip("导出计算结果或当前图像（PNG / SVG / PDF）")
     btn_export.setEnabled(False)
     ex_menu = QMenu(btn_export)
     ex_menu.setStyleSheet(
@@ -407,12 +503,13 @@ def _build_canvas_toolbar(window, vlay, t, theme):
         "QMenu::item { padding: 6px 18px; border-radius: 5px; }"
         f"QMenu::item:selected {{ background: {_t['accent_soft']}; color: {_t['accent_fg']}; }}"
     )
-    ex_menu.addAction("导出完整结果 — CSV + NPZ", window.result_export.export_results)
+    window._act_export_results = ex_menu.addAction(
+        "导出完整结果 — CSV", window.result_export.export_results
+    )
     ex_menu.addAction("导出图像 — PNG / SVG / PDF", window.result_export.export_figure)
     ex_menu.addAction("复制当前图像", window.result_export.copy_figure_clipboard)
     btn_export.setMenu(ex_menu)
     window.btn_export = btn_export
-    view_toolbar.addWidget(btn_export)
 
     vlay.addWidget(toolbar_host)
 
@@ -423,14 +520,17 @@ def refresh_field_controls(window):
     optimizing = tab == "pareto"
     is_result = tab in ("temp", "pres", "vel", "3d")
     is_field = tab in ("temp", "pres", "vel")
+    is_3d_tab = tab == "3d"
 
     window.appearance.sync_drawer_visibility()
     card = getattr(window, "_run_status_card", None)
     if card is not None:
-        card.setVisible(
-            (not optimizing and not window.appearance.is_focused())
-            or not window.single_run.is_idle()
+        show_card = not window.single_run.is_idle() or (
+            card.state in ("running", "cancelling", "error", "cancelled", "paused")
+            and not optimizing
+            and not window.appearance.is_focused()
         )
+        card.setVisible(show_card)
 
     window._field_toolbar.setVisible(True)
     window._field_primary_controls.setVisible(not optimizing)
@@ -445,23 +545,76 @@ def refresh_field_controls(window):
         window.optimization.refresh_setup()
 
     result = window.cache.get_result("3d")
-    b_source = "dir_B" if tab in ("pres", "vel") else "Tb"
-    has_b = result is None or result.fields.get(b_source) is not None
-    phase = getattr(window, "_field_phase", None)
-    if (tab in ("pres", "vel") and phase == 2) or (phase == 1 and not has_b):
-        phase = window._field_phase = 0
-        from .plot_2d_results import redraw_result_fields
+    phase_values = getattr(window, "_field_phase_values", (0, 1, 2, None))
 
-        redraw_result_fields(window)
-    window._field_phase_seg.setVisible(is_result)
-    phase_values = getattr(window, "_field_phase_values", (0, 1, 2))
-    for i, btn in enumerate(window._field_phase_btns):
-        pv = phase_values[i] if i < len(phase_values) else i
-        btn.setVisible(pv != 2 or tab in ("temp", "3d"))
-        btn.setEnabled(pv != 1 or has_b)
-        active = phase == pv
-        btn.setChecked(active)
-        btn.setStyleSheet(window._phase_styles[0 if active else 1])
+    if is_3d_tab:
+        avail = _available_3d_panel_fields(window)
+        panel = getattr(window, "canvas_3d", None)
+        cur_spec = PANEL_FIELD_SPECS.get(getattr(panel, "_field", None)) if panel is not None else None
+        cur_qty = cur_spec.quantity if cur_spec is not None else None
+        cur_phase = cur_spec.phase if cur_spec is not None else None
+
+        avail_qtys = {
+            PANEL_FIELD_SPECS[k].quantity for k in avail if k in PANEL_FIELD_SPECS
+        }
+        if hasattr(window, "_2d_field_btns"):
+            for i, btn in enumerate(window._2d_field_btns):
+                qkey = _QTY_KEYS[i]
+                btn.setVisible(True)
+                btn.setEnabled(qkey in avail_qtys)
+        design_btn = getattr(window, "_3d_design_field_btn", None)
+        if design_btn is not None:
+            design_btn.setVisible("design" in avail_qtys)
+            design_btn.setEnabled("design" in avail_qtys)
+        if hasattr(window, "_paint_2d_seg"):
+            window._paint_2d_seg()
+
+        has_phase_choices = cur_qty in ("temperature", "speed", "pressure")
+        window._field_phase_seg.setVisible(is_result and has_phase_choices)
+        for i, btn in enumerate(window._field_phase_btns):
+            pv = phase_values[i] if i < len(phase_values) else i
+            if pv is None:
+                btn.setVisible(False)
+                btn.setChecked(False)
+                continue
+            code = _PHASE_CODE_FOR_VAL.get(pv)
+            supported = (
+                cur_qty is not None
+                and code is not None
+                and _resolve_3d_panel_field(avail, cur_qty, code) is not None
+            )
+            btn.setVisible(pv != 2 or cur_qty == "temperature")
+            btn.setEnabled(supported)
+            active = supported and cur_phase == code
+            btn.setChecked(active)
+            btn.setStyleSheet(window._phase_styles[0 if active else 1])
+    else:
+        if hasattr(window, "_2d_field_btns"):
+            for btn in window._2d_field_btns:
+                btn.setVisible(True)
+                btn.setEnabled(True)
+        design_btn = getattr(window, "_3d_design_field_btn", None)
+        if design_btn is not None:
+            design_btn.setVisible(False)
+        if hasattr(window, "_paint_2d_seg"):
+            window._paint_2d_seg()
+
+        b_source = "dir_B" if tab in ("pres", "vel") else "Tb"
+        has_b = result is None or result.fields.get(b_source) is not None
+        phase = getattr(window, "_field_phase", None)
+        if (tab in ("pres", "vel") and phase == 2) or (phase == 1 and not has_b):
+            phase = window._field_phase = 0
+            from .plot_2d_results import redraw_result_fields
+
+            redraw_result_fields(window)
+        window._field_phase_seg.setVisible(is_result)
+        for i, btn in enumerate(window._field_phase_btns):
+            pv = phase_values[i] if i < len(phase_values) else i
+            btn.setVisible(pv != 2 or tab == "temp")
+            btn.setEnabled(pv != 1 or has_b)
+            active = phase == pv
+            btn.setChecked(active)
+            btn.setStyleSheet(window._phase_styles[0 if active else 1])
 
     slice_controls = getattr(window, "_slice_controls", None)
     if slice_controls is not None:
@@ -512,7 +665,7 @@ def _build_canvas_content(window, vlay, t):
         f"<p style='margin:0 0 8px 0;'><span style='color:{_acc}; font-weight:700;'>2</span>"
         "&nbsp;&nbsp;点击右上角 <b>开始计算</b>（Ctrl+R）运行求解</p>"
         f"<p style='margin:0;'><span style='color:{_acc}; font-weight:700;'>3</span>"
-        "&nbsp;&nbsp;在“计算结果”查看温度 / 速度 / 压力场图与三维视图</p>"
+        "&nbsp;&nbsp;在“计算结果”查看温度、速度和压力分布与三维视图</p>"
         "</div>"
     )
     _empty.setTextFormat(Qt.TextFormat.RichText)

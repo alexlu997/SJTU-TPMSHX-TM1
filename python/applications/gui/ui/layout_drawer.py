@@ -29,18 +29,23 @@ def _render_2d_thumbnail_axes(window, fig) -> bool:
         return False
 
     nx, ny = Ta.shape
-    L = float(fields.get("L") or 0.0)
-    H = float(fields.get("H") or 0.0)
     dx = fields.get("dx_arr")
     dy = fields.get("dy_arr")
-    if dx is not None and len(dx) == nx:
-        x_edges = np.concatenate(([0.0], np.cumsum(np.asarray(dx, dtype=float)) * 1000.0))
-    else:
-        x_edges = np.linspace(0.0, L * 1000.0 if L > 0 else float(nx), nx + 1)
-    if dy is not None and len(dy) == ny:
-        y_edges = np.concatenate(([0.0], np.cumsum(np.asarray(dy, dtype=float)) * 1000.0))
-    else:
-        y_edges = np.linspace(0.0, H * 1000.0 if H > 0 else float(ny), ny + 1)
+    if dx is None or dy is None:
+        return False
+    dx_a = np.asarray(dx, dtype=float)
+    dy_a = np.asarray(dy, dtype=float)
+    if (
+        dx_a.ndim != 1
+        or dy_a.ndim != 1
+        or len(dx_a) != nx
+        or len(dy_a) != ny
+        or not (np.all(np.isfinite(dx_a)) and np.all(dx_a > 0.0))
+        or not (np.all(np.isfinite(dy_a)) and np.all(dy_a > 0.0))
+    ):
+        return False
+    x_edges = np.concatenate(([0.0], np.cumsum(dx_a) * 1000.0))
+    y_edges = np.concatenate(([0.0], np.cumsum(dy_a) * 1000.0))
 
     unit = "°C" if getattr(window, "_temp_unit", "K") == "C" else "K"
     offset = CELSIUS_ZERO_K if unit == "°C" else 0.0

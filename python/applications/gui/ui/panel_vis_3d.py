@@ -33,7 +33,7 @@ from typing import Optional
 import numpy as np
 import pyvista as pv
 from pyvistaqt import QtInteractor
-from PySide6.QtCore import Qt, QTimer, QVariantAnimation, QEasingCurve
+from PySide6.QtCore import Qt, QTimer, QVariantAnimation, QEasingCurve, Signal
 from PySide6.QtGui import QDoubleValidator, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QComboBox,
@@ -178,6 +178,8 @@ class ThreeDVisPanel(QWidget):
     on top of the volume. Each Apply also pops up a 2D matplotlib contour
     window for the chosen slice.
     """
+
+    field_changed = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -649,6 +651,22 @@ class ThreeDVisPanel(QWidget):
         self._update_coord_label()
         self._validate_coord_input()
         self._update_status()
+        sig = getattr(self, "field_changed", None)
+        if sig is not None:
+            sig.emit(self._field)
+
+    def select_field(self, field_key: str) -> bool:
+        """Select a 3D panel field by PANEL_FIELD_SPECS key; return True if available."""
+        if field_key not in self._arrays or field_key not in PANEL_FIELD_SPECS:
+            return False
+        idx = self.combo_field.findData(field_key)
+        if idx < 0:
+            return False
+        if self.combo_field.currentIndex() != idx:
+            self.combo_field.setCurrentIndex(idx)
+        elif self._field != field_key:
+            self._on_field_changed(idx)
+        return True
 
 
     def set_watermark(self, text):
@@ -831,6 +849,9 @@ class ThreeDVisPanel(QWidget):
             self._add_slice_actor(self._slice_info['axis'],
                                   self._slice_info['coord_mm'], render=False)
         self.plotter.render()
+        sig = getattr(self, "field_changed", None)
+        if sig is not None:
+            sig.emit(self._field)
         self._update_status()
 
     def _on_plane_changed(self, idx):

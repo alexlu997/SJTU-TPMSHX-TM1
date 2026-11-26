@@ -104,14 +104,20 @@ class ShellDialogs:
         dlg.exec()
 
     def resolve_output_directory(self, *, scope: str = "auto") -> Path | None:
-        """Return the task-scoped run or optimization directory if it exists on disk."""
+        """Return the task-scoped run, accepted-result, or optimization directory if present."""
         window = self.window
         if scope == "auto":
             in_qd = (
                 getattr(window, "page_stack", None) is not None
                 and window.page_stack.currentWidget() is window.quick_design
             )
-            scope = "optimization" if (not in_qd and window.workbench.active_tab == "pareto") else "single"
+            tab = window.workbench.active_tab
+            if not in_qd and tab == "pareto":
+                scope = "optimization"
+            elif not in_qd and tab in ("temp", "pres", "vel", "3d"):
+                scope = "accepted_result"
+            else:
+                scope = "single"
 
         candidates: list[object] = []
         if scope == "optimization":
@@ -121,6 +127,15 @@ class ShellDialogs:
                 if job is not None:
                     candidates.append(getattr(job, "output_dir", None))
                 candidates.append(getattr(opt, "last_output_dir", None))
+        elif scope == "accepted_result":
+            result = window.cache.get_result()
+            if result is not None:
+                recovery = result.metadata.get("recovery")
+                if isinstance(recovery, dict):
+                    candidates.append(recovery.get("directory"))
+        elif scope == "active_run":
+            if not window.single_run.is_idle():
+                candidates.append(getattr(window.single_run, "active_directory", None))
         elif scope == "single":
             if not window.single_run.is_idle():
                 candidates.append(getattr(window.single_run, "active_directory", None))
@@ -262,7 +277,7 @@ class ShellDialogs:
                 "1. 右侧参数检查器 — 在“几何”“边界”“求解”三个页签填写算例参数，按 Ctrl+] 可收起或展开。\n"
                 "2. 开始计算 — 点击右上角“开始计算”按钮或按 Ctrl+R；"
                 "“优化设计”支持多工况连续场搜索与芯体减重。\n"
-                "3. 计算结果 — 查看温度、速度、压力场图与三维视图，底部读数条显示关键指标与外推提示。\n\n"
+                "3. 计算结果 — 查看温度、速度和压力分布与三维视图，底部读数条显示关键指标与外推提示。\n\n"
                 "左侧导航栏可切换页面、搜索命令（Ctrl+K）、载入或保存配置，以及调整主题、温度单位与减少动态效果。"
                 "本提示只显示一次。"
             )

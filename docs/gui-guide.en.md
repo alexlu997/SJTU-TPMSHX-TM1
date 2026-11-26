@@ -63,9 +63,9 @@ Original fields, static quality, and shared color scales stay. Ordinary solve no
 
 Diagnostics Details reports preparation, solve, postprocessing, and display times. Successful total time includes background work and result display. Compare terminal and GUI speed with matched configuration, threads, and cache state. Separate native builds and property-table initialization from later runs. Daily execution does not compile the solver.
 
-More selects dark/light themes, effective after restart, and K/°C. The interface uses system sans-serif fonts: macOS system Latin/PingFang, Windows Segoe UI/Microsoft YaHei, and available Linux Noto Sans/system fallbacks. Body text and inputs use regular weight. Headings and primary actions use emphasis. Charts and exports keep Times New Roman for Latin text/numbers and Microsoft YaHei for Chinese. macOS can register matching installed Office fonts in the current process without copying or distributing them.
+More selects dark/light themes, effective after restart, and K/°C. The interface and on-screen charts use system sans-serif fonts: macOS system Latin/PingFang, Windows Segoe UI/Microsoft YaHei, and available Linux Noto Sans/system fallbacks. Body text and inputs use regular weight. Headings and primary actions use emphasis. Exported figures (PNG, SVG, and PDF) apply Times New Roman for Latin text, math, and ticks with Microsoft YaHei / PingFang Chinese fallback at export time, while keeping the color scales and layout consistent. macOS can register matching installed Office fonts in the current process without copying or distributing them.
 
-Missing chart fonts produce a notice and use available fonts. Interface system fonts are unaffected.
+Missing export fonts produce a notice and use available fonts. Interface and on-screen chart fonts are unaffected.
 
 <a id="settings"></a>
 

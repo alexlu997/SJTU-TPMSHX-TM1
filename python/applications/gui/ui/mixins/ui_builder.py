@@ -1,58 +1,17 @@
-"""Install the desktop status bar, undo stack and field help."""
+"""Hide legacy desktop status bar and install undo stack and field help."""
 
 from __future__ import annotations
-
-from PySide6.QtWidgets import QLabel
-
-from sjtu_tpmshx.applications.gui.ui.theme import get_theme
 
 
 class UIBuilderMixin:
     """Page/tab/canvas builders + status-bar / undo / help installers."""
 
     def _install_status_bar_widgets(self):
-        """Mount permanent status-bar widgets on the right edge of the
-        QMainWindow status bar: [Preset] | [Workspace] | [Re_A / Re_B] |
-        [last compute clock]. These are **permanent widgets** — they
-        survive transient showMessage() calls, giving the user a constant
-        context strip like VSCode / JetBrains IDEs.
-        """
-        from sjtu_tpmshx.applications.gui.ui.theme import get_theme as _gt_sb
-        _t = _gt_sb()
-        _mono_css = (
-            f"color:{_t.get('sub_fg', _t['fg'])};"
-            f"font-family:{_t['mono_family']};"
-            f"font-size:9pt; font-weight:500;"
-            f"background:transparent; border:none; padding:0 6px;")
-
-        def _mk(initial=""):
-            l = QLabel(initial)
-            l.setStyleSheet(_mono_css)
-            return l
-
+        """Hide the legacy QMainWindow status bar; Style P2 uses the readout strip."""
         sb = self.statusBar()
-        sb.setStyleSheet(
-            f"QStatusBar{{background:{_t.get('surface_raised', _t['card_bg'])};"
-            f"color:{_t['fg']};"
-            f"border-top:1px solid {_t['card_border']};}}"
-            f"QStatusBar QLabel{{color:{_t['fg']};}}"
-            "QStatusBar::item{border:none;}")
-        self._sb_re = _mk("Re: —")
-        self._sb_clock = _mk("⏱ —")
-
-        # Visual separator pill between groups. Three identical widgets
-        # (not one reused) because Qt requires each addPermanentWidget
-        # call to get a distinct widget pointer.
-        def _sep():
-            s = QLabel("│")
-            s.setStyleSheet(
-                f"color:{_t.get('sub_fg', '#888')}; background:transparent;"
-                "border:none; padding:0 2px; font-size:10pt;")
-            return s
-
-        for w in (self._sb_re, _sep(), self._sb_clock):
-            sb.addPermanentWidget(w)
-        self._refresh_status_bar()
+        sb.setSizeGripEnabled(False)
+        sb.setMaximumHeight(0)
+        sb.hide()
 
     def _install_undo_stack(self):
         """Track every value change on a numeric input and push it onto a
@@ -140,16 +99,9 @@ class UIBuilderMixin:
                 pass
 
     def _install_status_log(self):
-        """Capture every statusBar().showMessage into a rolling log and add a
-        collapsible ▲ toggle on the right edge so users can review messages
-        they missed during a long compute.
-
-        Zero-touch for existing callers: QStatusBar emits `messageChanged`
-        when showMessage is used, so we just listen for it.
-        """
+        """Capture every statusBar().showMessage into a rolling log without showing a bar."""
         from collections import deque
         from datetime import datetime
-        from PySide6.QtWidgets import QPushButton
         self._log_history = deque(maxlen=50)
 
         def _on_msg(txt):
@@ -161,17 +113,3 @@ class UIBuilderMixin:
         self.statusBar().messageChanged.connect(_on_msg)
         self.signals.adopt(self.statusBar().messageChanged, _on_msg,
                             sender=self.statusBar())
-
-        btn = QPushButton("▲  Log")
-        btn.setFixedHeight(18)
-        btn.setFixedWidth(70)
-        btn.setStyleSheet(
-            "QPushButton{background:transparent; border:none;"
-            f"color:{get_theme().get('sub_fg', '#888')}; font-size:8pt;"
-            "padding:0 6px;}"
-            "QPushButton:hover{color:" + get_theme()['fg'] + ";}")
-        btn.setToolTip("Show recent status messages")
-        btn.clicked.connect(self.dialogs.show_status_log)
-        self.signals.adopt(btn.clicked, self.dialogs.show_status_log,
-                            sender=btn)
-        self.statusBar().addPermanentWidget(btn)

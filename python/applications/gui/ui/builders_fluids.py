@@ -22,12 +22,12 @@ from .window_config import LINE_EDITS
 LABEL_COL_MIN_W = 118
 
 _DIR_ITEMS = [
-    "+x  (left → right)",
-    "-x  (right → left)",
-    "+y  (bottom → top)",
-    "-y  (top → bottom)",
-    "+z  (front → back, 3D)",
-    "-z  (back → front, 3D)",
+    "+x  左 → 右",
+    "−x  右 → 左",
+    "+y  下 → 上",
+    "−y  上 → 下",
+    "+z  前 → 后 (3D)",
+    "−z  后 → 前 (3D)",
 ]
 
 
@@ -105,11 +105,14 @@ def _make_band_grid(
 
 
 def _build_pipe_section(window, lay, side, *, combo_style, dir_index):
-    """Build port rows in capture order; flow direction updates axis labels."""
+    """Build compact paired center/width port rows; flow direction updates axis labels."""
     from .field_factory import default_factory
 
     f = default_factory()
+    theme = get_theme()
     gio, sec = _make_band_grid(f"端口 {side}")
+    gio.setColumnStretch(1, 1)
+    gio.setColumnStretch(2, 1)
     window._ia_sections[f"pipe_{side.lower()}"] = sec
     combo = QComboBox()
     is_3d = hasattr(window, "combo_dim") and window.combo_dim.currentIndex() == 1
@@ -118,16 +121,42 @@ def _build_pipe_section(window, lay, side, *, combo_style, dir_index):
     combo.setStyleSheet(combo_style)
     combo.currentIndexChanged.connect(window._on_dir_changed)
     setattr(window, f"combo_dir{side}", combo)
-    f.add_row(gio, 0, "流动方向", combo)
-    ports = (spec for spec in LINE_EDITS.values() if spec.path.startswith(f"bc_{side}."))
-    for row_idx, spec in enumerate(ports, start=1):
-        le = f.row(gio, row_idx, *spec.editor_text(""))
-        le.set_display_unit("mm", 1e3)
-        lbl = gio.itemAtPosition(row_idx, 0).widget()
-        setattr(window, spec.widget, le)
-        setattr(window, "_lbl_" + spec.widget.removeprefix("le_"), lbl)
-        if spec.definition.metadata["dimensions"] == (3,):
-            window._3d_only_widgets += [le, lbl]
+    dir_lbl = f.label("流动方向")
+    gio.addWidget(dir_lbl, 0, 0)
+    gio.addWidget(combo, 0, 1, 1, 2)
+
+    hdr_css = f"color: {theme['tert']}; font-size: 11px; font-weight: 500; background: transparent; border: none;"
+    for col, heading in ((1, "中心"), (2, "宽度")):
+        h = QLabel(heading)
+        h.setStyleSheet(hdr_css)
+        gio.addWidget(h, 1, col)
+
+    pair_defs = (
+        ("in", "", "入口", False),
+        ("in", "z_", "入口", True),
+        ("out", "", "出口", False),
+        ("out", "z_", "出口", True),
+    )
+    for row_offset, (end, key, port_title, is_3d_pair) in enumerate(pair_defs, start=2):
+        ctr_spec = LINE_EDITS[f"le_pipe{side}_{end}_{key}ctr"]
+        w_spec = LINE_EDITS[f"le_pipe{side}_{end}_{key}w"]
+        row_lbl = f.label(f"{port_title} {'z' if is_3d_pair else 'x'}")
+        gio.addWidget(row_lbl, row_offset, 0)
+        setattr(window, f"_lbl_pipe{side}_{end}_{key}row", row_lbl)
+        setattr(window, f"_lbl_pipe{side}_{end}_{key}ctr", row_lbl)
+        setattr(window, f"_lbl_pipe{side}_{end}_{key}w", row_lbl)
+
+        ctr_le = f.line_edit("" if ctr_spec.default is None else str(ctr_spec.default), unit="m")
+        ctr_le.set_display_unit("mm", 1e3)
+        w_le = f.line_edit("" if w_spec.default is None else str(w_spec.default), unit="m")
+        w_le.set_display_unit("mm", 1e3)
+        gio.addWidget(ctr_le, row_offset, 1)
+        gio.addWidget(w_le, row_offset, 2)
+        setattr(window, ctr_spec.widget, ctr_le)
+        setattr(window, w_spec.widget, w_le)
+        if is_3d_pair:
+            window._3d_only_widgets += [row_lbl, ctr_le, w_le]
+
     combo.setToolTip("入口速度在指定几何开口内均匀施加；开口外为壁面。")
     lay.addWidget(sec)
 

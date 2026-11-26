@@ -173,13 +173,17 @@ class RunHistory:
         menu.addSeparator()
         uh = menu.addAction("我的预设")
         uh.setEnabled(False)
+        preset_err = None
         try:
             user = window.case_files.store.load_user_presets()
+            preset_err = getattr(window.case_files.store, "last_user_presets_error", None)
         except Exception as exc:
+            preset_err = str(exc)
+            user = ()
+        if preset_err:
             err_act = menu.addAction("   (预设读取失败)")
             err_act.setEnabled(False)
-            err_act.setToolTip(str(exc))
-            user = ()
+            err_act.setToolTip(str(preset_err))
         for p in user:
             name = p.get("name")
             if not name:
@@ -200,9 +204,13 @@ class RunHistory:
         else:
             for i, e in enumerate(entries):
                 status, details = _history_status(e)
+                raw_ts = str(e.get("label") or "")
+                ts_short = raw_ts[-8:-3] if len(raw_ts) >= 8 and ":" in raw_ts else raw_ts
+                mode_tag = str(e.get("mode", "")).upper()
+                prefix_parts = [p for p in (ts_short, mode_tag) if p]
                 label = (
-                    f"   #{i + 1}  {e['label']}   {status}   "
-                    f"Q={e['Q']} {e.get('Q_unit', '?')} · ΔP(A)={e['dP_A']}"
+                    f"   #{i + 1} {' · '.join(prefix_parts)}  {status}  "
+                    f"Q={e['Q']} {e.get('Q_unit', '?')}"
                 )
                 act = menu.addAction(label)
                 if e.get("preset") is None:
@@ -361,7 +369,7 @@ class RunHistory:
             QMessageBox.information(
                 self.window,
                 "没有 GUI 输入预设",
-                "此记录来自保存的工况，可从检查点继续计算。",
+                "此记录来自已保存算例，可从检查点继续计算。",
             )
             return
         try:
@@ -503,25 +511,29 @@ class RunHistory:
         except Exception as exc:
             QMessageBox.warning(self.window, "加载失败", str(exc))
 
-    def stamp_result_provenance(self, elapsed: float) -> None:
+    def stamp_result_provenance(self, elapsed: float | None) -> None:
         """Describe the completed run's inputs and returned grid on result tooltips."""
         result = self.window.cache.get_result()
         provenance = result.metadata.get("run_provenance") if result is not None else None
         if provenance is None:
             return
-        ts = str(provenance.get("completed_at") or datetime.datetime.now().strftime("%H:%M:%S"))
-        self._last_run_ts = ts
-        commit = str(
-            provenance.get("commit") or (repository_revision(SOURCE_ROOT)["revision"] or "")[:7]
+        recorded_ts = str(provenance.get("completed_at") or "").strip()
+        if recorded_ts:
+            self._last_run_ts = recorded_ts
+        result_rev = (
+            (result.metadata.get("provenance") or {}).get("revision")
+            if isinstance(result.metadata.get("provenance"), dict)
+            else None
         )
-        grid = "×".join(map(str, provenance["input_grid"]))
-        actual_grid = "×".join(map(str, provenance["actual_grid"]))
-        dur = fmt_duration(elapsed)
-        preset = preset_display(provenance["preset_source"])
+        commit = str(result_rev or provenance.get("commit") or "").strip()[:7]
+        grid = "×".join(map(str, provenance.get("input_grid") or ()))
+        actual_grid = "×".join(map(str, provenance.get("actual_grid") or ()))
+        dur = fmt_duration(elapsed) if isinstance(elapsed, (int, float)) else "—"
+        preset = preset_display(provenance.get("preset_source") or "")
         tip = (
-            f"Computed @ {ts}  ·  {dur}  ·  {provenance['mode'].upper()}"
-            f"  ·  input grid {grid}"
-            f"  ·  actual result grid {actual_grid}  ·  preset: {preset}"
+            f"Computed @ {recorded_ts or '—'}  ·  {dur}  ·  {str(provenance.get('mode') or '').upper()}"
+            f"  ·  input grid {grid or '—'}"
+            f"  ·  actual result grid {actual_grid or '—'}  ·  preset: {preset}"
             + (f"  ·  commit: {commit}" if commit else "")
         )
         self._last_provenance_tip = tip
@@ -625,10 +637,12 @@ class RunHistory:
                 grid_val = act_grid if in_grid == act_grid else f"{in_grid} → {act_grid}"
                 if grid_val:
                     info_rows.append(RunInfoRow("网格", grid_val))
-                completed_at = provenance.get("completed_at") or self._last_run_ts
+                completed_at = str(provenance.get("completed_at") or "").strip()
                 if completed_at:
-                    info_rows.append(RunInfoRow("完成时间", str(completed_at)))
-            elapsed = getattr(window, "_last_elapsed_s", None)
+                    info_rows.append(RunInfoRow("完成时间", completed_at))
+            from sjtu_tpmshx.applications.gui.ui.field_results import recorded_elapsed_s
+
+            elapsed = recorded_elapsed_s(result)
             if isinstance(elapsed, (int, float)):
                 info_rows.append(RunInfoRow("耗时", fmt_duration(elapsed)))
 
@@ -645,14 +659,12 @@ class RunHistory:
                     RunInfoRow("CO₂ 几何来源", label, tone="accent_fg", weight=600)
                 )
 
-            recorded_rev = (
-                (provenance.get("commit") if provenance else None)
-                or (
-                    (result.metadata.get("provenance") or {}).get("revision")
-                    if isinstance(result.metadata.get("provenance"), dict)
-                    else None
-                )
+            result_rev = (
+                (result.metadata.get("provenance") or {}).get("revision")
+                if isinstance(result.metadata.get("provenance"), dict)
+                else None
             )
+            recorded_rev = result_rev or (provenance.get("commit") if provenance else None)
             if recorded_rev:
                 info_rows.append(
                     RunInfoRow("版本", str(recorded_rev)[:7], tone="tert", weight=400)
@@ -693,7 +705,7 @@ class RunHistory:
 
         has_log = bool((window.single_run.compute.last_log() or "").strip())
         has_diag = result is not None
-        has_folder = window.dialogs.resolve_output_directory(scope="single") is not None
+        has_folder = window.dialogs.resolve_output_directory(scope="accepted_result") is not None
         return RunInfoData(
             info_rows=tuple(info_rows),
             status_kind=status_kind,

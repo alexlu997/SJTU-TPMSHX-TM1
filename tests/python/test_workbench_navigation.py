@@ -240,21 +240,19 @@ def test_optimization_page_buttons_work_by_keyboard_and_public_edit_keeps_values
 @pytest.mark.parametrize('collapsed', [False, True])
 @pytest.mark.parametrize('restore_tab', ['layout', 'pareto'])
 def test_optimization_session_restores_saved_drawer_state(win, monkeypatch, collapsed, restore_tab):
-    win.appearance.set_drawer_open(not collapsed)
+    win.appearance.set_drawer_open(not collapsed, page_key='run')
     win.workbench.switch_tab('pareto')
     QApplication.processEvents()
     saved = {}
     monkeypatch.setattr(win.case_files.store, 'save_session', lambda payload, ws: saved.update(payload) or True)
     assert win.case_files.save_session()
     assert saved['ui_state']['left_collapsed'] == collapsed
-    win.workbench.switch_tab('layout')
-    win.appearance.set_drawer_open(True)
     win.workbench.switch_tab(restore_tab)
     saved.pop('geometry')
     monkeypatch.setattr(win.case_files.store, 'load_session', lambda ws: saved)
     win.case_files.restore_session()
     QApplication.processEvents()
-    assert win.workbench.active_tab == 'pareto' and win.appearance.is_drawer_open() == (not collapsed)
+    assert win.workbench.active_tab == 'pareto' and win.appearance.is_drawer_open('run') == (not collapsed)
 
 
 def test_optimization_figure_menu_keeps_copy_and_export_reachable(win, monkeypatch):
@@ -316,27 +314,31 @@ def test_focus_restores_preferences_and_does_not_persist_transient_hiding(
 def test_session_restores_drawer_page_and_legacy_defaults(win, monkeypatch):
     win._select_param_page(2)
     win.btn_result_summary.setChecked(False)
-    win.appearance.set_drawer_open(False)
+    win.appearance.set_drawer_open(False, page_key='run')
+    win.appearance.set_drawer_open(True, page_key='result')
     QApplication.processEvents()
     saved = {}
     monkeypatch.setattr(win.case_files.store, 'save_session', lambda payload, ws: saved.update(payload) or True)
     win.case_files.save_session()
-    win.appearance.set_drawer_open(True)
-    win._select_param_page(0)
     win.btn_result_summary.setChecked(True)
     saved.pop('geometry')
+    # Legacy global left_collapsed in session must not overwrite per-page inspector state.
+    saved['ui_state']['left_collapsed'] = False
+    saved['ui_state']['parameter_page'] = 0
     monkeypatch.setattr(win.case_files.store, 'load_session', lambda ws: saved)
     win.case_files.restore_session()
     QApplication.processEvents()
-    assert not win.appearance.is_drawer_open()
+    assert not win.appearance.is_drawer_open('run')
+    assert win.appearance.is_drawer_open('result')
     assert win._param_page == 2
     assert not win.btn_result_summary.isChecked()
 
     saved.pop('ui_state')
     win.case_files.restore_session()
     QApplication.processEvents()
-    assert win.appearance.is_drawer_open()
-    assert win._param_page == 0
+    assert not win.appearance.is_drawer_open('run')
+    assert win.appearance.is_drawer_open('result')
+    assert win._param_page == 2
     assert win.btn_result_summary.isChecked()
 
 
@@ -508,7 +510,6 @@ def test_first_show_reveal_is_once_and_keeps_restored_page_and_values(win, monke
 
 def test_stale_readout_badge_and_co2_run_info_provenance(win):
     from tests.python.gui_workbench_support import _result
-    from sjtu_tpmshx.applications.gui.ui.builders_sidebar import refresh_stale_indicator
 
     win.combo_dim.setCurrentIndex(0)
     preset = win.case_files.capture_current_preset('Run inputs')

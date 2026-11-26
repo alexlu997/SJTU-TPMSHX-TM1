@@ -558,9 +558,9 @@ def _build_styles(theme_name: str | None = None) -> dict[str, str]:
 
 
 def apply_mpl_theme() -> None:
-    """Set Matplotlib colors and fonts for the active Style P2 theme."""
+    """Set Matplotlib colors and sans UI fonts for the active Style P2 theme."""
     import matplotlib as mpl
-    from sjtu_tpmshx.applications.gui.ui.typography import matplotlib_font_families
+    from sjtu_tpmshx.applications.gui.ui.typography import screen_matplotlib_font_families
 
     t = get_theme()
     mpl.rcParams["figure.facecolor"] = t["fig_bg"]
@@ -575,7 +575,7 @@ def apply_mpl_theme() -> None:
     mpl.rcParams["path.simplify"] = True
     mpl.rcParams["path.simplify_threshold"] = 1.0
     mpl.rcParams["agg.path.chunksize"] = 10000
-    families = list(matplotlib_font_families())
+    families = list(screen_matplotlib_font_families())
     mpl.rcParams["font.family"] = families
     mpl.rcParams["font.sans-serif"] = families
     mpl.rcParams["font.serif"] = families

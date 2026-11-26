@@ -88,6 +88,9 @@ class Workbench:
             placeholder.deleteLater()
             window._canvas_3d_placeholder = None
             window.canvas_3d = panel
+            from .builders_canvas import refresh_field_controls
+
+            panel.field_changed.connect(lambda _k: refresh_field_controls(window))
             window._fit_3d_card_to_viewport()
             window.statusBar().showMessage("3D view initialised.", TOAST_MS_BRIEF)
         finally:
@@ -121,8 +124,10 @@ class Workbench:
             window.btn_update_geometry.setVisible(page_key == "run")
         if hasattr(window, "btn_compute"):
             window.btn_compute.setVisible(
-                page_key in ("run", "result") or not window.single_run.is_idle()
+                page_key == "run" or not window.single_run.is_idle()
             )
+        if hasattr(window, "btn_export"):
+            window.btn_export.setVisible(page_key in ("result", "opt"))
         if hasattr(window, "btn_run_info"):
             window.btn_run_info.setVisible(page_key in ("run", "result"))
         window.appearance.sync_drawer_visibility()
@@ -192,7 +197,7 @@ class Workbench:
             combo.setEnabled(rules.get("2d_view", False))
         seg = getattr(window, "_2d_field_seg", None)
         if seg is not None:
-            seg.setEnabled(rules.get("2d_view", False))
+            seg.setEnabled(bool(rules.get("2d_view", False) or rules.get("3d", False)))
         rv = getattr(window, "_result_view_btns", None)
         if rv:
             rv["2d"].setEnabled(rules.get("2d_view", False))
@@ -527,14 +532,30 @@ class Workbench:
         )
 
     def on_canvas_click(self, event):
-        """Record a clicked physical coordinate as a per-point 3-phase readout."""
+        """Record a clicked physical coordinate inside the active field data axes."""
         if getattr(event, "button", None) != 1:
             return
         if event.inaxes is None or event.xdata is None or event.ydata is None:
             return
+        tab = self.active_tab
+        canvas = self.canvas_for_key(tab)
+        if canvas is None or not getattr(canvas, "axes", None):
+            return
+        data_axes = [ax for row in canvas.axes for ax in row]
+        if event.inaxes not in data_axes:
+            return
+        hd = getattr(canvas, "_hover_data", None)
+        if not isinstance(hd, dict):
+            return
+        x_mm = float(event.xdata)
+        y_mm = float(event.ydata)
+        L_mm = float(hd.get("L", 0.0)) * 1000.0
+        H_mm = float(hd.get("H", 0.0)) * 1000.0
+        if not (0.0 <= x_mm <= L_mm and 0.0 <= y_mm <= H_mm):
+            return
         from sjtu_tpmshx.applications.gui.ui.builders_sidebar import add_sample_point
 
-        add_sample_point(self.window, float(event.xdata), float(event.ydata))
+        add_sample_point(self.window, x_mm, y_mm)
 
     def detach_3d_window(self):
         """Reparent canvas_3d into a standalone QDialog and show it."""

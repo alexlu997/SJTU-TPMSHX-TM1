@@ -14,9 +14,9 @@ def _phase_indices(window, count):
     return list(range(count)) if phase is None else [min(phase, count - 1)]
 
 
-def _style_workbench_axes(ax, cb, theme, title, subtitle):
+def _style_workbench_axes(ax, cb, theme, title, subtitle, *, show_xlabel=True):
     from .matplotlib_canvas import style_field_axes
-    style_field_axes(ax, cb, theme, title, subtitle)
+    style_field_axes(ax, cb, theme, title, subtitle, show_xlabel=show_xlabel)
     ax.tick_params(labelsize=11)
     ax.xaxis.label.set_fontsize(11)
     ax.yaxis.label.set_fontsize(11)
@@ -129,11 +129,14 @@ def plot_temperature_3panel(window, r, _t, zones=None):
 
     specs = [RESULT_FIELD_SPECS[key] for key in ('Ta', 'Tb', 'Ts')]
     plot_items = [
-        (Ta, specs[0], "Fluid A"),
-        (Tb, specs[1], "Fluid B"),
-        (Ts, specs[2], "Solid"),
+        (Ta, specs[0], "流体 A"),
+        (Tb, specs[1], "流体 B"),
+        (Ts, specs[2], "固体"),
     ]
-    for ax, index in zip(axes, selected):
+    shared_bar = bool(_sync and len(selected) > 1)
+    last_cf = None
+    last_lo, last_hi = limits[selected[0]]
+    for pos_i, (ax, index) in enumerate(zip(axes, selected)):
         field, spec, subtitle = plot_items[index]
         ax.set_facecolor(_t['ax_bg'])
         lo, hi = limits[index]
@@ -141,12 +144,28 @@ def plot_temperature_3panel(window, r, _t, zones=None):
         _Xp, _Yp, _Fp = pad_field_to_edges(x, y, field, L * 1000.0, H * 1000.0)
         cf = ax.contourf(_Xp, _Yp, _Fp, levels=np.linspace(lo, hi, 129),
                          cmap=resolve_cmap(spec.key), vmin=lo, vmax=hi)
+        last_cf, last_lo, last_hi = cf, lo, hi
         ax.set_xlim(0, L * 1000.0); ax.set_ylim(0, H * 1000.0)
-        cb = window.canvas_temp.fig.colorbar(cf, ax=ax, shrink=0.9,
-                                              aspect=25, ticks=np.linspace(lo, hi, 5),
-                                              format=ScalarFormatter(useOffset=False))
-        _style_workbench_axes(ax, cb, _t, f"{spec.symbol_tex}  [{unit}]", subtitle)
+        cb = None
+        if not shared_bar:
+            cb = window.canvas_temp.fig.colorbar(
+                cf, ax=ax, shrink=0.9, aspect=25, ticks=np.linspace(lo, hi, 5),
+                format=ScalarFormatter(useOffset=False),
+            )
+        _style_workbench_axes(
+            ax, cb, _t, f"{spec.symbol_tex}  [{unit}]", subtitle,
+            show_xlabel=(pos_i == len(selected) - 1),
+        )
         _draw_zone_overlays(ax, zones, _t)
+
+    if shared_bar and last_cf is not None:
+        from sjtu_tpmshx.applications.gui.ui.matplotlib_canvas import style_colorbar
+        cb = window.canvas_temp.fig.colorbar(
+            last_cf, ax=list(axes), shrink=0.92, aspect=30,
+            ticks=np.linspace(last_lo, last_hi, 5),
+            format=ScalarFormatter(useOffset=False),
+        )
+        style_colorbar(cb, _t)
 
     if not window.canvas_temp.fig.get_constrained_layout():
         window.canvas_temp.fig.subplots_adjust(left=0.11, right=0.96,
@@ -225,7 +244,7 @@ def finalize_plots(window, field="temp"):
                                     format=ScalarFormatter(useOffset=False))
             tag = spec.phase
             _style_workbench_axes(ax, cb, _t, f'{spec.symbol_tex} abs [{spec.display_unit}]',
-                                  'A/B shared' if shared else f'Fluid {tag} full range')
+                                  'A/B 共用色标' if shared else f'流体 {tag} 独立色标')
             if not canvas.fig.get_constrained_layout():
                 canvas.fig.subplots_adjust(left=.11, right=.96, top=.89, bottom=.14)
             canvas.draw()
@@ -251,10 +270,10 @@ def finalize_plots(window, field="temp"):
         UmagA, UmagB = r['vmag_A'], r['vmag_B']
         limits = field_color_limits([UmagA, UmagB])
         velocity_items = [
-            (UmagA, spec_a, "Fluid A"),
-            (UmagB, spec_b, "Fluid B"),
+            (UmagA, spec_a, "流体 A"),
+            (UmagB, spec_b, "流体 B"),
         ]
-        for ax, index in zip(axes_v, selected):
+        for pos_i, (ax, index) in enumerate(zip(axes_v, selected)):
             values, spec, subtitle = velocity_items[index]
             ax.set_facecolor(_t['ax_bg'])
             from sjtu_tpmshx.applications.gui.ui.matplotlib_canvas import pad_field_to_edges
@@ -266,7 +285,8 @@ def finalize_plots(window, field="temp"):
             cb = window.canvas_vel.fig.colorbar(cf, ax=ax, shrink=0.9,
                                                  aspect=25, format=ScalarFormatter(useOffset=False))
             _style_workbench_axes(ax, cb, _t, f"{spec.symbol_tex}  [{spec.display_unit}]",
-                                  subtitle + ' full range')
+                                  f"{subtitle} 独立色标",
+                                  show_xlabel=(pos_i == len(selected) - 1))
             ax.grid(True, alpha=0.15, linewidth=0.5, color=_t['ax_text'])
             _draw_zone_overlays(ax, zones, _t)
         if not window.canvas_vel.fig.get_constrained_layout():

@@ -89,7 +89,7 @@ def _open_run_info_popover(window) -> None:
         pop.log_requested.connect(window.dialogs.show_solve_log)
         pop.diagnostics_requested.connect(window.results.show_diag_dialog)
         pop.open_folder_requested.connect(
-            lambda: window.dialogs.open_output_folder(scope="single")
+            lambda: window.dialogs.open_output_folder(scope="accepted_result")
         )
         window._run_info_popover = pop
     else:
@@ -244,6 +244,11 @@ def build_ui(window):
     window.btn_compute = btn_run
     h_lay.addWidget(btn_run)
 
+    window.btn_export.setFixedHeight(30)
+    window.btn_export.setStyleSheet(t.style("BTN_SECONDARY"))
+    window.btn_export.hide()
+    h_lay.addWidget(window.btn_export)
+
     btn_drawer = QPushButton("检查器")
     btn_drawer.setCheckable(True)
     btn_drawer.setChecked(True)
@@ -362,11 +367,14 @@ def build_ui(window):
         if not window.quick_design.is_idle():
             page_meta["qd"] = ("run", "筛选中")
         else:
-            qd_designs = getattr(window.quick_design, "designs", None) or getattr(
-                window.quick_design, "_designs", None
-            )
-            if isinstance(qd_designs, (list, tuple)) and qd_designs:
-                page_meta["qd"] = ("ok", f"{len(qd_designs)} 方案")
+            qd_res = getattr(window.quick_design, "last_result", None)
+            if isinstance(qd_res, dict):
+                feasible = qd_res.get("feasible") or ()
+                all_cands = qd_res.get("all") or ()
+                if feasible:
+                    page_meta["qd"] = ("ok", f"{len(feasible)} 可行")
+                elif all_cands:
+                    page_meta["qd"] = ("warn", "0 可行")
         expanded.set_page_meta(page_meta)
 
     window._refresh_workbench_navigation = refresh_navigation

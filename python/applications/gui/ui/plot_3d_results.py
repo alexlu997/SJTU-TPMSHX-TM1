@@ -297,19 +297,21 @@ def _plot_3d_temperature(canvas, Ta_slice, Tb_slice, Ts_slice, xc, yc, z_info,
                              field_color_limits(fields[:2], shared=True) + field_color_limits(fields[2:]))
     specs = [RESULT_FIELD_SPECS[key] for key in ('Ta', 'Tb', 'Ts')]
     datasets = [
-        (Ta_slice, specs[0], f'{specs[0].symbol_tex} [{unit}] — Fluid A'),
-        (Tb_slice, specs[1], f'{specs[1].symbol_tex} [{unit}] — Fluid B'),
-        (Ts_slice, specs[2], f'{specs[2].symbol_tex} [{unit}] — Solid'),
+        (Ta_slice, specs[0], f'{specs[0].symbol_tex} [{unit}]', '流体 A'),
+        (Tb_slice, specs[1], f'{specs[1].symbol_tex} [{unit}]', '流体 B'),
+        (Ts_slice, specs[2], f'{specs[2].symbol_tex} [{unit}]', '固体'),
     ]
     for ax, index in zip(axes, indices):
-        field, spec, title = datasets[index]
+        field, spec, left_title, right_title = datasets[index]
         vmin, vmax = limits[index]
         cf = ax.contourf(X, Y, field, levels=np.linspace(vmin, vmax, 257),
                          cmap=resolve_cmap(spec.key), vmin=vmin, vmax=vmax)
         cb = canvas.fig.colorbar(cf, ax=ax, shrink=0.85, aspect=18, ticks=np.linspace(vmin, vmax, 5),
                                 format=ScalarFormatter(useOffset=False))
         style_colorbar(cb, _T)
-        _style_axis(ax, title=title)
+        _style_axis(ax, title='')
+        ax.set_title(left_title, loc='left', fontsize=12, fontweight='bold', color=_T['ax_text'])
+        ax.set_title(right_title, loc='right', fontsize=9.5, color=_T['mpl_subtitle'])
         # Equal aspect preserves geometric proportion (e.g. Shanghai 182×42 mm
         # is not square; default 'auto' stretches it to fill the axis box and
         # makes the contour shapes disagree with the 3D volume rendering).
@@ -317,9 +319,6 @@ def _plot_3d_temperature(canvas, Ta_slice, Tb_slice, Ts_slice, xc, yc, z_info,
             ax.set_aspect('equal')
         except Exception:
             pass
-    if phase is None:
-        canvas.fig.suptitle(f'Temperature — 3D {z_info}', fontsize=12,
-                           fontweight='bold', color=_T['ax_text'], y=0.995)
     if not canvas.fig.get_constrained_layout():
         canvas.fig.subplots_adjust(left=0.11, right=0.97, top=0.86, bottom=0.14,
                                     hspace=0.45)
@@ -346,9 +345,12 @@ def _plot_3d_pressure(canvas, P_slice_A_kPa, P_slice_B_kPa, xc, yc, dP_A, dP_B, 
                          cmap=resolve_cmap(spec.key), vmin=lo, vmax=hi)
         cb = canvas.fig.colorbar(cf, ax=ax, shrink=.9, aspect=25)
         style_colorbar(cb, theme)
-        scale = 'A/B shared' if shared else 'Full range'
-        _style_axis(ax, title=f'{spec.symbol_tex} abs [{spec.display_unit}] — Fluid {spec.phase} · {scale}',
-                    title_size=11)
+        scale = 'A/B 共用色标' if shared else '独立色标'
+        _style_axis(ax, title='', title_size=11)
+        ax.set_title(f'{spec.symbol_tex} abs [{spec.display_unit}]', loc='left',
+                     fontsize=11, fontweight='bold', color=theme['ax_text'])
+        ax.set_title(f'流体 {spec.phase} · {scale}', loc='right',
+                     fontsize=9, color=theme['mpl_subtitle'])
         ax.set_aspect('equal')
     if not canvas.fig.get_constrained_layout():
         canvas.fig.subplots_adjust(left=.11, right=.96, top=.86, bottom=.14, wspace=.25)
@@ -375,8 +377,11 @@ def _plot_3d_velocity_slice(canvas, vmag_slice_A, vmag_slice_B, xc, yc, z_info,
                          cmap=resolve_cmap(spec.key), vmin=lo, vmax=hi)
         cb = canvas.fig.colorbar(cf, ax=ax, shrink=.9, aspect=25)
         style_colorbar(cb, theme)
-        _style_axis(ax, title=f'{spec.symbol_tex} [{spec.display_unit}] — Fluid {spec.phase} · Full range',
-                    title_size=11)
+        _style_axis(ax, title='', title_size=11)
+        ax.set_title(f'{spec.symbol_tex} [{spec.display_unit}]', loc='left',
+                     fontsize=11, fontweight='bold', color=theme['ax_text'])
+        ax.set_title(f'流体 {spec.phase} · 独立色标', loc='right',
+                     fontsize=9, color=theme['mpl_subtitle'])
         ax.set_aspect('equal')
     if not canvas.fig.get_constrained_layout():
         canvas.fig.subplots_adjust(left=.11, right=.96, top=.86, bottom=.14, wspace=.25)

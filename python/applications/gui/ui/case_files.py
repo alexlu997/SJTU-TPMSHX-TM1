@@ -785,15 +785,12 @@ class CaseFiles:
             _width = _ui.get('parameter_width', 376)
             if isinstance(_width, (int, float)):
                 window._param_width = max(320, min(520, int(_width)))
-            window.appearance.set_drawer_open(not bool(_ui.get('left_collapsed', False)))
-            _page = _ui.get('parameter_page', 0)
-            if _page in (0, 1, 2):
-                window._select_param_page(_page)
             window.btn_result_summary.setChecked(bool(_ui.get('result_summary_visible', True)))
             _tab = _ui.get('active_tab')
             if _tab in ('layout', 'result', 'pareto') and \
                     _tab != window.workbench.active_tab:
                 window.workbench.switch_tab(_tab)
+            window.appearance.sync_drawer_visibility()
         except Exception:
             pass
 
