@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from tests.python import zone_statistics_reference as reference
-from tests.python.test_native_result_balance import assert_observation, assert_values, observe
+from tests.python.native_adapters.test_native_result_balance import assert_observation, assert_values, observe
 from sjtu_tpmshx.cpp_interface import _native_result as core
 from sjtu_tpmshx.cpp_interface import _native_result_balance as native
 from sjtu_tpmshx.physical_models.zone_config import compute_zone_statistics

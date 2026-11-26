@@ -1,5 +1,5 @@
 """Preparation library selection remains explicit and lazy."""
-from tests.python.test_native_result_loader import LibraryStub
+from tests.python.native_adapters.test_native_result_loader import LibraryStub
 
 import pytest
 

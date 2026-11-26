@@ -393,7 +393,7 @@ jobs:
           TPMSHX_GEOMETRY_LIBRARY="$PWD/$library/libtpmshx_geometry_shared.dylib" \
           TPMSHX_PREPARATION_LIBRARY="$PWD/$library/libtpmshx_preparation_shared.dylib" \
           TPMSHX_RESULT_LIBRARY="$PWD/$library/libtpmshx_result_shared.dylib" \
-          "$bo_python" -m pytest tests/python/test_multi_condition_optimizer.py \
+          "$bo_python" -m pytest tests/python/optimization_tm1/test_multi_condition_optimizer.py \
             tests/python/test_mass_design.py -q -ra \
             -p tests.python.ci_shard --ci-manifest=.cache/ci/bo/bo-manifest \
             --timeout=600 --timeout-method=thread \
@@ -628,7 +628,7 @@ jobs:
       - name: Run optimizer and real acquisition tests
         shell: bash
         run: >-
-          "$CI_PYTHON" -m pytest tests/python/test_multi_condition_optimizer.py
+          "$CI_PYTHON" -m pytest tests/python/optimization_tm1/test_multi_condition_optimizer.py
           tests/python/test_mass_design.py -q -ra
           -p tests.python.ci_shard --ci-manifest=.cache/ci/bo-manifest
           --timeout=600 --timeout-method=thread

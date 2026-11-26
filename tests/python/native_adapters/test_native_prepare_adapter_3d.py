@@ -17,7 +17,7 @@ from sjtu_tpmshx.preprocess import api
 from sjtu_tpmshx.solvers.full_3d import validate_saved_case
 from tests.python import native_preparation_abi, property_reference as prop_ref
 from tests.python.native_preparation_abi import _configuration_continuous_3d, _configuration_spatial_3d
-from tests.python.test_native_prepare_adapter import _capture, _same
+from tests.python.native_adapters.test_native_prepare_adapter import _capture, _same
 
 
 @pytest.fixture(autouse=True)

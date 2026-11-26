@@ -226,7 +226,7 @@ def test_resume_rejects_destination_inside_the_source(tmp_path, monkeypatch, ali
 
 
 def test_search_with_real_batches_resumes_moved_archive_like_uninterrupted_search(tmp_path, monkeypatch):
-    from tests.python.test_multi_condition_batch import _conditions as batch_conditions, _native, _patch_solve
+    from tests.python.optimization_tm1.test_multi_condition_batch import _conditions as batch_conditions, _native, _patch_solve
 
     solved = []
 

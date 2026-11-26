@@ -14,8 +14,8 @@ from sjtu_tpmshx.physical_models.tpms_calc import compute
 from sjtu_tpmshx.physical_models.tpms_geometry import compute_geometry
 from sjtu_tpmshx.preprocess import api
 from tests.python import native_preparation_abi
-from tests.python.test_native_prepare_adapter import _capture, _same
-from tests.python.test_native_prepare_spatial_adapter import configuration
+from tests.python.native_adapters.test_native_prepare_adapter import _capture, _same
+from tests.python.native_adapters.test_native_prepare_spatial_adapter import configuration
 
 
 @pytest.fixture(autouse=True)
