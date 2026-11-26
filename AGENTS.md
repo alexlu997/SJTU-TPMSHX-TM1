@@ -74,9 +74,10 @@ Codex, Claude, and Antigravity use these rules. The [collaboration guide](docs/c
   [retirement workflow](docs/collaboration.md#complete-code-retirement).
 - Resolve conflicts between code and text against approved requirements, public contracts, and validation
   evidence. Do not change documentation to accept an implementation defect.
-- Run the existing tests for the changed files. Add only the tests that the change needs. Add a minimal test
-  for meaningful behavior or a demonstrated failure that no check covers. Prefer a few mapping checks. Do not add
-  test piles, defensive tests, or hash-, digest-, or checksum-based tests ([test scope](docs/collaboration.md#test-scope)).
+- Run the existing tests for the changed files. Add only the tests that the change needs. If no existing check
+  covers the meaningful behavior change or the demonstrated failure, add a minimal test. Prefer a few mapping
+  checks. Do not add tests that repeat an existing check, defensive tests, or hash-, digest-, or checksum-based
+  tests ([test scope](docs/collaboration.md#test-scope)).
 - Run broader numerical validation only when solver, closure, or pipeline behavior changes. Complete necessary
   long calculations. Record the tested commit, results, and open acceptance conditions.
 
@@ -88,9 +89,10 @@ Codex, Claude, and Antigravity use these rules. The [collaboration guide](docs/c
   units, file formats, public interfaces and the C ABI, platform behavior, or project rules. Other work uses
   the independent reviewer with the shorter queue. Architecture plans and agent-rule changes need two reviewers
   of different models.
-- If blocking findings stay open after round three, start round four without user approval. Limit it to the fix
-  increment. If findings stay open after round four, report them to the user with evidence and options. Round
-  five or a later round needs user approval for a named finding and commit range.
+- If blocking findings stay open after round three, start round four without user approval. In round four, review
+  only the changes that fix those findings. If blocking findings stay open after round four, report them to the
+  user with evidence and options. Round five or a later round needs user approval for a named finding and commit
+  range.
 - A documents-only PR for spelling, links, or formatting needs no review under the delivery workflow conditions.
 - Do not deliver if the review or the necessary evidence is incomplete, or a blocking finding is open. Follow
   the [delivery workflow](docs/collaboration.md#synchronize-and-review). Merge one PR at a time. Do not force-push.

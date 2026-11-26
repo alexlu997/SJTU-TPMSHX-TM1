@@ -104,7 +104,7 @@ Light jobs can run in parallel.
 2. Before a heavy job, ask the coordinator for the slot. Start the job only after the approval.
 3. When you get the approval, set `Heavy job: approved` in your status file.
 4. When the job starts, set `Heavy job: yes`.
-5. When the job completes or fails, set `Heavy job: no` after the computation and all its subprocesses have stopped.
+5. When the job is complete or fails, set `Heavy job: no` after the computation and all its subprocesses have stopped.
    Tell the coordinator the result: completed or failed.
 6. If you withdraw the job before it starts, set `Heavy job: no`. The slot is free at once. Tell the coordinator.
 7. If you cancel a running job, keep `Heavy job: yes` until the computation and all its subprocesses have stopped.
@@ -259,7 +259,7 @@ Apply these rules when you add or change regression tests:
    A change needs a test for meaningful behavior that it adds or changes, or for a demonstrated failure that it fixes.
    Use an existing check when it covers that behavior or failure. If no check covers it, add a minimal test.
    Prefer a few mapping checks. Keep the combinations that separate independent failure conditions.
-   Do not add test piles.
+   Do not add tests that repeat an existing check.
    Update the existing tests that the change affects.
 2. Do not repeat `dtype` or option combinations after a validated conversion boundary.
    Test conversion at that boundary.
@@ -269,7 +269,7 @@ Apply these rules when you add or change regression tests:
    Do not copy public adapters into `ctypes` mirrors.
 4. Do not test offscreen pixel coordinates, fixed margin values, or internal mock call counts.
    Do not add `ModuleNotFoundError` tests for deleted symbols.
-   Do not add defensive tests, for example tests of states that the code cannot reach.
+   Do not add defensive tests. For example, do not test a state that the program under test cannot enter.
    Test state changes, physical requirements, resource cleanup, and documented contracts.
 
 ## Synchronize and review
@@ -379,10 +379,10 @@ Select the reviewer as follows:
    When two reviewers review the same commit range, their reports count as one round.
    Each reviewer records its own conclusion.
    If blocking findings stay open after round three, start round four without user approval.
-   Limit round four to the fix increment for those findings.
-   If findings stay open after round four, report them to the user.
+   In round four, review only the changes that fix those findings.
+   If blocking findings stay open after round four, report them to the user.
    Give the open findings, the commit range, the evidence, the options, and the smallest correction.
-   Round five or a later round needs user approval for that finding and commit range.
+   Round five or a later round needs user approval for a named finding and commit range.
 7. Update coverage for later commits, `main` synchronization, and conflict resolution.
    A clean synchronization with an identical task patch and no change to related behavior or contracts
    needs only a diff comparison. It uses no round.
