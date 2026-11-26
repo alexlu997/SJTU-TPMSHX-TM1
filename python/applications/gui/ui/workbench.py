@@ -42,6 +42,7 @@ class Workbench:
         if self.import_worker is None:
             self.import_worker = ViewImports(self)
             self.import_worker.prepared.connect(callback)
+            self.import_worker.settled.connect(lambda: refresh_resource_availability(self.window))
             refresh_resource_availability(self.window)
             self.import_worker.start()
         else:

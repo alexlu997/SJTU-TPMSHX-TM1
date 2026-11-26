@@ -8,6 +8,7 @@ from PySide6.QtCore import QThread, QTimer, Qt, Signal, Slot
 
 class ViewImports(QThread):
     prepared = Signal()
+    settled = Signal()
 
     def __init__(self, workbench):
         super().__init__(workbench.window)
@@ -23,7 +24,6 @@ class ViewImports(QThread):
 
     @Slot()
     def _deliver(self):
-        from .compute_resources import refresh_resource_availability
         if not self.wait(0):
             QTimer.singleShot(10, self, self._deliver)
             return
@@ -35,7 +35,7 @@ class ViewImports(QThread):
             self.prepared.emit()
         finally:
             workbench.import_worker = None
-            refresh_resource_availability(workbench.window)
+            self.settled.emit()
             self.deleteLater()
 
 
