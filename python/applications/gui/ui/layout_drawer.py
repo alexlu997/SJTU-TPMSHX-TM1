@@ -214,12 +214,12 @@ def draw_layout_rect(window, ax, L, H, Lmm, Hmm):
         if wall == "left":
             ax.add_patch(Rectangle((-1.5, lo), 1.2, w, fc=color, ec="none", alpha=0.85))
             ax.annotate(
-                tag, xy=(-3, ctr), fontsize=8, color=color, ha="right", va="center", fontweight="bold"
+                tag, xy=(3.5, ctr), fontsize=8, color=color, ha="left", va="center", fontweight="bold"
             )
         elif wall == "right":
             ax.add_patch(Rectangle((Lmm + 0.3, lo), 1.2, w, fc=color, ec="none", alpha=0.85))
             ax.annotate(
-                tag, xy=(Lmm + 3, ctr), fontsize=8, color=color, ha="left", va="center", fontweight="bold"
+                tag, xy=(Lmm - 3.5, ctr), fontsize=8, color=color, ha="right", va="center", fontweight="bold"
             )
         elif wall == "bottom":
             ax.add_patch(Rectangle((lo, -1.5), w, 1.2, fc=color, ec="none", alpha=0.85))

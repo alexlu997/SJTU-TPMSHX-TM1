@@ -146,8 +146,8 @@ class _ActionDelegate(QStyledItemDelegate):
 
     def sizeHint(self, option, index) -> QSize:
         if index.data(_ROLE_IS_HEADER):
-            return QSize(option.rect.width(), 24)
-        return QSize(option.rect.width(), 34)
+            return QSize(0, 24)
+        return QSize(0, 34)
 
     def paint(self, painter: QPainter, option, index) -> None:
         t = get_theme()
@@ -284,12 +284,11 @@ class CommandPalette(QDialog):
         self._list = QListView()
         self._list.setEditTriggers(QListView.EditTrigger.NoEditTriggers)
         self._list.setSelectionMode(QListView.SelectionMode.SingleSelection)
+        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._list.setMouseTracking(True)
         self._list.setItemDelegate(_ActionDelegate(self._list))
-        self._list.setStyleSheet(
-            "QListView { background: transparent; border: none; outline: none; }"
-        )
         self._list.setMinimumHeight(290)
+        self._apply_theme_styles(t)
         lay.addWidget(self._list, 1)
 
         footer = QHBoxLayout()
@@ -313,6 +312,22 @@ class CommandPalette(QDialog):
         self._input.textChanged.connect(self._on_query_changed)
         self._list.clicked.connect(lambda _i: self._accept_current())
 
+    def _apply_theme_styles(self, t: dict) -> None:
+        from sjtu_tpmshx.applications.gui.ui.theme import _build_styles
+
+        scrollbar = _build_styles()["SCROLLBAR"]
+        self._input.setStyleSheet(
+            f"QLineEdit {{ background: {t['sunken']}; color: {t['fg']}; "
+            f"border: 1px solid {t['border']}; border-radius: {RADIUS_INPUT}px; "
+            f"padding: 9px 12px; font-size: 11pt; font-family: {t['sans_family']}; }}"
+            f"QLineEdit:focus {{ border: 1px solid {t['accent']}; }}"
+        )
+        self._list.setStyleSheet(
+            "QListView { background: transparent; border: none; outline: none; }"
+            + scrollbar
+        )
+        self._apply_placeholder_palette(t)
+
     def _apply_placeholder_palette(self, t: dict) -> None:
         self._input.ensurePolished()
         pal = self._input.palette()
@@ -323,7 +338,7 @@ class CommandPalette(QDialog):
         self._input.setPalette(pal)
 
     def open_palette(self) -> None:
-        self._apply_placeholder_palette(get_theme())
+        self._apply_theme_styles(get_theme())
         self._all_actions = build_actions(self._window)
         self._input.blockSignals(True)
         self._input.clear()
@@ -436,10 +451,10 @@ def build_actions(w) -> list[Action]:
         keywords=("resume", "checkpoint", "single", "继续"),
     )
     add(
-        "重置参数为默认预设",
+        "重置为默认算例",
         "计算",
         w._reset_defaults,
-        keywords=("reset", "default", "clear"),
+        keywords=("reset", "default", "clear", "预设", "算例"),
         shortcut="Ctrl+Shift+R",
     )
     add(

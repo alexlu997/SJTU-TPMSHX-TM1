@@ -291,7 +291,12 @@ def finalize_plots(window, field="temp"):
         _tw = _gt().get('warn', '#B45309')
         _cv = getattr(window, f"canvas_{field}")
         try:
-            _cv.fig.text(0.5, 0.005, _wm_text,
+            engine = _cv.fig.get_layout_engine()
+            if engine is not None and hasattr(engine, "set"):
+                engine.set(rect=(0.0, 0.05, 1.0, 1.0))
+            elif not _cv.fig.get_constrained_layout():
+                _cv.fig.subplots_adjust(bottom=0.18)
+            _cv.fig.text(0.5, 0.008, _wm_text,
                          color=_tw, fontsize=8, ha='center', va='bottom',
                          fontweight='bold', alpha=0.85)
             _cv.draw_idle()

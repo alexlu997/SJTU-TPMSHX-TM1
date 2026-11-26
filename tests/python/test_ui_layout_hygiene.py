@@ -22,6 +22,7 @@ from PySide6.QtWidgets import QApplication, QBoxLayout, QScrollArea  # noqa: E40
 @pytest.fixture(scope="module")
 def win(tmp_path_factory):
     import sjtu_tpmshx.applications.gui.controllers.session_manager as sm_mod
+    import sjtu_tpmshx.applications.gui.controllers.user_storage as storage_mod
 
     session_dir = tmp_path_factory.mktemp("ui-layout-session")
     original_init = sm_mod.SessionManager.__init__
@@ -35,6 +36,7 @@ def win(tmp_path_factory):
         )
 
     patch.setattr(sm_mod.SessionManager, '__init__', _init)
+    patch.setattr(storage_mod, '_appearance_dir', lambda: session_dir)
     app = QApplication.instance() or QApplication([])
     from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
     w = Main_Menu()

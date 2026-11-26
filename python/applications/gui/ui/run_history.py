@@ -16,9 +16,28 @@ from sjtu_tpmshx.applications.gui.ui.fmt import duration as fmt_duration
 from sjtu_tpmshx.applications.gui.ui.fmt import preset_display
 from sjtu_tpmshx.applications.gui.ui.nav_rail import RecentRunItem
 from sjtu_tpmshx.applications.gui.ui.run_info_popover import RunInfoData, RunInfoRow
-from sjtu_tpmshx.applications.gui.ui.theme import _btn_styles, get_theme
+from sjtu_tpmshx.applications.gui.ui.theme import (
+    RADIUS_CARD,
+    RADIUS_INPUT,
+    _btn_styles,
+    get_theme,
+)
 from sjtu_tpmshx.applications.gui.ui.ui_constants import TOAST_MS_SHORT
 from sjtu_tpmshx.run_control.provenance import SOURCE_ROOT, repository_revision
+
+
+def _menu_stylesheet() -> str:
+    """Return Style P2 QMenu QSS for the active light or dark theme."""
+    t = get_theme()
+    return (
+        f"QMenu {{ background: {t['popover']}; color: {t['fg']}; "
+        f"border: 1px solid {t['border_strong']}; border-radius: {RADIUS_CARD}px; "
+        f"padding: 6px; font-size: 12px; }}"
+        f"QMenu::item {{ padding: 6px 14px; border-radius: {RADIUS_INPUT}px; }}"
+        f"QMenu::item:selected {{ background: {t['accent_soft']}; color: {t['accent_fg']}; }}"
+        f"QMenu::item:disabled {{ color: {t['tert']}; font-size: 11px; padding: 4px 14px; }}"
+        f"QMenu::separator {{ height: 1px; background: {t['border']}; margin: 4px 8px; }}"
+    )
 
 
 def _history_status(entry) -> tuple[str, str]:
@@ -139,6 +158,7 @@ class RunHistory:
             self._load_menu = menu
         else:
             menu.clear()
+        menu.setStyleSheet(_menu_stylesheet())
         menu.setToolTipsVisible(True)
 
         # File actions
@@ -219,6 +239,7 @@ class RunHistory:
             self._save_menu = menu
         else:
             menu.clear()
+        menu.setStyleSheet(_menu_stylesheet())
 
         act_cfg = menu.addAction("保存配置文件…")
         act_cfg.triggered.connect(window.case_files.save_config)
@@ -277,8 +298,12 @@ class RunHistory:
         if rail is not None:
             rail.set_open_action("open")
         try:
+            menu.adjustSize()
             if anchor is not None:
-                menu.exec(anchor.mapToGlobal(QPoint(anchor.width() + 8, 0)))
+                origin = anchor.mapToGlobal(QPoint(anchor.width() + 8, 0))
+                win_bottom = window.mapToGlobal(QPoint(0, window.height() - 12)).y()
+                y = min(origin.y(), max(window.mapToGlobal(QPoint(0, 56)).y(), win_bottom - menu.height()))
+                menu.exec(QPoint(origin.x(), y))
             else:
                 menu.exec()
         finally:
@@ -297,8 +322,12 @@ class RunHistory:
         if rail is not None:
             rail.set_open_action("save")
         try:
+            menu.adjustSize()
             if anchor is not None:
-                menu.exec(anchor.mapToGlobal(QPoint(anchor.width() + 8, 0)))
+                origin = anchor.mapToGlobal(QPoint(anchor.width() + 8, 0))
+                win_bottom = window.mapToGlobal(QPoint(0, window.height() - 12)).y()
+                y = min(origin.y(), max(window.mapToGlobal(QPoint(0, 56)).y(), win_bottom - menu.height()))
+                menu.exec(QPoint(origin.x(), y))
             else:
                 menu.exec()
         finally:
