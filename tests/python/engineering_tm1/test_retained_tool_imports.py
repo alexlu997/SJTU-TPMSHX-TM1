@@ -7,7 +7,7 @@ import sys
 import pytest
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 SCRIPTS = [ROOT / 'python/development/validation/cases/validate_sco2_d76.py']
 
 

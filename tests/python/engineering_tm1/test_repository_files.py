@@ -11,7 +11,7 @@ import pytest
 import yaml
 
 
-_ROOT = Path(__file__).resolve().parents[2]
+_ROOT = Path(__file__).resolve().parents[3]
 
 
 def test_worktree_include_copies_only_the_root_interpreter_pointer(tmp_path):

@@ -61,7 +61,7 @@ def test_rename_from_code_to_docs_still_requires_full_ci(tmp_path, event):
     import subprocess
     import sys
 
-    script = Path(__file__).resolve().parents[2] / 'engineering' / 'scripts' / 'ci_scope.py'
+    script = Path(__file__).resolve().parents[3] / 'engineering' / 'scripts' / 'ci_scope.py'
     def git(*args):
         return subprocess.check_output(['git', '-c', 'user.name=CI Test',
                                        '-c', 'user.email=ci@example.invalid',

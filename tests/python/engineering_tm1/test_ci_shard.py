@@ -15,14 +15,14 @@ from engineering.scripts import check_ci_shards
 from engineering.scripts.check_ci_shards import check, check_report
 from tests.python import ci_shard
 
-_ROOT = Path(__file__).resolve().parents[2]
+_ROOT = Path(__file__).resolve().parents[3]
 _CHECKER = _ROOT / 'engineering' / 'scripts' / 'check_ci_shards.py'
 
 
 @pytest.fixture(scope='module')
 def suite(tmp_path_factory):
     root = tmp_path_factory.mktemp('ci-shard-suite')
-    shutil.copyfile(Path(__file__).with_name('ci_shard.py'), root / 'ci_shard.py')
+    shutil.copyfile(ci_shard.__file__, root / 'ci_shard.py')
     (root / '_ci_shard0.txt').write_text('test_packed.py\n', encoding='utf-8')
     (root / 'pyproject.toml').write_text(
         '[tool.pytest.ini_options]\naddopts = ["--strict-markers"]\nmarkers = ["heavy", "slow"]\n', encoding='utf-8')

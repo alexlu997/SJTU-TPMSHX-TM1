@@ -16,7 +16,7 @@ def test_macos_source_launcher_without_retired_cache(tmp_path, monkeypatch):
     project = tmp_path / 'source folder'
     project.mkdir()
     launcher = project / 'launch-macos.command'
-    shutil.copy2(Path(__file__).resolve().parents[2] / launcher.name, launcher)
+    shutil.copy2(Path(__file__).resolve().parents[3] / launcher.name, launcher)
     interpreter = project / 'configured python'
     interpreter.write_text('#!/bin/sh\nprintf "%s\\n" "$PWD" "$MPLCONFIGDIR" "$XDG_CACHE_HOME" "$@"\n')
     interpreter.chmod(0o755)
@@ -77,7 +77,7 @@ def test_desktop_build_lock_covers_declared_builder():
     from packaging.requirements import Requirement
     from packaging.utils import canonicalize_name
     from sjtu_tpmshx.development.runs.tools.check_locked_environment import read_lock
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[3]
     lock = read_lock(root / 'engineering/requirements/desktop.txt')
     project = tomllib.loads((root / 'pyproject.toml').read_text(encoding='utf-8'))['project']
     for raw in project['optional-dependencies']['desktop-build']:
@@ -90,7 +90,7 @@ def test_bundle_resource_selection_excludes_user_state_and_jit_cache():
     """Check the declared collection boundary without installing PyInstaller."""
     import ast
     from pathlib import Path, PurePath
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[3]
     tree = ast.parse((root / 'engineering' / 'packaging' / 'desktop.spec').read_text(encoding='utf-8'))
     calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
              and isinstance(node.func, ast.Name) and node.func.id == 'collect_data_files']
@@ -117,7 +117,7 @@ def desktop_spec_prefix(monkeypatch):
     from pathlib import Path
     from types import ModuleType
 
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[3]
     spec = root / 'engineering/packaging/desktop.spec'
     tree = ast.parse(spec.read_text(encoding='utf-8'))
     code = compile(tree, str(spec), 'exec')
