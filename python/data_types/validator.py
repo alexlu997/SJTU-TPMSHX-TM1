@@ -314,12 +314,21 @@ _UNIT_SPEED = {
 }
 
 
+_UNIT_MASS_FLOW = {
+    'kg/s': 1.0, 'g/s': 1e-3, 'kg/min': 1.0 / 60, 'g/min': 1e-3 / 60,
+    'kg/h': 1.0 / 3600, 'g/h': 1e-3 / 3600,
+}
+_UNIT_CONDUCTIVITY = {
+    'W/(mK)': 1.0, 'W/m/K': 1.0, 'W/mK': 1.0,
+    'kW/(mK)': 1e3, 'kW/m/K': 1e3, 'kW/mK': 1e3,
+}
+
+
 def parse_unit_value(value: float, unit_text: str,
                      family: str, target_unit: Optional[str] = None,
                      temp_unit: str = 'K') -> Optional[float]:
     """Convert ``value [unit_text]`` to ``target_unit`` for ``family``.
 
-    family ∈ {'length', 'pressure', 'speed', 'temp'}.
     Returns the converted scalar in ``target_unit``, or ``None`` if the
     unit token is unrecognised for the family.
 
@@ -343,6 +352,18 @@ def parse_unit_value(value: float, unit_text: str,
             return None
         si = value * _UNIT_SPEED[u]
         return si / _UNIT_SPEED.get((target_unit or 'm/s').lower(), 1.0)
+    if family in ('mass_flow', 'conductivity'):
+        if family == 'mass_flow':
+            factors = _UNIT_MASS_FLOW
+            target = (target_unit or 'kg/s').lower()
+        else:
+            # Preserve SI prefix case. Accept the unit on the form and its slash notation.
+            factors = _UNIT_CONDUCTIVITY
+            u = unit_text.strip().replace(' ', '').replace('·', '')
+            target = (target_unit or 'W/(m·K)').replace(' ', '').replace('·', '')
+        if u not in factors or target not in factors:
+            return None
+        return value * factors[u] / factors[target]
     if family == 'temp':
         want_K = (temp_unit == 'K')
         if u in ('k', 'kelvin'):

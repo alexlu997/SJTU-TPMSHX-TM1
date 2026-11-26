@@ -110,8 +110,11 @@ def test_gui_mass_mode_autofill_save_and_single_condition_keep_target(mass_windo
     window = mass_window
     initial = config_from_window(window, strict=True)
     target = prepare_inlet_mass_capacities(initial)['A'] * initial.fluid_A.u_mps
-    window.le_mass_flowA.setText(format(target, '.17g'))
     window.combo_inlet_modeA.setCurrentIndex(1)
+    window.le_mass_flowA.setText('6 g/min')
+    window.le_mass_flowA.editingFinished.emit()
+    assert config_from_window(window, strict=True).fluid_A.mass_flow_kg_s == pytest.approx(.0001)
+    window.le_mass_flowA.setText(format(target, '.17g'))
     window.le_uA.setText('obsolete')
     cfg = config_from_window(window, strict=True)
     assert cfg.fluid_A.mass_flow_kg_s == target and cfg.fluid_B.mass_flow_kg_s is None

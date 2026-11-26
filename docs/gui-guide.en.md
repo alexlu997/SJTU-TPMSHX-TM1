@@ -13,6 +13,9 @@
    porosity, and actual openings. Geometry edits keep the prescribed kg/s.
    The 2D interface keeps velocity inputs. Imported optimization conditions
    independently prescribe each condition's total flows.
+   Port coordinates accept length units on both transverse axes. For example, `21 mm` gives `0.021 m`.
+   An inlet flow accepts `g/s` or `kg/s`. Solid conductivity accepts `W/(m·K)`.
+   Press Enter to convert an input to the field unit.
 2. Select Start Compute at the rail bottom, or press Ctrl+R. The status card below the canvas shows elapsed time. Expand Details for actual solver iterations and notices. Its separate Cancel control stays available when the rail is collapsed.
 
 Cancellation waits for the current native computation step. 3D coarse-grid initialization also responds.
@@ -258,6 +261,9 @@ Empty A-side pressure uses 101325 Pa, matching the compute page. Invalid nonempt
 ## Import configurations and sessions
 
 There are three input families: CLI configurations such as `air_2d.json`/`air_3d.json`, GUI sessions/presets, and Quick Design `DesignCase`. Their fields and units differ. They are not interchangeable. See [tool examples](tools.en.md#公开模块扩展示例) for a minimal DesignCase and extensions.
+
+GUI format 1 saves the case without a solid-density input. Loading an older GUI case discards `le_rho_s` or its flat-file key `rho_s`.
+Quick Design and core-mass optimization use their own density inputs.
 
 When the GUI imports `line_edits` JSON without `config_format` wrapping, only supplied fields change. The same rule applies to previous flat parameter files. Omitted temperature scale, resistance mode, grid, model parameters, continuous field, and optimization conditions keep current values. An explicit K/°C change converts omitted temperatures from their current physical values. It does not merely relabel unchanged text. Formal complete configurations, preset libraries, and startup sessions keep their own restoration rules.
 
