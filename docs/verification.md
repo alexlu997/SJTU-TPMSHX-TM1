@@ -201,7 +201,7 @@ macOS 集成步骤同时将公开算例的两个结果及指标通过 `real-file
 
 ## 协作与合并
 
-Codex 与 Claude 共用 [AGENTS.md](../AGENTS.md) 中的项目规则。任务归属、独立工作树、
+Codex、Claude 和 Antigravity 共用 [AGENTS.md](../AGENTS.md) 中的项目规则。任务归属、独立工作树、
 环境选择、同步与交接使用[协作流程](collaboration.zh-CN.md)。
 
 公开契约的修改需要检查下游消费者：前处理的配置/单位/网格由求解侧复核；求解的

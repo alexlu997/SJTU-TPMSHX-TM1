@@ -88,8 +88,7 @@ def _build_result_sidebar(window, _t, t):
     btn_diag = QPushButton("诊断详情…")
     btn_diag.setFixedHeight(26)
     btn_diag.setStyleSheet(t.style('BTN_TERTIARY'))
-    btn_diag.clicked.connect(
-        lambda: getattr(window, '_show_diag_dialog', lambda: None)())
+    btn_diag.clicked.connect(window.results.show_diag_dialog)
     detail_row.addWidget(btn_diag)
     slay.addWidget(diagnostic)
 
@@ -115,7 +114,7 @@ def _build_result_sidebar(window, _t, t):
 def result_metric_texts(window):
     """Format the published result for the footer and run history."""
     from math import isfinite
-    d = window._result_summary()
+    d = window.results.summary()
     is_3d = d.get('mode') == '3d'
     def value(number, digits):
         return f"{number:.{digits}f}" if number is not None and isfinite(number) else '—'
@@ -142,7 +141,7 @@ def refresh_result_sidebar(window):
     labels['dpa'].setText(values['dP_A'])
     labels['dpb'].setText(values['dP_B'])
     labels['tout'].setText(f"{values['ToutA']} / {values['ToutB']}")
-    d = window._result_summary()
+    d = window.results.summary()
     _good = _t.get('accent_green', '#22C55E')
     _warn = _t.get('warn', '#FBBF24')
 
@@ -186,7 +185,7 @@ def update_result_sidebar_visibility(window):
     side = getattr(window, '_result_sidebar', None)
     if side is None:
         return
-    show = (getattr(window, '_active_tab', None) in ('temp', 'pres', 'vel', '3d')
+    show = (window.workbench.active_tab in ('temp', 'pres', 'vel', '3d')
             and window.cache.has_any_results())
     toggle = window.btn_result_summary
     toggle.setVisible(bool(show))

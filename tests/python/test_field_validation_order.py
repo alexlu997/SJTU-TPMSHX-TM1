@@ -87,16 +87,6 @@ class _MockStatusBar:
 class _MockWindow:
     """Minimal Main_Menu stand-in with just the handler dependencies."""
 
-    _FIELD_UNITS = {
-        'le_L': ('length', 'm'),
-        'le_Lcell': ('length', 'mm'),
-        'le_Nx': ('count', None),
-        'le_TinA': ('temp', None),
-    }
-    _POSITIVE_FIELDS = frozenset((
-        'le_L', 'le_Lcell', 'le_uA', 'le_TinA', 'le_Nx',
-    ))
-
     def __init__(self, temp_unit='K'):
         self._temp_unit = temp_unit
         self._undo_last = {}
@@ -107,14 +97,9 @@ class _MockWindow:
 
 
 def _bind_handler(win, le, attr):
-    """Bind ``Main_Menu._make_field_handler`` to a mock window /
-    line edit without importing ``Main_Menu`` (and therefore without
-    needing Qt)."""
-    import sjtu_tpmshx.applications.gui.ui.main_window as main_window
-    handler_fn = main_window.Main_Menu._make_field_handler
-    fam_target = win._FIELD_UNITS.get(attr)
-    is_positive = attr in win._POSITIVE_FIELDS
-    return handler_fn(win, le, attr, fam_target, is_positive)
+    from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
+    from sjtu_tpmshx.applications.gui.ui.window_config import LINE_EDITS
+    return Main_Menu._make_field_handler(win, le, LINE_EDITS[attr])
 
 
 # ── tests ───────────────────────────────────────────────────────────
@@ -136,14 +121,14 @@ def test_parse_then_validate_clears_inperror_on_5mm_length():
     assert any('Converted' in m for m in win._sb.messages)
 
 
-def test_parse_handles_TPMS_cell_already_mm():
-    """``le_Lcell`` is millimetre-native; "7 mm" stays "7" (after
-    formatting to %.4g) and the field passes positive validation."""
-    win = _MockWindow()
-    le = _MockLE("7 mm")
-    cb = _bind_handler(win, le, 'le_Lcell')
-    cb()
-    assert le.text() == "7"
+@pytest.mark.parametrize('field,text,stored', [
+    ('le_Lcell', '7 mm', '7'), ('le_pipeB_out_z_ctr', '21 mm', '0.021'),
+    ('le_ks', '16 W/(m·K)', '16'), ('le_ks', '0.016 kW/(m·K)', '16'),
+])
+def test_unit_input_commits_to_the_bound_editor(field, text, stored):
+    win, le = _MockWindow(), _MockLE(text)
+    _bind_handler(win, le, field)()
+    assert le.text() == stored
     assert le.property('inpError') == 'false'
 
 

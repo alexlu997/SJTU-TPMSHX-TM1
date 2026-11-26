@@ -8,10 +8,10 @@ The result workbench gives primary navigation, field/volume selection, a collaps
 ## Requirements
 
 ### Requirement: Workbench navigation and quick design
-The top bar MUST give Case Setup, Field Results, and Optimization workbench entries. It MUST also give a separate Quick Design entry. `python/applications/gui/ui/mixins/tab_view.py` resolves internal temperature, pressure, velocity, and 3D routes. These routes MUST NOT depend on hidden button objects. Field Results MUST become available when supported results exist.
+The top bar MUST give Case Setup, Field Results, and Optimization workbench entries. Quick Design MUST open as a page in the same window. Its job and results MUST persist during navigation. `python/applications/gui/ui/workbench.py` resolves internal temperature, pressure, velocity, and 3D routes. These routes MUST NOT depend on hidden button objects. Field Results MUST become available when supported results exist.
 
 #### Scenario: Field routing preserves result navigation
-- **WHEN** a field route such as `_switch_tab('temp')` runs after computation
+- **WHEN** a field route such as `Workbench.switch_tab('temp')` runs after computation
 - **THEN** Field Results becomes active and shows the specified field
 
 ### Requirement: Field and volume views

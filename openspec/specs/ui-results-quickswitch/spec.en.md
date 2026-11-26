@@ -15,7 +15,7 @@ The 2D toolbar MUST give Temperature, Velocity, and Pressure segmented buttons. 
 - **THEN** the canvas shows pressure, the button state changes, and the combo index follows
 
 #### Scenario: Reverse sync
-- **WHEN** code calls `_switch_tab('vel')`
+- **WHEN** code calls `Workbench.switch_tab('vel')`
 - **THEN** Velocity is active
 
 ### Requirement: Copy current figure to clipboard

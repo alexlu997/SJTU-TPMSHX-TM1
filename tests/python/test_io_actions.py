@@ -1,4 +1,4 @@
-"""IOActionsMixin locks (openspec maintainability-closeout, 2026-07-03).
+"""Desktop file action checks (openspec maintainability-closeout, 2026-07-03).
 
 save_config/load_config JSON round-trip was 0%-tested despite being the
 user's config persistence path — a broken key silently loses a field.
@@ -23,26 +23,26 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 def test_figure_export_records_current_source_and_version(tmp_path, monkeypatch, win):
     from PIL import Image
     from sjtu_tpmshx._version import __version__
-    from sjtu_tpmshx.applications.gui.ui.mixins import io_actions
+    from sjtu_tpmshx.applications.gui.ui import result_export
 
     path = tmp_path / 'figure.png'
     choices = iter([('温度', True), ('150 (screen)', True)])
-    monkeypatch.setattr(io_actions.QInputDialog, 'getItem', lambda *a, **kw: next(choices))
-    monkeypatch.setattr(io_actions.QFileDialog, 'getSaveFileName',
+    monkeypatch.setattr(result_export.QInputDialog, 'getItem', lambda *a, **kw: next(choices))
+    monkeypatch.setattr(result_export.QFileDialog, 'getSaveFileName',
                         lambda *a, **kw: (str(path), 'PNG (*.png)'))
     roots = []
     def revision(root):
         roots.append(root)
         return {'revision': 'example-revision'}
-    monkeypatch.setattr(io_actions, 'repository_revision', revision)
+    monkeypatch.setattr(result_export, 'repository_revision', revision)
     win.cache.replace_drawn_tabs({'temp'})
     monkeypatch.chdir(tmp_path)
-    win._export_figure()
+    win.result_export.export_figure()
     with Image.open(path) as figure:
         assert figure.info['Source'] == 'https://github.com/alexlu997/SJTU-TPMSHX-TM1'
         assert figure.info['Software'] == f'SJTU-TPMSHX v{__version__}'
         assert figure.info['Keywords'] == 'commit=example'
-    assert roots == [io_actions.SOURCE_ROOT]
+    assert roots == [result_export.SOURCE_ROOT]
 
 
 @pytest.mark.parametrize('side', ['A', 'B'])
@@ -64,7 +64,7 @@ def test_sco2_switch_default_and_explicit_pressure_preserved(win, side):
     for endpoint in ('7900000', '8000000', '16000000'):
         for previous_type in (0, 2):
             combo.setCurrentIndex(previous_type)
-            win._apply_user_preset({
+            win.case_files.apply_user_preset({
                 'line_edits': {f'le_Pin{side}': endpoint},
                 'combos': {f'combo_fluid{side}': 2},
             })
@@ -134,7 +134,7 @@ def test_complete_config_menu_roundtrip(tmp_path, monkeypatch, win,
                 win.zone_table.setItem(r, c, QTableWidgetItem(value))
         if axis == 2:
             win._pareto_x_decision = np.array([6.5, 0.45] * 18)
-    saved = win._capture_current_preset('test')
+    saved = win.case_files.capture_current_preset('test')
     captured = config_from_window(win)
     # Verify representative inputs pass existing physical validation; the
     # persistence layer itself does not impose a new physical gate.
@@ -152,13 +152,13 @@ def test_complete_config_menu_roundtrip(tmp_path, monkeypatch, win,
     assert '保存配置文件…' in actions
     assert '加载配置文件…' in actions
     actions['保存配置文件…'].trigger()
-    for name in win._SESSION_LINE_EDITS:
+    for name in win.case_files.SESSION_LINE_EDITS:
         getattr(win, name).setText('1')
-    for name in win._PRESET_COMBOS:
+    for name in win.case_files.PRESET_COMBOS:
         combo = getattr(win, name)
         if combo.count():
             combo.setCurrentIndex((combo.currentIndex() + 1) % combo.count())
-    for name in win._PRESET_CHECKS:
+    for name in win.case_files.PRESET_CHECKS:
         getattr(win, name).toggle()
     win._grid_nx = 3
     win.zone_table.setRowCount(1)
@@ -170,27 +170,25 @@ def test_complete_config_menu_roundtrip(tmp_path, monkeypatch, win,
     assert win.combo_dim.currentIndex() == dim
     assert win.le_pipeA_in_z_ctr.isHidden() == (dim == 0)
     assert asdict(config_from_window(win)) == before
-    assert win._capture_current_preset('test') == saved
+    assert win.case_files.capture_current_preset('test') == saved
     assert not win.cache.get_result('2d')
     assert not win.cache.has_results('2d') and not win.cache.has_results('3d')
     assert win._undo_last['le_L'] == '0.182'
     assert win._user_edited_grid
     # Exercise the real Compute entry point without starting numerical work.
-    from sjtu_tpmshx.applications.gui.ui.mixins.run_controller import _run_compute
+    from sjtu_tpmshx.applications.gui.ui.single_run import _run_compute
     calls = []
-    monkeypatch.setattr(win, '_validate_inputs_preflight', lambda: True)
-    monkeypatch.setattr(win, '_preflight_grid', lambda config: True)
-    monkeypatch.setattr(win, '_preflight_3d', lambda config: (True, 8, 'test'))
+    monkeypatch.setattr(win.single_run, 'validate_inputs', lambda: True)
+    monkeypatch.setattr(win.single_run, 'preflight_grid', lambda config: True)
+    monkeypatch.setattr(win.single_run, '_preflight_3d', lambda config: (True, 8, 'test'))
 
     def capture_start(mode, worker, *, cfg):
         calls.append((mode, worker.func, asdict(cfg)))
         return True
 
-    monkeypatch.setattr(win.compute, 'start', capture_start)
-    win.run_calculation()
+    monkeypatch.setattr(win.single_run.compute, 'start', capture_start)
+    win.single_run.submit()
     assert calls == [('3d' if dim else '2d', _run_compute, before)]
-    if dim:
-        win._compute_3d_watchdog.stop()
 
 
 @pytest.mark.parametrize('shape', [1, 2])
@@ -200,8 +198,8 @@ def test_polygon_file_is_rejected_without_changing_inputs_or_results(
     from sjtu_tpmshx.applications.gui.ui.window_config import DOMAIN_SHAPE_NOTICE
 
     win._apply_shanghai_defaults()
-    before = win._capture_current_preset('current')
-    old = win._capture_current_preset('polygon')
+    before = win.case_files.capture_current_preset('current')
+    old = win.case_files.capture_current_preset('polygon')
     old['combos'].update(combo_shape=shape, combo_edge_inA=2)
     old['line_edits'].update(le_L='0.333', le_mesh_density='1200')
     path = tmp_path / 'polygon.json'
@@ -212,9 +210,9 @@ def test_polygon_file_is_rejected_without_changing_inputs_or_results(
     errors = []
     monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *args: (str(path), ''))
     monkeypatch.setattr(QMessageBox, 'critical', lambda *args: errors.append(args[2]))
-    assert not win.load_config()
+    assert not win.case_files.load_config()
     assert errors == [DOMAIN_SHAPE_NOTICE]
-    assert win._capture_current_preset('current') == before
+    assert win.case_files.capture_current_preset('current') == before
     assert win.cache.get_result('2d') is result
     assert path.read_text() == original
 
@@ -226,16 +224,16 @@ def test_polygon_session_does_not_partially_restore(win, monkeypatch, shape):
     from sjtu_tpmshx.applications.gui.ui.window_config import DOMAIN_SHAPE_NOTICE
 
     win._apply_shanghai_defaults()
-    before = win._capture_current_preset('current')
-    old = win._capture_current_preset('polygon session')
+    before = win.case_files.capture_current_preset('current')
+    old = win.case_files.capture_current_preset('polygon session')
     old['combos']['combo_shape'] = shape
     old['line_edits']['le_L'] = '0.333'
-    monkeypatch.setattr(win.sm, 'load_session', lambda *args: old)
+    monkeypatch.setattr(win.case_files.store, 'load_session', lambda *args: old)
     callbacks, notices = [], []
     monkeypatch.setattr(QTimer, 'singleShot', lambda interval, owner, callback: callbacks.append(callback))
     monkeypatch.setattr(QMessageBox, 'warning', lambda *args: notices.append(args[2]))
-    win._restore_session()
-    assert win._capture_current_preset('current') == before
+    win.case_files.restore_session()
+    assert win.case_files.capture_current_preset('current') == before
     assert len(callbacks) == 1
     callbacks[0]()
     assert len(notices) == 1 and DOMAIN_SHAPE_NOTICE in notices[0]
@@ -257,15 +255,15 @@ def test_deferred_session_notice_follows_window_lifetime(
                         lambda self, parent=None: original_init(
                             self, base_dir=tmp_path, parent=parent))
     window = Main_Menu()
-    assert window.sm.base_dir == tmp_path
+    assert window.case_files.store.base_dir == tmp_path
     payload = {'checks': {'chk_var_rhocp': False}}
     if notice == 'warning':
         payload = {'combos': {'combo_shape': 1}}
-    monkeypatch.setattr(window.sm, 'load_session', lambda *_: payload)
+    monkeypatch.setattr(window.case_files.store, 'load_session', lambda *_: payload)
     messages = []
     monkeypatch.setattr(QMessageBox, notice, lambda *args: messages.append(args[1:]))
     try:
-        window._restore_session()
+        window.case_files.restore_session()
         assert not messages  # The notification is deferred, not synchronous.
         if delete_before_delivery:
             window.close()
@@ -286,7 +284,7 @@ def test_old_rectangular_file_with_unused_mesh_field_remains_loadable(
     from PySide6.QtWidgets import QFileDialog, QMessageBox
 
     win._apply_shanghai_defaults()
-    old = win._capture_current_preset('rectangle')
+    old = win.case_files.capture_current_preset('rectangle')
     old['line_edits'].update(le_L='0.195', le_mesh_density='auto')
     path = tmp_path / 'rectangle.json'
     original = json.dumps({'config_format': 1, 'preset': old})
@@ -294,9 +292,9 @@ def test_old_rectangular_file_with_unused_mesh_field_remains_loadable(
     monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *args: (str(path), ''))
     errors = []
     monkeypatch.setattr(QMessageBox, 'critical', lambda *args: errors.append(args[2]))
-    assert win.load_config() and not errors
+    assert win.case_files.load_config() and not errors
     assert win.le_L.text() == '0.195'
-    current = win._capture_current_preset('current')
+    current = win.case_files.capture_current_preset('current')
     assert current['combos']['combo_shape'] == 0
     assert 'le_mesh_density' not in current['line_edits']
     assert not any(name.startswith('combo_edge_') for name in current['combos'])
@@ -317,20 +315,25 @@ def test_save_load_config_roundtrip(tmp_path, monkeypatch, win):
     win.combo_df_mode.setCurrentIndex(1)
     monkeypatch.setattr(QFileDialog, 'getSaveFileName',
                         staticmethod(lambda *a, **k: (cfg_path, 'json')))
-    win.save_config()
+    win.case_files.save_config()
 
     data = json.loads(Path(cfg_path).read_text(encoding='utf-8'))
+    assert data['config_format'] == 1
+    assert 'le_rho_s' not in data['preset']['line_edits']
     assert data['preset']['line_edits']['le_Lcell'] == '6.5'
     assert data['preset']['line_edits']['le_t'] == '0.45'
     assert data['preset']['combos']['combo_df_mode'] == 1
 
+    # A complete file from the old writer can include the retired edit.
+    data['preset']['line_edits']['le_rho_s'] = '8123'
+    Path(cfg_path).write_text(json.dumps(data), encoding='utf-8')
     # Perturb, then load back — fields must restore.
     win.le_Lcell.setText('9.9')
     win.le_t.setText('0.9')
     win.combo_df_mode.setCurrentIndex(0)
     monkeypatch.setattr(QFileDialog, 'getOpenFileName',
                         staticmethod(lambda *a, **k: (cfg_path, 'json')))
-    win.load_config()
+    win.case_files.load_config()
     assert win.le_Lcell.text() == '6.5'
     assert win.le_t.text() == '0.45'
     assert win.combo_df_mode.currentData() == 'experimental'
@@ -341,7 +344,7 @@ def test_load_config_cancel_is_noop(monkeypatch, win):
     win.le_Lcell.setText('7.0')
     monkeypatch.setattr(QFileDialog, 'getOpenFileName',
                         staticmethod(lambda *a, **k: ('', '')))
-    win.load_config()
+    win.case_files.load_config()
     assert win.le_Lcell.text() == '7.0'
 
 
@@ -351,7 +354,7 @@ def test_bad_config_does_not_partially_apply(tmp_path, monkeypatch, win, damage)
     from copy import deepcopy
     from PySide6.QtWidgets import QFileDialog, QMessageBox
 
-    before = win._capture_current_preset('test')
+    before = win.case_files.capture_current_preset('test')
     preset = deepcopy(before)
     preset['line_edits']['le_L'] = '0.333'
     payload = {'config_format': 1, 'preset': preset}
@@ -380,9 +383,9 @@ def test_bad_config_does_not_partially_apply(tmp_path, monkeypatch, win, damage)
     monkeypatch.setattr(QMessageBox, 'critical', lambda *a: errors.append(a))
     accepted = ComputeResult(Q_W=123.)
     win.cache.set_result('2d', accepted)
-    assert win.load_config() is False
+    assert win.case_files.load_config() is False
     assert errors
-    assert win._capture_current_preset('test') == before
+    assert win.case_files.capture_current_preset('test') == before
     assert win.cache.get_result('2d') is accepted
     win.cache.clear('2d')
 
@@ -394,7 +397,7 @@ def test_continuous_session_rejects_invalid_checks_without_losing_state(
     from PySide6.QtCore import QTimer
     from PySide6.QtWidgets import QMessageBox
 
-    before = win._capture_current_preset('current')
+    before = win.case_files.capture_current_preset('current')
     payload = deepcopy(before)
     payload['line_edits']['le_L'] = '0.333'
     payload['combos']['combo_dim'] = 0
@@ -403,17 +406,17 @@ def test_continuous_session_rejects_invalid_checks_without_losing_state(
         L_bounds=[4., 8.], t_bounds=[.3, .6],
         x_decision=[6.] * 9 + [.4] * 9)
     payload['checks'] = checks
-    monkeypatch.setattr(win.sm, 'load_session', lambda *args: payload)
+    monkeypatch.setattr(win.case_files.store, 'load_session', lambda *args: payload)
     callbacks, messages = [], []
     monkeypatch.setattr(QTimer, 'singleShot', lambda delay, owner, callback: callbacks.append(callback))
     monkeypatch.setattr(QMessageBox, 'warning', lambda *args: messages.append(args[2]))
     accepted = ComputeResult(Q_W=123.)
     win.cache.set_result('2d', accepted)
-    win._restore_session()
+    win.case_files.restore_session()
     for callback in callbacks:
         callback()
     assert len(messages) == 1 and 'Invalid checks' in messages[0]
-    assert win._capture_current_preset('current') == before
+    assert win.case_files.capture_current_preset('current') == before
     assert win.cache.get_result('2d') is accepted
     win.cache.clear('2d')
 
@@ -425,7 +428,7 @@ def test_config_io_failures_and_cancel(tmp_path, monkeypatch, win):
     errors = []
     monkeypatch.setattr(QMessageBox, 'critical', lambda *a: errors.append(a))
     monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: ('', ''))
-    assert win.save_config() is False
+    assert win.case_files.save_config() is False
     assert not errors
     path = tmp_path / 'existing.json'
     path.write_text('original file')
@@ -435,16 +438,16 @@ def test_config_io_failures_and_cancel(tmp_path, monkeypatch, win):
         raise OSError('replace denied')
 
     monkeypatch.setattr(sm_mod.os, 'replace', fail_replace)
-    assert win.save_config() is False
+    assert win.case_files.save_config() is False
     assert errors and path.read_text() == 'original file'
     assert not path.with_suffix('.json.tmp').exists()
-    before = win._capture_current_preset('test')
+    before = win.case_files.capture_current_preset('test')
     monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *a: (str(path), ''))
-    assert win.load_config() is False  # malformed JSON
-    assert win._capture_current_preset('test') == before
+    assert win.case_files.load_config() is False  # malformed JSON
+    assert win.case_files.capture_current_preset('test') == before
     path.unlink()
-    assert win.load_config() is False  # missing file
-    assert win._capture_current_preset('test') == before
+    assert win.case_files.load_config() is False  # missing file
+    assert win.case_files.capture_current_preset('test') == before
 
 
 def test_legacy_file_preserves_fields_and_reports_missing_inputs(tmp_path, monkeypatch, win):
@@ -468,8 +471,9 @@ def test_legacy_file_preserves_fields_and_reports_missing_inputs(tmp_path, monke
     win.combo_fluidA.setCurrentIndex(2)
     untouched = (win.le_Nz.text(), win.combo_dim.currentIndex(),
                  win.le_pipeA_in_z_w.text())
-    expected = win._legacy_config_preset(payload)
-    assert win.load_config()
+    expected = win.case_files.legacy_config_preset(payload)
+    assert 'le_rho_s' not in expected['line_edits']
+    assert win.case_files.load_config()
     assert warnings and '不是完整工况恢复' in warnings[0][2]
     for name, value in expected['line_edits'].items():
         assert getattr(win, name).text() == value
@@ -492,7 +496,7 @@ def test_legacy_velocity_import_replaces_only_its_inlet_mode(win, tmp_path, monk
     path = tmp_path / 'legacy-velocity.json'
     path.write_text(json.dumps({f'u_{side}': speeds[side] for side in sides}))
     monkeypatch.setattr(QMessageBox, 'warning', lambda *args: None)
-    assert win._load_config_path(str(path))
+    assert win.case_files.load_config_path(str(path))
     cfg = resolve_inlet_flow_config(config_from_window(win, strict=True))
     for side in 'AB':
         fluid = getattr(cfg, 'fluid_' + side)
@@ -524,11 +528,9 @@ def test_shanghai_preset_restores_ports_and_valid_grid(win, name, unit):
     win.combo_dirB.setCurrentIndex(2)
     win.chk_zones.setChecked(True)
     win.combo_zone_axis.setCurrentIndex(2)
-    win._zone_grid = {'stale': True}
     win._pareto_x_decision = [6.0, 0.4] * 18
-    win._set_sco2_nu_parameters(asdict(SYNTHETIC))
+    win.case_files.set_sco2_nu_parameters(asdict(SYNTHETIC))
     win.combo_sco2_nu_mode.setCurrentIndex(1)
-    win.le_rho_s.setText('1234')
     win.chk_allow_extrap.setChecked(False)
     # Loading after a smaller case must not retain its 30 mm Z openings.
     win.le_Lz.setText('0.03')
@@ -537,7 +539,7 @@ def test_shanghai_preset_restores_ports_and_valid_grid(win, name, unit):
             getattr(win, f'le_pipe{side}_{end}_z_ctr').setText('0.015')
             getattr(win, f'le_pipe{side}_{end}_z_w').setText('0.03')
     win.combo_df_mode.setCurrentIndex(0)
-    win._load_named_preset(name)
+    win.case_files.load_named_preset(name)
     cfg = config_from_window(win)
     assert cfg.df_mode == 'experimental'
     assert (cfg.fluid_A.type, cfg.fluid_B.type) == ('air', 'water')
@@ -555,10 +557,10 @@ def test_shanghai_preset_restores_ports_and_valid_grid(win, name, unit):
             assert target is None
     assert win._temp_unit == unit
     assert cfg.sco2_nu.mode == 'cfd_smooth' and win._sco2_nu_parameters == {}
-    assert not cfg.zones.enabled and win._zone_grid is None
+    assert not cfg.zones.enabled and cfg.zones.grid is None
     assert win._pareto_x_decision is None and win.combo_zone_axis.currentIndex() == 0
-    assert float(win.le_rho_s.text()) == 7900 and cfg.extrap.allow
-    assert win._active_preset_name == name
+    assert cfg.extrap.allow
+    assert win.case_files.active_preset_name == name
     for side in ('A', 'B'):
         for end in ('in', 'out'):
             assert getattr(win, f'le_pipe{side}_{end}_z_ctr').text() == '0.021'
@@ -583,17 +585,17 @@ def test_shanghai_recorded_inputs_survive_units_and_saved_preset(win, name, tmp_
     from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
 
     win._temp_unit = 'K'
-    win._load_named_preset(name)
+    win.case_files.load_named_preset(name)
     expected = (148.9083382933427 + 273.15, 26.88908245097393 + 273.15)
     for _ in range(4):
         win._toggle_temp_unit()
         cfg = config_from_window(win)
         assert (cfg.fluid_A.T_in_K, cfg.fluid_B.T_in_K) == pytest.approx(expected, rel=0, abs=1e-12)
     path = tmp_path / 'recorded-case.json'
-    path.write_text(json.dumps(win._capture_current_preset('recorded case 8')))
+    path.write_text(json.dumps(win.case_files.capture_current_preset('recorded case 8')))
     win.le_TinA.setText('350')
     win.le_mass_flowA.setText('0.01')
-    win._apply_user_preset(json.loads(path.read_text()))
+    win.case_files.apply_user_preset(json.loads(path.read_text()))
     cfg = config_from_window(win)
     assert (cfg.fluid_A.T_in_K, cfg.fluid_B.T_in_K) == pytest.approx(expected, rel=0, abs=1e-12)
     # The 2D velocity preset represents the same inlet at the specimen depth.
@@ -609,15 +611,15 @@ def test_shanghai_recorded_inputs_survive_units_and_saved_preset(win, name, tmp_
 def test_diamond_remains_available_without_a_shanghai_experiment_preset(win):
     from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
 
-    assert win._BUILTIN_PRESETS == ['Shanghai (3D Gyroid)', 'Shanghai (2D Gyroid)']
+    assert win.case_files.BUILTIN_PRESETS == ['Shanghai (3D Gyroid)', 'Shanghai (2D Gyroid)']
     win._apply_shanghai_defaults()
     win.combo_tpms.setCurrentIndex(win.combo_tpms.findText('Diamond'))
     for side, speed in (('A', '20'), ('B', '.133')):
         getattr(win, 'combo_inlet_mode' + side).setCurrentIndex(0)
         getattr(win, 'le_u' + side).setText(speed)
-    saved = win._capture_current_preset('Shanghai (3D Diamond)')
+    saved = win.case_files.capture_current_preset('Shanghai (3D Diamond)')
     win._apply_shanghai_defaults()
-    win._apply_user_preset(saved)
+    win.case_files.apply_user_preset(saved)
     cfg = config_from_window(win)
     assert cfg.geometry.tpms == 'Diamond'
     assert cfg.fluid_A.mass_flow_kg_s is None and cfg.fluid_A.u_mps == 20
@@ -629,27 +631,27 @@ def test_saved_df_choice_is_preserved(win, monkeypatch, route, saved_mode):
     payload = {'combos': {} if saved_mode is None else {'combo_df_mode': saved_mode}}
     win.combo_df_mode.setCurrentIndex(1)
     if route == 'preset':
-        win._apply_user_preset(payload)
+        win.case_files.apply_user_preset(payload)
     else:
-        monkeypatch.setattr(win.sm, 'load_session', lambda *args: payload)
-        win._restore_session()
+        monkeypatch.setattr(win.case_files.store, 'load_session', lambda *args: payload)
+        win.case_files.restore_session()
     assert win.combo_df_mode.currentIndex() == (saved_mode or 0)
 
 
 def test_partial_preset_allowlist_and_session_preserves_saved_case(win):
     win._apply_shanghai_defaults()
     load_caption = win.btn_recent.text()
-    win._apply_user_preset({'line_edits': {'le_L': '0.22', 'btn_recent': '123'},
+    win.case_files.apply_user_preset({'line_edits': {'le_L': '0.22', 'btn_recent': '123'},
                             'combos': {'combo_fluidA': 1}, 'temp_unit': 'C'})
     assert win.btn_recent.text() == load_caption
     assert win.le_L.text() == '0.22'
     win.le_Nx.setText('31')
     win.le_TinA.setText('70')
-    assert win._save_session()
+    assert win.case_files.save_session()
     win.combo_fluidA.setCurrentIndex(0)  # construction-time Air default
     win._apply_shanghai_defaults()
     win.combo_fluidB.setCurrentIndex(0)
-    win._restore_session()
+    win.case_files.restore_session()
     assert win._temp_unit == 'K'
     assert win.le_Nx.text() == '31'
     assert float(win.le_TinA.text()) == pytest.approx(343.15)
@@ -688,12 +690,12 @@ def test_session_restores_complete_physical_case_in_kelvin(win, monkeypatch, uni
     before = asdict(config_from_window(win))
     before['flags']['temp_unit'] = 'K'
     saved = {}
-    monkeypatch.setattr(win.sm, 'save_session', lambda payload, ws: saved.update(payload) or True)
-    assert win._save_session()
+    monkeypatch.setattr(win.case_files.store, 'save_session', lambda payload, ws: saved.update(payload) or True)
+    assert win.case_files.save_session()
     win._apply_shanghai_defaults()
     win.cache.set_result('2d', ComputeResult())
-    monkeypatch.setattr(win.sm, 'load_session', lambda ws: saved)
-    win._restore_session()
+    monkeypatch.setattr(win.case_files.store, 'load_session', lambda ws: saved)
+    win.case_files.restore_session()
     assert win._temp_unit == 'K'
     assert asdict(config_from_window(win)) == before
     assert not win.cache.get_result('2d')
@@ -705,8 +707,8 @@ def test_partial_celsius_session_does_not_convert_missing_kelvin_field(win, monk
     win._apply_shanghai_defaults()
     untouched = win.le_TinB.text()
     old = {'temp_unit': 'C', 'line_edits': {'le_TinA': '70'}, 'combos': {}}
-    monkeypatch.setattr(win.sm, 'load_session', lambda ws: old)
-    win._restore_session()
+    monkeypatch.setattr(win.case_files.store, 'load_session', lambda ws: old)
+    win.case_files.restore_session()
     assert float(win.le_TinA.text()) == pytest.approx(343.15)
     assert float(win.le_TinB.text()) == float(untouched)
 
@@ -714,8 +716,8 @@ def test_partial_celsius_session_does_not_convert_missing_kelvin_field(win, monk
 def test_workspaces_restore_their_own_zone_table_and_pareto_state(win, monkeypatch, tmp_path):
     from PySide6.QtWidgets import QTableWidgetItem
 
-    monkeypatch.setattr(win.sm, '_base', tmp_path)
-    monkeypatch.setattr(win, '_active_workspace', 'A')
+    monkeypatch.setattr(win.case_files.store, '_base', tmp_path)
+    monkeypatch.setattr(win.case_files, 'active_workspace', 'A')
     win._temp_unit = 'K'
     win._apply_shanghai_defaults()
     win.combo_df_mode.setCurrentIndex(0)
@@ -731,25 +733,25 @@ def test_workspaces_restore_their_own_zone_table_and_pareto_state(win, monkeypat
             win.zone_table.setItem(r, c, QTableWidgetItem(value))
     win._pareto_x_decision = [6.5, .45] * 18
     win._pareto_y_trans_inlet, win._pareto_y_trans_outlet = .15, .18
-    saved_a = win._capture_current_preset('A')
-    win._switch_workspace('B')
+    saved_a = win.case_files.capture_current_preset('A')
+    win.case_files.switch_workspace('B')
     win.combo_df_mode.setCurrentIndex(0)
     win.combo_dim.setCurrentIndex(0)
     win.combo_zone_axis.setCurrentIndex(1)
     win.chk_zones.setChecked(True)
     win._zone_init_1d(2)
     win.zone_table.item(0, 2).setText('8.0')
-    saved_b = win._capture_current_preset('B')
+    saved_b = win.case_files.capture_current_preset('B')
 
-    win._switch_workspace('A')
-    restored_a = win._capture_current_preset('A')
+    win.case_files.switch_workspace('A')
+    restored_a = win.case_files.capture_current_preset('A')
     assert restored_a['zone_inputs'] == saved_a['zone_inputs']
     assert restored_a['combos']['combo_zone_axis'] == 2
     assert restored_a['checks']['chk_zones']
-    on_disk = json.loads(win.sm.session_path('A').read_text())
+    on_disk = json.loads(win.case_files.store.session_path('A').read_text())
     assert on_disk['zone_inputs'] == saved_a['zone_inputs']
-    win._switch_workspace('B')
-    restored_b = win._capture_current_preset('B')
+    win.case_files.switch_workspace('B')
+    restored_b = win.case_files.capture_current_preset('B')
     assert restored_b['zone_inputs'] == saved_b['zone_inputs']
     assert restored_b['combos']['combo_zone_axis'] == 1
     assert restored_b['checks']['chk_zones']
@@ -763,16 +765,16 @@ def test_legacy_session_without_zone_data_disables_and_clears_stale_zones(win, m
     win.combo_zone_axis.setCurrentIndex(2)
     win.chk_zones.setChecked(True)
     win._pareto_x_decision = [8.0, .5] * 18
-    old = win._capture_current_preset('old session')
+    old = win.case_files.capture_current_preset('old session')
     old.pop('zone_inputs')
     old['combos'].pop('combo_zone_axis')
     callbacks, messages = [], []
-    monkeypatch.setattr(win.sm, 'load_session', lambda ws: old)
+    monkeypatch.setattr(win.case_files.store, 'load_session', lambda ws: old)
     monkeypatch.setattr(QTimer, 'singleShot', lambda interval, owner, callback: callbacks.append(callback))
     monkeypatch.setattr(QMessageBox, 'information', lambda *args: messages.append(args[2]))
-    win._restore_session()
+    win.case_files.restore_session()
     assert not win.chk_zones.isChecked() and win.zone_table.rowCount() == 0
-    assert win._zone_grid is None and win._pareto_x_decision is None
+    assert win._pareto_x_decision is None
     assert win.combo_zone_axis.currentIndex() == 0 and win._grid_nx == 2
     assert old['checks']['chk_zones'] and 'zone_inputs' not in old
     for callback in callbacks:
@@ -790,7 +792,7 @@ def test_shared_preset_callers_restore_new_inputs(monkeypatch, win, route):
     win.combo_zone_axis.setCurrentIndex(1)
     win.chk_zones.setChecked(True)
     win._zone_init_1d(2)
-    saved = win._capture_current_preset('test')
+    saved = win.case_files.capture_current_preset('test')
     tokens = []
     monkeypatch.setattr(history, 'QApplication', SimpleNamespace(
         clipboard=lambda: SimpleNamespace(setText=tokens.append)))
@@ -804,7 +806,7 @@ def test_shared_preset_callers_restore_new_inputs(monkeypatch, win, route):
     else:
         monkeypatch.setattr(QInputDialog, 'getText', lambda *a: (tokens[0], True))
         win._load_reproducible_link()
-    assert win._capture_current_preset('test') == saved
+    assert win.case_files.capture_current_preset('test') == saved
 
 
 def test_export_results_no_data_shows_dialog(monkeypatch, win):
@@ -816,7 +818,7 @@ def test_export_results_no_data_shows_dialog(monkeypatch, win):
                         staticmethod(lambda *a, **k: hits.append(a)))
     # Fresh module-scoped window: no compute has run, so both the 2D
     # cache and _result_3d are empty by construction.
-    win._export_results()
+    win.result_export.export_results()
     assert hits, 'expected the No Results dialog'
 
 
@@ -834,7 +836,7 @@ def test_export_results_writes_2d_values(tmp_path, monkeypatch, win):
         staticmethod(lambda *a, **k: (str(out), 'CSV')),
     )
 
-    win._export_results()
+    win.result_export.export_results()
 
     with out.open(encoding='utf-8', newline='') as stream:
         records = list(csv.reader(stream))
@@ -871,7 +873,7 @@ def test_export_results_writes_3d_values_and_fields(tmp_path, monkeypatch, win):
         staticmethod(lambda *a, **k: (str(out), 'CSV')),
     )
 
-    win._export_results()
+    win.result_export.export_results()
 
     with out.open(encoding='utf-8', newline='') as stream:
         records = list(csv.reader(stream))
@@ -918,13 +920,13 @@ def test_export_failure_preserves_old_pair_and_memory_then_retries(tmp_path, mon
         raise OSError('simulated full disk at NPZ write')
 
     monkeypatch.setattr(np, 'savez_compressed', fail)
-    win._export_results()
+    win.result_export.export_results()
     assert errors and 'full disk' in errors[-1]
     assert csv_path.read_text() == 'previous successful CSV'
     assert npz_path.read_bytes() == b'previous successful NPZ'
     assert win.cache.get_result('3d') is result
     monkeypatch.setattr(np, 'savez_compressed', original)
-    win._export_results()
+    win.result_export.export_results()
     assert 'next-run' in csv_path.read_text()
     with np.load(npz_path, allow_pickle=False) as fields:
         assert 'next-run' in fields['metadata'].item()
@@ -956,7 +958,11 @@ def test_result_status_survives_notification_and_mode_switch(
             extrap_reasons=reasons.copy(),
             diagnostics={'mode': mode, 'envelope_valid': envelope,
                          'convergence_detail': {'outer_converged': outer}},
-            metadata={'source': {'name': f'accepted-{index}'}},
+            metadata={
+                'source': {'name': f'accepted-{index}'},
+                'darcy_forchheimer': {'mode': 'cfd_smooth'},
+                'model_refs': [{'name': 'darcy_forchheimer', 'version': 'cfd_full_core_3cell_fixed_v2'}],
+            },
             residuals={'Q_A': 10., 'Q_B': -9., 'Q_net': 1.,
                        'energy_imbalance_rel': .1},
             fields={key: field for key in
@@ -965,13 +971,13 @@ def test_result_status_survives_notification_and_mode_switch(
         )
         result.fields.update(N_x=2, N_y=4, L=0.2, H=0.1, dir_A=0, dir_B=2,
                              dx_arr=np.full(2, 0.1), dy_arr=np.full(4, 0.025))
-        win.write_result(result)
+        win.results.publish(result)
         expected_warnings = result.warnings.copy()
         if mode == '2d':
             finalize_plots(win)
             assert win.cache.get_result().warnings == expected_warnings
             assert not notices, 'completed solves must not wait for a warning popup'
-            assert win._result_summary()['converged'] == converged
+            assert win.results.summary()['converged'] == converged
             assert win.cache.get_result('2d').warnings == expected_warnings
             # Result owns copies; a later notification/draft must not replace it.
             result.warnings.clear()
@@ -989,11 +995,11 @@ def test_result_status_survives_notification_and_mode_switch(
             for key, expected in (('Q_A', 10.), ('Q_B', -9.), ('Q_net', 1.),
                                   ('energy_imbalance_rel', .1)):
                 assert cached.residuals[key] == expected
-            assert win._result_summary()['Q_A'] == 10.
-            assert win._result_summary()['closure_rel'] == .1
+            assert win.results.summary()['Q_A'] == 10.
+            assert win.results.summary()['closure_rel'] == .1
         out = tmp_path / f'{index}.csv'
         monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: (str(out), ''))
-        win._export_results()
+        win.result_export.export_results()
         assert not errors
         with out.open(encoding='utf-8', newline='') as stream:
             rows = dict(csv.reader(stream))
@@ -1003,7 +1009,11 @@ def test_result_status_survives_notification_and_mode_switch(
         assert rows['dP_B [Pa]'] == '6.00'
         assert rows['Ta_min [K]'] == '300.00'
         assert rows['Ta_max [K]'] == '307.00'
-        assert json.loads(rows['metadata']) == {'source': {'name': f'accepted-{index}'}}
+        assert json.loads(rows['metadata']) == {
+            'source': {'name': f'accepted-{index}'},
+            'darcy_forchheimer': {'mode': 'cfd_smooth'},
+            'model_refs': [{'name': 'darcy_forchheimer', 'version': 'cfd_full_core_3cell_fixed_v2'}],
+        }
         for key, value in (('converged', converged), ('envelope_valid', envelope),
                            ('outer_converged', outer), ('warnings', expected_warnings),
                            ('extrap_reasons', reasons)):
@@ -1032,19 +1042,19 @@ def test_current_nu_button_explicit_selection_and_saved_parameter_restore(win):
 
     win._apply_shanghai_defaults()
     assert config_from_window(win).sco2_nu.mode == 'cfd_smooth'
-    win._set_sco2_nu_parameters(asdict(SYNTHETIC))
+    win.case_files.set_sco2_nu_parameters(asdict(SYNTHETIC))
     win.combo_sco2_nu_mode.setCurrentIndex(1)
-    previous = win._capture_current_preset('explicit previous parameters')
+    previous = win.case_files.capture_current_preset('explicit previous parameters')
     df_mode = win.combo_df_mode.currentData()
     win.btn_sco2_nu_current.click()
     assert config_from_window(win).sco2_nu == sco2_effective_nu_config()
     assert win.combo_df_mode.currentData() == df_mode
     assert '2.4824' in win.lbl_sco2_nu_parameters.text()
     assert '4.1064' in win.lbl_sco2_nu_parameters.text()
-    current = win._capture_current_preset('current parameters')
-    win._apply_user_preset(previous)
+    current = win.case_files.capture_current_preset('current parameters')
+    win.case_files.apply_user_preset(previous)
     assert config_from_window(win).sco2_nu == SYNTHETIC
-    win._apply_user_preset(current)
+    win.case_files.apply_user_preset(current)
     assert config_from_window(win).sco2_nu == sco2_effective_nu_config()
 
 
@@ -1058,25 +1068,25 @@ def test_nu_parameters_import_save_load_snapshot(win, monkeypatch, tmp_path, nu_
     parameter_file = tmp_path / 'synthetic.json'
     parameter_file.write_text(json.dumps(asdict(SYNTHETIC)))
     monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *a: (str(parameter_file), ''))
-    assert win._load_sco2_nu_parameters()
+    assert win.case_files.load_sco2_nu_parameters()
     parameter_file.unlink()  # Resolved contents, not an external-file dependency.
     win.combo_sco2_nu_mode.setCurrentIndex(nu_mode)
     win.combo_df_mode.setCurrentIndex(df_mode)
     original = config_from_window(win)
     output = tmp_path / 'saved.json'
     monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: (str(output), ''))
-    assert win.save_config()
-    win._set_sco2_nu_parameters({})
+    assert win.case_files.save_config()
+    win.case_files.set_sco2_nu_parameters({})
     win.combo_sco2_nu_mode.setCurrentIndex(0)
     win.combo_df_mode.setCurrentIndex(0)
     assert original.sco2_nu.alpha_D == .8
     monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *a: (str(output), ''))
-    assert win.load_config()
+    assert win.case_files.load_config()
     assert config_from_window(win) == original
-    old = win._capture_current_preset('old')
+    old = win.case_files.capture_current_preset('old')
     del old['sco2_nu_parameters']
     del old['combos']['combo_sco2_nu_mode']
-    win._apply_user_preset(old)
+    win.case_files.apply_user_preset(old)
     assert config_from_window(win).sco2_nu.mode == 'cfd_smooth'
     assert config_from_window(win).sco2_nu.alpha_D is None
 
@@ -1089,7 +1099,7 @@ def test_saved_older_solver_settings_upgrade_once_and_save_current_values(
 
     win._apply_shanghai_defaults()
     win.combo_dim.setCurrentIndex(0)
-    old = win._capture_current_preset('older inlet settings')
+    old = win.case_files.capture_current_preset('older inlet settings')
     old['combos'].pop('combo_grid')
     old['checks'].update(chk_port_wall_refine=False, chk_wall_refine_3d=True,
                          chk_var_rhocp=False)
@@ -1106,7 +1116,7 @@ def test_saved_older_solver_settings_upgrade_once_and_save_current_values(
     monkeypatch.setattr(QMessageBox, 'information', lambda *args: notices.append(args[2]))
     monkeypatch.setattr(QMessageBox, 'critical', lambda *args: errors.append(args))
     monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *args: (str(path), ''))
-    assert win.load_config()
+    assert win.case_files.load_config()
     assert not errors and len(notices) == 1
     assert all(part in notices[0] for part in ('流体 A', '流体 B', '六壁面', '局部密度'))
     assert path.read_text() == original
@@ -1116,14 +1126,14 @@ def test_saved_older_solver_settings_upgrade_once_and_save_current_values(
     assert not config.flags.port_wall_refine
     new_path = tmp_path / 'current.json'
     monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *args: (str(new_path), ''))
-    assert win.save_config()
+    assert win.case_files.save_config()
     current = json.loads(new_path.read_text())['preset']
-    assert all(current['checks'][key] == value for key, value in win._FIXED_SOLVER_CHECKS.items())
+    assert all(current['checks'][key] == value for key, value in win.case_files.FIXED_SOLVER_CHECKS.items())
     assert 'chk_port_wall_refine' not in current['checks']
     assert 'chk_wall_refine_3d' not in current['checks']
     assert current['combos']['combo_grid'] == win.combo_grid.findData(False)
     monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *args: (str(new_path), ''))
-    assert win.load_config()
+    assert win.case_files.load_config()
     assert len(notices) == 1
 
 
@@ -1133,15 +1143,15 @@ def test_session_restore_reports_solver_update_and_resave_removes_repeat(win, mo
     from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
 
     win._apply_shanghai_defaults()
-    old = win._capture_current_preset('previous session')
+    old = win.case_files.capture_current_preset('previous session')
     old['checks']['chk_var_rhocp'] = False
     old['checks']['chk_uniform_inletB_2d'] = False
-    monkeypatch.setattr(win.sm, 'load_session', lambda *args: old)
+    monkeypatch.setattr(win.case_files.store, 'load_session', lambda *args: old)
     callbacks = []
     monkeypatch.setattr(QTimer, 'singleShot', lambda interval, owner, callback: callbacks.append((interval, callback)))
     messages = []
     monkeypatch.setattr(QMessageBox, 'information', lambda *args: messages.append(args[2]))
-    win._restore_session()
+    win.case_files.restore_session()
     for interval, callback in callbacks:
         if interval == 0:
             callback()
@@ -1150,9 +1160,9 @@ def test_session_restore_reports_solver_update_and_resave_removes_repeat(win, mo
     config = config_from_window(win)
     assert config.flags.variable_rho_cp and config.bc_B.uniform_inlet_2d
     saved = []
-    monkeypatch.setattr(win.sm, 'save_session', lambda payload, *args: saved.append(payload) or True)
-    assert win._save_session()
-    assert win._solver_settings_notice(saved[0]) == ''
+    monkeypatch.setattr(win.case_files.store, 'save_session', lambda payload, *args: saved.append(payload) or True)
+    assert win.case_files.save_session()
+    assert win.case_files.solver_settings_notice(saved[0]) == ''
 
 
 def _drop_json(window, path):
@@ -1170,13 +1180,13 @@ def _drop_json(window, path):
 @pytest.mark.parametrize('entry', ['menu', 'drop'])
 def test_current_and_old_configs_use_the_same_import_path(
         tmp_path, monkeypatch, win, file_format, entry):
-    from sjtu_tpmshx.applications.gui.ui.mixins import io_actions
+    from sjtu_tpmshx.applications.gui.ui import case_files
     win._apply_shanghai_defaults()
     win.le_uA.setText('20.0')
     path = tmp_path / 'config.json'
-    monkeypatch.setattr(io_actions.QFileDialog, 'getSaveFileName',
+    monkeypatch.setattr(case_files.QFileDialog, 'getSaveFileName',
                         lambda *a: (str(path), ''))
-    assert win.save_config()
+    assert win.case_files.save_config()
     payload = json.loads(path.read_text())
     if file_format == 'preset':
         payload = payload['preset']
@@ -1187,13 +1197,13 @@ def test_current_and_old_configs_use_the_same_import_path(
     path.write_text(json.dumps(payload))
     win.le_uA.setText('99')
     warnings = []
-    monkeypatch.setattr(io_actions.QMessageBox, 'warning',
+    monkeypatch.setattr(case_files.QMessageBox, 'warning',
                         lambda *a: warnings.append(a))
-    monkeypatch.setattr(io_actions.QMessageBox, 'critical',
+    monkeypatch.setattr(case_files.QMessageBox, 'critical',
                         lambda *a: pytest.fail(str(a)))
-    monkeypatch.setattr(io_actions.QFileDialog, 'getOpenFileName',
+    monkeypatch.setattr(case_files.QFileDialog, 'getOpenFileName',
                         lambda *a: (str(path), ''))
-    assert win.load_config() if entry == 'menu' else _drop_json(win, path)
+    assert win.case_files.load_config() if entry == 'menu' else _drop_json(win, path)
     assert win.le_uA.text() == '20.0'
     assert bool(warnings) == (file_format == 'flat')
 
@@ -1201,16 +1211,16 @@ def test_current_and_old_configs_use_the_same_import_path(
 @pytest.mark.parametrize('entry', ['menu', 'drop'])
 def test_both_import_entries_reject_unknown_format_without_changing_input(
         tmp_path, monkeypatch, win, entry):
-    from sjtu_tpmshx.applications.gui.ui.mixins import io_actions
+    from sjtu_tpmshx.applications.gui.ui import case_files
     path = tmp_path / 'bad.json'
     path.write_text(json.dumps({'config_format': 999, 'preset':
                                 {'line_edits': {'le_uA': '1'}}}))
     win.le_uA.setText('99')
     errors = []
-    monkeypatch.setattr(io_actions.QMessageBox, 'critical', lambda *a: errors.append(a))
-    monkeypatch.setattr(io_actions.QFileDialog, 'getOpenFileName',
+    monkeypatch.setattr(case_files.QMessageBox, 'critical', lambda *a: errors.append(a))
+    monkeypatch.setattr(case_files.QFileDialog, 'getOpenFileName',
                         lambda *a: (str(path), ''))
-    result = win.load_config() if entry == 'menu' else _drop_json(win, path)
+    result = win.case_files.load_config() if entry == 'menu' else _drop_json(win, path)
     assert not result and win.le_uA.text() == '99'
     assert len(errors) == 1 and 'Unsupported configuration format' in errors[0][2]
 
@@ -1226,18 +1236,17 @@ def _study_front(X, F):
 def test_pareto_figure_copy_export_survives_field_result_then_clears_on_empty(
         tmp_path, monkeypatch, win):
     from PySide6.QtGui import QGuiApplication
-    from sjtu_tpmshx.applications.gui.ui import optimize_panel
-    from sjtu_tpmshx.applications.gui.ui.mixins import io_actions
+    from sjtu_tpmshx.applications.gui.ui import result_export
     front = _study_front([[.5, .6], [.3, .7]], [[-8., .8], [-9., 1.1]])
     win.cache.clear()
     win.btn_export.setEnabled(False)
-    optimize_panel.show_pareto(win, front)
-    monkeypatch.setattr(win, '_active_tab', 'pareto')
+    win.optimization.show_pareto(front)
+    monkeypatch.setattr(win.workbench, 'active_tab', 'pareto')
     menu_actions = {action.text(): action for action in win.btn_export.menu().actions()}
     try:
         for state in ('pareto', 'preset-load', 'later-field-result'):
             if state == 'preset-load':
-                win._invalidate_results_for_preset_load()
+                win.case_files.invalidate_results_for_preset_load()
             if state == 'later-field-result':
                 # Publishing a field snapshot clears its own rendered-tab flags.
                 win.cache.set_result('2d', ComputeResult(Q_W=1.))
@@ -1250,27 +1259,27 @@ def test_pareto_figure_copy_export_survives_field_result_then_clears_on_empty(
             def choose(*args):
                 calls.append(args[3])
                 return ('Pareto / 优化', True) if len(calls) == 1 else ('150 (screen)', True)
-            monkeypatch.setattr(io_actions.QInputDialog, 'getItem', choose)
+            monkeypatch.setattr(result_export.QInputDialog, 'getItem', choose)
             path = tmp_path / f'{state}.png'
-            monkeypatch.setattr(io_actions.QFileDialog, 'getSaveFileName',
+            monkeypatch.setattr(result_export.QFileDialog, 'getSaveFileName',
                                 lambda *a, **kw: (str(path), 'PNG (*.png)'))
             menu_actions['导出图像 — PNG / SVG / PDF'].trigger()
             assert 'Pareto / 优化' in calls[0] and path.is_file()
-        optimize_panel.show_pareto(win, dict(front, pareto_indices=[]))
-        win._copy_figure_clipboard()
+        win.optimization.show_pareto(dict(front, pareto_indices=[]))
+        win.result_export.copy_figure_clipboard()
         assert '当前无可复制' in win.statusBar().currentMessage()
         choices = []
-        monkeypatch.setattr(io_actions.QInputDialog, 'getItem',
+        monkeypatch.setattr(result_export.QInputDialog, 'getItem',
                             lambda *a: (choices.append(a[3]) or ('', False)))
-        win._export_figure()
+        win.result_export.export_figure()
         assert choices and 'Pareto / 优化' not in choices[0]
         assert win.btn_export.isEnabled()  # Field results remain exportable.
         win.cache.clear()
-        optimize_panel.show_pareto(win, dict(front, pareto_indices=[]))
+        win.optimization.show_pareto(dict(front, pareto_indices=[]))
         assert not win.btn_export.isEnabled()
     finally:
         win.cache.clear()
-        win._pareto_X = win._pareto_F = None
+        win.optimization.show_pareto(_study_front([], []))
 
 
 def test_continuous_field_preview_button_shows_and_exports_after_preset_load(
@@ -1278,127 +1287,128 @@ def test_continuous_field_preview_button_shows_and_exports_after_preset_load(
     from PIL import Image
     from PySide6.QtWidgets import QPushButton
     from PySide6.QtGui import QGuiApplication
-    from sjtu_tpmshx.applications.gui.ui.mixins import io_actions
-    win._load_named_preset('Shanghai (2D Gyroid)')
+    from sjtu_tpmshx.applications.gui.ui import result_export
+    win.case_files.load_named_preset('Shanghai (2D Gyroid)')
     win.cache.clear()
-    win._pareto_X = win._pareto_F = None
-    win.canvas_opt_field.figure.clear()
+    win.optimization.show_pareto(_study_front([], []))
+    win.optimization.field_canvas.figure.clear()
     geometry_axes = tuple(win.canvas_layout.figure.axes)
     win.show()
     try:
-        win._switch_tab('pareto')
+        win.workbench.switch_tab('pareto')
         preview = next(button for button in win.findChildren(QPushButton)
                        if '预览连续场' in button.text())
         preview.click()
-        assert win._active_tab == 'pareto'
-        assert win._opt_result_tabs.currentWidget() is win.canvas_opt_field
-        assert win.canvas_opt_field.isVisible()
+        assert win.workbench.active_tab == 'pareto'
+        assert win.optimization.result_tabs.currentWidget() is win.optimization.field_canvas, win.optimization.status.text()
+        assert win.optimization.field_canvas.isVisible()
         assert not win.cache.is_drawn('layout') and win.btn_export.isEnabled()
         assert tuple(win.canvas_layout.figure.axes) == geometry_axes
-        assert not win._pareto_figure_ready() and win._opt_field_figure_ready()
-        images = [image for axis in win.canvas_opt_field.figure.axes for image in axis.images]
+        assert not win.optimization.pareto_ready() and win.optimization.field_ready()
+        images = [image for axis in win.optimization.field_canvas.figure.axes for image in axis.images]
         assert len(images) == 2 and all(np.isfinite(im.get_array()).all() for im in images)
         QGuiApplication.clipboard().clear()
-        win._copy_figure_clipboard()
+        win.result_export.copy_figure_clipboard()
         assert not QGuiApplication.clipboard().image().isNull()
         assert '已复制 opt_field' in win.statusBar().currentMessage()
         # A later Compute preset is not the source of this retained field figure.
-        win._load_named_preset('Shanghai (3D Gyroid)')
-        assert win._opt_field_figure_ready()
+        win.case_files.load_named_preset('Shanghai (3D Gyroid)')
+        assert win.optimization.field_ready()
         path = tmp_path / 'continuous-field-preview.png'
         options = []
         def choose(*args):
             options.append(args[3])
             return ('优化尺寸/壁厚场', True) if len(options) == 1 else ('150 (screen)', True)
-        monkeypatch.setattr(io_actions.QInputDialog, 'getItem', choose)
-        monkeypatch.setattr(io_actions.QFileDialog, 'getSaveFileName',
+        monkeypatch.setattr(result_export.QInputDialog, 'getItem', choose)
+        monkeypatch.setattr(result_export.QFileDialog, 'getSaveFileName',
                             lambda *a: (str(path), 'PNG (*.png)'))
-        win._export_figure()
+        win.result_export.export_figure()
         assert path.is_file()
         assert options[0] == ['优化尺寸/壁厚场']
         with Image.open(path) as picture:
             assert picture.info['Title'] == 'SJTU-TPMSHX opt_field'
             assert 'Subject' not in picture.info
     finally:
-        win.canvas_opt_field.figure.clear()
+        win.optimization.field_canvas.figure.clear()
         win.cache.clear()
-        win._refresh_export_button()
+        win.result_export.refresh_export_button()
         win.hide()
 
 
 def test_optimization_copy_uses_selected_result_tab_and_rejects_empty_field(win, monkeypatch):
     from PySide6.QtGui import QColor, QGuiApplication, QPixmap
-    from sjtu_tpmshx.applications.gui.ui import optimize_panel
-    from sjtu_tpmshx.applications.gui.ui.mixins import io_actions
-    win._load_named_preset('Shanghai (2D Gyroid)')
+    from sjtu_tpmshx.applications.gui.ui import result_export
+    win.case_files.load_named_preset('Shanghai (2D Gyroid)')
     win.cache.clear()
     front = _study_front([[.5, .6]], [[-1., .8]])
-    optimize_panel.show_pareto(win, front)
-    optimize_panel.show_field_preview(win)
-    monkeypatch.setattr(win, '_active_tab', 'pareto')
+    win.optimization.show_pareto(front)
+    win.optimization.show_field_preview()
+    monkeypatch.setattr(win.workbench, 'active_tab', 'pareto')
     clipboard = QGuiApplication.clipboard()
     try:
-        for canvas, color in ((win.canvas_pareto, '#4488cc'), (win.canvas_opt_field, '#dd6633')):
+        for canvas, color in ((win.optimization.pareto_canvas, '#4488cc'), (win.optimization.field_canvas, '#dd6633')):
             pixmap = QPixmap(8, 8)
             pixmap.fill(QColor(color))
             monkeypatch.setattr(canvas, 'grab', lambda p=pixmap: p)
-            win._opt_result_tabs.setCurrentWidget(canvas)
+            win.optimization.result_tabs.setCurrentWidget(canvas)
             clipboard.clear()
-            win._copy_figure_clipboard()
+            win.result_export.copy_figure_clipboard()
             assert clipboard.image().pixelColor(0, 0).name() == color
-        win.canvas_opt_field.figure.clear()
+        win.optimization.field_canvas.figure.clear()
         clipboard.clear()
-        win._copy_figure_clipboard()
+        win.result_export.copy_figure_clipboard()
         assert clipboard.image().isNull()
         assert '当前无可复制' in win.statusBar().currentMessage()
         choices = []
-        monkeypatch.setattr(io_actions.QInputDialog, 'getItem',
+        monkeypatch.setattr(result_export.QInputDialog, 'getItem',
                             lambda *a: (choices.append(a[3]) or ('', False)))
-        win._export_figure()
+        win.result_export.export_figure()
         assert choices == [['Pareto / 优化']]
-        win._pareto_X = win._pareto_F = None
-        win._refresh_export_button()
+        win.optimization.show_pareto(_study_front([], []))
+        win.result_export.refresh_export_button()
         assert not win.btn_export.isEnabled()
     finally:
-        win._pareto_X = win._pareto_F = None
-        win.canvas_opt_field.figure.clear()
-        win._opt_result_tabs.setCurrentWidget(win.canvas_pareto)
-        win._refresh_export_button()
+        win.optimization.show_pareto(_study_front([], []))
+        win.optimization.field_canvas.figure.clear()
+        win.optimization.result_tabs.setCurrentWidget(win.optimization.pareto_canvas)
+        win.result_export.refresh_export_button()
 
 
 @pytest.mark.parametrize('depth', ['invalid', '0', '-0.01'])
 def test_optimization_validates_explicit_2d_flow_conversion_depth(win, depth):
-    from sjtu_tpmshx.applications.gui.ui.optimize_panel import _gather_cfg
-    win._load_named_preset('Shanghai (2D Gyroid)')
-    win.le_Lz.setText(depth)
+    win.case_files.load_named_preset('Shanghai (2D Gyroid)')
     assert win.le_Lz.isHidden()
-    assert win._opt_depth.text() == depth
+    case_depth = win.le_Lz.text()
+    win.optimization.depth.setText(depth)
+    assert win.le_Lz.text() == case_depth
     with pytest.raises(ValueError, match='2D total-flow depth'):
-        _gather_cfg(win)
+        win.optimization.capture_case()
+    win.optimization.depth.setText('0.062')
     win.le_Lz.setText('0.042')
-    assert _gather_cfg(win).geometry.Lz_m == .042
+    assert win.optimization.capture_case().geometry.Lz_m == .062
+    win.optimization.depth.setText('0.042')
 
 
 def test_retained_pareto_export_does_not_take_new_compute_preset_name(
         win, monkeypatch, tmp_path):
     from PIL import Image
-    from sjtu_tpmshx.applications.gui.ui import optimize_panel
-    from sjtu_tpmshx.applications.gui.ui.mixins import io_actions
-    win._load_named_preset('Shanghai (2D Gyroid)')
+    from sjtu_tpmshx.applications.gui.ui import result_export
+    win.case_files.load_named_preset('Shanghai (2D Gyroid)')
     front = _study_front(np.ones((2, 18)), [[-1., .8], [-2., 1.1]])
-    optimize_panel.show_pareto(win, front)
-    win._load_named_preset('Shanghai (3D Gyroid)')
-    np.testing.assert_array_equal(win._pareto_F, [[-1., .8], [-2., 1.1]])
+    win.optimization.show_pareto(front)
+    win.case_files.load_named_preset('Shanghai (3D Gyroid)')
+    line = win.optimization.pareto_canvas.figure.axes[0].lines[0]
+    np.testing.assert_array_equal(line.get_xydata(), [[.8, 1.], [1.1, 2.]])
     path = tmp_path / 'retained-pareto.png'
     choices = iter([('Pareto / 优化', True), ('150 (screen)', True)])
-    monkeypatch.setattr(io_actions.QInputDialog, 'getItem', lambda *a: next(choices))
-    monkeypatch.setattr(io_actions.QFileDialog, 'getSaveFileName',
+    monkeypatch.setattr(result_export.QInputDialog, 'getItem', lambda *a: next(choices))
+    monkeypatch.setattr(result_export.QFileDialog, 'getSaveFileName',
                         lambda *a: (str(path), 'PNG (*.png)'))
-    win._export_figure()
+    win.result_export.export_figure()
     with Image.open(path) as picture:
         assert 'Subject' not in picture.info
         assert picture.info['Title'] == 'SJTU-TPMSHX pareto'
-    optimize_panel.show_pareto(win, dict(front, pareto_indices=[]))
+    win.optimization.show_pareto(dict(front, pareto_indices=[]))
 
 
 @pytest.mark.parametrize('channels', [3, 4])
@@ -1407,15 +1417,15 @@ def test_optimization_volume_copy_and_export_require_current_render(
     from types import MethodType, SimpleNamespace
     from unittest.mock import Mock
     from PySide6.QtGui import QGuiApplication
-    from sjtu_tpmshx.applications.gui.ui.mixins import io_actions
+    from sjtu_tpmshx.applications.gui.ui import result_export
     from sjtu_tpmshx.applications.gui.ui.panel_vis_3d import ThreeDVisPanel
 
     win.cache.clear()
-    win._pareto_X = win._pareto_F = None
-    win.canvas_opt_field.figure.clear()
-    monkeypatch.setattr(win, '_active_tab', 'pareto')
-    monkeypatch.setattr(win, '_opt_3d_data', None)
-    win._opt_result_tabs.setCurrentWidget(win._opt_3d_host)
+    win.optimization.show_pareto(_study_front([], []))
+    win.optimization.field_canvas.figure.clear()
+    monkeypatch.setattr(win.workbench, 'active_tab', 'pareto')
+    monkeypatch.setattr(win.optimization, 'volume_data', None)
+    win.optimization.result_tabs.setCurrentWidget(win.optimization.volume_host)
     pixels = np.array([[[17, 119, 68, 255], [230, 40, 10, 128], [5, 60, 180, 255]],
                        [[25, 70, 130, 64], [90, 40, 220, 255], [240, 210, 20, 255]]],
                       dtype=np.uint8)[:, :, :channels].copy()
@@ -1425,27 +1435,27 @@ def test_optimization_volume_copy_and_export_require_current_render(
                             color_range_state=lambda: {'mode': 'global', 'ranges': {}})
     panel.plotter.screenshot.return_value = pixels
     panel._on_screenshot = MethodType(ThreeDVisPanel._on_screenshot, panel)
-    monkeypatch.setattr(win, 'canvas_opt_3d', panel)
-    monkeypatch.setattr(win, '_opt_3d_data', {'new-design': True})
-    monkeypatch.setattr(win, '_opt_3d_ready', False)
+    monkeypatch.setattr(win.optimization, 'volume_panel', panel)
+    monkeypatch.setattr(win.optimization, 'volume_data', {'new-design': True})
+    monkeypatch.setattr(win.optimization, '_volume_ready', False)
     clipboard = QGuiApplication.clipboard()
     try:
         # A previous grid must not count as the newly requested design.
-        win._refresh_export_button()
+        win.result_export.refresh_export_button()
         assert not win.btn_export.isEnabled()
         clipboard.clear()
-        win._copy_figure_clipboard()
+        win.result_export.copy_figure_clipboard()
         assert clipboard.image().isNull()
         panel.grab.assert_not_called()
         picker = Mock(return_value=('优化三维场', True))
-        monkeypatch.setattr(io_actions.QInputDialog, 'getItem', picker)
-        win._export_figure()
+        monkeypatch.setattr(result_export.QInputDialog, 'getItem', picker)
+        win.result_export.export_figure()
         picker.assert_not_called()
 
-        win._opt_3d_ready = True
-        win._refresh_export_button()
+        win.optimization._volume_ready = True
+        win.result_export.refresh_export_button()
         assert win.btn_export.isEnabled()
-        win._copy_figure_clipboard()
+        win.result_export.copy_figure_clipboard()
         panel.grab.assert_not_called()
         panel.plotter.screenshot.assert_called_once_with(return_img=True)
         pixels[:] = 0
@@ -1457,16 +1467,16 @@ def test_optimization_volume_copy_and_export_require_current_render(
         panel.plotter.screenshot.reset_mock()
         path = tmp_path / 'optimization-volume.png'
         save_dialog = Mock(return_value=(str(path), 'PNG images (*.png)'))
-        monkeypatch.setattr(io_actions.QFileDialog, 'getSaveFileName', save_dialog)
-        win._export_figure()
+        monkeypatch.setattr(result_export.QFileDialog, 'getSaveFileName', save_dialog)
+        win.result_export.export_figure()
         picker.assert_called_once()
         assert picker.call_args.args[3] == ['优化三维场']
         assert save_dialog.call_args.args[3] == 'PNG images (*.png)'
         panel.plotter.screenshot.assert_called_once_with(str(path))
         panel.plotter.screenshot.side_effect = RuntimeError('screenshot failed')
         warning = Mock()
-        monkeypatch.setattr(io_actions.QMessageBox, 'warning', warning)
-        win._export_figure()
+        monkeypatch.setattr(result_export.QMessageBox, 'warning', warning)
+        win.result_export.export_figure()
         assert warning.call_args.args[1:] == ('Export failed', 'screenshot failed')
 
         # The real L/t callback clears its actor if the next VTK volume fails,
@@ -1482,19 +1492,19 @@ def test_optimization_volume_copy_and_export_require_current_render(
         panel.plotter.add_volume.side_effect = RuntimeError('field switch failed')
         ThreeDVisPanel._on_field_changed(panel, 1)
         assert panel._field == 't_mm' and panel._volume_actor is None
-        assert win._opt_3d_ready  # This flag describes the earlier successful load.
-        assert not win._opt_3d_figure_ready()
-        win._refresh_export_button()
+        assert win.optimization._volume_ready  # This flag describes the earlier successful load.
+        assert not win.optimization.volume_ready()
+        win.result_export.refresh_export_button()
         assert not win.btn_export.isEnabled()
         panel.plotter.screenshot.reset_mock()
         picker.reset_mock()
         clipboard.clear()
-        win._copy_figure_clipboard()
-        win._export_figure()
+        win.result_export.copy_figure_clipboard()
+        win.result_export.export_figure()
         assert clipboard.image().isNull()
         panel.plotter.screenshot.assert_not_called()
         picker.assert_not_called()
     finally:
-        win._opt_result_tabs.setCurrentWidget(win.canvas_pareto)
-        win._opt_3d_ready = False
-        win._refresh_export_button()
+        win.optimization.result_tabs.setCurrentWidget(win.optimization.pareto_canvas)
+        win.optimization._volume_ready = False
+        win.result_export.refresh_export_button()

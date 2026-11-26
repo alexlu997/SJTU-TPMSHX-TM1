@@ -8,28 +8,34 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.applications.gui.ui import optimize_panel as panel
-from sjtu_tpmshx.applications.gui.ui.theme import FIELD_CMAP
+from sjtu_tpmshx.applications.gui.ui.optimize_job import OptimizationJob
+from sjtu_tpmshx.applications.gui.ui.theme import resolve_cmap
+from sjtu_tpmshx.applications.optimization import optimization_job as job_input
+from sjtu_tpmshx.run_control.module_ports import RunControl
 from tests.python.gui_io_support import win as win
 from tests.python.optimization_support import condition, report
 
 
 @pytest.fixture
 def window(win):
-    win._load_named_preset('Shanghai (3D Gyroid)')
+    win.case_files.load_named_preset('Shanghai (3D Gyroid)')
+    page = win.optimization
+    page.depth.setText(win.le_Lz.text())
     win._continuous_field_spec = None
-    win._opt_conditions = None
-    win._opt_mass_requirements = None
-    for edit in win._opt_controls.values():
+    page.conditions = None
+    page.mass_requirements = None
+    for edit in page.controls.values():
         edit.setValue(3)
     win.le_Nx.setText('12'); win.le_Ny.setText('8'); win.le_Nz.setText('6')
     win.combo_grid.setCurrentIndex(win.combo_grid.findData(False))
     for key, value in (('L_min', 4.), ('L_max', 8.), ('t_min', .3), ('t_max', .6)):
-        win._opt_space_params[key].setValue(value)
+        page.bounds[key].setValue(value)
     return win
 
 
 @pytest.mark.parametrize('save_failure', [False, True])
 def test_worker_pause_requires_saved_terminal_status(window, tmp_path, monkeypatch, save_failure):
+    page = window.optimization
     from sjtu_tpmshx.applications.optimization import multi_condition_optimizer as search
     from tests.python.optimization_support import _fake_batches
     from tests.python.optimization_support import _checkpoint_fault
@@ -37,24 +43,29 @@ def test_worker_pause_requires_saved_terminal_status(window, tmp_path, monkeypat
     if save_failure:
         _checkpoint_fault(monkeypatch, search, 'optimization.json',
             lambda record, _: record['status'] == 'paused', persistent=True)
-    worker = panel._make_worker_class()(panel._gather_cfg(window), [condition()],
-        panel._field_spec(window), 'sobol', 1, 0, 1, 0, str(tmp_path / 'paused'))
-    reports, errors = [], []
-    worker.finished_with_result.connect(reports.append)
-    worker.error_signal.connect(errors.append)
+    from tests.python.gui_worker_support import _wait_for
+
+    inputs = job_input.OptimizationInput(page.capture_case(), [condition()],
+        page.field_spec(), 'sobol', 1, 0, 1, 0)
+    terminal, settled = [], []
+    worker = OptimizationJob(inputs, tmp_path / 'paused', RunControl(),
+                             lambda report, error: terminal.append((report, error)))
+    worker.settled.connect(lambda: settled.append(True))
     worker.request_pause()
-    worker.run()
+    worker.start()
+    _wait_for(lambda: bool(settled))
+    [(result, error)] = terminal
     if save_failure:
-        assert not reports and 'checkpoint write failed' in errors[0]
+        assert result is None and 'checkpoint write failed' in error
     else:
-        assert not errors and reports[0]['status'] == 'paused'
-        assert panel._termination_label(reports[0]) == '已暂停'
+        assert not error and result['status'] == 'paused'
+        assert panel._termination_label(result) == '已暂停'
         assert (tmp_path / 'paused/optimization-input.json').is_file()
-    worker.deleteLater()
 
 
 @pytest.mark.parametrize('stale_speed', [False, True])
 def test_resume_button_uses_saved_input_and_restores_idle_controls(window, tmp_path, monkeypatch, stale_speed):
+    page = window.optimization
     from PySide6.QtWidgets import QFileDialog
     from sjtu_tpmshx.applications.optimization import multi_condition_optimizer as search
     from tests.python.gui_worker_support import _wait_for
@@ -73,21 +84,22 @@ def test_resume_button_uses_saved_input_and_restores_idle_controls(window, tmp_p
             config.validate()
     expected = search.run_multi_condition_optimization(conditions, output_dir=source,
         method='sobol', n_init=2, n_iter=0, workers=1)
-    monkeypatch.setattr(panel, '_gather_cfg', lambda _: pytest.fail('recovery read current widgets'))
+    monkeypatch.setattr(page, 'capture_case', lambda: pytest.fail('recovery read current widgets'))
     monkeypatch.setattr(panel, 'optimization_output_dir', lambda: tmp_path)
     monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *a: (str(source / 'optimization.json'), ''))
-    window._opt_resume_btn.click()
-    assert not window._opt_resume_btn.isEnabled() and window._opt_cancel_btn.isEnabled()
-    _wait_for(lambda: window._opt_worker is None)
-    assert window._last_opt_report['status'] == 'completed', window._opt_status.text()
-    assert window._last_opt_report['field_spec'] == expected['field_spec']
+    page.resume_button.click()
+    assert not page.resume_button.isEnabled() and page.cancel_button.isEnabled()
+    _wait_for(page.is_idle)
+    assert page.report['status'] == 'completed', page.status.text()
+    assert page.report['field_spec'] == expected['field_spec']
     assert len(calls) == 3
-    assert window._opt_resume_btn.isEnabled() and not window._opt_pause_btn.isEnabled()
-    assert not window._opt_cancel_btn.isEnabled() and window._cpu_card.isEnabled()
-    assert window._last_opt_output_dir != str(source)
+    assert page.resume_button.isEnabled() and not page.pause_button.isEnabled()
+    assert not page.cancel_button.isEnabled() and window._cpu_card.isEnabled()
+    assert page.last_output_dir != source
 
 
 def archive_candidate(window, study, output_dir):
+    page = window.optimization
     from sjtu_tpmshx.data_types.compute_config import ComputeConfig, ZoneInputConfig
     from sjtu_tpmshx.file_io.case_io import save_case
     from sjtu_tpmshx.applications.optimization.multi_condition import prepare_fixed_mass_flow_case
@@ -105,22 +117,33 @@ def archive_candidate(window, study, output_dir):
         status='completed', case_id=case.case_id, case_file='condition_001/case.yaml',
         mass_flow_A_kg_s=row['mass_flow_A_kg_s'], mass_flow_B_kg_s=row['mass_flow_B_kg_s'])])
     (directory / 'batch.json').write_text(json.dumps(batch))
-    window._last_opt_output_dir = str(output_dir)
+    page.last_output_dir = output_dir
     return case, batch
 
 
+def pick_front(page, point=0):
+    from matplotlib.backend_bases import MouseEvent, PickEvent
+
+    canvas = page.pareto_canvas
+    front = canvas.figure.axes[0].lines[0]
+    mouse = MouseEvent('button_press_event', canvas, 0, 0)
+    event = PickEvent('pick_event', canvas, mouse, front, ind=[point])
+    canvas.callbacks.process('pick_event', event)
+
+
 def test_export_button_uses_archived_objectives_after_ui_edits(window, tmp_path, monkeypatch):
+    page = window.optimization
     import csv
     from PySide6.QtWidgets import QFileDialog
 
     study = report(window, status='cancelled')
-    window._last_opt_report = study
-    panel.show_pareto(window, study)
+    page.report = study
+    page.show_pareto(study)
     window.le_TinA.setText('450')
     target = tmp_path / 'pareto.csv'
     monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: (str(target), 'CSV (*.csv)'))
-    assert window._opt_export_pareto_btn.isEnabled()
-    window._opt_export_pareto_btn.click()
+    assert page.export_pareto_button.isEnabled()
+    page.export_pareto_button.click()
     with target.open(encoding='utf-8-sig', newline='') as stream:
         rows = list(csv.DictReader(stream))
     assert len(rows) == 1
@@ -130,18 +153,19 @@ def test_export_button_uses_archived_objectives_after_ui_edits(window, tmp_path,
 
 
 def test_long_export_path_keeps_pareto_plot_inside_viewport(window, tmp_path, monkeypatch):
+    page = window.optimization
     from PySide6.QtCore import QEventLoop, QPoint
     from PySide6.QtWidgets import QApplication, QFileDialog
 
-    window._last_opt_report = study = report(window)
-    panel.show_pareto(window, study)
-    window._switch_tab('pareto')
+    page.report = study = report(window)
+    page.show_pareto(study)
+    window.workbench.switch_tab('pareto')
     window.resize(1300, 900)
     window.show()
     QApplication.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 1000)
     initial_width = window.width()
     viewport = window._canvas_scroll.viewport()
-    canvas = window.canvas_pareto
+    canvas = page.pareto_canvas
     assert canvas.isVisible()
     origin = canvas.mapTo(viewport, QPoint(0, 0))
     assert origin.x() + canvas.width() <= viewport.width()
@@ -149,10 +173,10 @@ def test_long_export_path_keeps_pareto_plot_inside_viewport(window, tmp_path, mo
     target.parent.mkdir()
     monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: (str(target), 'CSV (*.csv)'))
     try:
-        window._opt_export_pareto_btn.click()
+        page.export_pareto_button.click()
         QApplication.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 1000)
         assert target.is_file()
-        assert str(target) in window._opt_status.text()
+        assert str(target) in page.status.text()
         assert canvas.isVisible()
         origin = canvas.mapTo(viewport, QPoint(0, 0))
         assert origin.x() + canvas.width() <= viewport.width()
@@ -163,26 +187,27 @@ def test_long_export_path_keeps_pareto_plot_inside_viewport(window, tmp_path, mo
 
 @pytest.mark.parametrize('width', [1280, 1442])
 def test_optimization_bounds_show_complete_decimal_values(window, width):
+    page = window.optimization
     from PySide6.QtCore import QEventLoop
     from PySide6.QtWidgets import QApplication
 
     previous_size = window.size()
-    previous_page = window._opt_stack.currentIndex()
-    previous_tab = window._active_tab
-    window._switch_tab('pareto')
-    window._opt_stack.setCurrentIndex(0)
+    previous_page = page.stack.currentIndex()
+    previous_tab = window.workbench.active_tab
+    window.workbench.switch_tab('pareto')
+    page.stack.setCurrentIndex(0)
     window.resize(width, 932)
     window.show()
     QApplication.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 1000)
     try:
-        for spin in window._opt_space_params.values():
+        for spin in page.bounds.values():
             edit = spin.lineEdit()
             margins = edit.textMargins()
             available = edit.contentsRect().width() - margins.left() - margins.right() - 4
             assert edit.fontMetrics().horizontalAdvance(spin.text()) <= available, spin.text()
     finally:
-        window._opt_stack.setCurrentIndex(previous_page)
-        window._switch_tab(previous_tab)
+        page.stack.setCurrentIndex(previous_page)
+        window.workbench.switch_tab(previous_tab)
         window.resize(previous_size)
         QApplication.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 1000)
         window.hide()
@@ -190,49 +215,60 @@ def test_optimization_bounds_show_complete_decimal_values(window, width):
 
 @pytest.mark.parametrize('dimension', [0, 1])
 def test_control_counts_and_selected_export_keep_frozen_design(window, tmp_path, dimension):
+    page = window.optimization
     from sjtu_tpmshx.applications.optimization.export_ntop_csv import export_study_design
     window.combo_dim.setCurrentIndex(dimension)
     for axis, count in zip('xyz', (1, 2, 5)):
-        window._opt_controls[axis].setValue(count)
-    spec = panel._field_spec(window)
+        page.controls[axis].setValue(count)
+    spec = page.field_spec()
     assert spec['n_ctrl_x'] == 1 and spec['n_ctrl_y'] == 2
     if dimension:
         assert spec['n_ctrl_z'] == 5
-    assert ('20' if dimension else '4') + ' 个变量' in window._opt_field_layout.text()
-    preset = window._capture_current_preset('controls')
-    window._validate_preset(preset, complete=True)
-    window._opt_controls['x'].setValue(3)
-    window._apply_user_preset(preset, show_notice=False)
-    assert [edit.value() for edit in window._opt_controls.values()] == [1, 2, 5]
+    assert ('20' if dimension else '4') + ' 个变量' in page.field_layout.text()
+    preset = window.case_files.capture_current_preset('controls')
+    window.case_files.validate_preset(preset, complete=True)
+    page.controls['x'].setValue(3)
+    window.case_files.apply_user_preset(preset, show_notice=False)
+    assert [edit.value() for edit in page.controls.values()] == [1, 2, 5]
     study = report(window)
-    window._last_opt_report = study
+    second = deepcopy(study['history'][0])
+    second['index'] = 1
+    second['objectives']['pressure_ratio'] = 0.15
+    study['history'].append(second)
+    study.update(pareto_indices=[0, 1], n_evaluated=2, n_usable=2)
     archive_candidate(window, study, tmp_path / 'archive')
-    panel.show_pareto(window, study)
-    panel.on_pareto_pick(window, types.SimpleNamespace(ind=[0]))
-    assert window._opt_selected_history_index == 0
-    assert window._opt_export_geometry_btn.isEnabled()
-    frozen = deepcopy(study)
+    page.show_pareto(study)
     window.le_L.setText('0.2')
-    window._opt_controls['x'].setValue(4)
-    summary = export_study_design(window._last_opt_report, window._opt_selected_history_index,
+    pick_front(page, 1)
+    assert page.selected_index == 0
+    assert page.field_canvas.figure.axes[0].images[0].get_extent()[1] == pytest.approx(182.)
+    assert page.export_geometry_button.isEnabled()
+    frozen = deepcopy(study)
+    page.controls['x'].setValue(4)
+    summary = export_study_design(page.report, page.selected_index,
                                  tmp_path / 'geometry', (3, 2, 4) if dimension else (3, 2))
     assert study == frozen
     assert summary['L_domain_mm'] == pytest.approx(182.)
     assert summary['geometry_config']['n_ctrl_x'] == 1
     assert summary['source']['design_id'] == 0
     assert summary['decision_vector'] == study['history'][0]['x_decision']
-    panel.show_pareto(window, study)
-    assert window._opt_selected_history_index is None
-    assert not window._opt_export_geometry_btn.isEnabled()
+    page.show_pareto(study)
+    assert page.selected_index is None
+    assert not page.load_button.isEnabled()
+    assert not page.export_geometry_button.isEnabled()
 
 
 @pytest.mark.parametrize('dimension', [0, 1])
 def test_complete_case_and_field_dimension_reach_optimizer(window, dimension):
+    page = window.optimization
     from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
     window.combo_dim.setCurrentIndex(dimension)
     depth = .042 if dimension else .063
     window.le_Lz.setText(str(depth))
-    cfg = panel._gather_cfg(window)
+    if not dimension:
+        page.depth.setText(str(depth))
+        window.le_Lz.setText('0.051')
+    cfg = page.capture_case()
     ordinary = config_from_window(window, strict=True)
     assert cfg.bc_A == ordinary.bc_A and cfg.bc_B == ordinary.bc_B
     assert cfg.solver == ordinary.solver and cfg.df_mode == 'experimental'
@@ -240,19 +276,21 @@ def test_complete_case_and_field_dimension_reach_optimizer(window, dimension):
     assert cfg.is_3d == bool(dimension)
     if not dimension:
         assert ordinary.geometry.Lz_m is None
-    spec = panel._field_spec(window)
+    spec = page.field_spec()
     assert spec['symmetric_y'] is False and spec['spline_order'] == 2
     assert ('n_ctrl_z' in spec) == bool(dimension)
-    assert str(54 if dimension else 18) in window._opt_field_layout.text()
+    assert str(54 if dimension else 18) in page.field_layout.text()
 
 
 @pytest.mark.parametrize('bad', ['bad', '0', '-1', 'nan'])
 def test_2d_total_flow_depth_is_explicit_and_strict(window, bad):
+    page = window.optimization
     window.combo_dim.setCurrentIndex(0)
-    window._opt_depth.setText(bad)
-    assert window.le_Lz.text() == bad
+    actual_depth = window.le_Lz.text()
+    page.depth.setText(bad)
+    assert window.le_Lz.text() == actual_depth
     with pytest.raises(ValueError, match='2D total-flow depth'):
-        panel._gather_cfg(window)
+        page.capture_case()
 
 
 @pytest.mark.parametrize('damage', ['extra', 'missing', 'duplicate', 'bool', 'nonfinite', 'empty'])
@@ -265,38 +303,40 @@ def test_import_contract_rejects_ambiguous_or_invalid_operating_inputs(damage):
     if damage == 'nonfinite': payload['conditions'][0]['T_in_A_K'] = float('nan')
     if damage == 'empty': payload['conditions'] = []
     with pytest.raises(ValueError):
-        panel.validate_condition_table(payload)
+        job_input.validate_condition_table(payload)
 
 
 def test_import_changes_only_operating_conditions(window, tmp_path, monkeypatch):
+    page = window.optimization
     from PySide6.QtWidgets import QFileDialog
-    before = asdict(panel._gather_cfg(window))
+    before = asdict(page.capture_case())
     path = tmp_path / 'conditions.json'
     path.write_text(json.dumps({'conditions': [condition('a'), condition('b')]}))
     monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *a: (str(path), ''))
-    panel.import_conditions(window)
-    current = panel._gather_cfg(window)
-    rows = panel._condition_inputs(current, window._opt_conditions)
+    page.import_conditions()
+    current = page.capture_case()
+    rows = job_input.condition_inputs(current, page.conditions)
     assert [r[0] for r in rows] == ['a', 'b']
     for _, cfg, flow_a, flow_b in rows:
         assert cfg.geometry == current.geometry and cfg.bc_B == current.bc_B
         assert cfg.solver == current.solver and cfg.df_mode == current.df_mode
         assert cfg.fluid_A.T_in_K == 400. and cfg.fluid_B.P_in_Pa == 120000.
         assert (flow_a, flow_b) == (.003, .015)
-    assert asdict(panel._gather_cfg(window)) == before
+    assert asdict(page.capture_case()) == before
     path.write_text('{"conditions": []}')
-    panel.import_conditions(window)
-    assert len(window._opt_conditions) == 2
-    panel.use_current_condition(window)
-    assert window._opt_conditions is None and '单工况' in window._opt_condition_summary.text()
+    page.import_conditions()
+    assert len(page.conditions) == 2
+    page.use_current_condition()
+    assert page.conditions is None and '单工况' in page.condition_summary.text()
 
 
 @pytest.mark.parametrize('dimension', [0, 1])
 def test_current_condition_flow_uses_prepared_fractional_pore_area(window, dimension, monkeypatch):
+    page = window.optimization
     from sjtu_tpmshx.preprocess.api import prepare_case
     window.combo_dim.setCurrentIndex(dimension)
-    cfg = panel._gather_cfg(window)
-    rows = panel._condition_inputs(cfg, None)
+    cfg = page.capture_case()
+    rows = job_input.condition_inputs(cfg, None)
     case = prepare_case(cfg, case_id='independent-inlet-check')
     if not dimension:
         from tests.python.native.prepared_snapshot import native_prepared_state
@@ -324,23 +364,23 @@ def test_current_condition_flow_uses_prepared_fractional_pore_area(window, dimen
 
 
 def test_worker_passes_native_contract_and_reports_cancellation(window, tmp_path, monkeypatch):
-    from sjtu_tpmshx.run_control.module_ports import RunControl
+    page = window.optimization
     from sjtu_tpmshx.applications.optimization import multi_condition_optimizer as native
-    cfg = panel._gather_cfg(window)
+    cfg = page.capture_case()
     rows = [condition()]
-    conditions = panel._condition_inputs(cfg, rows)
-    Worker = panel._make_worker_class()
+    conditions = job_input.condition_inputs(cfg, rows)
+    from tests.python.gui_worker_support import _wait_for
     host_progress, requested = [], [False]
     host = RunControl(backend='cpp', native_library='/host/solver',
         native_table_directory='/host/tables', progress=host_progress.append,
         cancel_check=lambda: requested[0])
-    worker = Worker(cfg, rows, panel._field_spec(window), 'sobol', 2, 0, 1, 3, str(tmp_path),
-                    control=host)
+    outputs, progress, updates, settled = [], [], [], []
+    inputs = job_input.OptimizationInput(cfg, rows, page.field_spec(), 'sobol', 2, 0, 1, 3)
+    worker = OptimizationJob(inputs, tmp_path, host, lambda result, error: outputs.append((result, error)))
     rows[0]['T_in_A_K'] = 500.
-    outputs, progress, updates = [], [], []
-    worker.finished_with_result.connect(outputs.append)
-    worker.progress_signal.connect(progress.append)
-    worker.update_signal.connect(updates.append)
+    worker.progress.connect(progress.append)
+    worker.updated.connect(updates.append)
+    worker.settled.connect(lambda: settled.append(True))
     expected = report(window, status='cancelled')
     def run(actual, **kwargs):
         assert actual == conditions and actual is not conditions
@@ -355,76 +395,82 @@ def test_worker_passes_native_contract_and_reports_cancellation(window, tmp_path
         requested[0] = True
         kwargs['control'].check_cancelled()
     monkeypatch.setattr(native, 'run_multi_condition_optimization', run)
-    worker.run()
-    assert progress == [17] and outputs == [expected]
+    worker.start()
+    _wait_for(lambda: bool(settled))
+    assert progress == [17] and outputs == [(expected, '')]
     assert host_progress == [17]
     assert updates[0]['report'] == expected
 
 
 def test_live_status_and_pareto_keep_run_page_and_cancel_request(window):
+    page = window.optimization
     study = report(window, status='running')
     study.update(stage='proposal', iteration=1)
-    window._opt_stop_requested = False
-    window._opt_stack.setCurrentIndex(1)
+    page._stop_requested = False
+    page.stack.setCurrentIndex(1)
     state = dict(report=study, elapsed_s=30., eta_s=90.,
         conditions=[dict(condition_id='hot', status='running', stage='prepare', reason=None)])
-    panel._show_live_update(window, state)
-    assert window._opt_kpi_gen.text() == '1/4'
-    assert '数值合格 1' in window._opt_live_details.text()
-    assert 'hot：前处理' in window._opt_live_details.text()
-    assert '1.5 min' in window._opt_kpi_eta.text()
-    assert window._opt_status.text() == '选择候选'
-    assert panel.show_pareto(window, study, running=True) is None
-    assert window._opt_stack.currentIndex() == 1
-    assert window._pareto_pick_cid is None
-    assert not window._opt_export_geometry_btn.isEnabled()
-    window._opt_stop_requested = True
-    panel._show_live_update(window, state)
-    assert '取消请求已收到' in window._opt_status.text()
+    page.show_live_update(state)
+    assert page.kpi_gen.text() == '1/4'
+    assert '数值合格 1' in page.live_details.text()
+    assert 'hot：前处理' in page.live_details.text()
+    assert '1.5 min' in page.kpi_eta.text()
+    assert page.status.text() == '选择候选'
+    assert page.show_pareto(study, running=True) is None
+    assert page.stack.currentIndex() == 1
+    assert page._pick_id is None
+    assert not page.export_geometry_button.isEnabled()
+    page._stop_requested = True
+    page.show_live_update(state)
+    assert '取消请求已收到' in page.status.text()
     terminal = {**study, 'status': 'failed', 'reason': 'save failed'}
-    panel._show_live_update(window, {**state, 'report': terminal, 'eta_s': None})
-    assert window._opt_status.text() == '失败'
-    assert 'save failed' in window._opt_live_details.text()
+    page.show_live_update({**state, 'report': terminal, 'eta_s': None})
+    assert page.status.text() == '失败'
+    assert 'save failed' in page.live_details.text()
 
 
 def test_live_status_keeps_active_later_conditions_visible(window):
+    page = window.optimization
     study = report(window, status='running')
     study.update(stage='evaluation', iteration=1)
     conditions = [dict(condition_id=f'finished-{i}', status='completed',
                        stage='qualification', reason=None) for i in range(4)]
     conditions += [dict(condition_id='fifth', status='running', stage='solve', reason=None),
                    dict(condition_id='sixth', status='failed', stage='prepare', reason='bad input')]
-    window._opt_stop_requested = False
-    panel._show_live_update(window, dict(report=study, elapsed_s=30., eta_s=None,
+    page._stop_requested = False
+    page.show_live_update(dict(report=study, elapsed_s=30., eta_s=None,
                                         conditions=conditions))
-    lines = window._opt_live_details.text().splitlines()
+    lines = page.live_details.text().splitlines()
     assert lines[2:4] == ['fifth：原生求解', 'sixth：失败']
     assert '另有 2 个工况' in lines and 'bad input' in lines
 
 
 @pytest.mark.parametrize('failure', ['cancelled', 'error'])
 def test_presearch_stop_preserves_previous_report_and_archive(window, tmp_path, monkeypatch, failure):
+    page = window.optimization
     from sjtu_tpmshx.run_control.cancellation import CancelledError
     from tests.python.gui_worker_support import _wait_for
     previous = report(window)
     archive_candidate(window, previous, tmp_path / 'previous')
-    window._last_opt_report = deepcopy(previous)
-    panel.show_pareto(window, previous)
-    old_directory = window._last_opt_output_dir
+    page.report = deepcopy(previous)
+    page.show_pareto(previous)
+    old_directory = page.last_output_dir
     monkeypatch.setattr(panel, 'optimization_output_dir', lambda: tmp_path)
     def stop(*args):
         raise CancelledError('test cancellation') if failure == 'cancelled' else RuntimeError('test error')
-    monkeypatch.setattr(panel, '_condition_inputs', stop)
-    panel.run_optimize(window)
-    _wait_for(lambda: window._opt_worker is None)
-    assert window._last_opt_report == previous
-    assert window._last_opt_output_dir == old_directory
-    panel.load_pareto_solution(window, previous['history'][0]['x_decision'])
+    monkeypatch.setattr(job_input, 'condition_inputs', stop)
+    page.start()
+    _wait_for(page.is_idle)
+    assert page.report == previous
+    assert page.last_output_dir == old_directory
+    pick_front(page)
+    page.load_button.click()
     assert window._continuous_field_spec['x_decision'] == previous['history'][0]['x_decision']
 
 
 @pytest.mark.parametrize('save_failure', [False, True])
 def test_proposal_error_restores_pareto_only_after_saved_terminal(window, tmp_path, monkeypatch, save_failure):
+    page = window.optimization
     from sjtu_tpmshx.applications.optimization import multi_condition_optimizer as search
     from tests.python.gui_worker_support import _wait_for
     from tests.python.optimization_support import _fake_batches
@@ -437,24 +483,25 @@ def test_proposal_error_restores_pareto_only_after_saved_terminal(window, tmp_pa
     if save_failure:
         _checkpoint_fault(monkeypatch, search, 'optimization.json',
                           lambda record, _: record['status'] == 'failed', persistent=True)
-    window._opt_conditions = [condition()]
-    window._opt_method.setCurrentIndex(window._opt_method.findData('qlognehvi'))
+    page.conditions = [condition()]
+    page.method.setCurrentIndex(page.method.findData('qlognehvi'))
     for key, value in dict(n_init=2, n_iter=1, q_batch=1).items():
-        window._opt_inline_params[key].setValue(value)
+        page.parameters[key].setValue(value)
     monkeypatch.setattr(panel, 'optimization_output_dir', lambda: tmp_path)
-    panel.run_optimize(window)
-    _wait_for(lambda: window._opt_worker is None)
-    assert 'injected proposal failure' in window._opt_status.text()
-    assert window._last_opt_report['n_usable'] == 2
-    assert window._last_opt_report['status'] == ('running' if save_failure else 'failed')
-    assert window._opt_export_pareto_btn.isEnabled() is not save_failure
-    assert (window._pareto_pick_cid is not None) is not save_failure
-    assert window._opt_stack.currentIndex() == (0 if save_failure else 2)
+    page.start()
+    _wait_for(page.is_idle)
+    assert 'injected proposal failure' in page.status.text()
+    assert page.report['n_usable'] == 2
+    assert page.report['status'] == ('running' if save_failure else 'failed')
+    assert page.export_pareto_button.isEnabled() is not save_failure
+    assert (page._pick_id is not None) is not save_failure
+    assert page.stack.currentIndex() == (0 if save_failure else 2)
 
 
 @pytest.mark.parametrize('cancel_during_prepare', [False, True])
 def test_single_condition_prepares_in_worker_and_can_cancel_before_checkpoint(
         window, tmp_path, monkeypatch, cancel_during_prepare):
+    page = window.optimization
     import threading
     from PySide6.QtCore import QThread, QTimer
     from PySide6.QtWidgets import QApplication
@@ -463,7 +510,7 @@ def test_single_condition_prepares_in_worker_and_can_cancel_before_checkpoint(
     from tests.python.gui_worker_support import _wait_for
     entered, release = threading.Event(), threading.Event()
     prepare = api.prepare_case
-    cfg = panel._gather_cfg(window)
+    cfg = page.capture_case()
     resolved = api.resolve_inlet_flow_config(cfg)
     expected = report(window)
     received, ticks = [], []
@@ -486,76 +533,101 @@ def test_single_condition_prepares_in_worker_and_can_cancel_before_checkpoint(
     monkeypatch.setattr(api, 'prepare_case', held_prepare)
     monkeypatch.setattr(native, 'run_multi_condition_optimization', run)
     monkeypatch.setattr(panel, 'optimization_output_dir', lambda: tmp_path)
-    panel.run_optimize(window)
+    page.start()
     QTimer.singleShot(0, lambda: ticks.append(True))
     try:
         _wait_for(lambda: entered.is_set() and bool(ticks))
-        assert '1 个工况' in window._opt_status.text()
-        assert not window._opt_btn.isEnabled()
+        assert '1 个工况' in page.status.text()
+        assert not page.start_button.isEnabled()
         # Editing the live widgets cannot alter the worker's captured input.
         window.le_TinA.setText('450')
         if cancel_during_prepare:
-            panel.cancel_optimize(window)
+            page.cancel()
     finally:
         release.set()
-    _wait_for(lambda: window._opt_worker is None)
-    assert window._opt_btn.isEnabled()
+    _wait_for(page.is_idle)
+    assert page.start_button.isEnabled()
     if cancel_during_prepare:
         assert not received
-        assert '尚未启动优化搜索' in window._opt_status.text()
+        assert '尚未启动优化搜索' in page.status.text()
         assert not list(tmp_path.glob('*/optimization.json'))
     else:
         assert len(received) == 1
-        assert '完成' in window._opt_status.text()
+        assert '完成' in page.status.text()
 
 
-@pytest.mark.parametrize('status', ['completed', 'failed', 'cancelled', 'error'])
-def test_thread_terminal_state_retained_until_actual_exit(window, tmp_path, monkeypatch, status):
+@pytest.mark.parametrize('status,exit_first', [('completed', False), ('completed', True),
+                          ('failed', False), ('cancelled', False), ('error', False)])
+def test_thread_terminal_state_retained_until_actual_exit(window, tmp_path, monkeypatch, status, exit_first):
+    page = window.optimization
     import threading
     from sjtu_tpmshx.applications.optimization import multi_condition_optimizer as native
     from tests.python.gui_worker_support import _wait_for
-    window._opt_conditions = [condition()]
+    page.conditions = [condition()]
     release = threading.Event()
-    Worker = panel._make_worker_class()
-    original = Worker.run
+    original = OptimizationJob.run
     def held(worker):
-        original(worker)
-        assert release.wait(10)
-    monkeypatch.setattr(Worker, 'run', held)
-    monkeypatch.setattr(panel, '_make_worker_class', lambda: Worker)
+        if not exit_first:
+            original(worker)
+            assert release.wait(10)
+    monkeypatch.setattr(OptimizationJob, 'run', held)
     monkeypatch.setattr(panel, 'optimization_output_dir', lambda: tmp_path)
     expected = report(window, status=status)
+    if status == 'failed':
+        expected.update(baseline=dict(status='failed', reason='One or more conditions failed',
+                                      directory='baseline'), reason='Uniform baseline batch failed',
+                        history=[], pareto_indices=[], n_evaluated=0, n_usable=0)
     def run(*args, **kwargs):
         kwargs['control'].report_progress(25)
         if status == 'error': raise RuntimeError('test failure')
+        if status == 'failed':
+            directory = kwargs['output_dir'] / 'baseline'
+            directory.mkdir(parents=True)
+            (directory / 'batch.json').write_text(json.dumps(dict(conditions=[
+                dict(condition_id='one', reason='inlet pressure outside range')])))
         return expected
     monkeypatch.setattr(native, 'run_multi_condition_optimization', run)
-    panel.run_optimize(window)
-    worker = window._opt_worker
+    page.start()
+    worker = page._job
     label = 'ERROR' if status == 'error' else panel._termination_label(expected)
+    if exit_first:
+        _wait_for(worker.isFinished)
+        assert not page.is_idle() and not window._cpu_card.isEnabled()
+        page.start()
+        assert page._job is worker
+        worker._terminal.emit(expected, '')
+        _wait_for(page.is_idle)
+        assert label in page.status.text() and page.start_button.isEnabled()
+        return
     try:
-        _wait_for(lambda: label in window._opt_status.text())
-        assert window._opt_worker is worker and worker.isRunning()
-        assert not window._opt_btn.isEnabled()
-        assert window._opt_progress.value() == 25
+        _wait_for(lambda: label in page.status.text())
+        assert page._job is worker and worker.isRunning()
+        assert not page.start_button.isEnabled()
+        assert page.progress_bar.value() == 25
+        assert not page.is_idle() and not window._cpu_card.isEnabled()
+        if status == 'failed':
+            assert '均匀基准失败' in page.summary_banner.text()
+            assert 'one：inlet pressure outside range' in page.status.text()
+            assert not page.pareto_ready() and not page.load_button.isEnabled()
     finally:
         release.set()
-    _wait_for(lambda: window._opt_worker is None)
-    assert window._opt_btn.isEnabled()
+    _wait_for(page.is_idle)
+    assert page.start_button.isEnabled()
 
 
 @pytest.mark.parametrize('entry,status', [('direct', 'completed'), ('worker', 'completed'),
                                          ('worker', 'cancelled'), ('worker', 'failed')])
 def test_pareto_render_failure_keeps_numerical_terminal_and_disables_half_plot(
         window, tmp_path, monkeypatch, entry, status):
+    page = window.optimization
     import sys
     from pathlib import Path
     from sjtu_tpmshx.applications.optimization import multi_condition_optimizer as native
     from tests.python.gui_worker_support import _wait_for
     study = report(window, status=status)
-    window._last_opt_report = deepcopy(study)
-    window._opt_conditions = [condition()]
-    panel.show_pareto(window, study)
+    page.report = deepcopy(study)
+    page.conditions = [condition()]
+    page.show_pareto(study)
     caught = []
     monkeypatch.setattr(sys, 'excepthook', lambda cls, exc, tb: caught.append(exc))
     monkeypatch.setattr(panel, 'optimization_output_dir', lambda: tmp_path)
@@ -571,41 +643,42 @@ def test_pareto_render_failure_keeps_numerical_terminal_and_disables_half_plot(
 
     monkeypatch.setattr(native, 'run_multi_condition_optimization', result)
     with monkeypatch.context() as draw:
-        draw.setattr(window.canvas_pareto, 'draw', fail_draw)
+        draw.setattr(page.pareto_canvas, 'draw', fail_draw)
         if entry == 'worker':
-            panel.run_optimize(window)
-            _wait_for(lambda: window._opt_worker is None)
-            assert window._opt_btn.isEnabled() and not window._opt_cancel_btn.isEnabled()
-            directory = Path(window._last_opt_output_dir)
+            page.start()
+            _wait_for(page.is_idle)
+            assert page.start_button.isEnabled() and not page.cancel_button.isEnabled()
+            directory = Path(page.last_output_dir)
             assert json.loads((directory / 'optimization.json').read_text()) == study
         else:
             try:
-                panel.show_pareto(window, study)
+                page.show_pareto(study)
             except RuntimeError as exc:
                 caught.append(exc)
     assert not caught
-    assert window._last_opt_report == study
+    assert page.report == study
     label = panel._termination_label(study)
-    assert window._opt_kpi_gen.text() == label
-    assert label in window._opt_status.text() and '绘图失败' in window._opt_status.text()
-    assert 'injected Pareto rendering failure' in window._opt_status.text()
-    assert '绘图失败' in window._opt_summary_banner.text()
-    assert window._opt_stack.currentIndex() == 2
-    assert not window._pareto_figure_ready()
-    assert window._pareto_X is None and window._pareto_pick_cid is None
-    assert not window.canvas_pareto.figure.axes and window.canvas_pareto.isHidden()
-    assert not window._opt_field_figure_ready() and not window._opt_3d_figure_ready()
+    assert page.kpi_gen.text() == label
+    assert label in page.status.text() and '绘图失败' in page.status.text()
+    assert 'injected Pareto rendering failure' in page.status.text()
+    assert '绘图失败' in page.summary_banner.text()
+    assert page.stack.currentIndex() == 2
+    assert not page.pareto_ready()
+    assert not page.pareto_ready() and page._pick_id is None
+    assert not page.pareto_canvas.figure.axes and page.pareto_canvas.isHidden()
+    assert not page.field_ready() and not page.volume_ready()
     # The retained numerical report can be drawn again after a display failure.
-    panel.show_pareto(window, study)
-    assert window._pareto_figure_ready() and not window.canvas_pareto.isHidden()
-    assert label in window._opt_status.text()
-    assert '1/1 个候选数值合格' in window._opt_status.text()
-    assert '绘图失败' not in window._opt_status.text()
-    assert '绘图失败' not in window._opt_summary_banner.text()
+    page.show_pareto(study)
+    assert page.pareto_ready() and not page.pareto_canvas.isHidden()
+    assert label in page.status.text()
+    assert '1/1 个候选数值合格' in page.status.text()
+    assert '绘图失败' not in page.status.text()
+    assert '绘图失败' not in page.summary_banner.text()
 
 
 @pytest.mark.parametrize('failure', ['invalid_json', 'unreadable'])
 def test_cancel_checkpoint_read_failure_reaches_error_terminal(window, tmp_path, monkeypatch, failure):
+    page = window.optimization
     import sys
     from pathlib import Path
     from sjtu_tpmshx.run_control.cancellation import CancelledError
@@ -613,8 +686,8 @@ def test_cancel_checkpoint_read_failure_reaches_error_terminal(window, tmp_path,
     from tests.python.gui_worker_support import _wait_for
     previous = report(window)
     cancelled = report(window, status='cancelled')
-    window._last_opt_report = deepcopy(previous)
-    window._opt_conditions = [condition()]
+    page.report = deepcopy(previous)
+    page.conditions = [condition()]
     caught, checkpoint = [], []
     monkeypatch.setattr(sys, 'excepthook', lambda cls, exc, tb: caught.append(exc))
     monkeypatch.setattr(panel, 'optimization_output_dir', lambda: tmp_path)
@@ -636,84 +709,100 @@ def test_cancel_checkpoint_read_failure_reaches_error_terminal(window, tmp_path,
             return original_open(path, mode, *args, **kwargs)
         monkeypatch.setattr(Path, 'open', deny_checkpoint_read)
     monkeypatch.setattr(native, 'run_multi_condition_optimization', cancel)
-    panel.run_optimize(window)
-    _wait_for(lambda: window._opt_worker is None)
+    page.start()
+    _wait_for(page.is_idle)
     assert not caught
-    assert window._opt_btn.isEnabled() and not window._opt_cancel_btn.isEnabled()
-    assert window._opt_kpi_gen.text() == 'ERROR'
-    assert 'ERROR' in window._opt_status.text()
-    assert ('JSONDecodeError' if failure == 'invalid_json' else 'PermissionError') in window._opt_status.text()
-    assert str(checkpoint[0].parent) in window._opt_status.text()
-    assert window._last_opt_report == previous
+    assert page.start_button.isEnabled() and not page.cancel_button.isEnabled()
+    assert page.kpi_gen.text() == 'ERROR'
+    assert 'ERROR' in page.status.text()
+    assert ('JSONDecodeError' if failure == 'invalid_json' else 'PermissionError') in page.status.text()
+    assert str(checkpoint[0].parent) in page.status.text()
+    assert page.report == previous
     assert checkpoint[0].exists()
 
 
 @pytest.mark.parametrize('dimension', [0, 1])
 def test_pareto_keeps_relative_objectives_and_full_field_through_save_replay(window, dimension, tmp_path, monkeypatch):
+    page = window.optimization
     from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
     from sjtu_tpmshx.preprocess.api import prepare_case
+    from sjtu_tpmshx.data_types.compute_result import ComputeResult
     window.combo_dim.setCurrentIndex(dimension)
     study = report(window)
     archived_case, _ = archive_candidate(window, study, tmp_path)
-    window._last_opt_report = deepcopy(study)
-    panel.show_pareto(window, study)
-    ax = window.canvas_pareto.figure.axes[0]
+    page.report = deepcopy(study)
+    page.show_pareto(study)
+    ax = page.pareto_canvas.figure.axes[0]
     assert ax.get_xlabel() == 'Mean relative pressure drop [1]'
     assert ax.get_ylabel() == 'Mean useful heat gain [%]'
     np.testing.assert_array_equal(ax.lines[0].get_xdata(), [.25])
     np.testing.assert_array_equal(ax.lines[0].get_ydata(), [-2.])
     anchor = (window.le_Lcell.text(), window.le_t.text())
+    original = window.case_files.capture_current_preset('before-pick')
+    case_result = ComputeResult(Q_W=1.)
+    mode = '3d' if dimension else '2d'
+    window.cache.set_result(mode, case_result)
     with monkeypatch.context() as click:
         click.setattr('sjtu_tpmshx.preprocess.api.prepare_case',
                       lambda *args, **kwargs: pytest.fail('Pareto click recomputed preparation'))
-        panel.on_pareto_pick(window, types.SimpleNamespace(ind=np.array([0])))
+        pick_front(page)
+        assert window.case_files.capture_current_preset('before-pick') == original
+        assert window.cache.get_result(mode) is case_result
+        assert page.load_button.isEnabled() and page.field_ready()
+        page.load_button.click()
+    assert window.cache.get_result(mode) is None
     cfg = config_from_window(window, strict=True).validate()
-    assert cfg.zones.axis == 'continuous', window._opt_status.text()
+    assert cfg.zones.axis == 'continuous', page.status.text()
     assert cfg.zones.config['x_decision'] == study['history'][0]['x_decision']
     assert ('n_ctrl_z' in cfg.zones.config) == bool(dimension)
     assert (window.le_Lcell.text(), window.le_t.text()) == anchor
     for side in 'AB':
         assert getattr(cfg, 'fluid_'+side).u_mps == archived_case.config_snapshot['fluid_'+side]['u_mps']
-    preset = window._capture_current_preset('full-continuous')
-    window._validate_preset(preset, complete=True)
-    panel.clear_continuous_field(window)
-    window._apply_user_preset(preset, show_notice=False)
+    preset = window.case_files.capture_current_preset('full-continuous')
+    window.case_files.validate_preset(preset, complete=True)
+    page.clear_continuous_field()
+    window.case_files.apply_user_preset(preset, show_notice=False)
     replay = config_from_window(window, strict=True).validate()
     assert replay.zones.config == cfg.zones.config
-    actual_flows = panel._condition_inputs(panel._gather_cfg(window), window._opt_conditions)[0][2:]
+    actual_flows = job_input.condition_inputs(page.capture_case(), page.conditions)[0][2:]
     np.testing.assert_allclose(actual_flows, [.003, .015], rtol=2e-14)
     case = prepare_case(replay, case_id='replayed-field')
     if dimension:
         assert np.any(case.design_fields['L_field_m'][:, :, 0] != case.design_fields['L_field_m'][:, :, -1])
-    panel.show_field_preview(window, study['history'][0]['x_decision'])
-    previous_preview = window.canvas_opt_field.figure.axes[0].images[0].get_array().copy()
+    page.show_field_preview(study['history'][0]['x_decision'])
+    previous_preview = page.field_canvas.figure.axes[0].images[0].get_array().copy()
     if dimension:
-        assert 'z =' in window.canvas_opt_field.figure.axes[0].get_title(loc='left')
+        assert 'z =' in page.field_canvas.figure.axes[0].get_title(loc='left')
     # A saved design must preview after reopening, without the optimizer's history.
-    window._last_opt_report = None
-    panel.show_field_preview(window)
-    np.testing.assert_array_equal(window.canvas_opt_field.figure.axes[0].images[0].get_array(), previous_preview)
+    page.report = None
+    page.show_field_preview()
+    np.testing.assert_array_equal(page.field_canvas.figure.axes[0].images[0].get_array(), previous_preview)
     bad = deepcopy(preset)
     bad['combos']['combo_dim'] = 1-dimension
     with pytest.raises(ValueError, match='dimension'):
-        window._validate_preset(bad, complete=True)
+        window.case_files.validate_preset(bad, complete=True)
 
 
 def test_stale_result_cannot_be_loaded_into_other_geometry(window):
-    window._last_opt_report = report(window)
+    page = window.optimization
+    page.report = report(window)
     window.le_Nx.setText('16')
-    panel.load_pareto_solution(window, window._last_opt_report['history'][0]['x_decision'])
+    page.show_pareto(page.report)
+    pick_front(page)
+    page.load_button.click()
+    assert '原几何' in page.status.text()
     assert window._continuous_field_spec is None
 
 
 @pytest.mark.parametrize('dimension', [0, 1])
 @pytest.mark.parametrize('error_type', [FileNotFoundError, OSError, RuntimeError])
 def test_field_preview_reports_native_failures_and_clears_old_volume(window, monkeypatch, dimension, error_type):
+    page = window.optimization
     from unittest.mock import Mock
     from sjtu_tpmshx.cpp_interface import _native_continuous
 
     window.combo_dim.setCurrentIndex(dimension)
-    window._last_opt_report = study = report(window)
+    page.report = study = report(window)
     message = f'injected native field {error_type.__name__}'
     reached = []
 
@@ -725,77 +814,78 @@ def test_field_preview_reports_native_failures_and_clears_old_volume(window, mon
         monkeypatch.setattr(_native_continuous, 'tensor_sample', fail)
     else:
         monkeypatch.setattr(_native_continuous.XYFit, '__init__', fail)
-    previous_renderer = window.canvas_opt_3d
+    previous_renderer = page.volume_panel
     renderer = types.SimpleNamespace(hide=Mock())
-    window.canvas_opt_3d = renderer
-    window._opt_3d_data = object()
-    window._opt_3d_ready = True
-    window._opt_result_tabs.setTabEnabled(2, True)
+    page.volume_panel = renderer
+    page.volume_data = object()
+    page._volume_ready = True
+    page.result_tabs.setTabEnabled(2, True)
     try:
-        panel.show_field_preview(window, study['history'][0]['x_decision'])
+        page.show_field_preview(study['history'][0]['x_decision'])
         assert reached == ['XYZ sample' if dimension else 'XY construction']
-        assert '连续场预览失败' in window._opt_status.text()
-        assert message in window._opt_status.text()
-        assert window._opt_3d_data is None and not window._opt_3d_ready
-        assert not window._opt_result_tabs.isTabEnabled(2)
+        assert '连续场预览失败' in page.status.text()
+        assert message in page.status.text()
+        assert page.volume_data is None and not page._volume_ready
+        assert not page.result_tabs.isTabEnabled(2)
         renderer.hide.assert_called_once_with()
     finally:
-        window.canvas_opt_3d = previous_renderer
+        page.volume_panel = previous_renderer
 
 
 @pytest.mark.parametrize('dimension', [0, 1])
 def test_field_preview_belongs_to_optimization_and_keeps_other_figures(window, dimension):
+    page = window.optimization
     from PySide6.QtCore import QEventLoop
     from PySide6.QtWidgets import QApplication
     window.combo_dim.setCurrentIndex(dimension)
-    window._last_opt_report = study = report(window)
-    panel.show_pareto(window, study)
-    status_before_preview = window._opt_status.text()
+    page.report = study = report(window)
+    page.show_pareto(study)
+    status_before_preview = page.status.text()
     assert panel._termination_label(study) in status_before_preview
     assert '1/1 个候选数值合格' in status_before_preview
-    pareto_line = window.canvas_pareto.figure.axes[0].lines[0]
+    pareto_line = page.pareto_canvas.figure.axes[0].lines[0]
     geometry_axes = window.canvas_layout.figure.axes.copy()
-    window._switch_tab('layout')
+    window.workbench.switch_tab('layout')
     drawn = window.cache.get_drawn_tabs().copy()
 
-    panel.show_field_preview(window, study['history'][0]['x_decision'])
+    page.show_field_preview(study['history'][0]['x_decision'])
 
-    assert window._active_tab == 'pareto'
-    assert window._opt_stack.currentIndex() == 2
-    assert window._opt_result_tabs.currentWidget() is window.canvas_opt_field
+    assert window.workbench.active_tab == 'pareto'
+    assert page.stack.currentIndex() == 2
+    assert page.result_tabs.currentWidget() is page.field_canvas
     assert window.canvas_layout.figure.axes == geometry_axes
     assert window.cache.get_drawn_tabs() == drawn
-    assert window.canvas_pareto.figure.axes[0].lines[0] is pareto_line
-    assert all(ax.images[0].get_cmap().name == FIELD_CMAP
-               for ax in window.canvas_opt_field.figure.axes if ax.images)
-    assert window._opt_result_tabs.isTabEnabled(2) == bool(dimension)
-    volume = window._opt_3d_data
+    assert page.pareto_canvas.figure.axes[0].lines[0] is pareto_line
+    assert all(ax.images[0].get_cmap().name == resolve_cmap('L_mm')
+               for ax in page.field_canvas.figure.axes if ax.images)
+    assert page.result_tabs.isTabEnabled(2) == bool(dimension)
+    volume = page.volume_data
     if dimension:
         assert volume['L_mm'].shape == volume['t_mm'].shape == (80, 40, 41)
         for name in ('L_mm', 't_mm'):
             for axis in range(3):
                 assert np.any(np.diff(volume[name], axis=axis) != 0.)
-        geom = window._last_opt_report['conditions'][0]['config']['geometry']
+        geom = page.report['conditions'][0]['config']['geometry']
         for spacing, length in (('dx', 'L_dom_m'), ('dy', 'H_dom_m'), ('dz', 'Lz_m')):
             assert volume[spacing].sum() == pytest.approx(geom[length])
         assert volume['flow_dir'] is None
     else:
         assert volume is None
-    window._opt_result_tabs.setCurrentIndex(0)
-    assert window._opt_result_tabs.currentWidget() is window.canvas_pareto
+    page.result_tabs.setCurrentIndex(0)
+    assert page.result_tabs.currentWidget() is page.pareto_canvas
     window.resize(1280, 900)
     window.show()
     # Visit configuration before results so the plot uses the settled viewport.
-    window._opt_stack.setCurrentIndex(0)
+    page.stack.setCurrentIndex(0)
     QApplication.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 1000)
-    window._opt_stack.setCurrentIndex(2)
+    page.stack.setCurrentIndex(2)
     QApplication.processEvents(QEventLoop.ProcessEventsFlag.AllEvents, 1000)
     heights = []
     try:
         for _ in range(3):
-            panel.show_field_preview(window, study['history'][0]['x_decision'])
+            page.show_field_preview(study['history'][0]['x_decision'])
             QApplication.processEvents()
-            canvas = window.canvas_opt_field
+            canvas = page.field_canvas
             canvas.draw()
             for ax in canvas.figure.axes:
                 if not ax.images:
@@ -806,20 +896,21 @@ def test_field_preview_belongs_to_optimization_and_keeps_other_figures(window, d
                 x0, x1, y0, y1 = ax.images[0].get_extent()
                 box = ax.get_window_extent()
                 assert box.width / box.height == pytest.approx((x1-x0)/(y1-y0))
-            heights.append(window._opt_result_tabs.height())
-            window._opt_result_tabs.setCurrentIndex(0)
+            heights.append(page.result_tabs.height())
+            page.result_tabs.setCurrentIndex(0)
             QApplication.processEvents()
         # Figure pixel sizes must not feed back into ever-growing Qt tab hints.
         assert max(heights) - min(heights) <= 2
         assert max(heights) < window.height()
     finally:
         window.hide()
-    assert window._opt_status.text() == status_before_preview
+    assert page.status.text() == status_before_preview
 
 
 @pytest.mark.parametrize('failure', ['raised', 'no_actor'])
 @pytest.mark.parametrize('update', ['field_switch', 'new_design'])
 def test_volume_tab_is_lazy_reuses_panel_and_keeps_failed_updates_unavailable(window, monkeypatch, failure, update):
+    page = window.optimization
     from PySide6.QtWidgets import QWidget
     from unittest.mock import Mock
     from sjtu_tpmshx.applications.gui.ui import panel_vis_3d
@@ -837,94 +928,95 @@ def test_volume_tab_is_lazy_reuses_panel_and_keeps_failed_updates_unavailable(wi
             created.append(self)
 
     monkeypatch.setattr(panel_vis_3d, 'ThreeDVisPanel', VolumePanel)
-    monkeypatch.setattr(window, '_vis3d_import_error', None)
+    monkeypatch.setattr(window.workbench, 'import_error', None)
     study = report(window)
-    window._last_opt_report = study
-    panel.show_field_preview(window, study['history'][0]['x_decision'])
+    page.report = study
+    page.show_field_preview(study['history'][0]['x_decision'])
     assert not created
     try:
-        window._opt_result_tabs.setCurrentIndex(2)
+        page.result_tabs.setCurrentIndex(2)
         from tests.python.gui_worker_support import _wait_for
-        _wait_for(lambda: not window._opt_3d_loading)
-        assert len(created) == 1 and window._opt_3d_ready
+        _wait_for(lambda: not page._volume_loading)
+        assert len(created) == 1 and page._volume_ready
         renderer = created[0]
         assert set(renderer.set_fields.call_args.kwargs) == {
             'L_mm', 't_mm', 'dx', 'dy', 'dz', 'flow_dir'}
-        window._opt_result_tabs.setCurrentIndex(1)
-        window._opt_result_tabs.setCurrentIndex(2)
+        page.result_tabs.setCurrentIndex(1)
+        page.result_tabs.setCurrentIndex(2)
         renderer.set_fields.assert_called_once()
 
         # A field switch can lose the actor after the initial load succeeded.
         # Reopening must retry despite the cached flag, and reset it on failure.
         renderer._volume_actor = None
-        assert window._opt_3d_ready
+        assert page._volume_ready
         if failure == 'raised':
             renderer.set_fields.side_effect = RuntimeError('render failed')
         if update == 'new_design':
-            panel.show_field_preview(window, study['history'][0]['x_decision'])
+            page.show_field_preview(study['history'][0]['x_decision'])
         else:
-            window._opt_result_tabs.setCurrentIndex(1)
-        window._opt_result_tabs.setCurrentIndex(2)
+            page.result_tabs.setCurrentIndex(1)
+        page.result_tabs.setCurrentIndex(2)
         assert renderer.set_fields.call_count == 2
         assert len(created) == 1
-        assert not window._opt_3d_ready and renderer.isHidden()
+        assert not page._volume_ready and renderer.isHidden()
         message = 'render failed' if failure == 'raised' else '未能生成三维体图'
-        assert message in window._opt_3d_placeholder.text()
+        assert message in page.volume_placeholder.text()
 
         renderer.set_fields.side_effect = lambda **kwargs: setattr(renderer, '_volume_actor', object())
-        window._opt_result_tabs.setCurrentIndex(1)
-        window._opt_result_tabs.setCurrentIndex(2)
+        page.result_tabs.setCurrentIndex(1)
+        page.result_tabs.setCurrentIndex(2)
         assert renderer.set_fields.call_count == 3
-        assert window._opt_3d_ready and window._opt_3d_figure_ready()
-        panel.show_field_preview(window, [1.])  # invalid new candidate
-        assert window._opt_3d_data is None and not window._opt_3d_ready
-        assert not window._opt_result_tabs.isTabEnabled(2) and renderer.isHidden()
+        assert page._volume_ready and page.volume_ready()
+        page.show_field_preview([1.])  # invalid new candidate
+        assert page.volume_data is None and not page._volume_ready
+        assert not page.result_tabs.isTabEnabled(2) and renderer.isHidden()
 
-        panel.show_pareto(window, study)
-        assert window._opt_3d_data is None and not window._opt_3d_ready
-        assert not window._opt_result_tabs.isTabEnabled(2)
+        page.show_pareto(study)
+        assert page.volume_data is None and not page._volume_ready
+        assert not page.result_tabs.isTabEnabled(2)
     finally:
-        window._opt_result_tabs.setCurrentIndex(0)
-        window.canvas_opt_3d = None
+        page.result_tabs.setCurrentIndex(0)
+        page.volume_panel = None
         for widget in created:
-            window._opt_3d_host.layout().removeWidget(widget)
+            page.volume_host.layout().removeWidget(widget)
             widget.deleteLater()
 
 
 def test_missing_or_mismatched_archive_keeps_current_design(window, tmp_path, monkeypatch):
+    page = window.optimization
     from sjtu_tpmshx.file_io.case_io import save_case
     study = report(window)
     case, batch = archive_candidate(window, study, tmp_path)
-    window._last_opt_report = study
+    page.report = study
     directory = tmp_path / study['history'][0]['directory']
-    original = asdict(panel._gather_cfg(window))
-    x = study['history'][0]['x_decision']
+    original = asdict(page.capture_case())
+    page.show_pareto(study)
+    pick_front(page)
     monkeypatch.setattr('sjtu_tpmshx.preprocess.api.prepare_case',
                         lambda *args, **kwargs: pytest.fail('Missing archive caused new preparation'))
     for damage in ('missing', 'condition', 'flow', 'case_id', 'config', 'vector', 'speed'):
         changed = deepcopy(batch)
         changed_case = case
-        selected = list(x)
         if damage == 'missing': changed['conditions'][0]['case_file'] = 'missing.yaml'
         if damage == 'condition': changed['conditions'][0]['condition_id'] = 'other'
         if damage == 'flow': changed['conditions'][0]['mass_flow_A_kg_s'] *= 2
         if damage == 'case_id': changed['conditions'][0]['case_id'] = 'other'
-        if damage in ('config', 'speed'):
+        if damage in ('config', 'vector', 'speed'):
             from sjtu_tpmshx.data_types.portable_data import mutable_data
             snapshot = mutable_data(case.config_snapshot)
             if damage == 'config': snapshot['df_mode'] = 'cfd_smooth'
+            elif damage == 'vector': snapshot['zones']['config']['x_decision'][0] += .1
             else: snapshot['fluid_A']['u_mps'] *= 2
             changed_case = replace(case, config_snapshot=snapshot)
-        if damage == 'vector': selected[0] += .1
         save_case(changed_case, directory / 'condition_001/case.yaml')
         (directory / 'batch.json').write_text(json.dumps(changed))
-        panel.load_pareto_solution(window, selected)
-        assert '载入失败' in window._opt_status.text(), damage
+        page.load_button.click()
+        assert '载入失败' in page.status.text(), damage
         expected_reason = dict(missing='No such file', condition='归档工况', flow='归档工况',
-                               case_id='归档算例', config='归档算例', vector='Pareto', speed='归档入口速度')
-        assert expected_reason[damage] in window._opt_status.text(), window._opt_status.text()
+                               case_id='归档算例', config='归档算例', vector='归档算例', speed='归档入口速度')
+        assert expected_reason[damage] in page.status.text(), page.status.text()
         assert window._continuous_field_spec is None
-        assert asdict(panel._gather_cfg(window)) == original
+        assert asdict(page.capture_case()) == original
 
 
 @pytest.mark.parametrize('field,label,value', [
@@ -935,81 +1027,86 @@ def test_missing_or_mismatched_archive_keeps_current_design(window, tmp_path, mo
     if value or field != 'le_PinB'  # Optional pressure blank retains its default.
 ])
 def test_bad_case_input_cannot_launch(window, field, label, value, monkeypatch, tmp_path):
+    page = window.optimization
     from unittest.mock import Mock
-    panel._gather_cfg(window)  # Establish that only this test's edit is invalid.
+    page.capture_case()  # Establish that only this test's edit is invalid.
     getattr(window, field).setText(value)
     monkeypatch.setattr(panel, 'optimization_output_dir', lambda: tmp_path)
     factory = Mock(side_effect=RuntimeError('invalid input launched'))
-    monkeypatch.setattr(panel, '_make_worker_class', factory)
-    panel.run_optimize(window)
+    monkeypatch.setattr(panel, 'OptimizationJob', factory)
+    page.start()
     factory.assert_not_called()
-    assert '启动失败' in window._opt_status.text()
-    assert label in window._opt_status.text()
-    assert window._opt_launching is False and window._opt_btn.isEnabled()
+    assert '启动失败' in page.status.text()
+    assert label in page.status.text()
+    assert page.is_idle() and page.start_button.isEnabled()
 
 
 @pytest.mark.parametrize('side', ['A', 'B'])
 def test_blank_optional_pressure_keeps_default(window, side):
+    page = window.optimization
     widget = getattr(window, f'le_Pin{side}')
     widget.setText('')
-    cfg = panel._gather_cfg(window)
+    cfg = page.capture_case()
     assert getattr(cfg, f'fluid_{side}').P_in_Pa == 101325.0
     assert widget.text() == ''
 
 
 @pytest.mark.parametrize('imported', [False, True])
 def test_imported_flows_defer_speed_validation_to_worker(window, monkeypatch, tmp_path, imported):
+    page = window.optimization
     from unittest.mock import Mock
     window.combo_inlet_modeA.setCurrentIndex(0)
     window.le_uA.setText('0.001')  # Outside the active experimental velocity window.
-    window._opt_conditions = [condition()] if imported else None
+    page.conditions = [condition()] if imported else None
     factory = Mock(side_effect=RuntimeError('reached worker construction'))
-    monkeypatch.setattr(panel, '_make_worker_class', factory)
+    monkeypatch.setattr(panel, 'OptimizationJob', factory)
     monkeypatch.setattr(panel, 'optimization_output_dir', lambda: tmp_path)
-    panel.run_optimize(window)
+    page.start()
     if imported:
         factory.assert_called_once()
-        assert 'reached worker construction' in window._opt_status.text()
+        assert 'reached worker construction' in page.status.text()
     else:
         factory.assert_not_called()
-        assert '启动失败' in window._opt_status.text()
+        assert '启动失败' in page.status.text()
 
 
 @pytest.mark.parametrize('failure', ['primary_error', 'stale_cancel', 'missing_cancel', 'stale_without_note'])
 def test_worker_checkpoint_error_keeps_cause_and_rejects_stale_results(
         window, tmp_path, monkeypatch, failure):
+    page = window.optimization
     from pathlib import Path
     from sjtu_tpmshx.run_control.cancellation import CancelledError
     from sjtu_tpmshx.applications.optimization import multi_condition_optimizer as native
     from tests.python.gui_worker_support import _wait_for
     previous = report(window)
-    window._last_opt_report = deepcopy(previous)
-    window._opt_conditions = [condition()]
+    page.report = deepcopy(previous)
+    page.conditions = [condition()]
     monkeypatch.setattr(panel, 'optimization_output_dir', lambda: tmp_path)
     paths = []
+    stale = report(window, status='running')
     def fail(*args, **kwargs):
         directory = Path(kwargs['output_dir'])
         directory.mkdir()
         paths.append(directory)
         if failure.startswith('stale'):
-            (directory/'optimization.json').write_text(json.dumps(report(window, status='running')))
+            (directory/'optimization.json').write_text(json.dumps(stale))
         error = (RuntimeError('original solver failure') if failure == 'primary_error'
                  else CancelledError('original cancellation'))
         if failure != 'stale_without_note':
             error.add_note("Could not save checkpoint: OSError('checkpoint write failed')")
         raise error
     monkeypatch.setattr(native, 'run_multi_condition_optimization', fail)
-    panel.run_optimize(window)
-    _wait_for(lambda: window._opt_worker is None)
-    assert window._opt_kpi_gen.text() == 'ERROR'
-    text = window._opt_status.text()
+    page.start()
+    _wait_for(page.is_idle)
+    assert page.kpi_gen.text() == 'ERROR'
+    text = page.status.text()
     assert str(paths[0]) in text
     if failure == 'stale_without_note':
         assert 'cancelled' in text
     else:
         assert ('original solver failure' if failure == 'primary_error' else 'original cancellation') in text
         assert 'checkpoint write failed' in text
-    assert window._last_opt_report == previous
+    assert page.report == previous
     if failure.startswith('stale'):
         assert json.loads((paths[0]/'optimization.json').read_text())['status'] == 'running'
     else:
@@ -1017,6 +1114,7 @@ def test_worker_checkpoint_error_keeps_cause_and_rejects_stale_results(
 
 
 def test_mass_requirements_import_and_current_condition_reset(window, tmp_path, monkeypatch):
+    page = window.optimization
     from PySide6.QtWidgets import QFileDialog
     from tests.python.test_mass_design import requirements
     payload = dict(conditions=[condition()], mass_requirements=dict(
@@ -1025,20 +1123,21 @@ def test_mass_requirements_import_and_current_condition_reset(window, tmp_path, 
     path = tmp_path / 'requirements.json'
     path.write_text(json.dumps(payload))
     monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *a: (str(path), ''))
-    panel.import_conditions(window)
-    assert window._opt_method.currentData() == 'qlognei'
-    assert window._opt_mass_requirements == payload['mass_requirements']
-    assert 'Nu-Re' in window._opt_eval_preview.text()
-    assert '芯体质量最小' in window._opt_eval_preview.text()
-    panel.use_current_condition(window)
-    assert window._opt_mass_requirements is None
-    assert window._opt_method.currentData() == 'qlognehvi'
+    page.import_conditions()
+    assert page.method.currentData() == 'qlognei'
+    assert page.mass_requirements == payload['mass_requirements']
+    assert 'Nu-Re' in page.eval_preview.text()
+    assert '芯体质量最小' in page.eval_preview.text()
+    page.use_current_condition()
+    assert page.mass_requirements is None
+    assert page.method.currentData() == 'qlognehvi'
 
 
 @pytest.mark.parametrize(('feasible', 'attained'), [(True, False), (True, True), (False, False)])
 @pytest.mark.parametrize('allow_extrapolation', [False, True])
 @pytest.mark.parametrize('outlet_limit', [False, True])
 def test_mass_result_display_and_exports_keep_feasibility(window, tmp_path, feasible, attained, allow_extrapolation, outlet_limit):
+    page = window.optimization
     import csv
     from sjtu_tpmshx.applications.optimization.pareto_io import export_pareto_data
     from sjtu_tpmshx.applications.optimization.export_ntop_csv import export_study_design
@@ -1061,14 +1160,14 @@ def test_mass_result_display_and_exports_keep_feasibility(window, tmp_path, feas
     if attained:
         study.update(stop_reason='mass_lower_bound', mass_lower_bound=dict(
             mass_kg=.25, geometry_model='tpms_geometry', x_decision=row['x_decision']))
-    window._last_opt_report = study
-    assert panel.show_pareto(window, study) is None
-    assert window.canvas_pareto.figure.axes[0].get_ylabel() == 'Core mass [kg]'
-    assert ('Nu Re extrapolation allowed' in window.canvas_pareto.figure.axes[0].get_title()) == allow_extrapolation
-    assert ('Nu-Re' in window._opt_kpi_q_caption.text()) == allow_extrapolation
+    page.report = study
+    assert page.show_pareto(study) is None
+    assert page.pareto_canvas.figure.axes[0].get_ylabel() == 'Core mass [kg]'
+    assert ('Nu Re extrapolation allowed' in page.pareto_canvas.figure.axes[0].get_title()) == allow_extrapolation
+    assert ('Nu-Re' in page.kpi_q_caption.text()) == allow_extrapolation
     assert ('Nu-Re' in panel._termination_label(study)) == allow_extrapolation
     assert ('达到模型质量下界' in panel._termination_label(study)) == attained
-    assert window._opt_kpi_dp.text() == str(int(feasible))
+    assert page.kpi_dp.text() == str(int(feasible))
     path = tmp_path / 'results.csv'
     export_pareto_data(study, path)
     with path.open(encoding='utf-8-sig') as stream:
@@ -1096,7 +1195,8 @@ def test_mass_result_display_and_exports_keep_feasibility(window, tmp_path, feas
 
 
 def test_equal_cell_bounds_keep_thickness_controls_active(window):
-    window._opt_space_params['L_min'].setValue(7.)
-    window._opt_space_params['L_max'].setValue(7.)
-    assert panel._field_spec(window)['L_bounds'] == [7., 7.]
-    assert '27 个变量' in window._opt_field_layout.text()
+    page = window.optimization
+    page.bounds['L_min'].setValue(7.)
+    page.bounds['L_max'].setValue(7.)
+    assert page.field_spec()['L_bounds'] == [7., 7.]
+    assert '27 个变量' in page.field_layout.text()

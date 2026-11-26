@@ -15,7 +15,7 @@
 - **THEN** 画布切到压力场，按钮态更新，combo 索引同步
 
 #### Scenario: Reverse sync
-- **WHEN** 代码路径调 `_switch_tab('vel')`
+- **WHEN** 代码调用 `Workbench.switch_tab('vel')`
 - **THEN** 「速度」按钮呈激活态
 
 ### Requirement: Copy current figure to clipboard

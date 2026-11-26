@@ -1,53 +1,59 @@
 from __future__ import annotations
-import pytest
-from PySide6.QtCore import QCoreApplication, QEvent
+
+from types import SimpleNamespace
 from unittest.mock import patch
 
-from sjtu_tpmshx.applications.gui.ui.quick_design_panel import (
-    _gather_inputs, _make_worker_class, build_quick_design_dialog, run_quick_design,
-)
+import pytest
+
+from sjtu_tpmshx.applications.gui.ui.quick_design_job import QuickDesignJob
+from sjtu_tpmshx.run_control.module_ports import RunControl
 from tests.python.gui_workbench_support import win as win
-
-@pytest.fixture
-def make_window():
-    dialogs = []
-
-    def make(mode="auto"):
-        dialog = build_quick_design_dialog()
-        dialogs.append(dialog)
-        dialog.le_qd_file.setText("spec.xlsx")
-        dialog.combo_qd_mode.setCurrentIndex(dialog.combo_qd_mode.findData(mode))
-        dialog.le_qd_l.setText("5,6,7,8")
-        dialog.le_qd_t.setText("0.4,0.5")
-        return dialog
-
-    yield make
-
-    for dialog in dialogs:
-        dialog.deleteLater()
-    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+from tests.python.gui_worker_support import _wait_for
+from tests.python.test_quick_design_dialog import make_page as make_page
 
 
-def test_dialog_uses_the_current_window_run_control(win):
-    win._open_quick_design()
-    assert win._qd_dialog.run_control is win.run_control
-    win.spin_cpu_cores.setValue(1)
-    assert win.run_control.cpu_threads == 1
-    assert win._qd_dialog.run_control is win.run_control
+_CASE = SimpleNamespace(case=3, dPlim_h=.04, dPlim_c=.09)
+
+
+def test_page_reads_launch_control_and_keeps_results_between_visits(win, monkeypatch):
+    from sjtu_tpmshx.applications.design.sizing import Design
+
+    limits = []
+    def size(*args, control, **kwargs):
+        limits.append(control.cpu_threads)
+        return Design(True, topo='Diamond', l=7., t=.5, V=.001)
+
+    monkeypatch.setattr('sjtu_tpmshx.applications.design.cases.load_cases', lambda path: [_CASE])
+    monkeypatch.setattr('sjtu_tpmshx.applications.design.sizing.size_fixed_cell', size)
+    page = win.quick_design
+    page.le_qd_file.setText('study.csv')
+    page.combo_qd_mode.setCurrentIndex(page.combo_qd_mode.findData('fixed'))
+    for threads in (1, 0):
+        win.btn_quick_design.click()
+        assert win.page_stack.currentWidget() is page
+        win.spin_cpu_cores.setValue(threads)
+        page._qd_run_btn.click()
+        _wait_for(page.is_idle)
+        result = page.last_result
+        assert result['feasible'] == [result['best']]
+        win.btn_tab_layout.click()
+        assert win.page_stack.currentWidget() is not page
+        win.btn_quick_design.click()
+        assert page.last_result is result and page._qd_table.rowCount() == 1
+    assert limits == [1, None]
 
 
 @pytest.mark.parametrize('frozen', [False, True])
-def test_worker_auto_calls_backend_and_emits(make_window, monkeypatch, frozen):
+def test_worker_auto_calls_backend_and_emits(make_page, monkeypatch, frozen):
     monkeypatch.setattr('sys.frozen', frozen, raising=False)
-    w = make_window("auto"); p = _gather_inputs(w)
-    Worker = _make_worker_class()
-    worker = Worker(p)
+    w = make_page("auto"); p = w._gather_inputs()
+    worker = QuickDesignJob(p, control=RunControl())
     captured = {}
     class _D:
         feasible=True; topo="Diamond"; l=5.0; t=0.5; s=0.133; Lx=0.011
         V=2.02e-4; weight=0.6; dP_hot_max=0.005; dP_cold_max=0.031
         T_out_hot_max=560.0; arrangement="counter"; reason=""
-    def _fake_load(path): captured["path"]=path; return ["case1"]
+    def _fake_load(path): captured["path"]=path; return [_CASE]
     def _fake_enum(cases, arrangement, nodes, rho_s, n_jobs=1, k_s=16.0,
                    prop_model="const", height=None, control=None, *, completed=None):
         captured.update(arr=arrangement, nodes=nodes, rho=rho_s, jobs=n_jobs,
@@ -70,7 +76,7 @@ def test_worker_auto_calls_backend_and_emits(make_window, monkeypatch, frozen):
 
 
 @pytest.mark.parametrize('stage', ['enumeration', 'refinement'])
-def test_cancel_retains_completed_candidates_from_current_stage(make_window, monkeypatch, stage):
+def test_cancel_retains_completed_candidates_from_current_stage(make_page, monkeypatch, stage):
     from sjtu_tpmshx.applications.design.sizing import Design
     from sjtu_tpmshx.applications.design.select import SelectionCancelled
     from sjtu_tpmshx.run_control.cancellation import CancelledError
@@ -81,12 +87,12 @@ def test_cancel_retains_completed_candidates_from_current_stage(make_window, mon
         return [d], d
     def refinement(*args, **kwargs):
         raise CancelledError('cancelled during refinement')
-    monkeypatch.setattr('sjtu_tpmshx.applications.design.cases.load_cases', lambda p: ['case'])
+    monkeypatch.setattr('sjtu_tpmshx.applications.design.cases.load_cases', lambda p: [_CASE])
     monkeypatch.setattr('sjtu_tpmshx.applications.design.select.enumerate_select', enumeration)
     monkeypatch.setattr('sjtu_tpmshx.applications.design.optimize.warm_start_joint', refinement)
-    params = _gather_inputs(make_window())
+    params = make_page()._gather_inputs()
     params['refine'] = True
-    worker = _make_worker_class()(params)
+    worker = QuickDesignJob(params, control=RunControl())
     received = []
     worker.finished_with_result.connect(received.append)
     worker.run()
@@ -96,12 +102,10 @@ def test_cancel_retains_completed_candidates_from_current_stage(make_window, mon
     assert result['partial'] and result['termination_reason'] == 'cancelled'
 
 
-def test_new_run_clears_stale_results_then_publishes_partial_current_result(make_window, monkeypatch):
+def test_new_run_clears_stale_results_then_publishes_partial_current_result(make_page, monkeypatch):
     import threading
     from sjtu_tpmshx.applications.design.sizing import Design
     from sjtu_tpmshx.applications.design.select import SelectionCancelled
-    from tests.python.gui_worker_support import _wait_for
-    from sjtu_tpmshx.applications.gui.ui import quick_design_panel as panel
     monkeypatch.setattr('sys.frozen', True, raising=False)
     release = threading.Event()
     d = Design(True, topo='Gyroid', l=5., t=.4, V=.01,
@@ -113,46 +117,46 @@ def test_new_run_clears_stale_results_then_publishes_partial_current_result(make
         assert kwargs['n_jobs'] == 1
         assert release.wait(10)
         raise SelectionCancelled([d])
-    monkeypatch.setattr('sjtu_tpmshx.applications.design.cases.load_cases', lambda p: ['case'])
+    monkeypatch.setattr('sjtu_tpmshx.applications.design.cases.load_cases', lambda p: [_CASE])
     monkeypatch.setattr('sjtu_tpmshx.applications.design.select.enumerate_select', enumeration)
-    w = make_window()
-    w._qd_last = {'old': True}
+    w = make_page()
+    w.last_result = {'old': True}
     w._qd_table.setRowCount(1)
     w._qd_energy_table.setRowCount(1)
-    panel.run_quick_design(w)
+    w.submit()
     try:
-        assert w._qd_last is None and w._qd_table.rowCount() == 0
+        assert w.last_result is None and w._qd_table.rowCount() == 0
         assert w._qd_energy_table.rowCount() == 0
         assert '单进程串行' in w._qd_status.text()
     finally:
         release.set()
-    _wait_for(lambda: w._qd_worker is None)
-    assert w._qd_last['all'] == [d] and w._qd_last['partial']
+    _wait_for(w.is_idle)
+    assert w.last_result['all'] == [d] and w.last_result['partial']
     assert '已取消' in w._qd_status.text() and '不代表完整搜索最优' in w._qd_status.text()
     assert w._qd_table.rowCount() == 1
     assert w._qd_table.item(0, 12).text().startswith('已完成候选内')
     assert w._qd_energy_table.rowCount() == 1
     assert w._qd_energy_table.item(0, 1).text() == '3'
 
-def test_gather_inputs_rect_height(make_window):
-    w = make_window("auto")
+def test_gather_inputs_rect_height(make_page):
+    w = make_page("auto")
     w.chk_qd_rect.setChecked(True)
     w.le_qd_height.setText("750")
-    p = _gather_inputs(w)
+    p = w._gather_inputs()
     assert abs(p["height"] - 0.750) < 1e-12   # mm→m
-    assert _gather_inputs(make_window("auto"))["height"] is None
+    assert make_page("auto")._gather_inputs()["height"] is None
 
 
 @pytest.mark.parametrize('bad_height', ['0', '-10', 'nan', 'inf', '-inf', 'abc', '1e-322'])
-def test_gather_inputs_rejects_invalid_rect_height(make_window, bad_height):
-    w = make_window("auto")
+def test_gather_inputs_rejects_invalid_rect_height(make_page, bad_height):
+    w = make_page("auto")
     w.chk_qd_rect.setChecked(True)
     w.le_qd_height.setText(bad_height)
     with pytest.raises(ValueError):
-        _gather_inputs(w)
+        w._gather_inputs()
 
-def test_worker_emits_error_on_exception(make_window):
-    w=make_window("auto"); worker=_make_worker_class()(_gather_inputs(w))
+def test_worker_emits_error_on_exception(make_page):
+    w=make_page("auto"); worker=QuickDesignJob(w._gather_inputs(), control=RunControl())
     errs=[]; worker.error_signal.connect(lambda m: errs.append(m))
     def _boom(path): raise RuntimeError("bad file")
     with patch("sjtu_tpmshx.applications.design.cases.load_cases", _boom):
@@ -160,38 +164,35 @@ def test_worker_emits_error_on_exception(make_window):
     assert len(errs)==1 and "RuntimeError" in errs[0]
 
 
-def test_run_quick_design_malformed_node_list_gives_feedback_not_crash(make_window):
+def test_run_quick_design_malformed_node_list_gives_feedback_not_crash(make_page):
     """U3 (audit 2026-06-28): a non-numeric node list (le_qd_l) must NOT let
     ValueError escape the Run slot — Qt swallows it to stderr, leaving a dead
     '运行设计' button with no _qd_status. The handler must catch the parse error
     and surface it, and must not launch a worker."""
-    w = make_window("auto")
+    w = make_page("auto")
     w.le_qd_l.setText("4,5,oops,7")     # malformed token in the node list
-    w._qd_worker = None
-    run_quick_design(w)               # must NOT raise
+    w.submit()               # must NOT raise
     assert ("解析" in w._qd_status.text() or "失败" in w._qd_status.text()), \
         f"no parse-failure feedback; status was {w._qd_status.text()!r}"
-    assert getattr(w, "_qd_worker", None) is None, "worker launched on bad input"
+    assert w.is_idle(), "worker launched on bad input"
 
 
-def test_run_quick_design_malformed_fixed_cell_gives_feedback(make_window):
+def test_run_quick_design_malformed_fixed_cell_gives_feedback(make_page):
     """Bad active fixed-cell input is reported before launching a worker."""
-    w = make_window("fixed")
+    w = make_page("fixed")
     w.le_qd_cell_l.setText("7mm")        # malformed fixed-cell length
-    w._qd_worker = None
-    run_quick_design(w)               # must NOT raise
+    w.submit()               # must NOT raise
     assert ("解析" in w._qd_status.text() or "失败" in w._qd_status.text())
 
 
-def test_thread_result_warnings_reach_table(make_window, monkeypatch):
+def test_thread_result_warnings_reach_table(make_page, monkeypatch):
     from PySide6.QtWidgets import QApplication
     from sjtu_tpmshx.applications.design.sizing import Design
-    from sjtu_tpmshx.applications.gui.ui import quick_design_panel as panel
     d = Design(True, topo='Diamond', l=5., t=.5, s=.1, Lx=.1,
                percase=[dict(case=2, warnings=['final-source'])])
-    monkeypatch.setattr('sjtu_tpmshx.applications.design.cases.load_cases', lambda path: ['case'])
+    monkeypatch.setattr('sjtu_tpmshx.applications.design.cases.load_cases', lambda path: [_CASE])
     monkeypatch.setattr('sjtu_tpmshx.applications.design.sizing.size_fixed_cell', lambda *a, **kw: d)
-    worker = _make_worker_class()(_gather_inputs(make_window('fixed')))
+    worker = QuickDesignJob(make_page('fixed')._gather_inputs(), control=RunControl())
     received = []
     worker.finished_with_result.connect(received.append)
     worker.start()
@@ -199,8 +200,8 @@ def test_thread_result_warnings_reach_table(make_window, monkeypatch):
     QApplication.processEvents()
     assert received[0]['best'] is d
     assert received[0]['all'][0].percase == d.percase
-    w = make_window("fixed")
-    panel._fill_table(w, received[0]['feasible'])
+    w = make_page("fixed")
+    w._fill_table(received[0]['feasible'])
     cell = w._qd_table.item(0, 11)
     assert cell.text() == '有警告'
     assert cell.toolTip() == '[工况 2] final-source'
@@ -208,10 +209,8 @@ def test_thread_result_warnings_reach_table(make_window, monkeypatch):
     assert cell.foreground().color().name() == get_theme()['warn'].lower()
 
 
-def test_completed_energy_diagnostics_include_all_cases_without_changing_feasibility(make_window, monkeypatch):
+def test_completed_energy_diagnostics_include_all_cases_without_changing_feasibility(make_page, monkeypatch):
     from sjtu_tpmshx.applications.design.sizing import Design
-    from tests.python.gui_worker_support import _wait_for
-    from sjtu_tpmshx.applications.gui.ui import quick_design_panel as panel
 
     feasible = Design(True, topo='Diamond', l=5., t=.5, V=.002, percase=[
         dict(case='hot', Q_W=100., Q_cold_W=75., energy_imbalance_rel=.25,
@@ -228,15 +227,15 @@ def test_completed_energy_diagnostics_include_all_cases_without_changing_feasibi
                                       acceptance_reasons=['not-converged@final'])])
     early = Design(False, topo='Diamond', l=4., t=.3, reason='no final case')
     results = [feasible, infeasible, early]
-    monkeypatch.setattr('sjtu_tpmshx.applications.design.cases.load_cases', lambda path: ['case'])
+    monkeypatch.setattr('sjtu_tpmshx.applications.design.cases.load_cases', lambda path: [_CASE])
     monkeypatch.setattr('sjtu_tpmshx.applications.design.select.enumerate_select',
                         lambda *a, **kw: (results, feasible))
-    window = make_window()
-    panel.run_quick_design(window)
-    _wait_for(lambda: window._qd_worker is None)
+    window = make_page()
+    window.submit()
+    _wait_for(window.is_idle)
 
-    assert window._qd_last['all'] == results
-    assert window._qd_last['feasible'] == [feasible] and window._qd_last['best'] is feasible
+    assert window.last_result['all'] == results
+    assert window.last_result['feasible'] == [feasible] and window.last_result['best'] is feasible
     assert window._qd_table.rowCount() == 1
     assert window._qd_table.columnCount() == 13
     table = window._qd_energy_table
@@ -256,10 +255,11 @@ def test_completed_energy_diagnostics_include_all_cases_without_changing_feasibi
     ('auto', 'le_qd_cell_l', 'le_qd_l'),
     ('fixed', 'le_qd_l', 'le_qd_cell_l'),
 ])
-def test_only_active_design_parameters_are_parsed(make_window, mode, hidden, active):
-    w = make_window(mode)
+def test_only_active_design_parameters_are_parsed(make_page, mode, hidden, active):
+    w = make_page(mode)
+    w.le_qd_l.setText('5,6,7,8')
     getattr(w, hidden).setText('invalid')
-    params = _gather_inputs(w)
+    params = w._gather_inputs()
     if mode == 'auto':
         assert params['nodes']['l'] == [5., 6., 7., 8.]
         assert 'cell' not in params
@@ -268,20 +268,19 @@ def test_only_active_design_parameters_are_parsed(make_window, mode, hidden, act
         assert 'nodes' not in params
     getattr(w, active).setText('invalid')
     with pytest.raises(ValueError):
-        _gather_inputs(w)
+        w._gather_inputs()
 
 
 @pytest.mark.parametrize('stage', ['enumeration', 'refinement'])
-def test_failure_keeps_completed_candidates_error_and_export(monkeypatch, tmp_path, stage):
+def test_failure_keeps_completed_candidates_error_and_export(make_page, monkeypatch, tmp_path, stage):
     from dataclasses import replace
     from openpyxl import load_workbook
+    from sjtu_tpmshx.applications.gui.ui import quick_design_panel as panel
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QFileDialog, QPushButton
     from sjtu_tpmshx.applications.design import optimize, select
     from sjtu_tpmshx.applications.design.sizing import Design
-    from tests.python.gui_worker_support import _wait_for
-    from sjtu_tpmshx.applications.gui.ui import quick_design_panel as panel
     inputs = tmp_path / 'cases.csv'
     inputs.write_text(
         'case,hot_fluid,T_in_h_K,P_in_h_kPa,mdot_h,cold_fluid,T_in_c_K,P_in_c_kPa,mdot_c,Q_kW,dPlim_h,dPlim_c\n'
@@ -316,10 +315,9 @@ def test_failure_keeps_completed_candidates_error_and_export(monkeypatch, tmp_pa
     # remain real. Only individual candidate work/refinement is controlled.
     monkeypatch.setattr(select, 'size_fixed_cell', candidate)
     monkeypatch.setattr(optimize, 'warm_start_joint', refinement)
-    worker_class = panel._make_worker_class()
 
     def make_worker(params, *, control):
-        worker = worker_class(params, control=control)
+        worker = QuickDesignJob(params, control=control)
         worker.n_jobs = 1
         # Attach before start(), including when a controlled candidate is fast.
         worker.finished_with_result.connect(lambda value: events.append(('result', value)))
@@ -327,75 +325,69 @@ def test_failure_keeps_completed_candidates_error_and_export(monkeypatch, tmp_pa
         worker.cancelled.connect(lambda: events.append(('cancelled', None)))
         return worker
 
-    monkeypatch.setattr(panel, '_make_worker_class', lambda: make_worker)
-    dialog = panel.build_quick_design_dialog()
+    monkeypatch.setattr(panel, 'QuickDesignJob', make_worker)
+    page = make_page()
+    page.le_qd_file.setText(str(inputs))
+    page.le_qd_topo.setText('Diamond')
+    page.le_qd_l.setText('4,5,6,7' if stage == 'enumeration' else '4,5')
+    page.le_qd_t.setText('0.4')
+    page.chk_qd_refine.setChecked(stage == 'refinement')
+    page.last_result = {'old': True}
+    page._qd_table.setRowCount(1)
+    page._qd_energy_table.setRowCount(1)
+    QTest.mouseClick(page._qd_run_btn, Qt.MouseButton.LeftButton)
+    assert page.last_result is None and page._qd_table.rowCount() == 0
+    assert page._qd_energy_table.rowCount() == 0
+    _wait_for(page.is_idle)
+    assert calls == ([4., 5., 6.] if stage == 'enumeration' else [4., 5.])
+    assert [value for kind, value in events if kind == 'error'] == [
+        f'ValueError: injected {stage} failure']
+    assert [kind for kind, _ in events] == ['result', 'error'], events
+    result = page.last_result
+    assert result['all'] == completed and result['feasible'] == [feasible]
+    assert result['best'] is feasible
+    assert result['partial'] and result['termination_reason'] == 'failed'
+    status = page._qd_status.text()
+    assert str(error) in status and '保留 2' in status
+    assert '不代表完整搜索最优' in status and '已取消' not in status
+    assert page._qd_table.rowCount() == 1
+    assert page._qd_table.item(0, 12).text().startswith('已完成候选内')
+    assert page._qd_energy_table.rowCount() == 2
+    assert [page._qd_energy_table.item(i, 4).text() for i in range(2)] == ['20', '20']
+    assert [page._qd_energy_table.item(i, 8).text() for i in range(2)] == ['是', '否']
+    assert page._qd_run_btn.isEnabled() and not page._qd_cancel_btn.isEnabled()
+
+    output = tmp_path / 'failed-partial.xlsx'
+    monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a, **k: (str(output), ''))
+    export = next(button for button in page.findChildren(QPushButton)
+                  if button.text() == '导出 xlsx')
+    QTest.mouseClick(export, Qt.MouseButton.LeftButton)
+    assert output.exists(), page._qd_status.text()
+    assert '失败' in page._qd_status.text() and '已取消' not in page._qd_status.text()
+    workbook = load_workbook(output)
     try:
-        dialog.le_qd_file.setText(str(inputs))
-        dialog.le_qd_topo.setText('Diamond')
-        dialog.le_qd_l.setText('4,5,6,7' if stage == 'enumeration' else '4,5')
-        dialog.le_qd_t.setText('0.4')
-        dialog.chk_qd_refine.setChecked(stage == 'refinement')
-        dialog._qd_last = {'old': True}
-        dialog._qd_table.setRowCount(1)
-        dialog._qd_energy_table.setRowCount(1)
-        QTest.mouseClick(dialog._qd_run_btn, Qt.MouseButton.LeftButton)
-        assert dialog._qd_last is None and dialog._qd_table.rowCount() == 0
-        assert dialog._qd_energy_table.rowCount() == 0
-        _wait_for(lambda: dialog._qd_worker is None)
-        assert calls == ([4., 5., 6.] if stage == 'enumeration' else [4., 5.])
-        assert [value for kind, value in events if kind == 'error'] == [
-            f'ValueError: injected {stage} failure']
-        assert [kind for kind, _ in events] == ['result', 'error'], events
-        result = dialog._qd_last
-        assert result['all'] == completed and result['feasible'] == [feasible]
-        assert result['best'] is feasible
-        assert result['partial'] and result['termination_reason'] == 'failed'
-        status = dialog._qd_status.text()
-        assert str(error) in status and '保留 2' in status
-        assert '不代表完整搜索最优' in status and '已取消' not in status
-        assert dialog._qd_table.rowCount() == 1
-        assert dialog._qd_table.item(0, 12).text().startswith('已完成候选内')
-        assert dialog._qd_energy_table.rowCount() == 2
-        assert [dialog._qd_energy_table.item(i, 4).text() for i in range(2)] == ['20', '20']
-        assert [dialog._qd_energy_table.item(i, 8).text() for i in range(2)] == ['是', '否']
-        assert dialog._qd_run_btn.isEnabled() and not dialog._qd_cancel_btn.isEnabled()
-
-        output = tmp_path / 'failed-partial.xlsx'
-        monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a, **k: (str(output), ''))
-        export = next(button for button in dialog.findChildren(QPushButton)
-                      if button.text() == '导出 xlsx')
-        QTest.mouseClick(export, Qt.MouseButton.LeftButton)
-        assert output.exists(), dialog._qd_status.text()
-        assert '失败' in dialog._qd_status.text() and '已取消' not in dialog._qd_status.text()
-        workbook = load_workbook(output)
-        try:
-            rows = {}
-            for sheet in workbook:
-                cells = list(sheet.values)
-                rows[sheet.title] = [dict(zip(cells[0], row)) for row in cells[1:]]
-                assert len(rows[sheet.title]) == 2
-                for row in rows[sheet.title]:
-                    state = row['任务状态']
-                    assert '失败' in state and '部分' in state and '不代表完整搜索最优' in state
-                    assert '取消' not in state
-            summary = {row['l_mm']: row for row in rows['构型汇总']}
-            assert summary[4]['可行'] == '是' and summary[5]['可行'] == '否'
-            assert summary[4]['标记'].startswith('已完成候选内')
-            assert summary[5]['备注'] == 'not-converged@final'
-            for row in rows['工况明细']:
-                assert row['热侧出口_K'] == 400. and row['换热量_kW'] == 10.
-                assert row['警告'] == 'retained source warning'
-            assert {row['数值收敛'] for row in rows['工况明细']} == {True, False}
-        finally:
-            workbook.close()
+        rows = {}
+        for sheet in workbook:
+            cells = list(sheet.values)
+            rows[sheet.title] = [dict(zip(cells[0], row)) for row in cells[1:]]
+            assert len(rows[sheet.title]) == 2
+            for row in rows[sheet.title]:
+                state = row['任务状态']
+                assert '失败' in state and '部分' in state and '不代表完整搜索最优' in state
+                assert '取消' not in state
+        summary = {row['l_mm']: row for row in rows['构型汇总']}
+        assert summary[4]['可行'] == '是' and summary[5]['可行'] == '否'
+        assert summary[4]['标记'].startswith('已完成候选内')
+        assert summary[5]['备注'] == 'not-converged@final'
+        for row in rows['工况明细']:
+            assert row['热侧出口_K'] == 400. and row['换热量_kW'] == 10.
+            assert row['警告'] == 'retained source warning'
+        assert {row['数值收敛'] for row in rows['工况明细']} == {True, False}
     finally:
-        if getattr(dialog, '_qd_worker', None) is not None:
-            dialog._qd_worker.requestInterruption()
-            _wait_for(lambda: dialog._qd_worker is None)
-        dialog.close()
+        workbook.close()
 
 
-def test_cli_and_gui_share_unified_defaults_and_density(monkeypatch, tmp_path):
+def test_cli_and_gui_share_unified_defaults_and_density(make_page, monkeypatch, tmp_path):
     from sjtu_tpmshx.applications.design import cli, sizing
 
     monkeypatch.setattr(sizing, 'RHO_S', 2700.)
@@ -409,31 +401,27 @@ def test_cli_and_gui_share_unified_defaults_and_density(monkeypatch, tmp_path):
                          height=kwargs['height']))
         return design
 
-    monkeypatch.setattr('sjtu_tpmshx.applications.design.cases.load_cases', lambda p: ['case1'])
-    monkeypatch.setattr(cli, 'load_cases', lambda p: ['case1'])
+    monkeypatch.setattr('sjtu_tpmshx.applications.design.cases.load_cases', lambda p: [_CASE])
+    monkeypatch.setattr(cli, 'load_cases', lambda p: [_CASE])
     monkeypatch.setattr(sizing, 'size_fixed_cell', fixed)
 
-    dialog = build_quick_design_dialog()
-    try:
-        assert dialog.le_qd_rho.text() == '2700'
-        assert dialog.le_qd_ks.text() == '150'
-        dialog.le_qd_file.setText('spec.xlsx')
-        dialog.combo_qd_mode.setCurrentIndex(dialog.combo_qd_mode.findData('fixed'))
-        params = _gather_inputs(dialog)
-        assert params['rho_s'] == 2700. and params['k_s'] == 150.
-        assert params['arrangement'] == 'cross' and params['prop_model'] == 'mean'
-        assert params['height'] is None
+    page = make_page()
+    assert page.le_qd_rho.text() == '2700'
+    assert page.le_qd_ks.text() == '150'
+    page.le_qd_file.setText('spec.xlsx')
+    page.combo_qd_mode.setCurrentIndex(page.combo_qd_mode.findData('fixed'))
+    params = page._gather_inputs()
+    assert params['rho_s'] == 2700. and params['k_s'] == 150.
+    assert params['arrangement'] == 'cross' and params['prop_model'] == 'mean'
+    assert params['height'] is None
 
-        # Previous GUI counterflow and CLI const selections stay reachable.
-        dialog.combo_qd_arr.setCurrentIndex(dialog.combo_qd_arr.findData('counter'))
-        dialog.combo_qd_prop.setCurrentIndex(dialog.combo_qd_prop.findData('const'))
-        legacy = _gather_inputs(dialog)
-        assert legacy['arrangement'] == 'counter' and legacy['prop_model'] == 'const'
-    finally:
-        dialog.close()
+    # Previous GUI counterflow and CLI const selections stay reachable.
+    page.combo_qd_arr.setCurrentIndex(page.combo_qd_arr.findData('counter'))
+    page.combo_qd_prop.setCurrentIndex(page.combo_qd_prop.findData('const'))
+    legacy = page._gather_inputs()
+    assert legacy['arrangement'] == 'counter' and legacy['prop_model'] == 'const'
 
-    Worker = _make_worker_class()
-    worker = Worker(dict(file='spec.xlsx', mode='fixed', cell=('Diamond', 7., .5)))
+    worker = QuickDesignJob(params, control=RunControl())
     received = []
     worker.finished_with_result.connect(received.append)
     worker.run()
@@ -457,11 +445,10 @@ def test_cli_and_gui_share_unified_defaults_and_density(monkeypatch, tmp_path):
     'cancel_enumeration',
     'cancel_refinement',
 ])
-def test_cli_and_gui_match_on_shared_inputs(monkeypatch, tmp_path, capsys, scenario):
+def test_cli_and_gui_match_on_shared_inputs(make_page, monkeypatch, tmp_path, capsys, scenario):
     from openpyxl import load_workbook
     from sjtu_tpmshx.applications.design import cli, optimize, report, select, sizing
     from sjtu_tpmshx.run_control.cancellation import CancelledError
-    from sjtu_tpmshx.run_control.module_ports import RunControl
 
     source = tmp_path / 'spec.csv'
     source.write_text(
@@ -561,29 +548,28 @@ def test_cli_and_gui_match_on_shared_inputs(monkeypatch, tmp_path, capsys, scena
         assert cli.run(cli_args) == 0
     cli_stdout = capsys.readouterr().out
 
-    # Run GUI worker with matching inputs gathered from the dialog.
+    # Run GUI worker with matching inputs gathered from the page.
     gui_state = run_pair()
     gui_control = RunControl(cancel_check=lambda: gui_state['cancel'])
-    dialog = build_quick_design_dialog()
-    try:
-        dialog.le_qd_file.setText(str(source))
-        dialog.combo_qd_mode.setCurrentIndex(dialog.combo_qd_mode.findData(mode))
-        dialog.chk_qd_rect.setChecked(use_rect)
-        if use_rect:
-            dialog.le_qd_height.setText('750')
-        if mode == 'fixed':
-            dialog.combo_qd_cell_topo.setCurrentText('Diamond')
-            dialog.le_qd_cell_l.setText('7')
-            dialog.le_qd_cell_t.setText('0.4')
-        else:
-            dialog.le_qd_topo.setText('Diamond')
-            dialog.le_qd_l.setText('5,6,7')
-            dialog.le_qd_t.setText('0.4')
-            dialog.chk_qd_refine.setChecked(use_refine)
-        gui_params = _gather_inputs(dialog)
-    finally:
-        dialog.close()
-    worker = _make_worker_class()(gui_params, control=gui_control)
+    page = make_page()
+    page.le_qd_file.setText(str(source))
+    page.combo_qd_mode.setCurrentIndex(page.combo_qd_mode.findData(mode))
+    page.chk_qd_rect.setChecked(use_rect)
+    if use_rect:
+        page.le_qd_height.setText('750')
+    if mode == 'fixed':
+        page.combo_qd_cell_topo.setCurrentText('Diamond')
+        page.le_qd_cell_l.setText('7')
+        page.le_qd_cell_t.setText('0.4')
+    else:
+        page.le_qd_topo.setText('Diamond')
+        page.le_qd_l.setText('5,6,7')
+        page.le_qd_t.setText('0.4')
+        page.chk_qd_refine.setChecked(use_refine)
+    gui_params = page._gather_inputs()
+    clock = iter((12., 18.75))
+    monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.quick_design_job.perf_counter', lambda: next(clock))
+    worker = QuickDesignJob(gui_params, control=gui_control)
     worker.n_jobs = 1
     gui_results, gui_errors, gui_cancelled = [], [], []
     worker.finished_with_result.connect(gui_results.append)
@@ -593,6 +579,8 @@ def test_cli_and_gui_match_on_shared_inputs(monkeypatch, tmp_path, capsys, scena
 
     assert len(gui_results) == 1
     gui = gui_results[0]
+    assert gui['case_limits'] == [dict(case=1, dPlim_h=.1, dPlim_c=.1)]
+    assert gui['elapsed_s'] == 6.75
     gui_order = [report.cid(d) for d in gui['all']]
     gui_best_id = report.cid(gui['best']) if gui['best'] is not None else None
 

@@ -1,21 +1,11 @@
-"""ui/plot_2d_results.py — 2D compute-result rendering for SJTU-TPMSHX.
-
-Extracted from ``runs/run_calculation.py`` in batch-3 (2026-06-13), mirroring
-``ui/plot_3d_results.py``: holds the matplotlib canvas population for the
-temperature / pressure / velocity tabs so the preparation adapter
-(``cpp_interface/native_preparation.py``) stays Qt/matplotlib-free.
-
-Public entry points (consumed by ``ui.mixins.run_controller`` and ``main``):
-    finalize_plots(window, field)   — render one 2D result canvas (main thread)
-    redraw_result_fields(window) — invalidate and redraw visible cached fields
-    plot_temperature_3panel(window, r, _t, zones=None) — the shared T_fA/T_fB/T_s helper
-"""
+"""Draw cached 2D fields and slices from the accepted 3D result."""
 import numpy as np
 from matplotlib.ticker import ScalarFormatter
 
 from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
+from sjtu_tpmshx.postprocess.result_display import RESULT_FIELD_SPECS, extrapolation_watermark
 
-from .theme import FIELD_CMAP
+from .theme import resolve_cmap
 from .vis3d_constants import field_color_limits
 
 def _phase_indices(window, count):
@@ -70,10 +60,10 @@ def redraw_result_fields(window):
     """Invalidate hidden fields; redraw only visible or detached result plots."""
     fields = {'temp', 'pres', 'vel'}
     window.cache.replace_drawn_tabs(set(window.cache.get_drawn_tabs()) - fields)
-    visible = set(getattr(window, '_split_tabs', None) or
-                  (getattr(window, '_active_tab', None),))
+    visible = set(window.workbench.split_tabs or
+                  (window.workbench.active_tab,))
     visible.update(key for key, dialog in
-                   getattr(window, '_detached_canvases', {}).items()
+                   window.workbench.detached_canvases.items()
                    if dialog.isVisible())
     for field in visible & fields:
         ensure_result_plot(window, field)
@@ -137,24 +127,25 @@ def plot_temperature_3panel(window, r, _t, zones=None):
               field_color_limits(temperatures[:2], shared=True) + field_color_limits(temperatures[2:]))
     limits = [(lo - offset, hi - offset) for lo, hi in limits]
 
+    specs = [RESULT_FIELD_SPECS[key] for key in ('Ta', 'Tb', 'Ts')]
     plot_items = [
-        (Ta, rf"$T_{{f,A}}$  [{unit}]", "Fluid A"),
-        (Tb, rf"$T_{{f,B}}$  [{unit}]", "Fluid B"),
-        (Ts, rf"$T_s$  [{unit}]", "Solid"),
+        (Ta, specs[0], "Fluid A"),
+        (Tb, specs[1], "Fluid B"),
+        (Ts, specs[2], "Solid"),
     ]
     for ax, index in zip(axes, selected):
-        field, main_title, subtitle = plot_items[index]
+        field, spec, subtitle = plot_items[index]
         ax.set_facecolor(_t['ax_bg'])
         lo, hi = limits[index]
         from sjtu_tpmshx.applications.gui.ui.matplotlib_canvas import pad_field_to_edges
         _Xp, _Yp, _Fp = pad_field_to_edges(x, y, field, L * 1000.0, H * 1000.0)
         cf = ax.contourf(_Xp, _Yp, _Fp, levels=np.linspace(lo, hi, 129),
-                         cmap=FIELD_CMAP, vmin=lo, vmax=hi)
+                         cmap=resolve_cmap(spec.key), vmin=lo, vmax=hi)
         ax.set_xlim(0, L * 1000.0); ax.set_ylim(0, H * 1000.0)
         cb = window.canvas_temp.fig.colorbar(cf, ax=ax, shrink=0.9,
                                               aspect=25, ticks=np.linspace(lo, hi, 5),
                                               format=ScalarFormatter(useOffset=False))
-        _style_workbench_axes(ax, cb, _t, main_title, subtitle)
+        _style_workbench_axes(ax, cb, _t, f"{spec.symbol_tex}  [{unit}]", subtitle)
         _draw_zone_overlays(ax, zones, _t)
 
     if not window.canvas_temp.fig.get_constrained_layout():
@@ -163,8 +154,9 @@ def plot_temperature_3panel(window, r, _t, zones=None):
     window.canvas_temp.draw()
     window.canvas_temp._hover_data = {
         'fields': [[Ta, Tb, Ts][i] for i in selected],
-        'names': [['T_fA', 'T_fB', 'T_s'][i] for i in selected],
+        'names': [specs[i].symbol for i in selected],
         'unit': unit,
+        'fmt': '.2f',
         'L': L, 'H': H, 'Nx': N_x, 'Ny': N_y,
         'dx_arr': _dx, 'dy_arr': _dy,
     }
@@ -180,7 +172,6 @@ def finalize_plots(window, field="temp"):
     result = window.cache.get_result('2d')
     r = result.fields
     zones = result.zones
-    ucA, vcA, ucB, vcB = (r[key] for key in ('ucA', 'vcA', 'ucB', 'vcB'))
     P_fA, P_fB = r['P_fA'], r['P_fB']
     N_x, N_y, L, H = r['N_x'], r['N_y'], r['L'], r['H']
     dir_A, dir_B = r['dir_A'], r['dir_B']
@@ -204,14 +195,16 @@ def finalize_plots(window, field="temp"):
     x = (np.cumsum(_dx) - _dx / 2) * 1000
     y = (np.cumsum(_dy) - _dy / 2) * 1000
 
-    # Pressure plot — clouds only (dP shown in the KPI strip; the summary card
-    # + SIMPLE convergence plot were removed from this tab).
+    # Pressure plot — clouds only (dP stays in Pa in the readout strip).
     selected = _phase_indices(window, 2)
     if field == "pres":
+        spec_a, spec_b = RESULT_FIELD_SPECS['P_fA'], RESULT_FIELD_SPECS['P_fB']
+        p_disp = (P_fA * spec_a.display_scale, P_fB * spec_b.display_scale)
+        p_specs = (spec_a, spec_b)
         control = getattr(window, 'chk_shared_pressure_scale', None)
         shared = control is None or control.isChecked()
         if len(selected) == 2:
-            window.canvas_pres.plot_pressure(P_fA, P_fB, N_x, N_y, L, H, mode_label,
+            window.canvas_pres.plot_pressure(p_disp[0], p_disp[1], N_x, N_y, L, H, mode_label,
                                              dx_arr=r.get('dx_arr'), dy_arr=r.get('dy_arr'), shared=shared)
         else:
             from .matplotlib_canvas import pad_field_to_edges
@@ -221,23 +214,26 @@ def finalize_plots(window, field="temp"):
             ax = canvas.fig.subplots()
             canvas.axes = [[ax]]
             index = selected[0]
-            values = (P_fA, P_fB)[index]
+            spec = p_specs[index]
+            values = p_disp[index]
             Xp, Yp, Fp = pad_field_to_edges(x, y, values, L * 1000, H * 1000)
-            lo, hi = field_color_limits([P_fA, P_fB], shared)[index]
+            lo, hi = field_color_limits(p_disp, shared)[index]
             cf = ax.contourf(Xp, Yp, Fp, levels=np.linspace(lo, hi, 129),
-                             cmap=FIELD_CMAP, vmin=lo, vmax=hi)
+                             cmap=resolve_cmap(spec.key), vmin=lo, vmax=hi)
             ax.set_xlim(0, L * 1000); ax.set_ylim(0, H * 1000)
             cb = canvas.fig.colorbar(cf, ax=ax, shrink=.9, aspect=25,
                                     format=ScalarFormatter(useOffset=False))
-            tag = ('A', 'B')[index]
-            _style_workbench_axes(ax, cb, _t, rf'$P_{tag}$ abs [Pa]', 'A/B shared' if shared else f'Fluid {tag} full range')
+            tag = spec.phase
+            _style_workbench_axes(ax, cb, _t, f'{spec.symbol_tex} abs [{spec.display_unit}]',
+                                  'A/B shared' if shared else f'Fluid {tag} full range')
             if not canvas.fig.get_constrained_layout():
                 canvas.fig.subplots_adjust(left=.11, right=.96, top=.89, bottom=.14)
             canvas.draw()
         window.canvas_pres._hover_data = {
-            'fields': [[P_fA, P_fB][i] for i in selected],
-            'names': [['P_A', 'P_B'][i] for i in selected],
-            'unit': 'Pa',
+            'fields': [p_disp[i] for i in selected],
+            'names': [p_specs[i].symbol for i in selected],
+            'unit': spec_a.display_unit,
+            'fmt': '.5f',
             'L': L, 'H': H, 'Nx': N_x, 'Ny': N_y,
             'dx_arr': _dx, 'dy_arr': _dy,
         }
@@ -250,25 +246,27 @@ def finalize_plots(window, field="temp"):
         # Register axes for _on_hover (list-of-rows format expected by the
         # generic hover handler at _on_hover:907)
         window.canvas_vel.axes = [list(axes_v)]
-        UmagA = np.sqrt(ucA**2 + vcA**2)
-        UmagB = np.sqrt(ucB**2 + vcB**2)
+        spec_a, spec_b = RESULT_FIELD_SPECS['vmag_A'], RESULT_FIELD_SPECS['vmag_B']
+        v_specs = (spec_a, spec_b)
+        UmagA, UmagB = r['vmag_A'], r['vmag_B']
         limits = field_color_limits([UmagA, UmagB])
         velocity_items = [
-            (UmagA, r"$|\mathbf{U}_A|$  [m/s]", "Fluid A"),
-            (UmagB, r"$|\mathbf{U}_B|$  [m/s]", "Fluid B"),
+            (UmagA, spec_a, "Fluid A"),
+            (UmagB, spec_b, "Fluid B"),
         ]
         for ax, index in zip(axes_v, selected):
-            values, main_title, subtitle = velocity_items[index]
+            values, spec, subtitle = velocity_items[index]
             ax.set_facecolor(_t['ax_bg'])
             from sjtu_tpmshx.applications.gui.ui.matplotlib_canvas import pad_field_to_edges
             _Xp, _Yp, _Fp = pad_field_to_edges(x, y, values, L * 1000.0, H * 1000.0)
             lo, hi = limits[index]
             cf = ax.contourf(_Xp, _Yp, _Fp, levels=np.linspace(lo, hi, 129),
-                             cmap=FIELD_CMAP, vmin=lo, vmax=hi)
+                             cmap=resolve_cmap(spec.key), vmin=lo, vmax=hi)
             ax.set_xlim(0, L * 1000.0); ax.set_ylim(0, H * 1000.0)
             cb = window.canvas_vel.fig.colorbar(cf, ax=ax, shrink=0.9,
                                                  aspect=25, format=ScalarFormatter(useOffset=False))
-            _style_workbench_axes(ax, cb, _t, main_title, subtitle + ' full range')
+            _style_workbench_axes(ax, cb, _t, f"{spec.symbol_tex}  [{spec.display_unit}]",
+                                  subtitle + ' full range')
             ax.grid(True, alpha=0.15, linewidth=0.5, color=_t['ax_text'])
             _draw_zone_overlays(ax, zones, _t)
         if not window.canvas_vel.fig.get_constrained_layout():
@@ -277,8 +275,9 @@ def finalize_plots(window, field="temp"):
         window.canvas_vel.draw()
         window.canvas_vel._hover_data = {
             'fields': [[UmagA, UmagB][i] for i in selected],
-            'names': [['|U_A|', '|U_B|'][i] for i in selected],
-            'unit': 'm/s',
+            'names': [v_specs[i].symbol for i in selected],
+            'unit': spec_a.display_unit,
+            'fmt': '.2f',
             'L': L, 'H': H, 'Nx': N_x, 'Ny': N_y,
             'dx_arr': _dx, 'dy_arr': _dy,
         }
@@ -286,11 +285,10 @@ def finalize_plots(window, field="temp"):
     window._update_tout(-1)
 
     # Keep the applicability warning visible with every field plot.
-    _reasons = result.extrap_reasons
-    if _reasons:
+    _wm_text = extrapolation_watermark(result.metadata, result.extrap_reasons)
+    if _wm_text:
         from sjtu_tpmshx.applications.gui.ui.theme import get_theme as _gt
         _tw = _gt().get('warn', '#B45309')
-        _wm_text = "⚠ ConstDF-v1 extrapolated: " + " | ".join(_reasons)
         _cv = getattr(window, f"canvas_{field}")
         try:
             _cv.fig.text(0.5, 0.005, _wm_text,

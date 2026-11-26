@@ -6,7 +6,8 @@ import numpy as np
 from matplotlib.figure import Figure
 from matplotlib.ticker import LinearLocator, ScalarFormatter
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from .theme import FIELD_CMAP, get_theme
+from sjtu_tpmshx.postprocess.result_display import RESULT_FIELD_SPECS
+from .theme import get_theme, resolve_cmap
 from .vis3d_constants import field_color_limits
 
 
@@ -107,8 +108,9 @@ class MatplotlibCanvas(FigureCanvas):
         inches = pixels * self.device_pixel_ratio / self.figure.dpi
         self.figure.set_size_inches(np.nextafter(inches, np.inf), forward=False)
 
-    def plot_pressure(self, P_fA, P_fB, N_x, N_y, L, H, mode="",
+    def plot_pressure(self, P_A_kPa, P_B_kPa, N_x, N_y, L, H, mode="",
                        dx_arr=None, dy_arr=None, shared=True):
+        """Plot Fluid A and Fluid B absolute pressure fields supplied in kPa."""
         _t = get_theme()
         from matplotlib.gridspec import GridSpec
 
@@ -127,20 +129,22 @@ class MatplotlibCanvas(FigureCanvas):
         axes_p = [self.fig.add_subplot(gs[0]), self.fig.add_subplot(gs[1])]
         self.axes = [axes_p]
 
+        spec_a, spec_b = RESULT_FIELD_SPECS['P_fA'], RESULT_FIELD_SPECS['P_fB']
         p_data = [
-            (P_fA, r"$P_A$  [Pa]", "Fluid A"),
-            (P_fB, r"$P_B$  [Pa]", "Fluid B"),
+            (P_A_kPa, spec_a, "Fluid A"),
+            (P_B_kPa, spec_b, "Fluid B"),
         ]
         _Lmm, _Hmm = L * 1000.0, H * 1000.0
-        limits = field_color_limits([P_fA, P_fB], shared)
-        for ax, (field, main_title, subtitle), (lo, hi) in zip(axes_p, p_data, limits):
+        limits = field_color_limits([P_A_kPa, P_B_kPa], shared)
+        for ax, (field, spec, subtitle), (lo, hi) in zip(axes_p, p_data, limits):
             ax.set_facecolor(_t['ax_bg'])
             _Xp, _Yp, _Fp = pad_field_to_edges(x, y, field, _Lmm, _Hmm)
-            cf = ax.contourf(_Xp, _Yp, _Fp, levels=np.linspace(lo, hi, 129), cmap=FIELD_CMAP, vmin=lo, vmax=hi)
+            cf = ax.contourf(_Xp, _Yp, _Fp, levels=np.linspace(lo, hi, 129),
+                             cmap=resolve_cmap(spec.key), vmin=lo, vmax=hi)
             ax.set_xlim(0, _Lmm); ax.set_ylim(0, _Hmm)
             cb = self.fig.colorbar(cf, ax=ax, shrink=0.9, aspect=25,
                                   format=ScalarFormatter(useOffset=False))
-            style_field_axes(ax, cb, _t, main_title, subtitle)
+            style_field_axes(ax, cb, _t, f"{spec.symbol_tex}  [{spec.display_unit}]", subtitle)
 
         # Scalar pressure drop lives in the result footer.
         _ = mode

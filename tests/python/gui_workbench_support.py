@@ -44,6 +44,11 @@ def _result(mode):
                       vmag_B=np.sqrt(fields['ucB']**2 + fields['vcB']**2 + (raw + 6.)**2),
                       dx=fields['dx_arr'], dy=fields['dy_arr'],
                       dz=np.array([.001, .002, .007]),
-                      Lx=.04, Ly=.03, Lz=.01, L_mm=np.full(shape, 7.))
+                      Lx=.04, Ly=.03, Lz=.01,
+                      L_mm=np.full(shape, 7.), t_mm=np.full(shape, .5))
+    else:
+        fields.update(vmag_A=np.hypot(fields['ucA'], fields['vcA']),
+                      vmag_B=np.hypot(fields['ucB'], fields['vcB']))
     return ComputeResult(Q_W=20., dP_A_Pa=10., dP_B_Pa=8.,
-                         diagnostics={'mode': mode}, fields=fields)
+                         diagnostics={'mode': mode}, fields=fields,
+                         metadata={'tpms': 'Gyroid', 'delta_levelset': 0.0})

@@ -6,6 +6,11 @@ import numpy as np
 import pytest
 from PySide6.QtWidgets import QFileDialog
 
+from sjtu_tpmshx.applications.gui.ui.plot_2d_results import finalize_plots as _real_finalize_plots
+from sjtu_tpmshx.applications.gui.ui.plot_3d_results import (
+    _render_2d_slices_from_3d as _real_render_2d_slices_from_3d,
+    finalize_plots_3d as _real_finalize_plots_3d,
+)
 from sjtu_tpmshx.physical_models.tpms_calc import compute
 from sjtu_tpmshx.physical_models.nu_correlations import warn_sco2_nu_evidence
 from tests.python.gui_worker_support import (
@@ -37,12 +42,12 @@ def test_closure_warning_worker_to_export(win, monkeypatch, tmp_path, mode, sour
         return {}
 
     _stub_stages(monkeypatch, mode, build)
-    monkeypatch.setattr(win, '_render_compute_result', lambda: True)
+    monkeypatch.setattr(win.results, 'render', lambda mode: True)
     for run in range(2):
-        win.run_calculation()
-        _wait_for(win.compute.is_idle)
+        win.single_run.submit()
+        _wait_for(win.single_run.is_idle)
         assert not win._test_error_dialogs
-        result = win.compute.last_result()
+        result = win.single_run.compute.last_result()
         assert any(f'[{source} extrap]' in message for message in result.warnings)
         if source == 'D-F':
             notice = next(m for m in result.warnings if '[D-F extrap]' in m)
@@ -52,10 +57,10 @@ def test_closure_warning_worker_to_export(win, monkeypatch, tmp_path, mode, sour
         if mode == '3d' and source == 'Nu':
             assert any('zoned L=[5,6] mm, t=[0.3,0.4] mm' in message for message in result.warnings)
         assert result.extrap_reasons == []
-        assert win._result_summary()['warnings'] == result.warnings
+        assert win.results.summary()['warnings'] == result.warnings
         out = tmp_path / f'{run}.csv'
         monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: (str(out), ''))
-        win._export_results()
+        win.result_export.export_results()
         assert not win._test_error_dialogs
         with out.open(encoding='utf-8', newline='') as stream:
             rows = dict(csv.reader(stream))
@@ -84,16 +89,16 @@ def test_converged_outside_range_result_keeps_design_rejection_in_gui_and_export
     performance = replace(performance, qualification=quality)
     result = to_compute_result(native, performance)
     assert result.converged and result.metadata['qualification']['design']['eligible'] is False
-    win.write_result(result)
-    win._update_result_summary()
+    win.results.publish(result)
+    win.results.refresh_summary()
     assert win._sb_labels['design'].text().startswith('未通过 ⚠：')
     assert '超范围' in win._sb_labels['design'].toolTip()
-    assert '允许' in win._diag_summary_text()
+    assert '允许' in win.results.diagnostic_text()
     assert win._sb_labels['extrap'].text() == '未通过 ⚠'
-    assert '设计资格：不合格' in win._diag_summary_text()
+    assert '设计资格：不合格' in win.results.diagnostic_text()
     path = tmp_path / 'range-rejected.csv'
     monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: (str(path), 'CSV'))
-    win._export_results()
+    win.result_export.export_results()
     with path.open(encoding='utf-8', newline='') as stream:
         rows = dict(csv.reader(stream))
     archived = json.loads(rows['metadata'])['qualification']
@@ -101,3 +106,50 @@ def test_converged_outside_range_result_keeps_design_rejection_in_gui_and_export
     assert archived['applicability']['passed'] is False
     assert archived['design']['eligible'] is False
     assert not win._test_error_dialogs
+
+
+@pytest.mark.parametrize('mode', ['2d', '3d'])
+def test_extrapolation_watermarks_name_recorded_model_without_constdf(win, mode):
+    from sjtu_tpmshx.postprocess.result_display import (
+        extrapolation_model_label, extrapolation_watermark,
+    )
+    from types import SimpleNamespace
+    from tests.python.gui_workbench_support import _result
+
+    with pytest.raises(ValueError, match='darcy_forchheimer'):
+        extrapolation_model_label({})
+    with pytest.raises(ValueError, match='darcy_forchheimer'):
+        extrapolation_model_label({'darcy_forchheimer': {'mode': 'experimental', 'A': {'campaign': 'c'}}})
+    with pytest.raises(ValueError, match='darcy_forchheimer'):
+        extrapolation_watermark({}, ['V2 wall thickness must be inside the 0.3..0.5 mm CFD grid.'])
+    assert extrapolation_watermark({}, []) == ''
+
+    result = _result(mode)
+    result.extrap_reasons = ['V2 wall thickness must be inside the 0.3..0.5 mm CFD grid.']
+    result.metadata = {
+        **result.metadata,
+        'darcy_forchheimer': {'mode': 'experimental'},
+        'model_refs': [{'name': 'darcy_forchheimer', 'version': 'cfd_full_core_3cell_fixed_v2'}],
+    }
+    win.results.publish(result)
+    if mode == '2d':
+        _real_finalize_plots(win, field='temp')
+        texts = [item.get_text() for item in win.canvas_temp.fig.texts]
+        assert len(texts) == 1
+        assert 'cfd_full_core_3cell_fixed_v2 (experimental)' in texts[0]
+        assert 'ConstDF-v1' not in texts[0]
+    else:
+        seen = {}
+        win.canvas_3d = SimpleNamespace(
+            cleanup=lambda: None, color_range_state=lambda: {},
+            set_fields=lambda **kw: seen.update(kw),
+            set_watermark=lambda text: seen.__setitem__('watermark', text),
+        )
+        assert _real_finalize_plots_3d(win)
+        assert 'cfd_full_core_3cell_fixed_v2 (experimental)' in seen['watermark']
+        assert 'ConstDF-v1' not in seen['watermark']
+        _real_render_2d_slices_from_3d(win, result, field='temp')
+        texts = [item.get_text() for item in win.canvas_temp.fig.texts]
+        assert len(texts) == 1
+        assert 'cfd_full_core_3cell_fixed_v2 (experimental)' in texts[0]
+        assert 'ConstDF-v1' not in texts[0]

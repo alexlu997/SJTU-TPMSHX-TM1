@@ -16,7 +16,6 @@ from PySide6.QtWidgets import QMessageBox
 
 from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
 from sjtu_tpmshx.physical_models.design_fluids import nu_re_window
-from sjtu_tpmshx.cpp_interface._native_df import pressure_gradient
 from sjtu_tpmshx.physical_models.tpms_calc import compute as tpms_compute
 from sjtu_tpmshx.applications.gui.ui.ui_constants import TOAST_MS_MED
 
@@ -45,7 +44,8 @@ class FluidInputMixin:
         }[fluid]
         try:
             from sjtu_tpmshx.applications.gui.ui.window_config import (
-                config_from_window, fluid_types_from_window, mass_flow_active, sco2_nu_from_window,
+                config_from_window, df_mode_from_window, fluid_types_from_window,
+                mass_flow_active, sco2_nu_from_window,
             )
             fluid_types = fluid_types_from_window(self)
             _ftype = fluid_types[fluid]
@@ -62,16 +62,7 @@ class FluidInputMixin:
                 float(le_u.text()), T_K,
                 float(le_Pin.text()), float(self.le_ks.text()),
                 fluid_type=_ftype, sco2_nu=sco2_nu_from_window(self),
-                co2_geometry='co2' in fluid_types.values())
-            df_combo = getattr(self, 'combo_df_mode', None)
-            if _ftype != 'co2' and df_combo is not None and df_combo.currentData() == 'experimental':
-                from sjtu_tpmshx.physical_models.df_surrogate.experimental_correction import apply_correction
-                u = float(le_u.text())
-                K, cF, _ = apply_correction(
-                    self.combo_tpms.currentText(), _ftype,
-                    float(self.le_Lcell.text()), float(self.le_t.text()),
-                    r['K_df'], r['cF_df'], u)
-                r['dP_per_L'] = pressure_gradient(r['rho'], r['mu'], u, K, cF)
+                co2_geometry='co2' in fluid_types.values(), df_mode=df_mode_from_window(self))
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e)); return
 
@@ -243,8 +234,8 @@ class FluidInputMixin:
         self._sync_temp_unit_labels()
         self._refresh_field_validation()
         self._discard_temperature_history()
-        self._resync_undo_baseline()
-        self._update_result_summary()
+        self.case_files.resync_undo_baseline()
+        self.results.refresh_summary()
         from sjtu_tpmshx.applications.gui.ui.plot_2d_results import redraw_result_fields
         redraw_result_fields(self)
         self.statusBar().showMessage(
@@ -252,19 +243,11 @@ class FluidInputMixin:
 
     def _update_tout(self, t_idx: int):
         """Render this run's result scalars in the selected temperature unit."""
-        self._update_result_summary()
+        self.results.refresh_summary()
 
     def _on_dir_changed(self):
-        """Relabel inlet/outlet fields to match selected flow-axis.
-
-        dir 0/1 (±x) stream → cross1 = Y, cross2 = Z
-        dir 2/3 (±y) stream → cross1 = X, cross2 = Z
-        dir 4/5 (±z) stream → cross1 = X, cross2 = Y
-        The UI fields `in_ctr/in_w/out_ctr/out_w` always control cross1;
-        `in_z_ctr` etc. always control cross2 — labels show the real axis
-        so user knows which coord they're editing.
-        """
-        # Cross-axis labels delegated to domain.validator (Phase 4 #4).
+        """Show the actual transverse axis and unit for each port coordinate."""
+        from sjtu_tpmshx.applications.gui.ui.window_config import LINE_EDITS
         from sjtu_tpmshx.data_types.validator import cross_axes_for_dir
         for combo, prefix in [(self.combo_dirA, 'pipeA'),
                               (self.combo_dirB, 'pipeB')]:
@@ -272,14 +255,14 @@ class FluidInputMixin:
                 c1, c2 = cross_axes_for_dir(combo.currentIndex())
             except ValueError:
                 c1, c2 = 'Y', 'Z'
-            for io, cap in (('in', 'Inlet'), ('out', 'Outlet')):
-                for kind, suffix in (('ctr', 'centre'), ('w', 'width')):
-                    lbl1 = getattr(self, f'_lbl_{prefix}_{io}_{kind}', None)
-                    if lbl1 is not None:
-                        lbl1.setText(f"{cap} {c1}-{suffix} [m]")
-                    lbl2 = getattr(self, f'_lbl_{prefix}_{io}_z_{kind}', None)
-                    if lbl2 is not None:
-                        lbl2.setText(f"{cap} {c2}-{suffix} [m] (3D)")
+            for end, port in (('in', '入口'), ('out', '出口')):
+                for key, axis in (('', c1), ('z_', c2)):
+                    for kind, title in (('ctr', '中心'), ('w', '宽度')):
+                        name = f'{prefix}_{end}_{key}{kind}'
+                        label = getattr(self, f'_lbl_{name}', None)
+                        if label is not None:
+                            text, _ = LINE_EDITS['le_' + name].editor_text(f'{port} {axis} 向{title}')
+                            label.setText(text)
 
     def _dir_int(self, combo):
         # 0=+x 1=-x 2=+y 3=-y 4=+z 5=-z (z-dirs: 3D only)
@@ -314,7 +297,7 @@ class FluidInputMixin:
     def _preview_initial_geometry(self):
         """Show the restored core envelope without opening input dialogs."""
         import math
-        if getattr(self, '_active_tab', 'layout') != 'layout':
+        if self.workbench.active_tab != 'layout' or self.page_stack.currentWidget() is self.quick_design:
             return
         fields = [self.le_L, self.le_H]
         if self.combo_dim.currentIndex() == 1:

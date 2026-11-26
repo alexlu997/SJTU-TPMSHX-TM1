@@ -21,6 +21,21 @@ def test_cpu_cores_spinbox_sets_native_budget(win):
     assert win.run_control.cpu_threads is None
 
 
+def test_overview_preset_button_loads_the_selected_case(win):
+    from PySide6.QtWidgets import QDialog, QPushButton
+    from sjtu_tpmshx.applications.gui.ui.fmt import preset_display
+    from sjtu_tpmshx.applications.gui.ui.session_overview import OverviewDialog
+
+    name = 'Shanghai (2D Gyroid)'
+    assert win.combo_dim.currentIndex() == 1
+    dialog = OverviewDialog(win)
+    button = next(b for b in dialog.findChildren(QPushButton) if b.text() == preset_display(name))
+    button.click()
+    assert win.case_files.active_preset_name == name
+    assert win.combo_dim.currentIndex() == 0
+    assert dialog.result() == QDialog.DialogCode.Accepted
+
+
 def test_compute_and_sensitivity_read_the_selected_topology(win):
     from sjtu_tpmshx.applications.gui.ui.sensitivity import SensitivityDialog
     from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
@@ -40,6 +55,25 @@ def test_compute_and_sensitivity_read_the_selected_topology(win):
     dialog._run_sweep()
     assert str(error.value) in dialog._hint.text()
     assert dialog._grid_params is None
+
+
+def test_sensitivity_cell_loads_inputs_and_clears_prior_results(win):
+    from matplotlib.backend_bases import MouseEvent
+    from sjtu_tpmshx.applications.gui.ui.sensitivity import SensitivityDialog
+    from tests.python.gui_workbench_support import _result
+
+    win.combo_fluidA.setCurrentText('Air')
+    assert win.results.present(_result('2d'), mode='2d', provenance=None, elapsed=1)
+    assert win.btn_tab_result.isEnabled() and win.btn_export.isEnabled()
+    dialog = SensitivityDialog(win)
+    dialog._le_steps.setText('3')
+    dialog._btn_run.click()
+    x, y = dialog._grid_axes.transData.transform((4, 0.3))
+    click = MouseEvent('button_press_event', dialog._canvas, x, y, button=1)
+    dialog._canvas.callbacks.process(click.name, click)
+    assert (float(win.le_Lcell.text()), float(win.le_t.text())) == (4, 0.3)
+    assert not win.cache.has_any_results()
+    assert not win.btn_tab_result.isEnabled() and not win.btn_export.isEnabled()
 
 
 def test_sweep_button_clears_prior_heatmap_for_unknown_fluid(win, monkeypatch):
