@@ -40,6 +40,7 @@ def test_imports_share_one_worker_and_deliver_on_gui_thread(win, imports):
     def ready():
         calls.append(QThread.currentThread())
         assert background_tasks.has_active_tasks(win)
+        assert not win.spin_cpu_cores.isEnabled()
 
     win.workbench.prepare_3d(ready)
     worker = win.workbench.import_worker
