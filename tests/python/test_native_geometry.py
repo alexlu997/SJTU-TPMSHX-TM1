@@ -1,9 +1,11 @@
 """Native geometry binding contracts, separate from kernel accuracy studies."""
 import gc
+from dataclasses import replace
 import os
 from pathlib import Path
 import subprocess
 import sys
+import threading
 from types import SimpleNamespace
 import weakref
 
@@ -67,6 +69,164 @@ def test_signed_wall_grid_requires_sample_fields_on_the_same_axes(geometry):
         geometry.signed_wall_grid('Gyroid', 7., (8., 6., 4.), shape, .5, np.zeros(shape[::-1]))
     with pytest.raises(ValueError, match='two samples per axis'):
         geometry.signed_wall_grid('Gyroid', 7., (8., 6., 4.), (1, 3, 4), .5, 0.)
+
+
+@pytest.fixture
+def lattice_request(geometry):
+    pytest.importorskip('pyvista')
+    pytest.importorskip('PySide6')
+    from sjtu_tpmshx.applications.gui.ui.vis3d_lattice_worker import LatticeRequest
+
+    widths = (np.array([.001, .003, .0064]), np.array([.002, .0051]), np.array([.0015, .0035, .005]))
+    centers = [1000. * (np.cumsum(w) - w / 2) for w in widths]
+    x, y, z = np.meshgrid(*centers, indexing='ij')
+    return LatticeRequest(result_id='run1', field_name='Ta', topology='Gyroid', phase='A',
+                          dx=widths[0], dy=widths[1], dz=widths[2], field=300. + 2*x - y + 3*z,
+                          L_mm=7., t_mm=.32 + .04*x + .01*z, delta=-.3 + .05*x + .01*y)
+
+
+@pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
+def test_lattice_domains_close_on_all_six_faces_and_sample_recorded_fields(lattice_request, topology):
+    from sjtu_tpmshx.applications.gui.ui.vis3d_lattice_worker import LatticeCache
+    from sjtu_tpmshx.physical_models.tpms_geometry import signed_wall_grid
+
+    r = replace(lattice_request, topology=topology)
+    widths = (r.dx, r.dy, r.dz)
+    centers = [np.cumsum(w * 1000.) - w * 500. for w in widths]
+    box = [sum(w * 1000.) for w in widths]
+    x = np.linspace(0., box[0], round(box[0] * 8 / 7.) + 1)
+    # On the x edge the two other coordinates take their first cell values.
+    shape = (len(x), 2, 2)
+    t, delta = [np.broadcast_to(np.interp(x, centers[0], f[:, 0, 0])[:, None, None], shape)
+                for f in (r.t_mm, r.delta)]
+    samples, _ = signed_wall_grid(topology, 7., box, shape, t, delta)
+    volume = 0.
+    cache = LatticeCache()
+    for phase in ('A', 'B', 'S'):
+        stages = []
+        mesh, kept = cache.build(replace(r, phase=phase), threading.Event(),
+                                 lambda number, label: stages.append(number))
+        assert stages == [1, 2, 3, 4, 5] and kept
+        assert mesh.is_all_triangles and mesh.n_open_edges == 0
+        assert mesh.point_data['Normals'].shape == (mesh.n_points, 3)
+        volume += mesh.volume
+        triangles = mesh.points[mesh.regular_faces]
+        for axis, span in enumerate(box):
+            for face in (0., span):
+                cap = triangles[np.isclose(triangles[:, :, axis], face).all(axis=1)]
+                normals = np.cross(cap[:, 1] - cap[:, 0], cap[:, 2] - cap[:, 0])
+                outward = normals[:, axis] * (-1 if face == 0. else 1)
+                assert outward.size and np.any(outward > 0.) and np.all(outward >= 0.)
+        edge_x = mesh.points[(mesh.points[:, 1] == 0.) & (mesh.points[:, 2] == 0.), 0]
+        for limit in {'A': ('lower',), 'B': ('upper',), 'S': ('lower', 'upper')}[phase]:
+            wall = (samples['phi'] - samples[limit])[:, 0, 0]
+            i = np.flatnonzero(wall[:-1] * wall[1:] < 0.)
+            crossings = x[i] - wall[i] * (x[i+1] - x[i]) / (wall[i+1] - wall[i])
+            assert crossings.size
+            for crossing in crossings:
+                assert np.min(abs(edge_x - crossing)) < 2e-6
+        px, py, pz = [np.clip(p, c[0], c[-1]) for p, c in zip(mesh.points.astype(float).T, centers)]
+        np.testing.assert_allclose(mesh['Ta'], 300. + 2*px - py + 3*pz, rtol=0., atol=1e-10)
+    assert volume == pytest.approx(np.prod(box), rel=2e-6)
+
+
+def test_lattice_exact_wall_vertices_empty_domain_and_detail(lattice_request):
+    from sjtu_tpmshx.applications.gui.ui.vis3d_lattice_worker import LatticeCache
+    from sjtu_tpmshx.physical_models.tpms_geometry import _C_from_tL
+
+    r = replace(lattice_request, dx=[.007], dy=[.007], dz=[.007], field=[[[310.]]], phase='S',
+                t_mm=.4, delta=_C_from_tL('Gyroid', .4/7.))
+    cache = LatticeCache()
+    counts = []
+    for detail in ('低', '中', '高'):
+        mesh, _ = cache.build(replace(r, detail=detail), threading.Event(), lambda *_: None)
+        counts.append(mesh.n_cells)
+        assert mesh.n_open_edges == 0
+    assert 0 < counts[0] < counts[1] < counts[2]
+    empty, _ = cache.build(replace(r, delta=10.), threading.Event(), lambda *_: None)
+    assert empty.n_cells == empty['Ta'].size == 0
+
+
+def test_lattice_solid_normals_face_into_enclosed_fluid_pockets(lattice_request):
+    from sjtu_tpmshx.applications.gui.ui.vis3d_lattice_worker import LatticeCache
+
+    cache = LatticeCache()
+    volume = 0.
+    for phase in ('A', 'B', 'S'):
+        r = replace(lattice_request, topology='Diamond', phase=phase, detail='低',
+                    dx=[.007], dy=[.007], dz=[.007], field=[[[300.]]], t_mm=.25, delta=0.)
+        mesh, _ = cache.build(r, threading.Event(), lambda *_: None)
+        assert mesh.n_open_edges == 0
+        volume += mesh.volume
+    assert volume == pytest.approx(7.**3, rel=2e-6)
+
+
+def test_lattice_cache_reuses_geometry_and_evicts_the_oldest_color(lattice_request, monkeypatch):
+    from sjtu_tpmshx.applications.gui.ui import vis3d_lattice_worker as lattice
+    from sjtu_tpmshx.applications.gui.ui.vis3d_lattice_worker import LatticeCache
+
+    for ram, limit in ((8 * 1024**3, 256_000_000), (16 * 1024**3, 512_000_000)):
+        monkeypatch.setattr(lattice, '_physical_memory_bytes', lambda: ram)
+        assert LatticeCache().limit_bytes == limit
+
+    stop = threading.Event()
+    def build(cache, request):
+        return cache.build(request, stop, lambda *_: None)[0]
+
+    first = lattice_request
+    second = replace(first, result_id='run2', field=first.field + 7.)
+    third = replace(first, field_name='pressure', field=first.field * 20.)
+    sizing = LatticeCache()
+    colors_size = build(sizing, first)['Ta'].nbytes
+    cache = LatticeCache(limit_bytes=sizing.size_bytes + colors_size)
+    a, b = build(cache, first), build(cache, second)
+    assert np.shares_memory(a.points, b.points)
+    np.testing.assert_allclose(b['Ta'], a['Ta'] + 7.)
+    assert np.shares_memory(a['Ta'], build(cache, first)['Ta'])
+    c = build(cache, third)
+    assert np.shares_memory(a.points, c.points)
+    assert cache.size_bytes == cache.limit_bytes
+    assert np.shares_memory(a['Ta'], build(cache, first)['Ta'])
+    assert not np.shares_memory(b['Ta'], build(cache, second)['Ta'])
+    assert not np.shares_memory(a.points, build(cache, replace(first, t_mm=.33)).points)
+    tiny = LatticeCache(limit_bytes=1)
+    _, retained = tiny.build(first, stop, lambda *_: None)
+    assert not retained and tiny.size_bytes == 0
+
+
+def test_lattice_worker_cancels_superseded_requests_and_releases_cache(lattice_request, monkeypatch):
+    from PySide6.QtCore import QCoreApplication
+    from sjtu_tpmshx.applications.gui.ui import vis3d_lattice_worker as lattice
+
+    builder = lattice.LatticeBuilder()
+    entered, proceed = threading.Event(), threading.Event()
+    main_thread = threading.get_ident()
+    sampler = lattice.signed_wall_grid
+    def sample(*args):
+        assert threading.get_ident() != main_thread
+        entered.set()
+        assert proceed.wait(5)
+        return sampler(*args)
+
+    monkeypatch.setattr(lattice, 'signed_wall_grid', sample)
+    delivered, cancelled, failures = [], [], []
+    builder.ready.connect(lambda generation, mesh, retained: delivered.append((generation, mesh)))
+    builder.cancelled.connect(cancelled.append)
+    builder.failed.connect(lambda generation, message: failures.append(message))
+    try:
+        old = builder.submit(lattice_request)
+        assert entered.wait(5)
+        current = builder.submit(replace(lattice_request, phase='B'))
+        proceed.set()
+        assert builder._pool.waitForDone(10000)
+        QCoreApplication.processEvents()
+        assert not failures and cancelled == [old]
+        assert [generation for generation, mesh in delivered] == [current]
+        assert delivered[0][1].n_open_edges == 0
+    finally:
+        proceed.set()
+        builder.close()
+    assert builder.cache.size_bytes == 0
 
 
 @pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
