@@ -293,8 +293,11 @@ def _delay_second_worker(patch, root):
         if timeout is None and len(handles) == 3:
             # Two pipes and the first worker's sentinel belong to this wait.
             wake_sent.wait()
-            if not handles[1].poll():
-                watching_first.set()
+            # On Windows this check can read the empty wake message.
+            ready = wait(handles, 0)
+            if ready:
+                return ready
+            watching_first.set()
         return wait(handles, timeout)
 
     def start_worker(pool):

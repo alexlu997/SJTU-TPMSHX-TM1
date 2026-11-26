@@ -174,7 +174,9 @@ The optimizer uses `evaluate_compact_condition_batch`, which returns compact sum
 Default `workers = None` selects at most 4 native worker processes with at least 2 CPU slots each.
 It splits the total CPU limit, keeps input order, and uses one manager process for pause and cancel.
 If a worker exits unexpectedly during a normal parallel solve, the parent records the failed batch and raises `BrokenProcessPool`.
-The last complete checkpoints remain available. Conditions still waiting for submission keep the `not_run` status.
+The last complete checkpoints remain available. If the pool rejects a submission, the parent marks that condition `failed`.
+In a new batch, a condition the parent never selects stays `not_run`.
+During in-place continuation, a saved `paused` condition stays `paused` if the parent never selects it.
 When a batch uses one worker, as with one CPU slot, the calling process runs one condition at a time without a manager process.
 `run_multi_condition_optimization` supports `qLogNEHVI`, `qLogNParEGO`, and `Sobol` to maximize `(heat_gain_percent, -pressure_ratio)` from complete accepted batches.
 With `mass_requirements`, it runs `qLogNEI` or `Sobol` for constrained core-mass minimization, including optional per-condition `T_out`/`P_out` limits and `allow_nu_re_extrapolation`.
