@@ -4,9 +4,8 @@ from pathlib import Path
 import matplotlib
 matplotlib.use("QtAgg")
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QMessageBox, QWidget,
+    QMainWindow, QMessageBox, QWidget,
 )
 
 from sjtu_tpmshx.data_types.compute_config import SCO2_P_RANGE_PA
@@ -19,22 +18,23 @@ from sjtu_tpmshx.applications.gui.ui.window_config import LINE_EDITS, parse_fiel
 from sjtu_tpmshx.applications.gui.ui.case_files import CaseFiles
 from sjtu_tpmshx.applications.gui.ui.field_results import FieldResults
 from sjtu_tpmshx.applications.gui.ui.result_export import ResultExport
+from sjtu_tpmshx.applications.gui.ui.run_history import RunHistory
+from sjtu_tpmshx.applications.gui.ui.shell_appearance import ShellAppearance
+from sjtu_tpmshx.applications.gui.ui.shell_dialogs import ShellDialogs
+from sjtu_tpmshx.applications.gui.ui.shell_shortcuts import ShellShortcuts
 from sjtu_tpmshx.applications.gui.ui.single_run import SingleRun
 from sjtu_tpmshx.applications.gui.ui.workbench import Workbench
 from sjtu_tpmshx.applications.gui.ui.mixins import (
-    AppearanceMixin, DialogsMixin, FluidInputMixin, RunHistoryMixin,
-    ShortcutsMixin, UIBuilderMixin, ZonePanelMixin,
+    FluidInputMixin, UIBuilderMixin, ZonePanelMixin,
 )
 from sjtu_tpmshx.applications.gui.ui.ui_constants import (
     TOAST_MS_MED,
 )
 
-from sjtu_tpmshx._version import __version__  # noqa: E402
-from sjtu_tpmshx.run_control.provenance import SOURCE_ROOT, repository_revision
 from sjtu_tpmshx.run_control.module_ports import RunControl
 
-class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, UIBuilderMixin,
-                FluidInputMixin, AppearanceMixin, ShortcutsMixin, QMainWindow):
+
+class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
     def __init__(self, *, control=RunControl()):
         super().__init__()
         self.run_control = control
@@ -68,11 +68,13 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, UIBuilderMixin,
         self._close_pending = False
         self._continuous_field_spec = None
         from sjtu_tpmshx.applications.gui.controllers import ResultCache, SignalRouter
+        from sjtu_tpmshx.applications.gui.ui.theme import apply_mpl_theme
         from sjtu_tpmshx.applications.gui.ui.theme_manager import ThemeManager
 
         # ThemeManager owns the styles consumed by FieldFactory and builders.
         # SignalRouter records connections for bulk disconnect on closeEvent.
         self.theme = ThemeManager(self)
+        apply_mpl_theme()
         self.signals = SignalRouter(self)
 
         # Phase 5: install a process-wide FieldFactory backed by the live
@@ -87,6 +89,10 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, UIBuilderMixin,
         self.result_export = ResultExport(self)
         self.workbench = Workbench(self)
         self.single_run = SingleRun(self)
+        self.appearance = ShellAppearance(self)
+        self.dialogs = ShellDialogs(self)
+        self.shortcuts = ShellShortcuts(self)
+        self.history = RunHistory(self)
 
         from sjtu_tpmshx.applications.gui.ui.ui_builders import build_ui
         build_ui(self)
@@ -94,53 +100,28 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, UIBuilderMixin,
         bind_resource_controls(self)
         self.optimization.figures_changed.connect(self.result_export.refresh_export_button)
         self._apply_accessibility()
-        # Tooltips must be attached BEFORE the validators so the validator
-        # captures the help HTML as its baseline tooltip (saved and later
-        # restored when the field returns to a valid value).
         self._install_field_help()
-        # Audit C5 H4 fix: unified parse → validate handler replaces
-        # the pre-Phase-5 split (``_attach_input_validators`` +
-        # ``_install_inline_unit_parser``). The single connection
-        # eliminates the order-sensitive dual-editingFinished race
-        # that left ``inpError`` red borders stuck on freshly-valid
-        # converted fields.
         self._attach_field_validation()
         self._install_status_log()
-        self._rebuild_recent_menu()
+        self.history.rebuild_recent_menu()
         self._install_undo_stack()
-        # First-run guidance. Deferred 1.2 s after showMaximized so the window
-        # is already on screen when the overlay appears.
         from PySide6.QtCore import QTimer as _QT
-        _QT.singleShot(1200, self, self._maybe_show_onboarding)
+        _QT.singleShot(1200, self, self.dialogs.maybe_show_onboarding)
         self._apply_shanghai_defaults()
-        # Restore the last-used field state on top of the Shanghai baseline
-        # so returning users see exactly what they had, while the Reset
-        # button still snaps back to the canonical preset.
         self.case_files.restore_session()
         self.optimization.depth.setText(self.le_Lz.text())
-        # Track manual grid edits so `compute_tpms` (invoked by Auto-fill)
-        # does NOT overwrite user-customised Nx/Ny/Nz. textEdited fires on
-        # keyboard input only, not on programmatic `setText`. NB: do NOT
-        # reset _user_edited_grid here — `_apply_shanghai_defaults` and
-        # `_restore_session` both raise it to True so preset/saved Nx/Ny/Nz
-        # survive the next compute_tpms call. Resetting it here would let
-        # auto-suggest stomp the user-visible defaults.
         for le in (self.le_Nx, self.le_Ny, self.le_Nz):
             le.textEdited.connect(self._mark_grid_edited)
             self.signals.adopt(le.textEdited, self._mark_grid_edited,
                                 sender=le)
-        self._setup_shortcuts()
-        # PyVista/VTK context creation costs 1-2 s and was running 500 ms
-        # after startup. Keep it lazy unless explicitly opted in for demos.
+        self.shortcuts.setup()
         import os as _os_perf
         if _os_perf.environ.get('TPMSHX_PREINIT_3D', '0') == '1':
             self.workbench.schedule_3d_preinit()
         self._schedule_tpms_geometry_prewarm()
-        # Note: ``_install_inline_unit_parser`` was merged into
-        # ``_attach_field_validation`` at line 257 (audit C5 H4 fix).
         self._wire_fluid_defaults()
         self._install_status_bar_widgets()
-        self._install_dialog_theme()
+        self.dialogs.install_dialog_theme()
         from sjtu_tpmshx.applications.gui.ui.command_palette import install_command_palette
         install_command_palette(self)
         from sjtu_tpmshx.applications.gui.ui.coord_inspector import install_coord_inspector
@@ -150,13 +131,18 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, UIBuilderMixin,
         self._zone_handle_mgr.wire()
         from sjtu_tpmshx.applications.gui.ui.field_menu import install_field_menus
         install_field_menus(self)
-        # Accept file drops on the whole window — users can drag a saved
-        # `.json` preset onto the app to load it without going through the
-        # preset combo. Only .json with the expected preset/session shape
-        # is honoured; anything else is rejected with a status message.
         self.setAcceptDrops(True)
         from PySide6.QtCore import QTimer
         QTimer.singleShot(0, self, self._preview_initial_geometry)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.appearance.schedule_initial_reveal()
+        self.appearance.sync_viewport_layout()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.appearance.sync_viewport_layout()
 
     def dragEnterEvent(self, event):
         mime = event.mimeData()
@@ -491,47 +477,6 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, UIBuilderMixin,
         self.signals.disconnect_all()
         super().closeEvent(event)
 
-    def _maybe_show_onboarding(self):
-        """First-run only: surface a 3-step guidance dialog pointing at the
-        parameter panel, Compute button, and result tabs. Dismissal writes
-        `.first_run_done` in the user data directory; future launches skip.
-        """
-        import os as _os_ob
-        flag = self.case_files.store.base_dir / '.first_run_done'
-        if _os_ob.path.exists(flag):
-            return
-        # Headless guard: a fresh checkout has no flag file, and a modal
-        # exec() on the offscreen platform blocks forever (no one to click
-        # OK — this hung CI at the 45-min job kill). Skip the dialog but
-        # still write the flag.
-        if QApplication.instance().platformName() == 'offscreen':
-            pass
-        else:
-            msg = QMessageBox(self)
-            msg.setWindowTitle("欢迎使用 SJTU-TPMSHX")
-            msg.setIcon(QMessageBox.Icon.Information)
-            msg.setText(
-                "快速上手\n\n"
-                "1.  左侧工况参数 — 在几何、边界、求解三个页签填写参数。\n"
-                "2.  开始计算 — 使用面板底部蓝色按钮；"
-                "优化设计页面可选择 qLogNEHVI、qLogNParEGO、Sobol 多工况搜索，"
-                "或 qLogNEI 芯体减重。\n"
-                "3.  场图结果 — 选择温度、压力或速度，"
-                "三维计算还可切换到三维视图；提示可在诊断详情中查看。\n\n"
-                "顶栏“载入”可打开工况和预设；"
-                "“更多”中可切换主题与 K/°C 单位。"
-                "本提示只显示一次。")
-            msg.setStandardButtons(QMessageBox.StandardButton.Ok)
-            msg.exec()
-        try:
-            with open(flag, 'w', encoding='utf-8') as _f:
-                _f.write("1")
-        except Exception:
-            pass  # best-effort; next launch may show again
-
-    # ─────────────────────────────────────────────────────────
-    #  Help surface — About dialog + keyboard shortcut cheat sheet
-    # ─────────────────────────────────────────────────────────
     def _apply_accessibility(self):
         """Set AccessibleName/AccessibleDescription on main controls for
         screen readers. Tooltips are already AT-accessible but explicit
@@ -612,64 +557,6 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, UIBuilderMixin,
                 w.setAccessibleDescription(desc)
             except Exception:
                 continue
-
-    def _show_about(self):
-        """Report version, commit, Python/Qt/NumPy/SciPy versions, author."""
-        lines = [f"<b>SJTU-TPMSHX</b> v{__version__}"]
-        commit = (repository_revision(SOURCE_ROOT)['revision'] or '')[:7]
-        if commit:
-            lines.append(f"Commit: <code>{commit}</code>")
-        lines.append("")
-        lines.append("TPMS heat-exchanger homogenised solver for SJTU.")
-        lines.append(
-            "2D/3D D-F + SIMPLE with qLogNEHVI / qLogNParEGO / Sobol continuous-field search.")
-        lines.append("")
-        import sys as _sys_ab, platform as _plat
-        try:
-            from PySide6 import __version__ as _qt_ver
-        except Exception:
-            _qt_ver = "?"
-        try:
-            import numpy as _np_ab
-            _np_v = _np_ab.__version__
-        except Exception:
-            _np_v = "?"
-        try:
-            import scipy as _sp_ab
-            _sp_v = _sp_ab.__version__
-        except Exception:
-            _sp_v = "?"
-        try:
-            import matplotlib as _mpl_ab
-            _mpl_v = _mpl_ab.__version__
-        except Exception:
-            _mpl_v = "?"
-        lines.append(f"Python {_sys_ab.version.split()[0]} · {_plat.system()} {_plat.release()}")
-        lines.append(
-            f"PySide6 {_qt_ver} · NumPy {_np_v} · SciPy {_sp_v} · Matplotlib {_mpl_v}")
-        lines.append("")
-        lines.append("Author: alexlu997 &lt;alexlu997@hotmail.com&gt;")
-        lines.append("Repo: github.com/alexlu997/SJTU-TPMSHX-TM1")
-        msg = QMessageBox(self)
-        msg.setWindowTitle("About SJTU-TPMSHX")
-        msg.setIcon(QMessageBox.Icon.Information)
-        msg.setTextFormat(Qt.TextFormat.RichText)
-        msg.setText("<br>".join(lines))
-        msg.setStandardButtons(QMessageBox.StandardButton.Ok)
-        msg.exec()
-
-
-    def _show_quick_tour(self):
-        """Re-show the first-run onboarding dialog (clears the flag)."""
-        import os as _os_qt
-        flag = self.case_files.store.base_dir / '.first_run_done'
-        try:
-            if _os_qt.path.exists(flag):
-                _os_qt.remove(flag)
-        except Exception:
-            pass
-        self._maybe_show_onboarding()
-
 
     _CO2_PRESSURE_HELP = (
         "<br/>For sCO₂, the entire actual local pressure field must remain within "

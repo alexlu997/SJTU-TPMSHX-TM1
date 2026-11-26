@@ -171,7 +171,7 @@ class UIBuilderMixin:
             "padding:0 6px;}"
             "QPushButton:hover{color:" + get_theme()['fg'] + ";}")
         btn.setToolTip("Show recent status messages")
-        btn.clicked.connect(self._show_status_log)
-        self.signals.adopt(btn.clicked, self._show_status_log,
+        btn.clicked.connect(self.dialogs.show_status_log)
+        self.signals.adopt(btn.clicked, self.dialogs.show_status_log,
                             sender=btn)
         self.statusBar().addPermanentWidget(btn)

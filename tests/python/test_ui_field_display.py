@@ -72,7 +72,8 @@ def test_speed_scales_stay_separate_and_pressure_can_share_across_slices(win, mo
         assert win._slice_index == f['Ta'].shape[2] // 2
         win.workbench.rendered_slices = True
     win.workbench.switch_tab(field)
-    assert win.chk_shared_pressure_scale.isVisible() == (field == 'pres')
+    assert win.btn_colormap.isVisibleTo(win)
+    assert win.chk_shared_pressure_scale.isChecked()
     pressure_unit = 1000.
     independent = (.10, .35) if field == 'vel' else (
         float(f['P_fB'].min() / pressure_unit), float(f['P_fB'].max() / pressure_unit))

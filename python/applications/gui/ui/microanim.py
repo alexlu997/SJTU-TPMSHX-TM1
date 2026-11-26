@@ -202,12 +202,12 @@ def toast(parent, text, kind="success", duration_ms=2200, copy_payload=None):
     from .theme import get_theme
     _tk = get_theme()
     _PALETTE = {
-        'success': (_tk.get('accent_green', '#22C55E'), '#064E3B', '✓'),
-        'info':    (_tk.get('accent_primary', '#3B82F6'), '#1E3A8A', '›'),
-        'warn':    (_tk.get('search_hl', '#F59E0B'), '#78350F', '!'),
-        'error':   (_tk.get('err', '#DC2626'), '#450A0A', '✕'),
+        'success': (_tk['ok'], '✓'),
+        'info':    (_tk['accent'], '›'),
+        'warn':    (_tk['warn'], '!'),
+        'error':   (_tk['err'], '✕'),
     }
-    fg_hint, _dark, glyph = _PALETTE.get(kind, _PALETTE['info'])
+    fg_hint, glyph = _PALETTE.get(kind, _PALETTE['info'])
     # Errors deserve more screen time.
     if kind == 'error' and duration_ms < 5000:
         duration_ms = 5000

@@ -182,12 +182,10 @@ class FluidInputMixin:
         Called after a menu toggle, preset load, or session restore.
         """
         unit_display = "°C" if getattr(self, '_temp_unit', 'K') == 'C' else "K"
-        # Swap the trailing " [K]"/" [°C]" on each label. The label text uses
-        # QLabel rich-text HTML so we replace both variants.
-        # 2026-05-20 UI sweep: extended the label list with the result-row
-        # outlet temperature labels (`_lbl_ToutA_unit`, `_lbl_ToutB_unit`)
-        # captured by ui_builders. Previously these stayed `[K]` after a
-        # K/°C toggle, mismatching the converted value.
+        for field_name in ('le_TinA', 'le_TinB'):
+            le = getattr(self, field_name, None)
+            if le is not None and hasattr(le, 'set_unit'):
+                le.set_unit(unit_display)
         for attr in ('_lbl_TinA_unit', '_lbl_TinB_unit', '_lbl_sidebar_tout_unit'):
             lbl = getattr(self, attr, None)
             if lbl is None:
@@ -246,7 +244,8 @@ class FluidInputMixin:
         self.results.refresh_summary()
 
     def _on_dir_changed(self):
-        """Show the actual transverse axis and unit for each port coordinate."""
+        """Show the actual transverse axis for each port coordinate under Rule A."""
+        from sjtu_tpmshx.applications.gui.ui.field_factory import _split_trailing_unit
         from sjtu_tpmshx.applications.gui.ui.window_config import LINE_EDITS
         from sjtu_tpmshx.data_types.validator import cross_axes_for_dir
         for combo, prefix in [(self.combo_dirA, 'pipeA'),
@@ -262,7 +261,8 @@ class FluidInputMixin:
                         label = getattr(self, f'_lbl_{name}', None)
                         if label is not None:
                             text, _ = LINE_EDITS['le_' + name].editor_text(f'{port} {axis} 向{title}')
-                            label.setText(text)
+                            clean, _ = _split_trailing_unit(text)
+                            label.setText(clean)
 
     def _dir_int(self, combo):
         # 0=+x 1=-x 2=+y 3=-y 4=+z 5=-z (z-dirs: 3D only)

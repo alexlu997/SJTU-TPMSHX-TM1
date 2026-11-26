@@ -629,12 +629,12 @@ class OptimizationPage(QWidget):
 
     def edit_common_settings(self):
         form = self._form
-        if form.btn_focus_view.isChecked():
-            form._toggle_3d_immersive()
+        if form.appearance.is_focused():
+            form.appearance.toggle_focus()
         form.workbench.switch_tab('layout')
-        if form._param_panel.isHidden():
-            form._set_parameter_panel_collapsed(False)
-        form._param_scroll.setFocus()
+        if not form.appearance.is_drawer_open():
+            form.appearance.set_drawer_open(True)
+        form.inspector_drawer.setFocus()
 
     def _zone_changed(self, enabled):
         if not enabled:

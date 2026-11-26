@@ -8,19 +8,9 @@ from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
-STRIP_HEIGHT = 52
+from sjtu_tpmshx.applications.gui.ui.theme import get_theme
 
-_DEFAULT_TOKENS: dict[str, Any] = {
-    "sunken": "#EFEEEA",
-    "border": "#D9D8D4",
-    "fg": "#181715",
-    "sub": "#474643",
-    "tert": "#686663",
-    "accent_fg": "#0B5161",
-    "ok": "#176B3E",
-    "warn": "#96530C",
-    "err": "#B43025",
-}
+STRIP_HEIGHT = 52
 
 _STATUS_COLOR_KEY: dict[str, str] = {
     "ok": "ok",
@@ -113,7 +103,7 @@ def _make_label(
     if "<" in text:
         lab.setTextFormat(Qt.TextFormat.RichText)
     lab.setStyleSheet(
-        f"color: {color_hex}; font-size: {size_px}px; font-weight: {weight}; "
+        f"color: {color_hex}; font-size: {int(round(size_px))}px; font-weight: {weight}; "
         "background: transparent;"
     )
     _enable_tnum(lab)
@@ -135,7 +125,7 @@ class ReadoutStrip(QFrame):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self._tokens: dict[str, Any] = dict(_DEFAULT_TOKENS)
+        self._tokens: dict[str, Any] = dict(get_theme())
         if tokens is not None:
             self._tokens.update(tokens)
         self._items: list[ReadoutItem] = list(items)
@@ -152,6 +142,18 @@ class ReadoutStrip(QFrame):
         self._layout.setSpacing(0)
 
         self._rebuild()
+
+    def items(self) -> list[ReadoutItem]:
+        """Return a copy of the current readout items."""
+        return list(self._items)
+
+    def notice(self) -> ReadoutNotice | None:
+        """Return the current right-end status notice, if any."""
+        return self._notice
+
+    def is_stale(self) -> bool:
+        """Return True when the leading stale-input indicator is active."""
+        return self._stale
 
     def set_items(self, items: Sequence[ReadoutItem]) -> None:
         """Replace the readout cells with a new sequence of metrics."""
@@ -191,6 +193,8 @@ class ReadoutStrip(QFrame):
             item = self._layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
+                widget.hide()
+                widget.setParent(None)
                 widget.deleteLater()
 
     def _rebuild(self) -> None:

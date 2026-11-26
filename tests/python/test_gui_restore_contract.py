@@ -34,13 +34,13 @@ def test_legacy_full_restore_never_inherits_previous_zones(win, monkeypatch, rou
     current['zone_inputs']['rows'] = [['0', '0.5', '8', '0.3'], ['0.5', '1', '6', '0.3']]
     win.case_files.apply_user_preset(current)
     if route == 'named':
-        win._load_user_preset(legacy)
+        win.history.load_user_preset(legacy)
     elif route == 'recent':
-        win._load_recent_run({'preset': legacy, 'preset_source': 'old named design'})
+        win.history.load_recent_run({'preset': legacy, 'preset_source': 'old named design'})
     elif route == 'share':
         token = 'TPMSHX::' + base64.urlsafe_b64encode(zlib.compress(json.dumps(legacy).encode())).decode()
         monkeypatch.setattr(QInputDialog, 'getText', lambda *args, **kwargs: (token, True))
-        win._load_reproducible_link()
+        win.history.load_reproducible_link()
     else:
         assert win.case_files.store.save_session(legacy)
         win.case_files.restore_session()
@@ -72,7 +72,7 @@ def test_valid_restore_refreshes_error_state_without_recording_history(win):
     win.le_L.editingFinished.emit()
     assert win.le_L.property('inpError') == 'true'
     history = list(win._field_history['le_L'])
-    win._load_user_preset(valid)
+    win.history.load_user_preset(valid)
     assert win.le_L.property('inpError') == 'false'
     assert win.single_run.validate_inputs()
     assert list(win._field_history['le_L']) == history
@@ -193,7 +193,7 @@ def test_rejected_preset_library_is_preserved_before_next_save(win, content):
     path = win.case_files.store.presets_path()
     path.write_text(content)
     assert win.case_files.store.load_user_presets() == []
-    win._rebuild_recent_menu()
+    win.history.rebuild_recent_menu()
     assert win.case_files.store.save_user_presets([win.case_files.capture_current_preset('new')])
     backups = list(path.parent.glob(path.name + '.corrupt-*'))
     assert len(backups) == 1
@@ -224,7 +224,7 @@ def test_named_preset_rejects_invalid_draft_before_replacing_saved_entry(
     messages = []
     monkeypatch.setattr(QInputDialog, 'getText', lambda *a, **k: ('saved design', True))
     monkeypatch.setattr(QMessageBox, 'warning', lambda *a: messages.append(a[1:3]))
-    button, label = ((win.btn_save, '保存为预设…') if route == 'save_menu'
+    button, label = ((win.btn_save, '保存当前为预设…') if route == 'save_menu'
                      else (win.btn_recent, '保存当前为预设…'))
     next(a for a in button.menu().actions() if a.text() == label).trigger()
     path = win.case_files.store.presets_path()
@@ -246,10 +246,10 @@ def test_named_preset_rejects_invalid_draft_before_replacing_saved_entry(
 def test_named_preset_commits_expression_and_replaces_valid_entry(win, monkeypatch, text):
     from PySide6.QtWidgets import QInputDialog
     monkeypatch.setattr(QInputDialog, 'getText', lambda *a, **k: ('saved design', True))
-    action = next(a for a in win.btn_save.menu().actions() if a.text() == '保存为预设…')
+    action = next(a for a in win.btn_save.menu().actions() if a.text() == '保存当前为预设…')
     action.trigger()
     win.le_L.setText(text)
-    action.trigger()
+    next(a for a in win.btn_save.menu().actions() if a.text() == '保存当前为预设…').trigger()
     presets = json.loads(win.case_files.store.presets_path().read_text())['presets']
     assert len(presets) == 1
     assert presets[0]['line_edits']['le_L'] == '0.2'
@@ -383,13 +383,14 @@ def test_restore_uses_its_own_source_name(win, route):
     preset = win.case_files.capture_current_preset('Recent @ 12:00' if route != 'named' else 'custom source')
     entry = {'preset': preset, 'preset_source': 'custom source'}
     if route == 'named':
-        win._load_user_preset(preset)
+        win.history.load_user_preset(preset)
     elif route == 'recent':
-        win._load_recent_run(entry)
+        win.history.load_recent_run(entry)
     elif route == 'scrub':
-        win._recent_runs = [entry]
-        win._scrub_idx = -1
-        win._scrub_recent(1)
+        win.history.recent_runs.clear()
+        win.history.recent_runs.append(entry)
+        win.shortcuts._scrub_idx = -1
+        win.shortcuts.scrub_recent(1)
     else:
         preset['preset_source'] = 'custom source'
         assert win.case_files.store.save_session(preset)
@@ -408,17 +409,21 @@ def test_close_with_focused_expression_restores_complete_session(
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QApplication
     from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
+    from sjtu_tpmshx.applications.gui.ui.shell_dialogs import ShellDialogs
+    from sjtu_tpmshx.applications.gui.ui.ui_builders import reveal_parameter
     original = SessionManager.__init__
     monkeypatch.setattr(SessionManager, '__init__',
         lambda self, base_dir=None, parent=None: original(self, base_dir=tmp_path, parent=parent))
     monkeypatch.setattr(Main_Menu, '_schedule_tpms_geometry_prewarm', lambda self: None)
-    monkeypatch.setattr(Main_Menu, '_maybe_show_onboarding', lambda self: None)
+    monkeypatch.setattr(ShellDialogs, 'maybe_show_onboarding', lambda self: None)
     window = Main_Menu()
     window.show()
     window.activateWindow()
     QApplication.processEvents()
     window.le_H.setText('0.111')
     edit = getattr(window, field)
+    reveal_parameter(window, edit)
+    QApplication.processEvents()
     edit.setFocus()
     edit.selectAll()
     QTest.keyClicks(edit, text)
@@ -455,6 +460,7 @@ def test_unreadable_library_is_preserved_before_replacement(win, monkeypatch):
 
 def test_malformed_library_members_do_not_block_window_initialization(monkeypatch, tmp_path):
     from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
+    from sjtu_tpmshx.applications.gui.ui.shell_dialogs import ShellDialogs
     path = SessionManager(base_dir=tmp_path).presets_path()
     original = b'{"presets": [null]}'
     path.write_bytes(original)
@@ -462,7 +468,7 @@ def test_malformed_library_members_do_not_block_window_initialization(monkeypatc
     monkeypatch.setattr(SessionManager, '__init__',
         lambda self, base_dir=None, parent=None: init(self, base_dir=tmp_path, parent=parent))
     monkeypatch.setattr(Main_Menu, '_schedule_tpms_geometry_prewarm', lambda self: None)
-    monkeypatch.setattr(Main_Menu, '_maybe_show_onboarding', lambda self: None)
+    monkeypatch.setattr(ShellDialogs, 'maybe_show_onboarding', lambda self: None)
     window = Main_Menu()
     try:
         assert window.btn_recent.menu() is not None

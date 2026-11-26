@@ -8,6 +8,7 @@ from PySide6.QtCore import QByteArray, QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPixmap, QPolygonF
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
+    QApplication,
     QFrame,
     QGraphicsDropShadowEffect,
     QHBoxLayout,
@@ -18,6 +19,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from sjtu_tpmshx.applications.gui.ui.theme import RADIUS_BTN, get_theme
 
 RAIL_WIDTH = 64
 EXPANDED_RAIL_WIDTH = 232
@@ -38,26 +41,6 @@ RAIL_ACTIONS: tuple[tuple[str, str, str, str], ...] = (
 )
 
 _FONT_DISP = '"Helvetica Neue", "PingFang SC", "Microsoft YaHei UI", "Segoe UI"'
-
-_DEFAULT_TOKENS: dict[str, Any] = {
-    "window": "#E7E6E1",
-    "sunken": "#EFEEEA",
-    "panel": "#FCFBF9",
-    "popover": "#FFFFFF",
-    "hover": "#E3E2DD",
-    "row_hover": "#E3E2DD",
-    "border": "#D9D8D4",
-    "border_strong": "#C1BFBA",
-    "fg": "#181715",
-    "sub": "#474643",
-    "tert": "#686663",
-    "accent_fg": "#0B5161",
-    "accent_soft": "#E5F0F2",
-    "ok": "#176B3E",
-    "warn": "#96530C",
-    "err": "#B43025",
-    "shadow_drawer_ambient": (20, 19, 16, 22),
-}
 
 _STATUS_COLOR_KEY: dict[str, str] = {
     "ok": "ok",
@@ -263,31 +246,47 @@ class _RailCell(QWidget):
             icon_color = tokens["accent_fg"]
             btn_qss = (
                 f"QToolButton {{ background: {tokens['popover']}; "
-                f"border: 1px solid {tokens['border']}; border-radius: 8px; }}"
+                f"border: 1px solid {tokens['border']}; border-radius: {RADIUS_BTN}px; }}"
+                "QToolButton::menu-indicator { image: none; width: 0px; }"
             )
             lbl_qss = (
-                f"QLabel {{ font-size: 10.5px; font-weight: 600; "
+                f"QLabel {{ font-size: 11px; font-weight: 600; "
                 f"color: {tokens['fg']}; background: transparent; }}"
             )
         elif opened:
             icon_color = tokens["fg"]
             btn_qss = (
-                f"QToolButton {{ background: {tokens['hover']}; border: none; border-radius: 8px; }}"
+                f"QToolButton {{ background: {tokens['hover']}; border: none; "
+                f"border-radius: {RADIUS_BTN}px; }}"
+                "QToolButton::menu-indicator { image: none; width: 0px; }"
             )
             lbl_qss = (
-                f"QLabel {{ font-size: 10.5px; font-weight: 600; "
+                f"QLabel {{ font-size: 11px; font-weight: 600; "
                 f"color: {tokens['fg']}; background: transparent; }}"
             )
         else:
             icon_color = tokens["tert"]
             btn_qss = (
-                "QToolButton { background: transparent; border: none; border-radius: 8px; }"
+                f"QToolButton {{ background: transparent; border: none; "
+                f"border-radius: {RADIUS_BTN}px; }}"
                 f"QToolButton:hover {{ background: {tokens['hover']}; }}"
+                "QToolButton::menu-indicator { image: none; width: 0px; }"
             )
             lbl_qss = (
-                f"QLabel {{ font-size: 10.5px; font-weight: 400; "
+                f"QLabel {{ font-size: 11px; font-weight: 400; "
                 f"color: {tokens['tert']}; background: transparent; }}"
             )
+
+        enabled = self.button.isEnabled()
+        if not enabled:
+            icon_color = tokens["border_strong"]
+            lbl_qss = (
+                f"QLabel {{ font-size: 11px; font-weight: 400; "
+                f"color: {tokens['border_strong']}; background: transparent; }}"
+            )
+            self.button.setCursor(Qt.CursorShape.ArrowCursor)
+        else:
+            self.button.setCursor(Qt.CursorShape.PointingHandCursor)
 
         self.button.setStyleSheet(btn_qss)
         self.button.setIcon(_render_icon(self._icon_name, icon_color, 18))
@@ -309,6 +308,7 @@ class NavRail(QFrame):
     """Fixed 64 px left navigation rail for the four pages and five shell actions."""
 
     page_selected = Signal(str)
+    page_split_requested = Signal(str)
     action_triggered = Signal(str)
 
     def __init__(
@@ -320,7 +320,7 @@ class NavRail(QFrame):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self._tokens: dict[str, Any] = dict(_DEFAULT_TOKENS)
+        self._tokens: dict[str, Any] = dict(get_theme())
         if tokens is not None:
             self._tokens.update(tokens)
         self._active_page = active_page
@@ -363,6 +363,9 @@ class NavRail(QFrame):
         self._refresh()
 
     def _on_page_clicked(self, key: str) -> None:
+        if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier:
+            self.page_split_requested.emit(key)
+            return
         self.set_active_page(key)
         self.page_selected.emit(key)
 
@@ -376,6 +379,21 @@ class NavRail(QFrame):
             raise ValueError(f"Unknown page key {key!r}")
         self._active_page = key
         self._refresh()
+
+    def set_page_enabled(self, key: str, enabled: bool) -> None:
+        """Enable or disable a navigation page button."""
+        if key not in self._page_cells:
+            raise ValueError(f"Unknown page key {key!r}")
+        self._page_cells[key].button.setEnabled(enabled)
+        self._refresh()
+
+    def page_button(self, key: str) -> QToolButton:
+        """Return the QToolButton for a navigation page key."""
+        return self._page_cells[key].button
+
+    def action_button(self, key: str) -> QToolButton:
+        """Return the QToolButton for a rail action key."""
+        return self._action_cells[key].button
 
     def set_open_action(self, key: str | None) -> None:
         """Highlight the bottom action whose menu or palette is open."""
@@ -402,8 +420,7 @@ class NavRail(QFrame):
         self._logo.setStyleSheet(
             f"QLabel {{ background: {t['panel']}; color: {t['fg']}; "
             f"border: 1px solid {t['border_strong']}; border-radius: 9px; "
-            f"font-family: {_FONT_DISP}; font-size: 11.5px; font-weight: 700; "
-            f"letter-spacing: 0.4px; }}"
+            f"font-family: {_FONT_DISP}; font-size: 12px; font-weight: 700; }}"
         )
         for key, cell in self._page_cells.items():
             cell.set_state(t, active=(key == self._active_page), dot=self._dots.get(key))
@@ -464,7 +481,7 @@ class _ExpandedRowButton(QPushButton):
         if "<" in text:
             text_label.setTextFormat(Qt.TextFormat.RichText)
         text_label.setStyleSheet(
-            f"color: {text_color}; font-size: {font_size}px; "
+            f"color: {text_color}; font-size: {int(round(font_size))}px; "
             f"font-weight: {weight}; background: transparent;"
         )
         _enable_tnum(text_label)
@@ -528,10 +545,11 @@ class ExpandedNavRail(QFrame):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self._tokens: dict[str, Any] = dict(_DEFAULT_TOKENS)
+        self._tokens: dict[str, Any] = dict(get_theme())
         if tokens is not None:
             self._tokens.update(tokens)
         self._active_page = active_page
+        self._page_enabled: dict[str, bool] = {k: True for k, _, _ in NAV_PAGES}
         self._page_meta: dict[str, tuple[str | None, str]] = dict(page_meta or {})
         self._workspaces: list[str] = list(workspaces)
         self._active_workspace = active_workspace
@@ -554,6 +572,11 @@ class ExpandedNavRail(QFrame):
     def set_active_page(self, key: str) -> None:
         """Select the active page row."""
         self._active_page = key
+        self._rebuild()
+
+    def set_page_enabled(self, key: str, enabled: bool) -> None:
+        """Enable or disable a navigation page row."""
+        self._page_enabled[key] = enabled
         self._rebuild()
 
     def set_page_meta(self, page_meta: Mapping[str, tuple[str | None, str]]) -> None:
@@ -592,13 +615,18 @@ class ExpandedNavRail(QFrame):
             item = self._root_layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
+                widget.hide()
+                widget.setParent(None)
                 widget.deleteLater()
             elif item.layout() is not None:
                 sub = item.layout()
                 while sub.count():
                     child = sub.takeAt(0)
-                    if child.widget() is not None:
-                        child.widget().deleteLater()
+                    cw = child.widget()
+                    if cw is not None:
+                        cw.hide()
+                        cw.setParent(None)
+                        cw.deleteLater()
 
     def _section_label(self, text: str) -> QLabel:
         lab = QLabel(text)
@@ -639,8 +667,7 @@ class ExpandedNavRail(QFrame):
         logo.setStyleSheet(
             f"QLabel {{ background: {t['popover']}; color: {t['fg']}; "
             f"border: 1px solid {t['border_strong']}; border-radius: 9px; "
-            f"font-family: {_FONT_DISP}; font-size: 11.5px; font-weight: 700; "
-            f"letter-spacing: 0.4px; }}"
+            f"font-family: {_FONT_DISP}; font-size: 12px; font-weight: 700; }}"
         )
         brand = QLabel("SJTU-TPMSHX")
         brand.setStyleSheet(
@@ -655,6 +682,7 @@ class ExpandedNavRail(QFrame):
 
         for key, _, full_label in NAV_PAGES:
             kind, meta = self._page_meta.get(key, (None, ""))
+            enabled = self._page_enabled.get(key, True)
             row = _ExpandedRowButton(
                 key,
                 full_label,
@@ -663,6 +691,9 @@ class ExpandedNavRail(QFrame):
                 dot=kind,
                 meta=meta,
             )
+            row.setEnabled(enabled)
+            if not enabled:
+                row.setCursor(Qt.CursorShape.ArrowCursor)
             row.clicked.connect(lambda _=False, k=key: self._on_page_clicked(k))
             self._root_layout.addWidget(row)
 

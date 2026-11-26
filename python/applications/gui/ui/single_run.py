@@ -223,11 +223,15 @@ class SingleRun(QObject):
         if self.active_directory is not None:
             card.note.setText(f'在完整计算步结束后自动保存。保存目录：{self.active_directory}')
         window.btn_compute.setText("取消  ·  0.0s")
-        window.btn_compute.setIcon(icon('square', 'white'))
+        window.btn_compute.setIcon(icon('square', get_theme()['primary_fg']))
         window.btn_compute.setEnabled(True)
         window._empty_state_label.hide()
         window.statusBar().showMessage("Computing…")
         self._ticker.start()
+        from sjtu_tpmshx.applications.gui.ui.builders_sidebar import refresh_header_status
+        refresh_header_status(window)
+        if hasattr(window, '_refresh_workbench_navigation'):
+            window._refresh_workbench_navigation()
         self.activity_changed.emit()
 
     @Slot(int)
@@ -405,8 +409,12 @@ class SingleRun(QObject):
         self._state = 'idle'
         if not self.window._close_pending:
             self.window.btn_compute.setText(self._button_label)
-            self.window.btn_compute.setIcon(icon('play', 'white'))
+            self.window.btn_compute.setIcon(icon('play', get_theme()['primary_fg']))
             self.window.btn_compute.setEnabled(True)
+            from sjtu_tpmshx.applications.gui.ui.builders_sidebar import refresh_header_status
+            refresh_header_status(self.window)
+            if hasattr(self.window, '_refresh_workbench_navigation'):
+                self.window._refresh_workbench_navigation()
         self.activity_changed.emit()
 
     def _maybe_highvel_notice(self, compute_cfg):

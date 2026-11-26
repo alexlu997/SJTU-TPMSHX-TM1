@@ -8,6 +8,8 @@ from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QTextDocument
 from PySide6.QtWidgets import QHeaderView, QWidget
 
+from .theme import get_theme
+
 IT_STACK = "'Helvetica Neue', 'Arial', sans-serif"
 RM_STACK = "'Helvetica Neue', 'PingFang SC', 'Arial', sans-serif"
 
@@ -21,12 +23,6 @@ PHI = "\u03c6"       # Lowercase Greek phi
 EPS = "\u03b5"       # Lowercase Greek epsilon
 DELTA_LO = "\u03b4"  # Lowercase Greek delta
 MDOT = "m\u0307"     # Mass flow rate m-dot
-
-_DEFAULT_TOKENS: dict[str, Any] = {
-    "sunken": "#EFEEEA",
-    "border": "#D9D8D4",
-    "sub": "#474643",
-}
 
 
 def it(symbol: str) -> str:
@@ -117,7 +113,14 @@ SYM: dict[str, str] = {
     "H": qsym("H"),
     "V": qsym("V"),
     "W_H": f'{it("W")}{NB_THIN}{TIMES}{NB_THIN}{it("H")}',
+    "rho": it(RHO),
     "rho_s": qsym(RHO, "s"),
+    "eps": it(EPS),
+    "A_0": qsym("A", "0"),
+    "D_h": qsym("D", "h"),
+    "K_ss": qsym("K", "ss"),
+    "T_out_A": qsym("T", "out,A"),
+    "T_out_B": qsym("T", "out,B"),
     "phi": it(PHI),
     "delta": it(DELTA_LO),
     "C": it("C"),
@@ -160,7 +163,7 @@ class RichHeaderView(QHeaderView):
     ) -> None:
         super().__init__(Qt.Orientation.Horizontal, parent)
         self._columns: list[tuple[str, str, str]] = list(columns)
-        self._tokens: dict[str, Any] = dict(_DEFAULT_TOKENS)
+        self._tokens: dict[str, Any] = dict(get_theme())
         if tokens is not None:
             self._tokens.update(tokens)
 

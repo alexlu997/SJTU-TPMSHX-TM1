@@ -239,6 +239,9 @@ class FieldResults:
         window.workbench.update_tab_visibility()
         window.workbench.switch_tab('temp', foreground=False)
         if _finalize_ok:
+            if window.combo_dim.currentIndex() == 0:
+                from sjtu_tpmshx.applications.gui.ui.layout_drawer import draw_layout
+                draw_layout(window, switch_tab=False)
             window.statusBar().showMessage("Done.", TOAST_MS_MED)
         return _finalize_ok
 
@@ -283,7 +286,7 @@ class FieldResults:
             window.btn_export.setEnabled(True)
             window._last_elapsed_s = elapsed + display_s
             window._refresh_status_bar()
-            window._stamp_result_provenance(window._last_elapsed_s)
+            window.history.stamp_result_provenance(window._last_elapsed_s)
             if success:
-                window._push_recent_run()
+                window.history.push_recent_run()
         return success

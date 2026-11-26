@@ -49,15 +49,15 @@ def test_recent_menu_rebuild_releases_evicted_entries_and_keeps_restore(win):
         preset['line_edits']['le_Nx'] = str(20 + index)
         win.cache.get_result().metadata["run_provenance"] = dict(preset=preset, preset_source='test', mode='2d',
                                    input_grid=[20 + index, 10], actual_grid=[20 + index, 10])
-        win._push_recent_run()
+        win.history.push_recent_run()
         if index == 0:
-            win._recent_runs[0] = TrackedEntry(win._recent_runs[0])
-            evicted_entry = weakref.ref(win._recent_runs[0])
-            win._rebuild_recent_menu()
+            win.history.recent_runs[0] = TrackedEntry(win.history.recent_runs[0])
+            evicted_entry = weakref.ref(win.history.recent_runs[0])
+            win.history.rebuild_recent_menu()
             old_action = next(a for a in win.btn_recent.menu().actions()
                               if a.text().strip().startswith('#1'))
     gc.collect()
-    assert len(win._recent_runs) == 5
+    assert len(win.history.recent_runs) == 5
     assert (len(win.findChildren(QMenu)), isValid(old_action), evicted_entry() is None) == (
         menu_count, False, True)
 
@@ -66,7 +66,7 @@ def test_recent_menu_rebuild_releases_evicted_entries_and_keeps_restore(win):
     current_action.trigger()
     assert win.le_Nx.text() == '27'
     next(a for a in menu.actions() if a.text() == '清除最近').trigger()
-    assert len(win._recent_runs) == 0
+    assert len(win.history.recent_runs) == 0
     assert len(win.findChildren(QMenu)) == menu_count
     assert not isValid(current_action)
     assert any('暂无' in action.text() for action in menu.actions())
@@ -85,7 +85,7 @@ def _timeline_cells(window, monkeypatch):
         return QDialog.DialogCode.Accepted
 
     monkeypatch.setattr(QDialog, 'exec', inspect)
-    window._show_full_timeline()
+    window.history.show_full_timeline()
     return observed[0]
 
 
@@ -120,7 +120,7 @@ def test_accepted_state_reaches_recent_menu_and_persisted_timeline(
     win.single_run.submit()
     _wait_for(win.single_run.is_idle)
 
-    entry = win._recent_runs[0]
+    entry = win.history.recent_runs[0]
     timeline = win.case_files.store.base_dir / '.session_timeline.jsonl'
     persisted = json.loads(timeline.read_text().splitlines()[-1])
     # History owns only a small snapshot, independent of mutable GUI results.
@@ -160,12 +160,12 @@ def test_legacy_history_keeps_unknown_state_without_rewriting_or_blocking_restor
     entries = [dict(base), dict(base, converged=True), dict(base, metric_status=metrics)]
     labels = [text + ' · 设计未核实' for text in
               ('状态未知', '已收敛 · 指标状态未知', '收敛状态未知')]
-    win._recent_runs = deque(entries, maxlen=5)
+    win.history.recent_runs = deque(entries, maxlen=5)
     timeline = win.case_files.store.base_dir / '.session_timeline.jsonl'
     original = '\n'.join(json.dumps({k: v for k, v in e.items() if k != 'preset'})
                          for e in entries) + '\n'
     timeline.write_text(original, encoding='utf-8')
-    win._rebuild_recent_menu()
+    win.history.rebuild_recent_menu()
     actions = [a for a in win.btn_recent.menu().actions() if a.text().strip().startswith('#')]
     for action, label in zip(actions, labels):
         assert label in action.text()
@@ -229,7 +229,7 @@ def test_running_edits_recent_restore_and_consecutive_dimensions(run_window, mon
         assert win.single_run.compute.last_result() is result, (
             f"{win.single_run.compute.last_log()}\nGUI errors: {win._test_error_dialogs!r}")
         assert original_capture('draft') == draft, 'completion overwrote editable inputs'
-        entry = win._recent_runs[0]
+        entry = win.history.recent_runs[0]
         restored = deepcopy(entry['preset'])
         restored['name'] = 'Run inputs'
         assert restored == expected
@@ -247,8 +247,8 @@ def test_running_edits_recent_restore_and_consecutive_dimensions(run_window, mon
         assert 'actual result grid ' + '×'.join(map(str, sizes)) in tip_fields
         assert win.single_run.provenance is None
         win.single_run.compute.finished.emit(result)  # duplicate terminal delivery is ignored
-        assert len(win._recent_runs) == dim + 1
-        win._load_recent_run(entry)
+        assert len(win.history.recent_runs) == dim + 1
+        win.history.load_recent_run(entry)
         assert original_capture('Run inputs') == expected
         assert provenance['preset'] == expected
     assert captures and set(captures) == {gui_thread}
@@ -282,7 +282,7 @@ def test_failed_or_rejected_run_cannot_record_or_leak(run_window, monkeypatch, o
     finally:
         release.set()
     _wait_for(win.single_run.is_idle)
-    assert not getattr(win, '_recent_runs', [])
+    assert not win.history.recent_runs
     assert win.single_run.provenance is None
     if outcome == 'close':
         return
@@ -293,9 +293,9 @@ def test_failed_or_rejected_run_cannot_record_or_leak(run_window, monkeypatch, o
     win.auto_fill_fluid_b()
     win.single_run.submit()
     _wait_for(win.single_run.is_idle)
-    assert len(win._recent_runs) == 1
-    assert win._recent_runs[0]['input_grid'][0] == '66'
-    assert win._recent_runs[0]['preset_source'] == 'recovery'
+    assert len(win.history.recent_runs) == 1
+    assert win.history.recent_runs[0]['input_grid'][0] == '66'
+    assert win.history.recent_runs[0]['preset_source'] == 'recovery'
 
 
 def test_snapshot_deepcopies_nested_preset_payload(run_window, monkeypatch):
@@ -320,7 +320,7 @@ def test_snapshot_deepcopies_nested_preset_payload(run_window, monkeypatch):
         release.set()
     _wait_for(win.single_run.is_idle)
     assert win.single_run.compute.last_result().metadata['run_provenance']['preset'] == expected
-    assert win._recent_runs[0]['preset']['zone_inputs'] == expected['zone_inputs']
+    assert win.history.recent_runs[0]['preset']['zone_inputs'] == expected['zone_inputs']
 
 
 def test_python_export_restores_complete_gui_inputs(run_window, monkeypatch):
@@ -350,7 +350,7 @@ def test_python_export_restores_complete_gui_inputs(run_window, monkeypatch):
     copied = []
     monkeypatch.setattr(QApplication, 'clipboard',
                         lambda: SimpleNamespace(setText=copied.append))
-    win._copy_inputs_as_python()
+    win.history.copy_inputs_as_python()
 
     win._apply_shanghai_defaults()
     win._temp_unit = 'K'
@@ -385,7 +385,7 @@ def test_started_signal_edits_happen_after_config_and_snapshot(run_window, monke
     assert received == [24]
     assert win.single_run.compute.last_result().metadata['run_provenance']['preset'] == expected
     assert win.le_Nx.text() == '88'
-    assert len(win._recent_runs) == 1
+    assert len(win.history.recent_runs) == 1
 
 
 def test_footer_and_history_follow_each_successful_result(run_window, monkeypatch):
@@ -398,7 +398,7 @@ def test_footer_and_history_follow_each_successful_result(run_window, monkeypatc
         win.single_run.submit()
         _wait_for(win.single_run.is_idle)
         assert win._sb_labels['q'].text() == f'{value:.1f} W/m'
-    assert [entry['Q'] for entry in win._recent_runs] == ['180.0', '120.0', '100.0']
+    assert [entry['Q'] for entry in win.history.recent_runs] == ['180.0', '120.0', '100.0']
 
 
 @pytest.mark.parametrize('dim', [0, 1])
@@ -432,9 +432,9 @@ def test_nu_run_snapshot_history_and_export(run_window, monkeypatch, tmp_path, d
         release.set()
     _wait_for(win.single_run.is_idle)
     expected = sco2_nu_metadata(SYNTHETIC)
-    assert win._recent_runs[0]['model_metadata']['sco2_nu'] == expected
-    assert win._recent_runs[0]['model_metadata'][eos_key] == eos
-    assert win._recent_runs[0]['runtime_resources'] == resources
+    assert win.history.recent_runs[0]['model_metadata']['sco2_nu'] == expected
+    assert win.history.recent_runs[0]['model_metadata'][eos_key] == eos
+    assert win.history.recent_runs[0]['runtime_resources'] == resources
     timeline = json.loads((win.case_files.store.base_dir / '.session_timeline.jsonl').read_text().splitlines()[-1])
     assert timeline['model_metadata']['sco2_nu'] == expected
     assert timeline['model_metadata'][eos_key] == eos

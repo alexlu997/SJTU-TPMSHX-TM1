@@ -42,7 +42,7 @@ def test_plot_hover_and_inspector_locate_nonuniform_cells():
     assert ('P_B', '125.001', 'kPa') in rows
     event = SimpleNamespace(inaxes=canvas.axes[0][0], xdata=20., ydata=10., canvas=canvas)
     window.workbench.on_hover(event)
-    assert '400.00 K' in window._hover_label.text()
+    assert '400.00\u202fK' in window._hover_label.text()
 
     # 2D pressure hover keeps 0.01 Pa resolution in kPa across adjacent cells.
     finalize_plots(window, field='pres')
@@ -59,9 +59,9 @@ def test_plot_hover_and_inspector_locate_nonuniform_cells():
     window.workbench.on_hover(SimpleNamespace(
         inaxes=pres_axis, xdata=20., ydata=10., canvas=pres_canvas))
     label_10 = window._hover_label.text()
-    assert '120.00000 kPa' in label_00
-    assert '120.00001 kPa' in label_01
-    assert '120.00100 kPa' in label_10
+    assert '120.00000\u202fkPa' in label_00
+    assert '120.00001\u202fkPa' in label_01
+    assert '120.00100\u202fkPa' in label_10
 
     rendered = []
     inspector = SimpleNamespace(_pinned=False, _window=window, _last_ij=None,
