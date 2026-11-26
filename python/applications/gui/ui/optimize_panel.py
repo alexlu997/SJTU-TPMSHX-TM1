@@ -16,7 +16,7 @@ from sjtu_tpmshx.data_types.compute_config import ComputeConfig, ZoneInputConfig
 from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
 from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.run_control.logutil import get_logger
-from sjtu_tpmshx.applications.gui.ui.theme import FIELD_CMAP, get_theme
+from sjtu_tpmshx.applications.gui.ui.theme import get_theme, resolve_cmap
 
 _log = get_logger(__name__)
 
@@ -1012,7 +1012,7 @@ def show_field_preview(window, x_decision=None):
     axes = fig.subplots(2, 1, sharex=True)
     for ax, (name, values) in zip(axes, (('L', L), ('t', t))):
         ax.set_facecolor(theme['ax_bg'])
-        im = ax.imshow(values.T, origin='lower', aspect='equal', cmap=FIELD_CMAP,
+        im = ax.imshow(values.T, origin='lower', aspect='equal', cmap=resolve_cmap(f'{name}_mm'),
                        vmin=spec[f'{name}_bounds'][0], vmax=spec[f'{name}_bounds'][1],
                        extent=[0, geom.L_dom_m*1e3, 0, geom.H_dom_m*1e3])
         ax.set_title(f'{name}(x,y){suffix}', color=theme['ax_text'], fontsize=11,

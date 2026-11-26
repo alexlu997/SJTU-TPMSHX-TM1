@@ -78,13 +78,50 @@ def start_animation(widget, animation):
         _AnimationClock(widget.window(), animation)
 
 
+_reduced_motion_preference = False
+
+
+def set_reduced_motion(enabled: bool, *, persist: bool = False) -> bool:
+    """Set the reduced-motion preference and optionally save it with appearance settings.
+
+    When ``persist`` is True, write the setting before updating live state and
+    return False without changing the active preference if storage fails.
+    """
+    global _reduced_motion_preference
+    value = bool(enabled)
+    if persist:
+        from sjtu_tpmshx.applications.gui.controllers.user_storage import (
+            save_appearance_setting,
+        )
+        if not save_appearance_setting('reduced_motion', 'true' if value else 'false'):
+            return False
+    _reduced_motion_preference = value
+    return True
+
+
+def apply_saved_reduced_motion(saved: dict[str, str]) -> bool:
+    """Apply a saved reduced-motion preference loaded from appearance settings."""
+    value = saved.get('reduced_motion')
+    if value in ('true', 'false'):
+        set_reduced_motion(value == 'true')
+    return _reduced_motion_preference
+
+
+def is_reduced_motion() -> bool:
+    """Return True when the saved preference or QT_REDUCED_MOTION disables motion."""
+    return (
+        _reduced_motion_preference
+        or os.environ.get('QT_REDUCED_MOTION', '').lower() in ('1', 'true')
+    )
+
+
 def reveal(widget):
     """Fade a newly shown form into place without delaying its input state.
 
     Use only on ordinary Qt panels, never Matplotlib or native OpenGL views.
     The effect owns its animation: replacing it cancels an earlier reveal.
     """
-    if not widget.isVisible() or os.environ.get('QT_REDUCED_MOTION', '').lower() in ('1', 'true'):
+    if not widget.isVisible() or is_reduced_motion():
         return
     # A live full-panel blur exceeded the 90 Hz frame budget at DPR 2.
     # Opacity preserves sharp text and does not re-filter every pixel each frame.
@@ -111,6 +148,8 @@ def pulse_glow(widget, color=None, blur_peak=20, duration_ms=260):
     Replacing the effect also disposes of its animation, so a repeated pulse
     cannot later clear the new effect. No effect remains after completion.
     """
+    if is_reduced_motion():
+        return
     if color is None:
         from .theme import get_theme
         color = get_theme().get('accent_green', '#22C55E')

@@ -6,6 +6,11 @@ import numpy as np
 import pytest
 from PySide6.QtWidgets import QFileDialog
 
+from sjtu_tpmshx.applications.gui.ui.plot_2d_results import finalize_plots as _real_finalize_plots
+from sjtu_tpmshx.applications.gui.ui.plot_3d_results import (
+    _render_2d_slices_from_3d as _real_render_2d_slices_from_3d,
+    finalize_plots_3d as _real_finalize_plots_3d,
+)
 from sjtu_tpmshx.physical_models.tpms_calc import compute
 from sjtu_tpmshx.physical_models.nu_correlations import warn_sco2_nu_evidence
 from tests.python.gui_worker_support import (
@@ -101,3 +106,49 @@ def test_converged_outside_range_result_keeps_design_rejection_in_gui_and_export
     assert archived['applicability']['passed'] is False
     assert archived['design']['eligible'] is False
     assert not win._test_error_dialogs
+
+
+@pytest.mark.parametrize('mode', ['2d', '3d'])
+def test_extrapolation_watermarks_name_recorded_model_without_constdf(win, mode):
+    from sjtu_tpmshx.postprocess.result_display import (
+        extrapolation_model_label, extrapolation_watermark,
+    )
+    from types import SimpleNamespace
+    from tests.python.gui_workbench_support import _result
+
+    with pytest.raises(ValueError, match='darcy_forchheimer'):
+        extrapolation_model_label({})
+    with pytest.raises(ValueError, match='darcy_forchheimer'):
+        extrapolation_model_label({'darcy_forchheimer': {'mode': 'experimental', 'A': {'campaign': 'c'}}})
+    with pytest.raises(ValueError, match='darcy_forchheimer'):
+        extrapolation_watermark({}, ['V2 wall thickness must be inside the 0.3..0.5 mm CFD grid.'])
+    assert extrapolation_watermark({}, []) == ''
+
+    result = _result(mode)
+    result.extrap_reasons = ['V2 wall thickness must be inside the 0.3..0.5 mm CFD grid.']
+    result.metadata = {
+        **result.metadata,
+        'darcy_forchheimer': {'mode': 'experimental'},
+        'model_refs': [{'name': 'darcy_forchheimer', 'version': 'cfd_full_core_3cell_fixed_v2'}],
+    }
+    win.write_result(result)
+    if mode == '2d':
+        _real_finalize_plots(win, field='temp')
+        texts = [item.get_text() for item in win.canvas_temp.fig.texts]
+        assert len(texts) == 1
+        assert 'cfd_full_core_3cell_fixed_v2 (experimental)' in texts[0]
+        assert 'ConstDF-v1' not in texts[0]
+    else:
+        seen = {}
+        win.canvas_3d = SimpleNamespace(
+            set_fields=lambda **kw: seen.update(kw),
+            set_watermark=lambda text: seen.__setitem__('watermark', text),
+        )
+        assert _real_finalize_plots_3d(win)
+        assert 'cfd_full_core_3cell_fixed_v2 (experimental)' in seen['watermark']
+        assert 'ConstDF-v1' not in seen['watermark']
+        _real_render_2d_slices_from_3d(win, result, field='temp')
+        texts = [item.get_text() for item in win.canvas_temp.fig.texts]
+        assert len(texts) == 1
+        assert 'cfd_full_core_3cell_fixed_v2 (experimental)' in texts[0]
+        assert 'ConstDF-v1' not in texts[0]
