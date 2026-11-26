@@ -61,11 +61,11 @@ def test_first_plot_lazy_switch_and_export_use_current_selection(win, monkeypatc
         win._slice_index = 0
     redraw_result_fields(win)
     assert win.cache.get_drawn_tabs() == {'pres'}
-    expected = result.fields['P_fB']
+    expected = result.fields['P_fB'] / 1000.
     if mode == '3d':
-        expected = expected[:, :, 0] / 1000.
+        expected = expected[:, :, 0]
     np.testing.assert_array_equal(win.canvas_pres._hover_data['fields'][0], expected)
-    assert win.canvas_pres._hover_data['unit'] == ('kPa' if mode == '3d' else 'Pa')
+    assert win.canvas_pres._hover_data['unit'] == 'kPa'
 
     # Export a field never opened in the workbench. The picker must include
     # it and save this run's selected phase/slice, not a previous canvas.

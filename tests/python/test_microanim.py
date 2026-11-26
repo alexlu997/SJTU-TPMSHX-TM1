@@ -11,7 +11,10 @@ from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
 from shiboken6 import isValid  # noqa: E402
 
-from sjtu_tpmshx.applications.gui.ui.microanim import _AnimationClock, pulse_glow, reveal, start_animation, toast  # noqa: E402
+from sjtu_tpmshx.applications.gui.ui.microanim import (  # noqa: E402
+    _AnimationClock, apply_saved_reduced_motion, is_reduced_motion,
+    pulse_glow, reveal, set_reduced_motion, start_animation, toast,
+)
 
 
 @pytest.fixture
@@ -103,9 +106,22 @@ def test_reveal_resolves_and_repeated_calls_cancel_previous_animation(parent):
 
 def test_reveal_respects_reduced_motion_and_parent_lifetime(parent, monkeypatch):
     monkeypatch.setenv('QT_REDUCED_MOTION', '1')
+    assert is_reduced_motion() is True
     reveal(parent)
     assert parent.graphicsEffect() is None
+    pulse_glow(parent)
+    assert parent.graphicsEffect() is None
     monkeypatch.delenv('QT_REDUCED_MOTION')
+    assert is_reduced_motion() is False
+    try:
+        apply_saved_reduced_motion({'reduced_motion': 'true'})
+        assert is_reduced_motion() is True
+        reveal(parent)
+        assert parent.graphicsEffect() is None
+        pulse_glow(parent)
+        assert parent.graphicsEffect() is None
+    finally:
+        set_reduced_motion(False)
     child = QWidget(parent)
     reveal(child)  # hidden setup / session restoration does not animate
     assert child.graphicsEffect() is None

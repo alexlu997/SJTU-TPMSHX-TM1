@@ -68,6 +68,7 @@ def test_range_cycle_preserves_field_specific_limits_and_rejects_bad_edits(panel
 def test_popup_and_saved_image_use_manual_limits_with_colored_out_of_range_values(panel, tmp_path, monkeypatch):
     from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
     from PySide6.QtWidgets import QFileDialog
+    from sjtu_tpmshx.applications.gui.ui.theme import resolve_cmap, set_cmap
 
     values = np.arange(27.).reshape(3, 3, 3) + 290.
     before = values.copy()
@@ -75,18 +76,23 @@ def test_popup_and_saved_image_use_manual_limits_with_colored_out_of_range_value
     panel._cx_mm = panel._cy_mm = panel._cz_mm = np.array([.5, 1.5, 2.5])
     panel._slice_index = lambda axis, coord: 1
     panel.restore_color_ranges({'mode': 'custom', 'ranges': {'Ta': [300., 310.]}})
-    panel._show_slice_popup('z', 1.5)
-    figure = panel._popup_dialogs[0].findChild(FigureCanvasQTAgg).figure
-    contour = figure.axes[0].collections[0]
-    assert contour.get_clim() == (300., 310.)
-    assert contour.extend == 'both'
-    assert contour.cmap(contour.norm(290.)) == contour.cmap(0.)
-    assert contour.cmap(contour.norm(320.)) == contour.cmap(1.)
-    output = tmp_path / 'slice.png'
-    monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: (str(output), ''))
-    panel._save_figure(figure, 'z', 1.5, 'Ta')
-    assert output.stat().st_size > 1000
-    np.testing.assert_array_equal(values, before)
+    try:
+        set_cmap('temperature', 'cividis')
+        panel._show_slice_popup('z', 1.5)
+        figure = panel._popup_dialogs[0].findChild(FigureCanvasQTAgg).figure
+        contour = figure.axes[0].collections[0]
+        assert contour.get_cmap().name == resolve_cmap('Ta') == 'cividis'
+        assert contour.get_clim() == (300., 310.)
+        assert contour.extend == 'both'
+        assert contour.cmap(contour.norm(290.)) == contour.cmap(0.)
+        assert contour.cmap(contour.norm(320.)) == contour.cmap(1.)
+        output = tmp_path / 'slice.png'
+        monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: (str(output), ''))
+        panel._save_figure(figure, 'z', 1.5, 'Ta')
+        assert output.stat().st_size > 1000
+        np.testing.assert_array_equal(values, before)
+    finally:
+        set_cmap('temperature', None)
 
 
 @pytest.mark.parametrize('state', [

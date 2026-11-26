@@ -51,6 +51,7 @@ def _synthetic_results(dimension=3):
     native = FieldResult('synthetic-result', 'synthetic-case', 'test', grid=grid,
         fields=native_fields, run_status=dict(execution='completed', converged=True),
         metadata=dict(parameters=dict(L=.2, H=.1, Lz=.05, extrap_reasons=[],
+                          tpms_type='Gyroid', delta_levelset=0.0,
                           dir_A=1, dir_B=4, zone_config=None,
                           static_properties=dict(geometry=dict(epsilon=.8, D_h=.003, A_0=.01)),
                           fluid_A_cfg=dict(dir=1, in_ctr=.05, in_w=.1, out_ctr=.05, out_w=.1),
@@ -93,6 +94,9 @@ def test_synthetic_3d_mapping_preserves_full_geometry_and_report_pressure():
     L_m = native.metadata['design_fields']['L_field_m']
     t_m = native.metadata['design_fields']['t_field_m']
     result = to_compute_result(native, performance)
+    assert result.metadata['tpms'] == 'Gyroid'
+    assert result.metadata['delta_levelset'] == 0.0
+    assert 'tpms' not in result.fields and 'delta_levelset' not in result.fields
     np.testing.assert_array_equal(result.fields['L_mm'], L_m * 1e3)
     np.testing.assert_array_equal(result.fields['t_mm'], t_m * 1e3)
     for name in ('ucA', 'vcA', 'wcA', 'ucB', 'vcB', 'wcB', 'vmag_A', 'vmag_B'):
@@ -102,13 +106,15 @@ def test_synthetic_3d_mapping_preserves_full_geometry_and_report_pressure():
                                       native_fields['P_report_' + side])
     for name in ('dx', 'dy', 'dz'):
         np.testing.assert_array_equal(result.fields[name], grid[name])
-    # The plot must use the accepted result's ports, independently of draft inputs.
+    # The plot must use the accepted result's ports and t_mm, independently of draft inputs.
     from sjtu_tpmshx.applications.gui.ui.plot_3d_results import finalize_plots_3d
     shown = {}
     window = SimpleNamespace(cache=SimpleNamespace(get_result=lambda mode: result),
         canvas_3d=SimpleNamespace(set_fields=lambda **kw: shown.update(kw),
                                   set_watermark=lambda text: None))
     assert finalize_plots_3d(window)
+    np.testing.assert_array_equal(shown['L_mm'], result.fields['L_mm'])
+    np.testing.assert_array_equal(shown['t_mm'], result.fields['t_mm'])
     for side in ('A', 'B'):
         expected = native.metadata['parameters'][f'fluid_{side}_cfg']
         assert shown[f'ports_{side}'] == expected
@@ -760,3 +766,69 @@ def test_compute_result_independent_default_dicts():
     b = ComputeResult()
     a.fields['foo'] = 1
     assert 'foo' not in b.fields
+
+
+def test_result_display_table_maps_real_2d_and_3d_results_by_dimension_and_phase(native_result):
+    """Check 2: each RESULT_FIELD_SPECS key exists in a real 2D or 3D result by dimension and phase."""
+    from sjtu_tpmshx.postprocess.result_display import (
+        COLORMAP_CHOICES, COLORMAP_QUANTITIES, DEFAULT_COLORMAPS,
+        PANEL_FIELD_SPECS, RESULT_FIELD_SPECS, field_spec,
+    )
+
+    fields, _ = native_result
+    result = to_compute_result(fields, evaluate(fields))
+    dimension = fields.grid['dimension']
+
+    assert len(PANEL_FIELD_SPECS) == len(RESULT_FIELD_SPECS)
+    assert result.metadata['tpms'] == fields.metadata['parameters']['tpms_type']
+    assert isinstance(result.metadata['delta_levelset'], float)
+    assert 'tpms' not in result.fields and 'delta_levelset' not in result.fields
+
+    if dimension == 2:
+        for side in ('A', 'B'):
+            expected_speed = np.hypot(result.fields['uc' + side], result.fields['vc' + side])
+            np.testing.assert_allclose(result.fields['vmag_' + side], expected_speed)
+
+    active_b = result.fields.get('dir_B') is not None
+    expected_shape = result.fields['Ta'].shape
+    for key, spec in RESULT_FIELD_SPECS.items():
+        assert spec.key == key
+        assert field_spec(spec.key) is spec and field_spec(spec.panel_key) is spec
+        assert spec.quantity in COLORMAP_QUANTITIES
+        assert spec.default_cmap in COLORMAP_CHOICES
+        assert spec.default_cmap == DEFAULT_COLORMAPS[spec.quantity]
+        if dimension not in spec.dims:
+            assert key not in result.fields
+            continue
+        assert key in result.fields
+        value = result.fields[key]
+        if spec.phase == 'B' and not active_b and spec.quantity in ('speed', 'pressure'):
+            assert value is None
+            continue
+        assert isinstance(value, np.ndarray)
+        assert value.ndim == dimension and value.shape == expected_shape
+        assert np.all(np.isfinite(value))
+        if spec.quantity == 'pressure':
+            assert spec.stored_unit == 'Pa' and spec.display_unit == 'kPa'
+            assert spec.display_scale == pytest.approx(1e-3)
+            np.testing.assert_array_equal(value, fields.fields['P_report_' + spec.phase])
+
+
+def test_result_display_table_handles_inactive_b_phase_on_3d_mapping():
+    """Verify phase-B speed and pressure stay absent when fluid B is inactive."""
+    from sjtu_tpmshx.postprocess.result_display import RESULT_FIELD_SPECS
+
+    native, performance = _synthetic_results(dimension=3)
+    metadata = mutable_data(native.metadata)
+    metadata['diagnostics']['dir_B'] = None
+    metadata['parameters']['fluid_B_cfg'] = None
+    fields = {**native.fields, 'P_report_B': None, 'vmag_B': None}
+    single_side = replace(native, fields=fields, metadata=metadata)
+    result = to_compute_result(single_side, performance)
+    assert result.metadata['tpms'] == 'Gyroid'
+    assert result.metadata['delta_levelset'] == 0.0
+    for key, spec in RESULT_FIELD_SPECS.items():
+        if spec.phase == 'B' and spec.quantity in ('speed', 'pressure'):
+            assert result.fields[key] is None
+        else:
+            assert isinstance(result.fields[key], np.ndarray)

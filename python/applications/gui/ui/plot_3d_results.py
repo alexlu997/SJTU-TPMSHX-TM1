@@ -7,13 +7,14 @@ from __future__ import annotations
 import numpy as np
 from matplotlib.ticker import ScalarFormatter
 
-# Theme — resolved at call time via get_theme()
+# Theme — resolved at call time via get_theme() and resolve_cmap()
 from sjtu_tpmshx.applications.gui.ui.theme import get_theme as _get_theme
-from sjtu_tpmshx.applications.gui.ui.theme import FIELD_CMAP
+from sjtu_tpmshx.applications.gui.ui.theme import resolve_cmap
 from .vis3d_constants import field_color_limits
 from .matplotlib_canvas import style_colorbar
 
 from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
+from sjtu_tpmshx.postprocess.result_display import RESULT_FIELD_SPECS, extrapolation_watermark
 from sjtu_tpmshx.run_control.logutil import get_logger
 
 _log = get_logger(__name__)
@@ -70,9 +71,10 @@ def finalize_plots_3d(window) -> bool:
         _3d_vis_ok = False
     if panel is not None:
         try:
+            p_scale = RESULT_FIELD_SPECS['P_fA'].display_scale
             P_B_kPa = None
             if f.get('P_fB') is not None:
-                P_B_kPa = np.ascontiguousarray(f['P_fB'] / 1000.0)
+                P_B_kPa = np.ascontiguousarray(f['P_fB'] * p_scale)
             # Map fluid-A dir index (0=+x,1=-x,2=+y,3=-y,4=+z,5=-z) to
             # '±axis' string so the panel can orient inlet/outlet glyphs.
             _dirs = ['+x', '-x', '+y', '-y', '+z', '-z']
@@ -94,24 +96,19 @@ def finalize_plots_3d(window) -> bool:
                 Ts=f.get('Ts'),
                 vmag=f['vmag_A'],
                 vmag_B=_vmag_B_for_panel,
-                P_kPa=np.ascontiguousarray(f['P_fA'] / 1000.0),
+                P_kPa=np.ascontiguousarray(f['P_fA'] * p_scale),
                 P_B_kPa=_P_B_for_panel,
                 L_mm=f['L_mm'],
+                t_mm=f.get('t_mm'),
                 dx=f['dx'], dy=f['dy'], dz=f['dz'],
                 flow_dir=_dir_str,
                 flow_dir_B=_dir_str_B if _has_B else None,
                 ports_A=f.get('ports_A'), ports_B=f.get('ports_B'),
             )
-            # Surrogate-extrapolation watermark — lower-left viewport.
-            if res.extrap_reasons:
-                # Dedupe + condense: fluid A/B repeat the same "Wall thickness"
-                # line (drop exact dups), strip the verbose "(u=…,T=…,P=…)" tail
-                # and the redundant "ConstDF-v1 " (already in the header) so the
-                # watermark is 2–3 short lines, not a wall of text.
-                _reasons = list(dict.fromkeys(res.extrap_reasons))
-                _short = [r.split(' (')[0].rstrip('.').replace('ConstDF-v1 ', '')
-                          for r in _reasons]
-                _txt = "⚠ ConstDF-v1 extrapolated\n" + "\n".join(_short)
+            # Surrogate-extrapolation watermark from the run's recorded model.
+            _txt = extrapolation_watermark(
+                getattr(res, 'metadata', None), res.extrap_reasons, multiline=True)
+            if _txt:
                 try:
                     panel.set_watermark(_txt)
                 except Exception:
@@ -137,8 +134,7 @@ def _render_2d_slices_from_3d(window, res, field=None):
     # B3 C5: res is the ComputeResult — arrays live in res.fields.
     f = res.fields
     Ta = f['Ta']; Tb = f['Tb']; Ts = f['Ts']
-    P_Pa = f['P_fA']; uc = f['ucA']; vc = f['vcA']
-    wc = f.get('wcA')
+    P_Pa = f['P_fA']; vmag_A = f['vmag_A']
     dx = f['dx']; dy = f['dy']
     Nx, Ny, Nz = Ta.shape
     # A new result starts at its middle cell. Subsequent slice changes use
@@ -166,15 +162,12 @@ def _render_2d_slices_from_3d(window, res, field=None):
 
     # Fluid B optional (cross-flow). Detect by presence of P_fB
     P_Pa_B = f.get('P_fB')
-    uc_B = f.get('ucB')
-    vc_B = f.get('vcB')
-    wc_B = f.get('wcB')
+    vmag_B = f.get('vmag_B')
     dP_B = res.dP_B_Pa
     has_B = P_Pa_B is not None
-    if wc is None:
-        wc = np.zeros_like(uc)
-    if has_B and wc_B is None:
-        wc_B = np.zeros_like(uc_B)
+    p_spec_a, p_spec_b = RESULT_FIELD_SPECS['P_fA'], RESULT_FIELD_SPECS['P_fB']
+    v_spec_a, v_spec_b = RESULT_FIELD_SPECS['vmag_A'], RESULT_FIELD_SPECS['vmag_B']
+    t_specs = [RESULT_FIELD_SPECS[key] for key in ('Ta', 'Tb', 'Ts')]
 
     plot_jobs = [
         ('canvas_temp', _plot_3d_temperature,
@@ -184,10 +177,8 @@ def _render_2d_slices_from_3d(window, res, field=None):
              P_Pa_B[:, :, k_mid] if has_B else None,
              xc, yc, res.dP_A_Pa, dP_B, z_info)),
         ('canvas_vel', _plot_3d_velocity_slice,
-            (uc[:, :, k_mid], vc[:, :, k_mid], wc[:, :, k_mid],
-             uc_B[:, :, k_mid] if has_B else None,
-             vc_B[:, :, k_mid] if has_B else None,
-             wc_B[:, :, k_mid] if has_B else None,
+            (vmag_A[:, :, k_mid],
+             vmag_B[:, :, k_mid] if has_B else None,
              xc, yc, z_info)),
     ]
     for attr, fn, args in plot_jobs:
@@ -212,32 +203,31 @@ def _render_2d_slices_from_3d(window, res, field=None):
                 if key == 'pres':
                     control = getattr(window, 'chk_shared_pressure_scale', None)
                     shared = control is None or control.isChecked()
-                    full_fields = [P_Pa / 1000] + ([P_Pa_B / 1000] if has_B else [])
+                    full_fields = ([P_Pa * p_spec_a.display_scale]
+                                   + ([P_Pa_B * p_spec_b.display_scale] if has_B else []))
                     kwargs['color_limits'] = field_color_limits(full_fields, shared)
                     kwargs['shared'] = shared
                 else:
-                    full_fields = [np.sqrt(uc**2 + vc**2 + wc**2)]
-                    if has_B:
-                        full_fields.append(np.sqrt(uc_B**2 + vc_B**2 + wc_B**2))
+                    full_fields = [vmag_A] + ([vmag_B] if has_B else [])
                     kwargs['color_limits'] = field_color_limits(full_fields)
             fn(canvas, *args, **kwargs)
             if attr == 'canvas_temp':
                 fields = [Ta[:, :, k_mid], Tb[:, :, k_mid], Ts[:, :, k_mid]]
                 if unit == '°C':
                     fields = [a - CELSIUS_ZERO_K for a in fields]
-                names, field_unit = ['T_fA', 'T_fB', 'T_s'], unit
+                names, field_unit = [spec.symbol for spec in t_specs], unit
             elif attr == 'canvas_pres':
-                fields, names, field_unit = [P_Pa[:, :, k_mid] / 1000], ['P_A'], 'kPa'
+                fields = [P_Pa[:, :, k_mid] * p_spec_a.display_scale]
+                names, field_unit = [p_spec_a.symbol], p_spec_a.display_unit
                 if has_B:
-                    fields.append(P_Pa_B[:, :, k_mid] / 1000); names.append('P_B')
+                    fields.append(P_Pa_B[:, :, k_mid] * p_spec_b.display_scale)
+                    names.append(p_spec_b.symbol)
             else:
-                fields = [np.sqrt(uc[:, :, k_mid] ** 2 + vc[:, :, k_mid] ** 2
-                                  + wc[:, :, k_mid] ** 2)]
-                names, field_unit = ['|U_A|'], 'm/s'
+                fields = [vmag_A[:, :, k_mid]]
+                names, field_unit = [v_spec_a.symbol], v_spec_a.display_unit
                 if has_B:
-                    fields.append(np.sqrt(uc_B[:, :, k_mid] ** 2 + vc_B[:, :, k_mid] ** 2
-                                          + wc_B[:, :, k_mid] ** 2))
-                    names.append('|U_B|')
+                    fields.append(vmag_B[:, :, k_mid])
+                    names.append(v_spec_b.symbol)
             indices = range(len(fields)) if phase is None else [min(phase, len(fields) - 1)]
             canvas._hover_data = {
                 'fields': [fields[i] for i in indices],
@@ -250,16 +240,11 @@ def _render_2d_slices_from_3d(window, res, field=None):
             import traceback; traceback.print_exc()
             _log.warning(f"[3D->2D {attr}] {e}")
 
-    # Surrogate-extrapolation watermark on the 2D mid-z slice canvases so the
-    # Temperature / Pressure / Velocity tabs under 3D mode carry the same
-    # `⚠ ConstDF-v1 extrapolated` notice the 3D viewport + 2D-native path
-    # already show. Without this, a 3D run with t=0.6 mm would hide the
-    # extrapolation flag on every canvas except the PyVistaQt viewport.
-    if res.extrap_reasons:
-        _reasons = list(res.extrap_reasons or [])
+    # Keep the run's model-extrapolation watermark visible on 2D slice canvases.
+    _wm_text = extrapolation_watermark(getattr(res, 'metadata', None), res.extrap_reasons)
+    if _wm_text:
         from sjtu_tpmshx.applications.gui.ui.theme import get_theme as _gt
         _tw = _gt().get('warn', '#B45309')
-        _wm_text = "⚠ ConstDF-v1 extrapolated: " + " | ".join(_reasons)
         for attr in ('canvas_temp', 'canvas_pres', 'canvas_vel'):
             if field is not None and attr != f'canvas_{field}':
                 continue
@@ -311,16 +296,17 @@ def _plot_3d_temperature(canvas, Ta_slice, Tb_slice, Ts_slice, xc, yc, z_info,
     fields = [Ta_slice, Tb_slice, Ts_slice]
     limits = color_limits or (field_color_limits(fields, shared=True) if sync else
                              field_color_limits(fields[:2], shared=True) + field_color_limits(fields[2:]))
+    specs = [RESULT_FIELD_SPECS[key] for key in ('Ta', 'Tb', 'Ts')]
     datasets = [
-        (Ta_slice, rf'$T_{{f,A}}$ [{unit}] — Fluid A'),
-        (Tb_slice, rf'$T_{{f,B}}$ [{unit}] — Fluid B'),
-        (Ts_slice, rf'$T_s$ [{unit}] — Solid'),
+        (Ta_slice, specs[0], f'{specs[0].symbol_tex} [{unit}] — Fluid A'),
+        (Tb_slice, specs[1], f'{specs[1].symbol_tex} [{unit}] — Fluid B'),
+        (Ts_slice, specs[2], f'{specs[2].symbol_tex} [{unit}] — Solid'),
     ]
     for ax, index in zip(axes, indices):
-        field, title = datasets[index]
+        field, spec, title = datasets[index]
         vmin, vmax = limits[index]
-        cf = ax.contourf(X, Y, field, levels=np.linspace(vmin, vmax, 257), cmap=FIELD_CMAP,
-                          vmin=vmin, vmax=vmax)
+        cf = ax.contourf(X, Y, field, levels=np.linspace(vmin, vmax, 257),
+                         cmap=resolve_cmap(spec.key), vmin=vmin, vmax=vmax)
         cb = canvas.fig.colorbar(cf, ax=ax, shrink=0.85, aspect=18, ticks=np.linspace(vmin, vmax, 5),
                                 format=ScalarFormatter(useOffset=False))
         style_colorbar(cb, _T)
@@ -345,45 +331,54 @@ def _plot_3d_pressure(canvas, P_slice_A, P_slice_B, xc, yc, dP_A, dP_B, z_info,
                       phase=None, color_limits=None, shared=True):
     """Show absolute pressure with shared A/B limits by default."""
     theme = _get_theme()
-    fields = [P_slice_A / 1000.] + ([P_slice_B / 1000.] if P_slice_B is not None else [])
+    specs = [RESULT_FIELD_SPECS['P_fA']]
+    fields = [P_slice_A * specs[0].display_scale]
+    if P_slice_B is not None:
+        spec_b = RESULT_FIELD_SPECS['P_fB']
+        specs.append(spec_b)
+        fields.append(P_slice_B * spec_b.display_scale)
     limits = color_limits or field_color_limits(fields, shared)
     indices = range(len(fields)) if phase is None else [min(phase, len(fields) - 1)]
     axes = np.atleast_1d(_begin_canvas_plot(canvas, 1, len(indices)))
     Y, X = np.meshgrid(yc, xc)
     for ax, index in zip(axes, indices):
+        spec = specs[index]
         lo, hi = limits[index]
         cf = ax.contourf(X, Y, fields[index], levels=np.linspace(lo, hi, 257),
-                         cmap=FIELD_CMAP, vmin=lo, vmax=hi)
+                         cmap=resolve_cmap(spec.key), vmin=lo, vmax=hi)
         cb = canvas.fig.colorbar(cf, ax=ax, shrink=.9, aspect=25)
         style_colorbar(cb, theme)
-        tag = ('A', 'B')[index]
         scale = 'A/B shared' if shared else 'Full range'
-        _style_axis(ax, title=f'P abs [kPa] — Fluid {tag} · {scale}', title_size=11)
+        _style_axis(ax, title=f'{spec.symbol_tex} abs [{spec.display_unit}] — Fluid {spec.phase} · {scale}',
+                    title_size=11)
         ax.set_aspect('equal')
     if not canvas.fig.get_constrained_layout():
         canvas.fig.subplots_adjust(left=.11, right=.96, top=.86, bottom=.14, wspace=.25)
     canvas.draw()
 
 
-def _plot_3d_velocity_slice(canvas, uA, vA, wA, uB, vB, wB, xc, yc, z_info,
-                           phase=None, color_limits=None):
+def _plot_3d_velocity_slice(canvas, vmag_slice_A, vmag_slice_B, xc, yc, z_info,
+                            phase=None, color_limits=None):
     """Show each fluid's full speed range with filled contours."""
     theme = _get_theme()
-    vectors = [(uA, vA, wA)] + ([(uB, vB, wB)] if uB is not None else [])
-    fields = [np.sqrt(u**2 + v**2 + (w**2 if w is not None else 0.))
-              for u, v, w in vectors]
+    specs = [RESULT_FIELD_SPECS['vmag_A']]
+    fields = [vmag_slice_A]
+    if vmag_slice_B is not None:
+        specs.append(RESULT_FIELD_SPECS['vmag_B'])
+        fields.append(vmag_slice_B)
     limits = color_limits or field_color_limits(fields)
     indices = range(len(fields)) if phase is None else [min(phase, len(fields) - 1)]
     axes = np.atleast_1d(_begin_canvas_plot(canvas, 1, len(indices)))
     Y, X = np.meshgrid(yc, xc)
     for ax, index in zip(axes, indices):
+        spec = specs[index]
         lo, hi = limits[index]
         cf = ax.contourf(X, Y, fields[index], levels=np.linspace(lo, hi, 257),
-                         cmap=FIELD_CMAP, vmin=lo, vmax=hi)
+                         cmap=resolve_cmap(spec.key), vmin=lo, vmax=hi)
         cb = canvas.fig.colorbar(cf, ax=ax, shrink=.9, aspect=25)
         style_colorbar(cb, theme)
-        tag = ('A', 'B')[index]
-        _style_axis(ax, title=f'|v| [m/s] — Fluid {tag} · Full range', title_size=11)
+        _style_axis(ax, title=f'{spec.symbol_tex} [{spec.display_unit}] — Fluid {spec.phase} · Full range',
+                    title_size=11)
         ax.set_aspect('equal')
     if not canvas.fig.get_constrained_layout():
         canvas.fig.subplots_adjust(left=.11, right=.96, top=.86, bottom=.14, wspace=.25)

@@ -2,6 +2,8 @@
 from collections.abc import Callable
 from dataclasses import asdict
 
+import numpy as np
+
 from sjtu_tpmshx.data_types.compute_config import ComputeConfig
 from sjtu_tpmshx.data_types.compute_result import ComputeResult
 from sjtu_tpmshx.run_control.module_ports import RunControl
@@ -55,6 +57,9 @@ def to_compute_result(result, performance):
             from sjtu_tpmshx.physical_models.zone_config import Zone, ZoneConfig
             zone['zones'] = [Zone(**item) for item in zone['zones']]
             zone = ZoneConfig(**zone)
+        for side in 'AB':
+            u, v = fields['uc' + side], fields['vc' + side]
+            fields['vmag_' + side] = None if u is None or v is None else np.hypot(u, v)
         fields.update(dx_arr=result.grid['dx'], dy_arr=result.grid['dy'],
                       N_x=len(result.grid['dx']), N_y=len(result.grid['dy']),
                       L=parameters['L'], H=parameters['H'],
@@ -93,6 +98,17 @@ def to_compute_result(result, performance):
             metadata[key] = mutable_data(result.metadata[key])
     if 'inlet_inputs' in parameters:
         metadata['inlet_inputs'] = mutable_data(parameters['inlet_inputs'])
+    run_geometry = (parameters.get('run_settings') or {}).get('geometry') or {}
+    tpms = parameters.get('tpms_type')
+    if tpms is None:
+        tpms = run_geometry.get('tpms')
+    if tpms is not None:
+        metadata['tpms'] = str(tpms)
+    delta = parameters.get('delta_levelset')
+    if delta is None:
+        delta = run_geometry.get('delta_levelset')
+    if delta is not None:
+        metadata['delta_levelset'] = float(delta)
     metadata.update(darcy_forchheimer=mutable_data(result.metadata['df_metadata']),
                     quantity_basis=result.metadata['quantity_basis'], units={'Q': unit},
                     source_result_id=result.result_id, case_id=result.case_id,

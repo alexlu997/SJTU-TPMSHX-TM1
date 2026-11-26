@@ -6,9 +6,65 @@ Typography: modular scale 9 / 10 / 11 / 12 / 14 pt.
 from pathlib import Path
 
 from sjtu_tpmshx.applications.gui.ui.typography import FONT_STACK
+from sjtu_tpmshx.postprocess.result_display import (
+    COLORMAP_CHOICES,
+    COLORMAP_QUANTITIES,
+    DEFAULT_COLORMAPS,
+    field_spec,
+)
 
-# One colormap for all GUI scalar fields, independent of the light/dark theme.
-FIELD_CMAP = 'turbo'
+# Runtime per-quantity colormap overrides; unset quantities use DEFAULT_COLORMAPS.
+_cmap_overrides: dict[str, str] = {}
+
+
+def _colormap_quantity(key_or_quantity: str) -> str:
+    if key_or_quantity in COLORMAP_QUANTITIES:
+        return key_or_quantity
+    return field_spec(key_or_quantity).quantity
+
+
+def resolve_cmap(key_or_quantity: str) -> str:
+    """Resolve the active colormap name for a field key or quantity at draw time."""
+    quantity = _colormap_quantity(key_or_quantity)
+    return _cmap_overrides.get(quantity, DEFAULT_COLORMAPS[quantity])
+
+
+def get_colormap_overrides() -> dict[str, str]:
+    """Return active per-quantity colormap overrides."""
+    return dict(_cmap_overrides)
+
+
+def set_cmap(quantity: str, cmap: str | None, *, persist: bool = False) -> str:
+    """Set or reset the colormap for one quantity family."""
+    if quantity not in COLORMAP_QUANTITIES:
+        raise ValueError(
+            f"Unknown colormap quantity {quantity!r}, expected {COLORMAP_QUANTITIES}")
+    if cmap is None:
+        resolved = DEFAULT_COLORMAPS[quantity]
+        _cmap_overrides.pop(quantity, None)
+    else:
+        if cmap not in COLORMAP_CHOICES:
+            raise ValueError(
+                f"Unknown colormap {cmap!r}, expected {COLORMAP_CHOICES}")
+        resolved = cmap
+        if cmap == DEFAULT_COLORMAPS[quantity]:
+            _cmap_overrides.pop(quantity, None)
+        else:
+            _cmap_overrides[quantity] = cmap
+    if persist:
+        from sjtu_tpmshx.applications.gui.controllers.user_storage import (
+            save_appearance_setting,
+        )
+        save_appearance_setting(f'cmap_{quantity}', resolved)
+    return resolved
+
+
+def apply_saved_colormaps(saved: dict[str, str]) -> None:
+    """Apply validated per-quantity colormap preferences from appearance storage."""
+    for quantity in COLORMAP_QUANTITIES:
+        value = saved.get(f'cmap_{quantity}')
+        if value in COLORMAP_CHOICES:
+            set_cmap(quantity, value)
 
 # ── Typography — modular scale (pt), smallest → largest ──────
 # One coherent hierarchy. Section titles (FONT_SECTION) now sit one step

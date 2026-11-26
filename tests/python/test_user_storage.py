@@ -70,6 +70,45 @@ def test_appearance_uses_user_read_write_location_without_legacy_scan(user_locat
     assert not (legacy / 'ui' / 'mixins' / '.accent').exists()
 
 
+def test_colormap_and_reduced_motion_preferences_roundtrip_and_validate(user_locations):
+    from sjtu_tpmshx.applications.gui.ui.microanim import (
+        apply_saved_reduced_motion, is_reduced_motion, set_reduced_motion,
+    )
+    from sjtu_tpmshx.applications.gui.ui.theme import (
+        apply_saved_colormaps, resolve_cmap, set_cmap,
+    )
+
+    try:
+        assert user_storage.save_appearance_setting('cmap_temperature', 'cividis')
+        assert user_storage.save_appearance_setting('cmap_speed', 'turbo')
+        assert user_storage.save_appearance_setting('cmap_pressure', 'coolwarm')
+        assert user_storage.save_appearance_setting('cmap_design', 'viridis')
+        assert user_storage.save_appearance_setting('reduced_motion', 'true')
+        saved = user_storage.load_appearance_settings()
+        assert saved == {
+            'cmap_temperature': 'cividis',
+            'cmap_speed': 'turbo',
+            'cmap_pressure': 'coolwarm',
+            'cmap_design': 'viridis',
+            'reduced_motion': 'true',
+        }
+        apply_saved_colormaps(saved)
+        apply_saved_reduced_motion(saved)
+        assert resolve_cmap('Ta') == 'cividis'
+        assert resolve_cmap('vmag_A') == 'turbo'
+        assert resolve_cmap('P_fB') == 'coolwarm'
+        assert resolve_cmap('L_mm') == 'viridis'
+        assert is_reduced_motion() is True
+        with pytest.raises(ValueError):
+            user_storage.save_appearance_setting('cmap_temperature', 'jet')
+        with pytest.raises(ValueError):
+            user_storage.save_appearance_setting('reduced_motion', 'yes')
+    finally:
+        for quantity in ('temperature', 'speed', 'pressure', 'design'):
+            set_cmap(quantity, None)
+        set_reduced_motion(False)
+
+
 def test_output_directory_is_independent_of_launch_directory(user_locations, tmp_path, monkeypatch):
     _, roots = user_locations
     result = user_storage.optimization_output_dir()

@@ -1,46 +1,14 @@
-"""vis3d_constants.py — shared constants + helpers for 3D visualisation.
-
-Consolidates `FIELD_META` / `FIELD_ORDER` and the `vtkImplicitPlaneRepresentation`
-cosmetic toning used by the embedded `ui/panel_vis_3d.py`.
-"""
+"""Shared 3D display order, color-range helpers, and plane-widget styling."""
 from __future__ import annotations
 
 from math import isfinite
 
-from .theme import FIELD_CMAP
 import numpy as np
 
-# Display order + per-field rendering metadata.
-FIELD_ORDER = [
-    'Ta', 'Tb', 'Ts',
-    'vmag', 'vmag_B',
-    'P_kPa', 'P_B_kPa',
-    'L_mm', 't_mm',
-]
-FIELD_META = {
-    # Titles carry NO underscore: this string also feeds the VTK colorbar,
-    # which renders plain text only (no HTML/mathtext subscripts). The Qt KPI
-    # strip does its own HTML subscripts; here we keep clean underscore-free
-    # names (Ta/Tb/Ts) that read fine in VTK, matplotlib and Qt alike.
-    'Ta':      {'cmap': FIELD_CMAP, 'title': 'Ta (K)',          'fmt': '%.1f',
-                'label': 'Temperature A'},
-    'Tb':      {'cmap': FIELD_CMAP, 'title': 'Tb (K)',          'fmt': '%.1f',
-                'label': 'Temperature B'},
-    'Ts':      {'cmap': FIELD_CMAP, 'title': 'Ts (K)',          'fmt': '%.1f',
-                'label': 'Temperature Solid'},
-    'vmag':    {'cmap': FIELD_CMAP, 'title': 'speed A (m/s)',   'fmt': '%.2f',
-                'label': 'Velocity A'},
-    'vmag_B':  {'cmap': FIELD_CMAP, 'title': 'speed B (m/s)',   'fmt': '%.2f',
-                'label': 'Velocity B'},
-    'P_kPa':   {'cmap': FIELD_CMAP, 'title': 'PA abs (kPa)',    'fmt': '%.1f',
-                'label': 'Pressure A'},
-    'P_B_kPa': {'cmap': FIELD_CMAP, 'title': 'PB abs (kPa)',    'fmt': '%.1f',
-                'label': 'Pressure B'},
-    'L_mm':    {'cmap': FIELD_CMAP, 'title': 'L (mm)',          'fmt': '%.2f',
-                'label': 'Design L'},
-    't_mm':    {'cmap': FIELD_CMAP, 'title': 't (mm)',          'fmt': '%.3f',
-                'label': 'Wall thickness t'},
-}
+from sjtu_tpmshx.postprocess.result_display import PANEL_FIELD_SPECS
+
+# Display order for 3D panel field selectors (persisted 3D keys).
+FIELD_ORDER = tuple(PANEL_FIELD_SPECS)
 
 
 def field_color_limits(fields, shared=False):
@@ -70,7 +38,7 @@ def validate_color_range_state(state):
         raise ValueError('Invalid 3D color-range mode or ranges')
     checked = {}
     for key, limits in ranges.items():
-        if key not in FIELD_META or not isinstance(limits, (list, tuple)) or len(limits) != 2:
+        if key not in PANEL_FIELD_SPECS or not isinstance(limits, (list, tuple)) or len(limits) != 2:
             raise ValueError('3D color ranges require a known field and two limits')
         lo, hi = map(float, limits)
         if not (isfinite(lo) and isfinite(hi) and hi > lo):

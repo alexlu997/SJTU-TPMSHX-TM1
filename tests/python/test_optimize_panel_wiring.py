@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from sjtu_tpmshx.applications.gui.ui import optimize_panel as panel
-from sjtu_tpmshx.applications.gui.ui.theme import FIELD_CMAP
+from sjtu_tpmshx.applications.gui.ui.theme import resolve_cmap
 from tests.python.gui_io_support import win as win
 from tests.python.optimization_support import condition, report
 
@@ -766,7 +766,7 @@ def test_field_preview_belongs_to_optimization_and_keeps_other_figures(window, d
     assert window.canvas_layout.figure.axes == geometry_axes
     assert window.cache.get_drawn_tabs() == drawn
     assert window.canvas_pareto.figure.axes[0].lines[0] is pareto_line
-    assert all(ax.images[0].get_cmap().name == FIELD_CMAP
+    assert all(ax.images[0].get_cmap().name == resolve_cmap('L_mm')
                for ax in window.canvas_opt_field.figure.axes if ax.images)
     assert window._opt_result_tabs.isTabEnabled(2) == bool(dimension)
     volume = window._opt_3d_data

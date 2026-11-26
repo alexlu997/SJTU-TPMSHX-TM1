@@ -7,8 +7,9 @@ import pyvista as pv
 import pytest
 from PySide6.QtWidgets import QComboBox
 
-from sjtu_tpmshx.applications.gui.ui.panel_vis_3d import FIELD_META, ThreeDVisPanel
-from sjtu_tpmshx.applications.gui.ui.theme import FIELD_CMAP
+from sjtu_tpmshx.applications.gui.ui.panel_vis_3d import ThreeDVisPanel
+from sjtu_tpmshx.applications.gui.ui.theme import resolve_cmap, set_cmap
+from sjtu_tpmshx.postprocess.result_display import PANEL_FIELD_SPECS
 
 
 @pytest.mark.parametrize('direction, expected_in, expected_out', [
@@ -158,7 +159,7 @@ def test_volume_fields_are_lazy_cached_and_reset_without_changing_values(graded)
                  '_clim_for', '_opacity_ramp'):
         setattr(panel, name, MethodType(getattr(ThreeDVisPanel, name), panel))
     base = np.arange(24., dtype=float).reshape(4, 3, 2)
-    fields = {key: base + 100. * i for i, key in enumerate(FIELD_META)}
+    fields = {key: base + 100. * i for i, key in enumerate(PANEL_FIELD_SPECS)}
     widths = [np.linspace(.0002, .001, n) if graded else np.full(n, .001)
               for n in base.shape]
     ThreeDVisPanel.set_fields(panel, **fields, dx=widths[0], dy=widths[1], dz=widths[2])
@@ -178,7 +179,7 @@ def test_volume_fields_are_lazy_cached_and_reset_without_changing_values(graded)
         np.testing.assert_array_equal(panel._arrays[key], fields[key])
         ThreeDVisPanel._on_field_changed(panel, panel.combo_field.findData(key))
         assert len(panel._volume_grids) == i + 1
-        assert panel.plotter.add_volume.call_args.kwargs['cmap'] == FIELD_META[key]['cmap']
+        assert panel.plotter.add_volume.call_args.kwargs['cmap'] == resolve_cmap(key)
         np.testing.assert_allclose(panel._grid_vol[key], initial_values + 100. * i)
         np.testing.assert_array_equal(panel._grid_vol.points, display_points)
         restored = panel._grid_vol[key].reshape(panel._grid_vol.dimensions, order='F')[1:-1, 1:-1, 1:-1]
@@ -242,15 +243,24 @@ def test_design_volume_and_slice_keep_independent_ranges_and_optional_arrows(flo
         ThreeDVisPanel._on_field_changed(panel, panel.combo_field.findData(key))
         volume = panel.plotter.add_volume.call_args
         assert volume.kwargs['scalars'] == key
-        assert volume.kwargs['cmap'] == FIELD_CMAP
+        assert volume.kwargs['cmap'] == resolve_cmap(key)
         assert volume.kwargs['clim'] == pytest.approx(expected_range)
         assert np.ptp(panel._grid_vol[key]) > 0.
         ThreeDVisPanel._add_slice_actor(panel, 'z', centres[2][0], render=False)
         sliced = panel.plotter.add_mesh.call_args
         assert sliced.kwargs['scalars'] == key
         assert sliced.kwargs['clim'] == pytest.approx(expected_range)
-        assert sliced.kwargs['cmap'] == FIELD_CMAP
+        assert sliced.kwargs['cmap'] == resolve_cmap(key)
         assert sliced.args[0].n_points > 0 and key in sliced.args[0].point_data
+    try:
+        set_cmap('design', 'cividis')
+        panel._slice_info = {'axis': 'z', 'coord_mm': float(centres[2][0])}
+        panel._add_slice_actor = MethodType(ThreeDVisPanel._add_slice_actor, panel)
+        ThreeDVisPanel.refresh_colormaps(panel)
+        assert panel.plotter.add_volume.call_args.kwargs['cmap'] == 'cividis'
+        assert panel.plotter.add_mesh.call_args.kwargs['cmap'] == 'cividis'
+    finally:
+        set_cmap('design', None)
     panel.combo_field.deleteLater()
 
 
