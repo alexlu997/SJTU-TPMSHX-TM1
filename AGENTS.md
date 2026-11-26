@@ -115,6 +115,19 @@ and rework through complete changes, clear decisions, and verified results.
   Keep Python tests in `tests/python/`. Keep validation and tools in `python/development/`.
   Keep build scripts, packaging and dependency locks in root `engineering/`.
   Do not duplicate correlations or physical constants between these layers.
+- Python stage packages own the public stage data. Build `CaseData` in `python/preprocess/`,
+  `FieldResult` in `python/solvers/`, and `PerformanceResult` in `python/postprocess/`.
+  Keep stage orchestration in these packages and `python/compute.py`.
+  Each stage supplies model caches, warning hooks, progress hooks, and cancellation checks to its native binding.
+  Keep standalone model queries and their caches in `python/physical_models/`.
+- Keep native image loading, C signatures, input packing, C callbacks, status translation, and resource release
+  in `python/cpp_interface/`. Keep each callback and its input storage alive during the native call.
+  Before native release, copy or detach each output that stays in use after release.
+  A stage can reuse an immutable prepared field.
+  A binding can import `data_types`, `run_control`, and `model_configs`.
+  A binding does not build the stage data types (`CaseData`, `ModelRef`, `FieldResult`, `MetricSpec`, `PerformanceResult`).
+  Do not import stage, application, physical-model, or file I/O modules in `python/cpp_interface/`.
+  `python -m sjtu_tpmshx.development.runs.tools.audit_import_graph --fail-on-violations` checks these imports.
 - Reuse an existing rule when its meaning and required behavior match.
   Keep small duplication when sharing would combine different contracts.
   Preserve independent test references and physical checks.
