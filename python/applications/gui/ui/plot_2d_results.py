@@ -293,7 +293,7 @@ def finalize_plots(window, field="temp"):
         try:
             engine = _cv.fig.get_layout_engine()
             if engine is not None and hasattr(engine, "set"):
-                engine.set(rect=(0.0, 0.05, 1.0, 1.0))
+                engine.set(rect=(0.0, 0.05, 1.0, 0.95))
             elif not _cv.fig.get_constrained_layout():
                 _cv.fig.subplots_adjust(bottom=0.18)
             _cv.fig.text(0.5, 0.008, _wm_text,
