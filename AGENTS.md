@@ -90,7 +90,7 @@ Codex, Claude, and Antigravity use these rules. The [collaboration guide](docs/c
   the independent reviewer with the shorter queue. Architecture plans and agent-rule changes need two reviewers
   of different models.
 - If blocking findings stay open after round three, start round four without user approval. In round four, review
-  only the changes that fix those findings. If blocking findings stay open after round four, report them to the
+  only the changes that fix those findings. If any findings stay open after round four, report them to the
   user with evidence and options. Round five or a later round needs user approval for a named finding and commit
   range.
 - A documents-only PR for spelling, links, or formatting needs no review under the delivery workflow conditions.

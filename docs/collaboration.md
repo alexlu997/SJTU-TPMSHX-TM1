@@ -380,7 +380,7 @@ Select the reviewer as follows:
    Each reviewer records its own conclusion.
    If blocking findings stay open after round three, start round four without user approval.
    In round four, review only the changes that fix those findings.
-   If blocking findings stay open after round four, report them to the user.
+   If any findings stay open after round four, report them to the user.
    Give the open findings, the commit range, the evidence, the options, and the smallest correction.
    Round five or a later round needs user approval for a named finding and commit range.
 7. Update coverage for later commits, `main` synchronization, and conflict resolution.
