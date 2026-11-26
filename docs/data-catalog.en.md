@@ -87,7 +87,7 @@ The table keeps source precision. The decimal places do not specify instrument a
 | Core, cell and wall dimensions | 182×42×42 mm; Gyroid 7/0.6 mm | Existing specimen specification and `python/model_configs/shanghai_baseline.json` |
 | Air ports | +x, full 42×42 mm openings | Confirmed straight channel |
 | Water ports | −y; inlet x=133..175 mm, outlet x=7..49 mm, depth 42 mm | Confirmed staggered openings |
-| Solid conductivity and density | 16 W/(m·K), 7900 kg/m³ | Existing material-model values; not workbook measurements |
+| Solid thermal conductivity | 16 W/(m·K) | Material model |
 
 F/H are planned flows calculated from target Re. K/L are recorded actual flows.
 Mass conversion keeps the workbook's standard air density of 1.292 kg/m³ and water density of 999.102 kg/m³.

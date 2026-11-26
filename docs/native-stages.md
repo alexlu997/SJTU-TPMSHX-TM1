@@ -91,6 +91,8 @@ It evaluates four-fluid properties, Nu, and fixed CFD drag in their production o
 This query allocates no owner and requires no release call.
 Pass optional `tpmshx_preparation_callbacks_v1` with null cache hooks and `validate_grid_stage = 0` to record range, notice, and floating-point events synchronously.
 Standalone `tpms_calc.compute` selects the registered fluid, geometry, shared cache, per-call `K_ss` and warning policy. Its `inlet_query` uses `python/cpp_interface/inlet_properties.py` to call this entry.
+The optional keyword `df_mode` defaults to `cfd_smooth`. With `experimental`, the query applies the selected correction to the returned permeability, inertial coefficient and pressure gradient.
+The shared cache contains the base values. CO₂ uses its fixed correction for either mode.
 
 ## Spatial total mass flow
 

@@ -3,6 +3,7 @@ import csv
 import json
 from dataclasses import asdict
 from pathlib import Path
+from operator import attrgetter
 
 import numpy as np
 import pytest
@@ -13,18 +14,14 @@ from tests.python.gui_io_support import win as win
 from tests.python.gui_worker_support import _wait_for
 from tests.python.integration_tm1.integration_support import baseline_config, AIR_PUBLIC_METRICS
 from tests.python.cases_3d import small_air_config
-from sjtu_tpmshx.applications.gui.ui.window_config import CONFIG_FIELDS
+from sjtu_tpmshx.applications.gui.ui.window_config import LINE_EDITS
 from sjtu_tpmshx.data_types.compute_config import bc_to_dict
 
 
 def apply_config(window, config):
-    edits = {field.widget: str(getattr(getattr(config, field.section), field.name))
-             for field in CONFIG_FIELDS
-             if getattr(getattr(config, field.section), field.name) is not None}
+    edits = {widget: str(value) for widget, spec in LINE_EDITS.items()
+             if (value := attrgetter(spec.path)(config)) is not None}
     for side in ('A', 'B'):
-        flow = getattr(config, 'fluid_' + side).mass_flow_kg_s
-        if flow is not None:
-            edits['le_mass_flow' + side] = str(flow)
         port = getattr(config, 'bc_' + side)
         cross = config.geometry.H_dom_m if port.dir in (0, 1) else config.geometry.L_dom_m
         normalized = bc_to_dict(port, config.geometry.L_dom_m, config.geometry.H_dom_m, with_z=True)

@@ -208,7 +208,7 @@ class IOActionsMixin:
     def _legacy_config_preset(self, payload):
         """Import only fields the former flat writer actually saved."""
         edits = {
-            'L': 'le_L', 'H': 'le_H', 'rho_s': 'le_rho_s',
+            'L': 'le_L', 'H': 'le_H',
             'Nx': 'le_Nx', 'Ny': 'le_Ny', 'L_cell': 'le_Lcell',
             't': 'le_t', 'k_s': 'le_ks',
             'u_A': 'le_uA', 'T_inA': 'le_TinA', 'P_inA': 'le_PinA',
@@ -219,7 +219,7 @@ class IOActionsMixin:
                 for field in ('ctr', 'w'):
                     key = f'pipe{side}_{port}_{field}'
                     edits[key] = f'le_{key}'
-        known = set(edits) | {'tpms_type', 'df_mode', 'dir_A', 'dir_B', 'T_s_init'}
+        known = set(edits) | {'tpms_type', 'df_mode', 'dir_A', 'dir_B', 'T_s_init', 'rho_s'}
         if not payload or set(payload) - known:
             raise ValueError("Incomplete or unsupported configuration payload.")
         if payload.get('T_s_init', '') != '':

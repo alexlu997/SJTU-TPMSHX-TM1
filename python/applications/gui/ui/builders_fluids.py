@@ -5,24 +5,11 @@ from PySide6.QtWidgets import (
 )
 
 from .builders_base import collapsible_section, right_align_combo
+from .window_config import LINE_EDITS
 
 _DIR_ITEMS = ["+x  (left → right)", "-x  (right → left)",
               "+y  (bottom → top)", "-y  (top → bottom)",
               "+z  (front → back, 3D)", "-z  (back → front, 3D)"]
-
-# Inlet/outlet card rows shared by the A/B mirror (B1 1.4). in_ctr/out_ctr
-# defaults are per-side (crossflow geometry) and injected by the caller.
-_PIPE_ROWS = (
-    ('in_ctr',    "Inlet centre [m]",          None),
-    ('in_w',      "Inlet width [m]",           "0.042"),
-    ('out_ctr',   "Outlet centre [m]",         None),
-    ('out_w',     "Outlet width [m]",          "0.042"),
-    ('in_z_ctr',  "Inlet z-centre [m] (3D)",   "0.021"),
-    ('in_z_w',    "Inlet z-width [m] (3D)",    "0.042"),
-    ('out_z_ctr', "Outlet z-centre [m] (3D)",  "0.021"),
-    ('out_z_w',   "Outlet z-width [m] (3D)",   "0.042"),
-)
-
 
 def refresh_fluid_model_visibility(window):
     """Presentation only; never reset a saved model or its parameters."""
@@ -39,19 +26,15 @@ def refresh_inlet_mode(window, side):
     active = mass_flow_active(window, side)
     getattr(window, 'le_u' + side).setReadOnly(active)
     getattr(window, 'le_mass_flow' + side).setEnabled(active)
-    getattr(window, '_lbl_u' + side).setText(
-        '上次解析速度 [m/s]' if active else f'入口速度 {side} [m/s]')
+    title = '上次解析速度' if active else '入口速度'
+    label, _ = LINE_EDITS[f'le_u{side}'].editor_text(title, side)
+    getattr(window, '_lbl_u' + side).setText(label)
     window._kick_badge_timer()
 
 
 def _build_pipe_section(window, lay, side, *, title_style, frame_style,
-                        combo_style, dir_index, in_ctr, out_ctr):
-    """One ``Fluid X  Inlet / Outlet`` card — the A/B mirror collapsed
-    (B1 1.4). Widget names follow the ``le_pipe{side}_*`` /
-    ``_lbl_pipe{side}_*`` convention; the four z-rows register in
-    ``window._3d_only_widgets`` in (le, lbl) pairs, preserving the
-    original ordering.
-    """
+                        combo_style, dir_index):
+    """Build the port rows in capture order. Flow direction sets their axis labels."""
     from .field_factory import default_factory
 
     gio, sec = default_factory().section(lay, f"流体 {side} 进/出口",
@@ -63,20 +46,19 @@ def _build_pipe_section(window, lay, side, *, title_style, frame_style,
     combo.currentIndexChanged.connect(window._on_dir_changed)
     setattr(window, f'combo_dir{side}', combo)
     default_factory().add_row(gio, 0, "流动方向", right_align_combo(combo))
-    per_side = {'in_ctr': in_ctr, 'out_ctr': out_ctr}
-    for r, (suffix, label, default) in enumerate(_PIPE_ROWS, start=1):
-        le = default_factory().row(gio, r, label, per_side.get(suffix, default))
+    ports = (spec for spec in LINE_EDITS.values() if spec.path.startswith(f'bc_{side}.'))
+    for r, spec in enumerate(ports, start=1):
+        le = default_factory().row(gio, r, *spec.editor_text(''))
         lbl = gio.itemAtPosition(r, 0).widget()
-        setattr(window, f'le_pipe{side}_{suffix}', le)
-        setattr(window, f'_lbl_pipe{side}_{suffix}', lbl)
-        if '_z_' in suffix:
+        setattr(window, spec.widget, le)
+        setattr(window, '_lbl_' + spec.widget.removeprefix('le_'), lbl)
+        if spec.definition.metadata['dimensions'] == (3,):
             window._3d_only_widgets += [le, lbl]
     combo.setToolTip("入口速度在指定几何开口内均匀施加；开口外为壁面。")
 
 
 
-def _build_fluid_io_rows(window, g, side, t, u_default, T_default, P_default,
-                         btn_text):
+def _build_fluid_io_rows(window, g, side, t, btn_text):
     """Shared input rows, Auto-fill button and collapsible property preview.
 
     Row 0 (fluid-type combo) keeps its per-side defaults and tooltips.
@@ -85,6 +67,7 @@ def _build_fluid_io_rows(window, g, side, t, u_default, T_default, P_default,
     """
     from .field_factory import default_factory
 
+    f = default_factory()
     s = side
     mode = QComboBox()
     mode.addItem('速度 [m/s]', 'velocity')
@@ -93,21 +76,22 @@ def _build_fluid_io_rows(window, g, side, t, u_default, T_default, P_default,
     setattr(window, f'combo_inlet_mode{s}', mode)
     default_factory().add_row(g, 1, '入口输入', right_align_combo(mode))
     window._3d_only_widgets += [g.itemAtPosition(1, 0).widget(), g.itemAtPosition(1, 1).widget()]
-    setattr(window, f'le_u{s}',
-            default_factory().row(g, 2, f"入口速度 <i>u</i><sub>{s}</sub> [m/s]", u_default))
+    velocity = LINE_EDITS[f'le_u{s}']
+    setattr(window, velocity.widget, f.row(g, 2, *velocity.editor_text('入口速度', s)))
     setattr(window, f'_lbl_u{s}', g.itemAtPosition(2, 0).widget())
-    flow = default_factory().row(g, 3, '总质量流量 [kg/s]', '')
+    mass_flow = LINE_EDITS[f'le_mass_flow{s}']
+    flow = f.row(g, 3, *mass_flow.editor_text('总质量流量', s))
     flow.setPlaceholderText('输入正数')
     flow.setToolTip('按实际入口孔隙率和开口积分换算；计算或自动填充时更新速度。')
     setattr(window, f'le_mass_flow{s}', flow)
     window._3d_only_widgets += [flow, g.itemAtPosition(3, 0).widget()]
     mode.currentIndexChanged.connect(lambda: refresh_inlet_mode(window, side))
     refresh_inlet_mode(window, side)
-    setattr(window, f'le_Tin{s}',
-            default_factory().row(g, 4, "入口温度 <i>T</i><sub>in</sub> [K]", T_default))
+    inlet_temp = LINE_EDITS[f'le_Tin{s}']
+    setattr(window, inlet_temp.widget, f.row(g, 4, *inlet_temp.editor_text('入口温度', s)))
     setattr(window, f'_lbl_Tin{s}_unit', g.itemAtPosition(4, 0).widget())
-    setattr(window, f'le_Pin{s}',
-            default_factory().row(g, 5, "入口绝压 <i>P</i><sub>in</sub> [Pa]", P_default))
+    pressure = LINE_EDITS[f'le_Pin{s}']
+    setattr(window, pressure.widget, f.row(g, 5, *pressure.editor_text('入口绝压', s)))
     btn = QPushButton(btn_text)
     btn.setFixedHeight(28); btn.setStyleSheet(t.style('BTN_SECONDARY'))
     btn.setToolTip(f"Compute Fluid {s} density / Reynolds / Nusselt and inlet "
@@ -222,9 +206,7 @@ def build_fluid_sections(window, lay):
     except Exception:
         pass
     default_factory().add_row(g1, 0, "流体类型", right_align_combo(window.combo_fluidA))
-    _build_fluid_io_rows(window, g1, 'A', t,
-                         u_default="20.0", T_default="422.0",
-                         P_default="192362", btn_text="自动填充 A")
+    _build_fluid_io_rows(window, g1, 'A', t, "自动填充 A")
 
     # ── Fluid B (input + computed) — sits to the right of Fluid A ─────
     g2b, _ = default_factory().section(_fluids_row_lay, "流体 B", _T_B, _F_B)
@@ -247,16 +229,7 @@ def build_fluid_sections(window, lay):
     except Exception:
         pass
     default_factory().add_row(g2b, 0, "流体类型", right_align_combo(window.combo_fluidB))
-    # Fluid B defaults: Shanghai Electric cold side = Water (case 8,
-    # Re_water≈400). Raw values from data/raw_data/20260401-上海电气天然气
-    # 加热器实验工况.xlsx Sheet1 row 9: water_in 26.89 °C → 300.0 K (col 24),
-    # water_P 647.6 Pa gauge → 101973 Pa abs (col 26), water_flow 5193 ml/min
-    # → u_B ≈ 0.133 m/s interstitial (col 11). Driving ΔT = T_inA − T_inB
-    # ≈ 122 K (hot air 422 K cooled by cold water 300 K), matching the
-    # gas-heater duty.
-    _build_fluid_io_rows(window, g2b, 'B', t,
-                         u_default="0.133", T_default="300.0",
-                         P_default="101973", btn_text="自动填充 B")
+    _build_fluid_io_rows(window, g2b, 'B', t, "自动填充 B")
 
     def clear_df_preview():
         for side in ('A', 'B'):
@@ -271,16 +244,14 @@ def build_fluid_sections(window, lay):
     refresh_fluid_model_visibility(window)
 
     # ── Inlet / Outlet configuration (unified, A/B via _build_pipe_section) ──
-    # A: +x default, inlet/outlet centred (0.021). B: -y crossflow default,
-    # inlet at far edge (0.154), outlet near edge (0.028).
     _build_pipe_section(window, lay, 'A',
                         title_style=_T_A, frame_style=_F_A,
                         combo_style=_COMBO,
-                        dir_index=0, in_ctr="0.021", out_ctr="0.021")
+                        dir_index=0)
     _build_pipe_section(window, lay, 'B',
                         title_style=_T_B, frame_style=_F_B,
                         combo_style=_COMBO,
-                        dir_index=3, in_ctr="0.154", out_ctr="0.028")
+                        dir_index=3)
 
     # Preview button
     btn_preview = QPushButton("预览布局")

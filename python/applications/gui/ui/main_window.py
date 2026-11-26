@@ -15,7 +15,7 @@ from sjtu_tpmshx.model_configs.df_domain import TRAIN_L, TRAIN_T
 from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
 from sjtu_tpmshx.physical_models.tpms_calc import geometry as tpms_geometry, adaptive_grid
 from sjtu_tpmshx.applications.gui.ui.fmt import duration as _fmt_dur
-from sjtu_tpmshx.applications.gui.ui.window_config import FIELD_UNITS, POSITIVE_FIELDS, parse_field_value
+from sjtu_tpmshx.applications.gui.ui.window_config import LINE_EDITS, parse_field_value
 from sjtu_tpmshx.applications.gui.ui.mixins import (RunHistoryMixin, DialogsMixin, ZonePanelMixin,
                        OptimizeUIMixin, TabViewMixin, UIBuilderMixin,
                        FluidInputMixin, RunControllerMixin, RunResultsMixin,
@@ -292,7 +292,6 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         self.combo_zone_axis.setCurrentIndex(0)
         self._grid_nx = 2
         self._zone_init_1d(3)
-        self._zone_grid = None
         self._pareto_x_decision = None
         self._pareto_y_trans_inlet = self._pareto_y_trans_outlet = 0.2
         self._opt_conditions = None
@@ -520,11 +519,9 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         """
         bad = []
         is_3d = self.combo_dim.currentIndex() == 1
-        from sjtu_tpmshx.applications.gui.ui.window_config import blank_second_span, inlet_input_active
+        from sjtu_tpmshx.applications.gui.ui.window_config import blank_second_span, field_active
         for name in self._SESSION_LINE_EDITS:
-            if not inlet_input_active(self, name):
-                continue
-            if not is_3d and (name in ('le_Lz', 'le_Nz') or '_z_' in name):
+            if not field_active(self, LINE_EDITS[name], is_3d=is_3d):
                 continue
             le = getattr(self, name, None)
             if le is None:
@@ -967,7 +964,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         "Allow for the computed pressure variation.")
     _FIELD_HELP = {
         'le_L': (
-            "<b>Domain length <i>L</i></b> [m]<br/>"
+            "<b>Domain length <i>L</i><sub>x</sub></b> [m]<br/>"
             "Flow-direction extent of the TPMS heat-exchanger block. "
             "Excludes any external piping."),
         'le_H': (
@@ -977,7 +974,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             "<b>Domain depth <i>L<sub>z</sub></i></b> [m] (3D only)<br/>"
             "Out-of-plane extent. 2D runs treat Lz as unit depth."),
         'le_Lcell': (
-            "<b>TPMS unit-cell edge <i>L<sub>cell</sub></i></b> [mm]<br/>"
+            "<b>TPMS unit-cell edge <i>L</i></b> [mm]<br/>"
             f"Fixed CFD grid from {TRAIN_L[0]:g} to {TRAIN_L[1]:g} mm. Intermediate values use interpolation. "
             "Drives D<sub>h</sub>, porosity and permeability."),
         'le_t': (
@@ -1035,14 +1032,9 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         The unified handler does parse → validate → apply in one slot.
         """
         self._field_validators = {}
-        all_fields = POSITIVE_FIELDS | FIELD_UNITS.keys() | set(self._SESSION_LINE_EDITS)
-        for attr in all_fields:
-            le = getattr(self, attr, None)
-            if le is None:
-                continue
-            fam_target = FIELD_UNITS.get(attr)
-            is_positive = attr in POSITIVE_FIELDS
-            cb = self._make_field_handler(le, attr, fam_target, is_positive)
+        for attr, spec in LINE_EDITS.items():
+            le = getattr(self, attr)
+            cb = self._make_field_handler(le, spec)
             self._field_validators[attr] = cb
             le.editingFinished.connect(cb)
             self.signals.adopt(le.editingFinished, cb,
@@ -1053,22 +1045,16 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         for callback in self._field_validators.values():
             callback()
 
-    def _make_field_handler(self, le, attr, fam_target, is_positive):
-        """Build the per-field blur callback: parse → validate → apply.
-
-        ``fam_target`` is ``FIELD_UNITS.get(attr)`` (an
-        ``(family, target_unit)`` tuple, or ``None`` if the field has
-        no unit-parsing rule).  ``is_positive`` flips on the
-        strictly-positive numeric validation.
-
-        """
+    def _make_field_handler(self, le, spec):
+        """Convert the active editor to its display unit before checking its value."""
         import math
         import re as _re_up
         base_tip = le.toolTip() or ""
-        is_temperature = fam_target is not None and fam_target[0] == 'temp'
+        attr = spec.widget
+        is_temperature = spec.family == 'temp'
         num_unit = _re_up.compile(
-            r"\s*([+-]?\d+\.?\d*(?:[eE][+-]?\d+)?)\s*"
-            r"([A-Za-zμΜ°/··]+[A-Za-z0-9/··]*)\s*$")
+            r"\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*"
+            r"([A-Za-zμΜ°][A-Za-z0-9μΜ°/·()\s]*)\s*$")
 
         def _cb():
             from sjtu_tpmshx.applications.gui.ui.window_config import inlet_input_active
@@ -1086,7 +1072,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
                 return
 
             from sjtu_tpmshx.applications.gui.ui.expr_eval import is_expression, eval_expr
-            unit_match = num_unit.match(txt) if fam_target else None
+            unit_match = num_unit.match(txt)
             value = None
             if unit_match:
                 raw = float(unit_match[1])
@@ -1098,13 +1084,13 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
                     value = eval_expr(txt)
 
             temp_unit = getattr(self, '_temp_unit', 'K')
-            family = fam_target[0] if unit_match else 'number'
+            family = spec.family if unit_match else 'number'
             # Other fields validate the committed text, including rounded cell counts.
             formatted = txt
             if value is not None and not is_temperature:
                 formatted = format_unit_value(value, family)
             reason = ""
-            if is_positive:
+            if spec.positive:
                 try:
                     v = value if is_temperature and value is not None else float(formatted)
                     if is_temperature and not unit_match and temp_unit == 'C':
@@ -1129,9 +1115,10 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
                 le.setText(formatted)
                 le.blockSignals(was)
                 if unit_match:
+                    unit = '°C' if is_temperature and temp_unit == 'C' else spec.unit
                     self.statusBar().showMessage(
                         f"Converted {unit_match[1]} {unit_match[2]} → {formatted} "
-                        f"({fam_target[1] or family})", 4000)
+                        f"({unit})", 4000)
                 else:
                     self.statusBar().showMessage(f"{attr}: {txt} → {formatted}", 3500)
 
