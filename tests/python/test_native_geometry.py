@@ -14,7 +14,7 @@ from tests.python import geometry_reference as reference
 from sjtu_tpmshx.cpp_interface import _native_geometry as native
 
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.fixture
