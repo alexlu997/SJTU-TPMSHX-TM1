@@ -419,6 +419,40 @@ def test_palette_enter_runs_selected_command_once(win, monkeypatch):
     assert calls == ['export']
 
 
+def test_quick_design_keeps_its_page_and_valid_result_route(win):
+    from tests.python.gui_workbench_support import _result
+
+    win.btn_quick_design.click()
+    assert win.btn_tab_result.styleSheet() == win._PTAB_DISABLED
+    assert win.results.present(_result('2d'), mode='2d', provenance=None, elapsed=1)
+    assert win.page_stack.currentWidget() is win.quick_design
+    assert win.btn_tab_result.isEnabled() and win.btn_tab_result.styleSheet() == win._PTAB_OFF
+
+    win.btn_tab_result.click()
+    win.btn_quick_design.click()
+    shortcut = next(item for item in win.findChildren(QShortcut) if item.key() == QKeySequence('Ctrl+4'))
+    shortcut.activated.emit()
+    assert win._canvas_cards['temp'].isVisibleTo(win)
+    assert win.workbench.active_tab == 'temp'
+
+    win.btn_quick_design.click()
+    win.case_files.load_named_preset('Shanghai (2D Gyroid)')
+    assert win.page_stack.currentWidget() is win.quick_design
+    assert win.workbench.active_tab == 'layout'
+    assert win.case_files.save_session()
+    assert win.case_files.store.load_session()['ui_state']['active_tab'] == 'layout'
+
+
+def test_volume_only_result_enables_the_result_tab(win):
+    from tests.python.gui_workbench_support import _result
+
+    win.results.publish(_result('3d'))
+    win.workbench.update_tab_visibility()
+    assert not win.workbench.rendered_slices
+    assert win.workbench.result_view == '3d'
+    assert win.btn_tab_result.isEnabled() and win.btn_tab_result.styleSheet() == win._PTAB_OFF
+
+
 def test_same_field_refreshes_result_dimension_and_slice_controls(win):
     from tests.python.gui_workbench_support import _result
     from sjtu_tpmshx.applications.gui.ui.plot_2d_results import finalize_plots

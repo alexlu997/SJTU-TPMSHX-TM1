@@ -278,9 +278,8 @@ def build_actions(w) -> list[Action]:
         keywords=("solve", "simulate", "run"))
     add("Reset parameters to preset", "Compute", w._reset_defaults,
         keywords=("reset", "default", "clear"))
-    if hasattr(w.result_export, 'export_results'):
-        add("Export results to CSV…", "Compute", w.result_export.export_results,
-            keywords=("save", "csv", "export"))
+    add("Export results to CSV…", "Compute", w.result_export.export_results,
+        keywords=("save", "csv", "export"))
     if hasattr(w, '_copy_inputs_as_python'):
         add("Copy inputs as Python code", "Compute",
             w._copy_inputs_as_python,
@@ -303,9 +302,8 @@ def build_actions(w) -> list[Action]:
     if hasattr(w, '_show_overview'):
         add("Overview dashboard…", "Compute", w._show_overview,
             keywords=("dashboard", "overview", "summary", "home"))
-    if hasattr(w.optimization, 'start'):
-        add("Optimize (continuous field)", "Compute", w.optimization.start,
-            keywords=("pareto", "qlognehvi", "bayesian", "optimise", "search"))
+    add("Optimize (continuous field)", "Compute", w.optimization.start,
+        keywords=("pareto", "qlognehvi", "bayesian", "optimise", "search"))
     def _open_sens():
         from sjtu_tpmshx.applications.gui.ui.sensitivity import open_sensitivity
         open_sensitivity(w)
@@ -349,8 +347,7 @@ def build_actions(w) -> list[Action]:
             (lambda t=tab: w.workbench.switch_tab(t)),
             keywords=(key, "tab", "view"))
 
-    # Presets — display de-branded (ui.fmt.preset_display); the internal
-    # key passed to _load_named_preset keeps the historical spelling.
+    # Show the display name and pass the stored key to CaseFiles.
     from sjtu_tpmshx.applications.gui.ui.fmt import preset_display as _pd
     for name in w.case_files.BUILTIN_PRESETS:
         add(f"Preset: {_pd(name)}", "Preset",
@@ -375,7 +372,7 @@ def build_actions(w) -> list[Action]:
                 keywords=("fluid", "b", fluid_name.lower()))
 
     # Workspaces
-    for ws in getattr(w.case_files, 'WORKSPACES', ('A', 'B', 'C')):
+    for ws in w.case_files.WORKSPACES:
         add(f"Switch to workspace {ws}", "Workspace",
             (lambda name=ws: w.case_files.switch_workspace(name)),
             keywords=("workspace", "ws", ws.lower()))

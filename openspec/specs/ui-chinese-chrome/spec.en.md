@@ -15,7 +15,7 @@ Interface text MUST use Chinese for top-bar buttons, canvas tabs, accordion grou
 - **THEN** they contain no English interface text, except identifiers such as WS: A and K/°C
 
 #### Scenario: Internal keys stable
-- **WHEN** `_resolve_2d_view_card` or `_switch_tab` runs
+- **WHEN** `Workbench.resolve_2d_view_card` or `Workbench.switch_tab` runs
 - **THEN** it resolves the original English keys. Combo item values are unchanged. The items are only hidden.
 
 [ui-result-workbench](../ui-result-workbench/spec.en.md) defines result routing after computation. Git history keeps the withdrawal record for the original proposal.

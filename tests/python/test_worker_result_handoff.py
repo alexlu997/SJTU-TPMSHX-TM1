@@ -650,6 +650,9 @@ def test_close_cancels_live_pipeline_without_destroying_its_callbacks(win, monke
         assert not win.close()
         assert isValid(win.single_run.compute) and win.single_run.compute.is_running()
         assert win._close_pending
+        assert not win.single_run._ticker.isActive()
+        win.single_run._ticker.timeout.emit()
+        assert '正在关闭' in win.statusBar().currentMessage()
     finally:
         release.set()
     _wait_for(lambda: not isValid(win))

@@ -135,17 +135,12 @@ def _build_canvas_toolbar(window, vlay, t, theme):
     )
     window.combo_2d_field.setToolTip(
         "Select which field to display in the 2D result view.")
-    # ui-batch4: the combo is no longer visible UI — it stays as the FIELD
-    # STATE SOURCE (its English item strings are internal keys consumed by
-    # _resolve_2d_view_card / _switch_tab reverse-sync). The segmented
-    # buttons below drive it.
+    # Workbench uses the combo's English field names to select the card.
+    # The visible field buttons update this selection.
     window.combo_2d_field.hide()
 
     def _on_2d_field_changed(_idx):
-        # Re-trigger the active tab so the canvas swap honors the new combo
-        # selection. The _switch_tab fast-path returns immediately when the
-        # active tab is unchanged, so we explicitly call with the resolved
-        # underlying tab key.
+        # Update the visible field card when its selection changes.
         if window.workbench.active_tab in ('temp', 'pres', 'vel',
                                                      '2d_view'):
             window.workbench.switch_tab('2d_view')
@@ -216,12 +211,7 @@ def _build_canvas_toolbar(window, vlay, t, theme):
     window._field_phase_seg.hide()
 
     # ── Workbench toolbar (ui-plan3-workbench T1) ─────────────────────
-    # Three tabs only: 几何布局 | 结果 | 优化. The 结果 button aggregates
-    # every result rendering (temp/pres/vel 2D cards + the 3D volume) via
-    # _switch_tab('result'); a 2D|3D segmented control on the right picks
-    # the rendering. Legacy buttons (temp/pres/vel/3d/2d_view) stay alive
-    # off-toolbar — hotkeys, split view, detach menus and _switch_tab
-    # routing resolve them unchanged.
+    # The result button opens the selected 2D field or the 3D volume.
     window.btn_tab_result = _ShiftTabBtn("结果")
     window.btn_tab_result.setFixedHeight(28)
     window.btn_tab_result.setStyleSheet(window._PTAB_DISABLED)
@@ -303,8 +293,7 @@ def _build_canvas_toolbar(window, vlay, t, theme):
         redraw_result_fields(window)
     window.chk_shared_pressure_scale.toggled.connect(_set_pressure_scale)
     toolbar.addWidget(window.chk_shared_pressure_scale)
-    # Context control: hidden until a 2D field card is active (the
-    # _switch_tab handler flips it per tab).
+    # Workbench shows this selector on the 2D field cards.
     window._2d_field_seg.hide()
     toolbar.addWidget(window.btn_tab_pareto)
     toolbar.addStretch()

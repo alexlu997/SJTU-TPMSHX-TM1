@@ -160,6 +160,8 @@ class Workbench:
             btn.setEnabled(enabled)
             if not enabled and key != 'layout':
                 btn.setStyleSheet(window._PTAB_DISABLED)
+            elif enabled and btn.styleSheet() == window._PTAB_DISABLED:
+                btn.setStyleSheet(window._PTAB_OFF)
         for key in ('temp', 'pres', 'vel', '3d'):
             card = window._canvas_cards.get(key)
             if card is not None and not rules[key]:
@@ -188,9 +190,11 @@ class Workbench:
             paint = getattr(window, '_paint_result_seg', None)
             if paint is not None:
                 paint()
-        # Fall back to Layout if active tab just became disabled
         if not rules.get(self.active_tab, True):
-            self.switch_tab('layout', foreground=False)
+            if window.page_stack.currentWidget() is window.quick_design:
+                self.active_tab = 'layout'
+            else:
+                self.switch_tab('layout')
         refresh_navigation = getattr(window, '_refresh_workbench_navigation', None)
         if refresh_navigation is not None:
             refresh_navigation()
@@ -248,10 +252,7 @@ class Workbench:
             "to single view.", 5000)
 
     def resolve_2d_view_card(self) -> str:
-        """Map the '2d_view' tab key onto the currently-selected underlying
-        field card ('temp'/'vel'/'pres'). Added 2026-05-20 UI sweep so
-        ``_split_with_current`` and other code paths share one resolver.
-        """
+        """Return the card for the selected 2D field."""
         window = self.window
         _combo = getattr(window, 'combo_2d_field', None)
         sel = _combo.currentText() if _combo is not None else "Temperature"
@@ -262,27 +263,17 @@ class Workbench:
         }.get(sel, 'temp')
 
     def toggle_result_view(self):
-        """Ctrl+4 (ui-shortcuts-persist) — flip 结果 between 2D and 3D.
-
-        From outside the result family it just enters 结果 on the current
-        `_result_view`; inside, it flips to the other side unless that side
-        is gated off (no results / wrong dimensionality) — then no-op.
-        """
+        """Open the selected result view or switch between its available 2D and 3D views."""
         window = self.window
-        if self.active_tab not in ('temp', 'pres',
-                                                      'vel', '3d'):
-            btn = getattr(window, 'btn_tab_result', None)
-            if btn is None or not btn.isEnabled():
-                return
+        if (window.page_stack.currentWidget() is window.quick_design
+                or self.active_tab not in ('temp', 'pres', 'vel', '3d')):
+            if window.btn_tab_result.isEnabled():
+                self.switch_tab('result')
+            return
+        other = '3d' if self.result_view == '2d' else '2d'
+        if window._result_view_btns[other].isEnabled():
+            self.result_view = other
             self.switch_tab('result')
-            return
-        cur = self.result_view
-        other = '3d' if cur == '2d' else '2d'
-        rv = getattr(window, '_result_view_btns', None)
-        if rv and not rv[other].isEnabled():
-            return
-        self.result_view = other
-        self.switch_tab('result')
 
     def request_3d_view(self, on_ready=None, *, background=False):
         """Load the current volume on demand; discard obsolete requests."""
@@ -359,7 +350,7 @@ class Workbench:
         elif tab in _combo_label_map and _combo is not None:
             target = _combo_label_map[tab]
             if _combo.currentText() != target:
-                # Block the change-signal so we don't recurse via _switch_tab
+                # Update the selector without requesting the same switch again.
                 _combo.blockSignals(True)
                 _combo.setCurrentText(target)
                 _combo.blockSignals(False)

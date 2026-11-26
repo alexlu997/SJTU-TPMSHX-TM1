@@ -184,8 +184,7 @@ class OverviewDialog(QDialog):
         root.addLayout(close_row)
 
     def _load_preset(self, name):
-        if hasattr(self._w, '_load_named_preset'):
-            self._w._load_named_preset(name)
+        self._w.case_files.load_named_preset(name)
         self.accept()
 
     def _load_recent(self, entry):

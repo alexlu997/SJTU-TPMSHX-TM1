@@ -88,8 +88,7 @@ def _build_result_sidebar(window, _t, t):
     btn_diag = QPushButton("诊断详情…")
     btn_diag.setFixedHeight(26)
     btn_diag.setStyleSheet(t.style('BTN_TERTIARY'))
-    btn_diag.clicked.connect(
-        lambda: getattr(window.results, 'show_diag_dialog', lambda: None)())
+    btn_diag.clicked.connect(window.results.show_diag_dialog)
     detail_row.addWidget(btn_diag)
     slay.addWidget(diagnostic)
 

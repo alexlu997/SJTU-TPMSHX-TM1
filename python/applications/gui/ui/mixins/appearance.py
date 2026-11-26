@@ -112,7 +112,7 @@ class AppearanceMixin:
         self.btn_focus_view.setText('退出专注' if focused else '专注')
         # A running solve keeps its progress and cancel action visible.
         self._run_status_card.setVisible(
-            (not focused and not optimizing) or self.single_run.compute.is_running())
+            (not focused and not optimizing) or not self.single_run.is_idle())
         update_result_sidebar_visibility(self)
         self.statusBar().showMessage(
             '专注当前画布 · 按 F 退出' if focused else '已恢复工作台布局', 3000)

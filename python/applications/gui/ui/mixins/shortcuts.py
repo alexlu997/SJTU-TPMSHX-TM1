@@ -31,7 +31,7 @@ class ShortcutsMixin:
         ts = self._track_shortcut
         ts("Ctrl+R", self.single_run.submit)
         ts("Ctrl+Shift+R", self._reset_defaults)
-        # Match the three visible workbench tabs; 'result' uses _result_view.
+        # Match the three workbench tabs and open the selected result view.
         # Ctrl+4 switches between its 2D and 3D views.
         for key, name in (('Ctrl+1', 'layout'), ('Ctrl+2', 'result'),
                           ('Ctrl+3', 'pareto')):

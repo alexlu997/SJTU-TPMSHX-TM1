@@ -33,8 +33,7 @@ def _on_dim_changed(window):
         if hasattr(window, 'le_mass_flow' + side):
             refresh_inlet_mode(window, side)
     # Mode change also reveals/hides the result tabs for the current mode
-    if hasattr(window.workbench, 'update_tab_visibility'):
-        window.workbench.update_tab_visibility()
+    window.workbench.update_tab_visibility()
 
 
 def build_domain_sections(window, lay):

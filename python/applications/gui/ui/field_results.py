@@ -237,9 +237,6 @@ class FieldResults:
                 f"Plot finalize failed: {_fe!r} — partial 2D results available.",
                 8000)
         window.workbench.update_tab_visibility()
-        for _bname in ('btn_export',):
-            if hasattr(window, _bname):
-                getattr(window, _bname).setEnabled(True)
         window.workbench.switch_tab('temp', foreground=False)
         if _finalize_ok:
             window.statusBar().showMessage("Done.", TOAST_MS_MED)

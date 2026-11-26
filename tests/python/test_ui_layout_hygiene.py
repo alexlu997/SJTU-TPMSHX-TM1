@@ -282,13 +282,8 @@ def test_workbench_toolbar_visible_set(win):
         assert not hasattr(win, attr)
 
 
-def test_legacy_switch_lights_result_button(win):
-    """_switch_tab('temp') (the post-compute auto-jump path) must light the
-    结果 aggregate button and snap the 2D|3D toggle to 2D.
-
-    `_has_results_2d` is a ResultCache property bridge (writing True is a
-    no-op) — seed the cache instead. combo_dim is forced to 2D because the
-    earlier preset test leaves the window in 3D mode."""
+def test_temperature_card_selects_the_2d_result_button(win):
+    """A request for the temperature card selects the result button and its 2D view."""
     win.combo_dim.setCurrentIndex(0)
     win.cache.set_result('2d', ComputeResult())
     win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})  # These layout stubs represent rendered fields.
@@ -735,8 +730,7 @@ def test_field_menu_revert_is_debranded(win):
 
 
 def test_session_ui_state_round_trip(win):
-    """_save_session stores ui_state (family key collapsed to 'result');
-    _restore_session re-applies result_view + active_tab."""
+    """Save and restore a result card through its group and view."""
     win.combo_dim.setCurrentIndex(0)
     win.cache.set_result('2d', ComputeResult())
     win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})  # These layout stubs represent rendered fields.

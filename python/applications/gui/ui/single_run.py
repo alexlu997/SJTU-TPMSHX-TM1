@@ -265,10 +265,11 @@ class SingleRun(QObject):
     def cancel(self):
         if self._state != 'running':
             return
+        self._cancelling = True
+        self._ticker.stop()
         self.compute.cancel()
         if self.window._close_pending:
             return
-        self._cancelling = True
         self.window._run_status_card.request_cancel()
         self.window.btn_compute.setEnabled(False)
         self.window.btn_compute.setText("正在取消…")

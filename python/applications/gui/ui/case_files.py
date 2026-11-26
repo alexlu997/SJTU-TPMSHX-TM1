@@ -115,30 +115,18 @@ class CaseFiles:
                     pass
 
     def invalidate_results_for_preset_load(self):
-        """Drop every cached compute artefact so a freshly-loaded preset
-        cannot show the previous run's plots next to its new inputs.
-
-        Added 2026-05-20 UI sweep (Tier 18). Called from
-        ``_apply_user_preset`` — covers both the explicit Load Preset
-        path and the Recent-run click path (which routes through the
-        same helper).
-        """
+        """Clear single-run results when a case or a selected design replaces its inputs."""
         window = self.window
         window.cache.clear()
         window.workbench.volume_ready = False
         window.results.refresh_summary()
-        # Refresh tab visibility so the result tabs (Temp/Pres/Vel/3D)
-        # disable now that there are no results to show.
-        try:
-            window.workbench.update_tab_visibility()
-        except Exception:
-            pass
+        window.workbench.update_tab_visibility()
         # The separate optimization figure can remain available for export.
         window.result_export.refresh_export_button()
 
     def apply_user_preset(self, preset, *, show_notice=True, partial=False,
                            source_name=None):
-        """Apply a saved preset payload (shape matches _save_session output).
+        """Apply inputs from a saved preset or session.
 
         Widget names are filtered through the SESSION allow-lists so a tampered
         or malicious share-link cannot address arbitrary window attributes.
@@ -517,10 +505,6 @@ class CaseFiles:
         window = self.window
         if name not in self.BUILTIN_PRESETS:
             return
-        # Builtin presets rewrite inputs via _apply_shanghai_defaults, which
-        # does NOT route through _apply_user_preset (where the result-cache
-        # invalidate lives). Invalidate here so stale result tabs/plots/export
-        # from a prior compute don't survive a builtin-preset switch.
         self.invalidate_results_for_preset_load()
         window._apply_shanghai_defaults()
         if name == "Shanghai (2D Gyroid)":
@@ -669,7 +653,7 @@ class CaseFiles:
             return False
         payload['preset_source'] = self.active_preset_name
         # Workbench UI state (ui-shortcuts-persist): last tab (result-family
-        # keys collapse to 'result' so restore re-resolves via _result_view),
+        # keys collapse to 'result' so restore uses the saved result view),
         # left-panel collapse, 2D|3D result-view choice.
         _tab = window.workbench.active_tab
         if _tab in ('temp', 'pres', 'vel', '3d', '2d_view'):
@@ -773,8 +757,7 @@ class CaseFiles:
         # Workbench UI state (ui-shortcuts-persist) — best-effort, mirrors
         # the save side. result_view first (so a restored 'result' tab
         # resolves to the saved side), then the left panel, then the tab.
-        # A gated-off saved tab falls back through _switch_tab's own
-        # button-disabled path (→ layout); no new fallback logic here.
+        # Workbench.switch_tab selects the layout if that tab is unavailable.
         _ui = payload.get('ui_state') or {}
         window._volume_color_ranges = deepcopy(_ui.get('volume_color_ranges', {}))
         if window.canvas_3d is not None:
