@@ -169,7 +169,9 @@ CoolProp 精确缓存键绑定平台、架构、Python 3.13、托管工具链镜
 包含 JUnit 和 `native-manifest`。以上 artifact 均保留 7 天。
 后续作业按名称或模式下载构建、wheel、分片、测试报告和交接 artifact。
 download-artifact 对同名 artifact 选择 ID 最大者，该 ID 不一定来自最新一次运行尝试（attempt）。
-因此这些上传使用 `overwrite: true`，重跑会删除较早 attempt 的同名 artifact。日志 artifact 保留每次 attempt。
+因此这些上传使用 `overwrite: true`，重跑会尝试删除较早 attempt 的同名 artifact。删除失败时上传仍继续，
+此时 `tests` 和 `minimal-postprocess` 因下载名称对应多个 artifact 而失败；须启动新的运行来恢复。
+日志 artifact 保留每次 attempt。
 原生日志保留最慢 20 项和 skip 原因。
 
 快测和集成日志保留最慢 30 项和 skip 原因。各测试组将 JUnit 与 collection manifest 分别保存为

@@ -72,6 +72,9 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
     strategy:
       fail-fast: false
       matrix:
@@ -89,7 +92,19 @@ jobs:
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
         run: python engineering/scripts/ci_scope.py gate --tier '${{ needs.scope.outputs.tier }}' --stage summary
-      # The uploads use `overwrite: true`, so after a rerun each name has only the latest attempt.
+      - name: Require one artifact for each downloaded name
+        if: needs.scope.outputs.tier != 'docs'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # upload-artifact ignores a failed delete of an artifact from an earlier run attempt.
+          set -o pipefail
+          duplicates=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?per_page=100" \
+            --jq '.artifacts[] | select(.expired | not) | select(.name | contains("-logs-") | not) | .name' | sort | uniq -d)
+          if [[ -n "$duplicates" ]]; then
+            echo "::error::More than one run attempt uploaded these artifacts: ${duplicates//$'\n'/, }. download-artifact can select the earlier attempt. A rerun in this run does not remove the earlier artifacts. Start a new run: push a new commit, or start the ci workflow with workflow_dispatch."
+            exit 1
+          fi
       - uses: actions/download-artifact@v8
         if: needs.scope.outputs.tier != 'docs' && matrix.python == '3.13'
         with:
@@ -179,7 +194,7 @@ jobs:
           stage_native_notices(Path.cwd(), notices / 'native')
           shutil.copy2('LICENSE', notices / 'LICENSE')
           PY
-      # A rerun replaces the artifact of the earlier attempt (see native.yml).
+      # A rerun tries to replace the artifact of the earlier attempt (see native.yml).
       - name: Save the independent Linux result image
         uses: actions/upload-artifact@v7
         with:
@@ -203,6 +218,9 @@ jobs:
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
     env:
       MPLCONFIGDIR: .cache/matplotlib
       XDG_CACHE_HOME: .cache/xdg
@@ -221,6 +239,19 @@ jobs:
         if: needs.scope.outputs.tier != 'docs'
         with:
           python-version: '3.13'
+      - name: Require one artifact for each downloaded name
+        if: needs.scope.outputs.tier != 'docs'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # upload-artifact ignores a failed delete of an artifact from an earlier run attempt.
+          set -o pipefail
+          duplicates=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?per_page=100" \
+            --jq '.artifacts[] | select(.expired | not) | select(.name | contains("-logs-") | not) | .name' | sort | uniq -d)
+          if [[ -n "$duplicates" ]]; then
+            echo "::error::More than one run attempt uploaded these artifacts: ${duplicates//$'\n'/, }. download-artifact can select the earlier attempt. A rerun in this run does not remove the earlier artifacts. Start a new run: push a new commit, or start the ci workflow with workflow_dispatch."
+            exit 1
+          fi
       - uses: actions/download-artifact@v8
         if: needs.scope.outputs.tier != 'docs'
         with:

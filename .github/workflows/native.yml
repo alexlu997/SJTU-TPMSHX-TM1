@@ -11,9 +11,10 @@ on:
         required: true
         type: string
 
-# Each artifact that a later job downloads uses `overwrite: true`. A rerun then deletes
+# Each artifact that a later job downloads uses `overwrite: true`. A rerun then tries to delete
 # the artifact of the same name from the earlier attempt. download-artifact selects the
 # highest artifact ID for a name, and that ID is not always the latest attempt.
+# If a delete fails, the upload continues. The ci aggregate jobs then fail on the duplicate name.
 jobs:
   native-build:
     name: native-build
