@@ -69,6 +69,17 @@ The [Python layer owners](#python-layer-owners) table gives the responsibilities
 | [python/development/](../python/development/) | Validation and tools. |
 | [engineering/](../engineering/) | Build scripts, packaging, and dependency locks. |
 
+## Binding import limits
+
+Bindings in `python/cpp_interface/` obey these import limits.
+`python -m sjtu_tpmshx.development.runs.tools.audit_import_graph --fail-on-violations` checks them.
+
+- A binding can import `run_control`, `model_configs`, and `data_types` modules, but not the modules of the stage data types.
+- The stage data types are `CaseData`, `ModelRef`, `FieldResult`, `MetricSpec`, `MetricValue`, and `PerformanceResult`.
+  A binding does not build these types. It imports them only under `TYPE_CHECKING`.
+- The exception is `python/cpp_interface/preparation_host.py`. It imports `ModelRef` for the check of a saved model reference.
+- A binding does not import stage, application, physical-model, file I/O, `compute`, or development modules.
+
 <a id="retained-python-responsibilities"></a>
 
 ## Python layer owners

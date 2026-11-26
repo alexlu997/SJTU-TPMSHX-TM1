@@ -11,8 +11,9 @@ Codex, Claude, and Antigravity use these rules. The [collaboration guide](docs/c
 - Before a large refactor or a change of the agreed approach, write a plan. Wait for user approval.
 - For implementation tasks, the user gives standing authority for branches, commits, pushes, PRs, and related
   CI fixes. It includes merge under [section 5](#5-review-and-delivery). It stays valid until the user changes it.
-- Ask the user before you delete or overwrite a file outside the task's own changes. A bulk delete of files,
-  branches, or worktrees needs an exact list that the user approved. Do not select by pattern, age, or directory.
+- Ask the user before you delete or overwrite a file outside the task's own changes. Any bulk delete, also of
+  rebuildable files, branches, or worktrees, needs an exact list that the user approved.
+  Do not select by pattern, age, or directory.
 - During an implementation task, record each defect that you find outside its scope, with evidence. After
   delivery, fix each one in a separate PR. A read-only task only reports its findings.
 - A change of owner, tool, or instructions does not reset task scope, authority, evidence, or open acceptance
@@ -32,8 +33,8 @@ Codex, Claude, and Antigravity use these rules. The [collaboration guide](docs/c
 - Keep production code, regression tests, and necessary usage and architecture documents in Git. Keep raw
   experiment and CFD data in `data/raw_data/` and exploratory scripts and reports in ignored `.cache/`.
 - Do not commit or upload local `data/` or `.cache/` content to the public TM1 repository. Before a data write
-  to TM1 caches or a cache cleanup, protect the files in `.agents/rules/tm1-local-data.md` of the primary
-  checkout. Follow that file for private backups and the [storage rules](docs/collaboration.md#storage-retention).
+  to TM1 caches or a cache cleanup, follow the [storage rules](docs/collaboration.md#storage-retention). If the
+  primary checkout has `.agents/rules/tm1-local-data.md`, protect the files that it lists and follow it for backups.
 
 ## 3. Work setup and environment
 
@@ -45,8 +46,8 @@ Codex, Claude, and Antigravity use these rules. The [collaboration guide](docs/c
   primary checkout. Keep your status file there until closeout. Run one heavy job at a time on each machine.
 - Use the absolute interpreter on the first line of `.venv-path` for Python, pip, smoke, and pytest commands.
   Run project modules from the current repository root with `python -m`.
-- Before environment-dependent work, run the lock check with the applicable lock, then `python -m pip check`:
-  `python -m sjtu_tpmshx.development.runs.tools.check_locked_environment <lock>`.
+- Before environment-dependent work, run `python -m sjtu_tpmshx.development.runs.tools.check_locked_environment`
+  with the applicable lock. Then run `python -m pip check`.
 - If `.venv-path`, the interpreter, or a dependency is missing, or a check fails, stop dependent work. Do not
   bypass the check. The task authority includes [environment recovery](docs/collaboration.md#environment-recovery).
 
@@ -56,8 +57,7 @@ Codex, Claude, and Antigravity use these rules. The [collaboration guide](docs/c
   [Directory owners](docs/architecture.md#directory-owners) gives the location of each layer. Do not duplicate
   correlations or physical constants between layers. Keep independent test references and physical checks.
 - Keep Qt in `python/applications/gui/` (`ui/`, `controllers/`, `main.py`) and `python/desktop.py` only.
-- Stage packages produce new stage data: `python/preprocess/` `CaseData`, `python/solvers/` `FieldResult`,
-  and `python/postprocess/` `PerformanceResult` and `MetricValue`. The types stay in `python/data_types/`.
+- Only the stage packages in [directory owners](docs/architecture.md#directory-owners) produce new stage data.
   `python/file_io/` can restore stage data. Other modules can copy it with changed metadata.
 - Each stage keeps its internal steps in its package. It gives its binding the model caches and the warning,
   progress, and cancellation callbacks that the binding uses. Standalone model queries and their caches
@@ -65,20 +65,18 @@ Codex, Claude, and Antigravity use these rules. The [collaboration guide](docs/c
 - `python/cpp_interface/` owns native image loading, C signatures, input packing, C callbacks, status
   translation, and resource release. Keep each callback and its input storage alive during the native call.
   Before native release, copy or detach each output that stays in use after release.
-- Bindings can import `run_control`, `model_configs`, and `data_types` modules. They import stage data type
-  modules only under `TYPE_CHECKING` and do not build these types: `CaseData`, `ModelRef`, `FieldResult`,
-  `MetricSpec`, `MetricValue`, and `PerformanceResult`. The exception is `preparation_host.py`, which imports
-  `ModelRef` for the check of a saved model reference. Bindings do not import stage, application,
-  physical-model, file I/O, `compute`, or development modules. After an import change, run
-  `python -m sjtu_tpmshx.development.runs.tools.audit_import_graph --fail-on-violations`.
-- Before implementation, trace the consumers that the change can reach along the actual call chain. Update
-  them in the same change. Write the [related-change record](docs/collaboration.md#related-change-record).
+- Bindings obey the [binding import limits](docs/architecture.md#binding-import-limits). The only run-time
+  import of a stage data type is `ModelRef` in `preparation_host.py`, for the check of a saved model reference.
+  After an import change, run `python -m sjtu_tpmshx.development.runs.tools.audit_import_graph --fail-on-violations`.
+- Before implementation, trace the consumers along the actual call chain. Update them in the same change.
+  Write the [related-change record](docs/collaboration.md#related-change-record). For a replacement or a
+  removal, remove the old code and its exclusive files in the same PR. Follow the
+  [retirement workflow](docs/collaboration.md#complete-code-retirement).
 - Resolve conflicts between code and text against approved requirements, public contracts, and validation
   evidence. Do not change documentation to accept an implementation defect.
-- For a replacement or a removal, remove the replaced code and its exclusive files in the same PR
-  ([retirement workflow](docs/collaboration.md#complete-code-retirement)).
-- Run the existing tests for the changed files. If no check covers a found defect or a contract change, add
-  a minimal regression test. Prefer a few mapping checks. Do not add hash-, digest-, or checksum-based tests.
+- Run the existing tests for the changed files. If no check covers the defect that this change fixes or the
+  contract that it changes, add a minimal regression test. Prefer a few mapping checks. Do not add hash-,
+  digest-, or checksum-based tests. Follow the [test scope](docs/collaboration.md#test-scope).
 - Run broader numerical validation only when solver, closure, or pipeline behavior changes. Complete necessary
   long calculations. Record the tested commit, results, and open acceptance conditions.
 
@@ -92,8 +90,7 @@ Codex, Claude, and Antigravity use these rules. The [collaboration guide](docs/c
   of different models.
 - Use at most three review rounds. Then report open findings to the user with evidence and options. A fourth
   round needs user approval for a named finding and commit range.
-- A PR that only corrects spelling, links, or formatting in documents and keeps their meaning needs no review.
-  `engineering/scripts/check_docs.py` must pass.
+- A documents-only PR for spelling, links, or formatting needs no review under the delivery workflow conditions.
 - Do not deliver if the review or the necessary evidence is incomplete, or a blocking finding is open. Follow
   the [delivery workflow](docs/collaboration.md#synchronize-and-review). Merge one PR at a time. Do not force-push.
 - Wait for the necessary CI on the latest PR commit and on the resulting `main` commit. Report PR CI,

@@ -73,6 +73,19 @@ Python 目录的职责见 [Python 分层所有者](#python-分层所有者)表�
 | [python/development/](../python/development/) | 验证与工具。 |
 | [engineering/](../engineering/) | 构建脚本、打包与依赖锁。 |
 
+<a id="binding-import-limits"></a>
+
+## 绑定层导入限制
+
+`python/cpp_interface/` 中的绑定遵守以下导入限制。
+`python -m sjtu_tpmshx.development.runs.tools.audit_import_graph --fail-on-violations` 检查这些限制。
+
+- 绑定可以导入 `run_control`、`model_configs` 和 `data_types` 模块，但不导入各阶段数据类型所在的模块。
+- 阶段数据类型为 `CaseData`、`ModelRef`、`FieldResult`、`MetricSpec`、`MetricValue` 和 `PerformanceResult`。
+  绑定不构建这些类型，仅在 `TYPE_CHECKING` 下导入它们。
+- 例外是 `python/cpp_interface/preparation_host.py`，它导入 `ModelRef` 以检查已保存的模型引用。
+- 绑定不导入阶段、应用、物理模型、文件 I/O、`compute` 或开发模块。
+
 <a id="retained-python-responsibilities"></a>
 
 ## Python 分层所有者

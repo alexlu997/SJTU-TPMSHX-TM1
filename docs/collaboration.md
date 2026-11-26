@@ -54,7 +54,9 @@ A new worktree has no `.venv-path` and no published native libraries.
    - For a source solve from the CLI or GUI, give `--native-library` and `--native-table-directory`.
      In Python, set `native_library` and `native_table_directory` in `RunControl`.
      `TPMSHX_NATIVE_SOLVER_LIBRARY` does not select the solver for a source solve.
-   - For the tests in `tests/python/native/`, set `TPMSHX_NATIVE_SOLVER_LIBRARY`.
+   - For the native tests that use `tests/python/native/shared_library.py` or read the variable directly,
+     set `TPMSHX_NATIVE_SOLVER_LIBRARY`.
+   - For `tests/python/native/test_cpp_quick_design.py`, set `TPMSHX_SOLVER_LIBRARY`.
    - For independent result evaluation on Linux x86_64, set only `TPMSHX_RESULT_LIBRARY`.
 4. Do not add a symbolic link to the native library directory in the worktree.
 
@@ -97,12 +99,14 @@ Targeted pytest files that start no heavy work, `ruff`, `audit_import_graph`, an
 Light jobs can run in parallel.
 
 1. One coordinator approves the heavy-job slot for all runs on this machine.
+   The slot is held from the approval until the task cancels the job or its process has exited.
 2. Before a heavy job, ask the coordinator for the slot. Start the job only after the approval.
-3. Set `Heavy job: yes` in your status file while the job runs.
-4. When the process stops, set `Heavy job: no`. Tell the coordinator.
-5. Before each approval, the coordinator reads the status files in `.cache/active-tasks/`.
-   The coordinator makes sure that no other process holds the slot.
-6. After a restart, the coordinator finds the current slot holder and its process state.
+3. When you get the approval, set `Heavy job: approved` in your status file.
+4. When the job starts, set `Heavy job: yes`.
+5. When the process has exited or you cancel the job, set `Heavy job: no`. Tell the coordinator.
+6. Before each approval, the coordinator reads the status files in `.cache/active-tasks/`.
+   The coordinator approves no job while another file shows `Heavy job: approved` or `Heavy job: yes`.
+7. After a restart, the coordinator finds the current slot holder and its process state.
 
 ## Task status
 
@@ -116,7 +120,7 @@ A task without its own branch uses a short name that no other status file uses.
    `.cache/active-tasks/` of the primary checkout.
    The first entry in `git worktree list --porcelain` identifies the primary checkout.
    Do not write files in the write scope of another task that has a status file.
-   Do not start a heavy job while another status file shows `Heavy job: yes`.
+   Do not start a heavy job while another status file shows `Heavy job: approved` or `Heavy job: yes`.
 2. When a change task starts, create `.cache/active-tasks/<task>.md` in the primary checkout.
    Also create it when a task without a status file starts a heavy job.
    Only the task owner writes this file. Step 6 gives the only exception.
@@ -127,7 +131,7 @@ A task without its own branch uses a short name that no other status file uses.
    Branch: <branch, or none>
    Owner: <person or tool>
    Write scope: <files or directories>
-   Heavy job: yes | no
+   Heavy job: approved | yes | no
    State: active | blocked: <reason>
    Next action: <step and its owner>
    ```
@@ -246,8 +250,8 @@ Give evidence, options, and a recommendation before the user selects a product o
 
 Apply these rules when you add or change regression tests:
 
-1. Use an existing check when it covers the defect or the contract change.
-   If no check covers a found defect or a contract change, add a minimal regression test.
+1. Use an existing check when it covers the defect that this change fixes or the contract that it changes.
+   If no check covers them, add a minimal regression test.
    Prefer a few mapping checks. Keep the combinations that separate independent failure conditions.
    Update the existing tests that the change affects.
 2. Do not repeat `dtype` or option combinations after a validated conversion boundary.
@@ -287,8 +291,10 @@ If the user names no other coordinator, the owner is the coordinator.
    Start a merge only when no `main` CI run is in progress.
 6. Merge the current `origin/main` into the task branch. Resolve conflicts.
    Keep branch history. Do not force-push or overwrite the changes of another owner.
-   Compare the task diff with the reviewed diff. If it did not change, no review round is necessary.
-   If a conflict fix or a behavior change alters the task diff, get a review of the affected lines.
+   Compare the task diff with the reviewed diff.
+   Skip the review round only if the merge is clean and the task patch is identical.
+   The related behavior and contracts must also stay the same.
+   Otherwise, get a narrow review of the affected paths.
    Repeat the affected checks. Wait for the necessary PR CI.
 7. Merge with a merge commit when the necessary review, tests, CI, and repository protection conditions pass.
    Do not bypass repository protection.
@@ -331,11 +337,11 @@ Select the reviewer as follows:
 - For other work, use the independent reviewer with the shorter queue.
   This reviewer can use the same model as the author in a fresh context.
 - Use two reviewers of different models for architecture plans and agent-rule changes.
-- When a reviewer of a different model is necessary, prefer this pairing:
+- When a reviewer of a different model is necessary, use this default pairing:
   Neon reviews Astra, Astra reviews Neon, and Astra or Neon reviews Opus.
   Astra is a Codex model. Neon is an Antigravity Gemini model. Opus is a Claude model.
-  If the preferred model is not available, record the reason.
-  Then use another independent model of a different family that covers the same scope.
+  If the default model is not available, record the reason.
+  Then use another independent model that differs from the author's model and covers the same scope.
 
 1. Give the reviewer the requirement, accepted constraints, worktree, base and head commits, applicable rules, and test evidence.
    Include the author's related-change record and relevant prior decisions.
@@ -368,8 +374,9 @@ Select the reviewer as follows:
    the evidence, the options, and the smallest correction.
    A fourth round needs user approval for that finding and commit range.
 7. Update coverage for later commits, `main` synchronization, and conflict resolution.
-   A clean synchronization that does not change the task diff needs only a diff comparison. It uses no round.
-   Review conflict resolutions and changed behavior again.
+   A clean synchronization with an identical task patch and no change to related behavior or contracts
+   needs only a diff comparison. It uses no round.
+   For other synchronizations, review the affected paths again.
    Do not repeat the whole review without cause.
    Keep valid test evidence. Do not repeat heavy numerical runs without a specific need.
    Missing review capability or necessary evidence leaves the review incomplete.
@@ -478,7 +485,8 @@ Then measure their combined allocation, even if no files were removed.
    Record which fields or checkpoints are removed and which recovery operations are no longer available.
    Keep unfinished work until its owner decides its status.
 3. Use the task's worktree for temporary output when you can select its location.
-   After the checks pass, remove this task's temporary scripts, test outputs, build products, and rebuildable caches before handoff.
+   After the checks pass, list this task's temporary scripts, test outputs, build products, and rebuildable caches.
+   Remove them before handoff. A bulk delete of these files uses an exact list that the user approved.
    Keep files that another task, the application, or kept research still needs.
    Keep research scripts necessary to interpret or reproduce kept evidence.
    Archive only the necessary files from that task. Never archive the whole `.cache/` or another task's archive recursively.
@@ -496,8 +504,8 @@ Then measure their combined allocation, even if no files were removed.
    Report added, removed, and remaining directory allocation and the measured change in volume free space.
    If the total is still more than the machine limit, record the excess in the same handoff.
    Also record the next action there.
-   Automatic deletion is limited to named rebuildable caches and task-owned temporary files.
-   Any other deletion, including research material, needs an exact list that the user approved.
+   Any bulk delete, including rebuildable caches, task-owned temporary files, and research material,
+   needs an exact list that the user approved.
    Age or directory name alone is not a selection rule.
 
 ## Tool instruction entry points
