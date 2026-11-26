@@ -167,6 +167,12 @@ CoolProp 精确缓存键绑定平台、架构、Python 3.13、托管工具链镜
 构建日志单独保存在 `native-build-logs-<平台>`。
 每片上传 `native-dependencies-<平台>-py<版本>-shard-<编号>`，macOS 编号为 0–2，Windows 为 0–5，
 包含 JUnit 和 `native-manifest`。以上 artifact 均保留 7 天。
+后续作业按名称或模式下载构建、wheel、分片、测试报告和交接 artifact。
+download-artifact 对同名 artifact 选择 ID 最大者，该 ID 不一定来自最新一次运行尝试（attempt）。
+因此这些上传使用 `overwrite: true`，重跑会尝试删除较早 attempt 的同名 artifact。删除失败时上传仍继续。
+当本次运行中任一非日志 artifact 名称对应多个 artifact 时，`tests` 和 `minimal-postprocess` 失败。
+恢复方法：启动新的运行。
+日志 artifact 保留每次 attempt。
 原生日志保留最慢 20 项和 skip 原因。
 
 快测和集成日志保留最慢 30 项和 skip 原因。各测试组将 JUnit 与 collection manifest 分别保存为
