@@ -12,6 +12,7 @@ from tests.python.gui_worker_support import (
 from sjtu_tpmshx.applications.gui.ui.responsive import ResponsiveRow
 from sjtu_tpmshx.applications.gui.ui.run_status import RunStatusCard
 from sjtu_tpmshx.applications.gui.ui.icons import icon
+from sjtu_tpmshx.applications.gui.ui.theme import get_theme
 
 
 @pytest.mark.parametrize('outcome', ['success', 'error', 'cancelled', 'warning', 'unconverged'])
@@ -49,7 +50,7 @@ def test_worker_lifecycle_keeps_cancel_logs_and_verdict(win, monkeypatch, tmp_pa
         _wait_for(lambda: card.iteration.text() == 'SIMPLE A · 2')
         assert card.state == 'running'
         assert not card.isHidden(), 'a new run must reveal the focused-view cancel control'
-        assert action_icons[-1] == ('square', 'white')
+        assert action_icons[-1] == ('square', get_theme()['primary_fg'])
         assert card.log_button.isHidden(), 'old logs must not appear during a fresh run'
         win.le_Nx.setText('77')  # Parameters remain an editable next-run draft.
         assert win.le_Nx.isEnabled()
@@ -69,7 +70,7 @@ def test_worker_lifecycle_keeps_cancel_logs_and_verdict(win, monkeypatch, tmp_pa
     assert card.iteration.text() == 'SIMPLE A · 2'
     assert win.le_Nx.text() == '77'
     assert win.btn_compute.isEnabled()
-    assert action_icons[-1] == ('play', 'white')
+    assert action_icons[-1] == ('play', get_theme()['primary_fg'])
     if outcome == 'error':
         assert 'controlled failure' in card.note.text()
     if outcome == 'unconverged':

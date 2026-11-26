@@ -542,7 +542,7 @@ class CaseFiles:
         if not self.store.save_user_presets(presets):
             QMessageBox.warning(window, "预设未保存", "无法写入用户预设，当前输入保持不变。请检查用户数据目录。")
             return
-        window._rebuild_recent_menu()
+        window.history.rebuild_recent_menu()
         window.statusBar().showMessage(
             f"Saved preset: {name}.", 5000)
 
@@ -601,6 +601,9 @@ class CaseFiles:
         except Exception as e:
             QMessageBox.warning(window, "Workspace switch", str(e))
         self.rebuild_workspace_menu()
+        window.history.rebuild_recent_menu()
+        if hasattr(window, '_refresh_workbench_navigation'):
+            window._refresh_workbench_navigation()
         if hasattr(window, '_refresh_status_bar'):
             window._refresh_status_bar()
         # Persist the choice so the next launch re-opens the same workspace.
@@ -658,10 +661,8 @@ class CaseFiles:
         _tab = window.workbench.active_tab
         if _tab in ('temp', 'pres', 'vel', '3d', '2d_view'):
             _tab = 'result'
-        _collapsed = bool(getattr(window, '_left_collapsed', False))
-        _parameter_width = (getattr(window, '_param_width', 360)
-                            if _collapsed or window._parameter_host.isHidden()
-                            else window._parameter_host.width())
+        _collapsed = not window.appearance.is_drawer_open()
+        _parameter_width = getattr(window, '_param_width', 376)
         payload['ui_state'] = {
             'active_tab': _tab,
             'left_collapsed': _collapsed,
@@ -764,21 +765,18 @@ class CaseFiles:
             window.canvas_3d.restore_color_ranges(window._volume_color_ranges.get('results', {}))
         window.optimization.restore_volume_ranges(window._volume_color_ranges.get('optimization', {}))
         try:
-            if getattr(window, '_3d_immersive', False):
-                window._toggle_3d_immersive()
+            if window.appearance.is_focused():
+                window.appearance.toggle_focus()
             _rvw = _ui.get('result_view')
             if _rvw in ('2d', '3d'):
                 window.workbench.result_view = _rvw
                 _paint = getattr(window, '_paint_result_seg', None)
                 if _paint is not None:
                     _paint()
-            _width = _ui.get('parameter_width', 360)
+            _width = _ui.get('parameter_width', 376)
             if isinstance(_width, (int, float)):
                 window._param_width = max(320, min(520, int(_width)))
-            # Apply the saved width before collapsing, so a current expanded
-            # panel cannot overwrite it with its construction-time width.
-            window._set_parameter_panel_collapsed(False)
-            window._set_parameter_panel_collapsed(bool(_ui.get('left_collapsed', False)))
+            window.appearance.set_drawer_open(not bool(_ui.get('left_collapsed', False)))
             _page = _ui.get('parameter_page', 0)
             if _page in (0, 1, 2):
                 window._select_param_page(_page)

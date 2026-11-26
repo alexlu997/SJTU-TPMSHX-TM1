@@ -18,21 +18,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from sjtu_tpmshx.applications.gui.ui.theme import get_theme
+
 POPOVER_WIDTH = 298
 CURATED_COLORMAPS: tuple[str, ...] = ("coolwarm", "turbo", "viridis", "cividis")
-
-_DEFAULT_TOKENS: dict[str, Any] = {
-    "popover": "#FFFFFF",
-    "row_hover": "#E3E2DD",
-    "border": "#D9D8D4",
-    "border_strong": "#C1BFBA",
-    "inp_border": "#807F79",
-    "fg": "#181715",
-    "sub": "#474643",
-    "tert": "#686663",
-    "accent": "#0E6275",
-    "accent_fg": "#0B5161",
-}
 
 _ICON_PATHS: dict[str, str] = {
     "check": '<path d="M20 6 9 17l-5-5"/>',
@@ -104,7 +93,7 @@ class ToggleSwitch(QAbstractButton):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self._tokens: dict[str, Any] = dict(_DEFAULT_TOKENS)
+        self._tokens: dict[str, Any] = dict(get_theme())
         if tokens is not None:
             self._tokens.update(tokens)
         self.setCheckable(True)
@@ -127,7 +116,7 @@ class ToggleSwitch(QAbstractButton):
         track = self._tokens["accent"] if self.isChecked() else self._tokens["inp_border"]
         painter.setBrush(QColor(track))
         painter.drawRoundedRect(QRectF(0.0, 0.0, 34.0, 20.0), 10.0, 10.0)
-        painter.setBrush(QColor("#FFFFFF"))
+        painter.setBrush(QColor(self._tokens["switch_thumb"]))
         cx = 24.0 if self.isChecked() else 10.0
         painter.drawEllipse(QPointF(cx, 10.0), 8.0, 8.0)
         painter.end()
@@ -153,7 +142,7 @@ class ColormapPopover(QFrame):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self._tokens: dict[str, Any] = dict(_DEFAULT_TOKENS)
+        self._tokens: dict[str, Any] = dict(get_theme())
         if tokens is not None:
             self._tokens.update(tokens)
         self._quantity_label = quantity_label
@@ -233,6 +222,8 @@ class ColormapPopover(QFrame):
             item = self._layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
+                widget.hide()
+                widget.setParent(None)
                 widget.deleteLater()
 
     def _add_group(self, title: str) -> None:
@@ -285,7 +276,7 @@ class ColormapPopover(QFrame):
 
         lbl = QLabel(text)
         lbl.setStyleSheet(
-            f"color: {t['fg']}; font-size: 12.5px; font-weight: 400; background: transparent;"
+            f"color: {t['fg']}; font-size: 12px; font-weight: 400; background: transparent;"
         )
         hl.addWidget(lbl)
         hl.addStretch(1)
@@ -326,7 +317,7 @@ class ColormapPopover(QFrame):
             lbl = QLabel(name)
             lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
             lbl.setStyleSheet(
-                f"color: {t['fg']}; font-size: 12.5px; "
+                f"color: {t['fg']}; font-size: 12px; "
                 f"font-weight: {600 if selected else 400}; background: transparent;"
             )
             hl.addWidget(lbl)
@@ -375,7 +366,7 @@ class ColormapPopover(QFrame):
         rlbl = QLabel("恢复默认色阶")
         rlbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         rlbl.setStyleSheet(
-            f"color: {t['fg']}; font-size: 12.5px; font-weight: 400; background: transparent;"
+            f"color: {t['fg']}; font-size: 12px; font-weight: 400; background: transparent;"
         )
         rhl.addWidget(rlbl)
         rhl.addStretch(1)

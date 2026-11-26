@@ -122,7 +122,7 @@ class OverviewDialog(QDialog):
             f"font-family:{t['sans_family']};")
         tv.addWidget(trend_cap)
         spark = Sparkline(height=60)
-        for e in reversed(list(getattr(window, '_recent_runs', []) or [])):
+        for e in reversed(list(window.history.recent_runs)):
             if e.get('Q_unit') != values['Q_unit']:
                 continue
             v = _float(e.get('Q'))
@@ -152,7 +152,7 @@ class OverviewDialog(QDialog):
         root.addLayout(pr_row)
 
         # ── Recent runs chips ─────────────────────────────────────
-        recents = list(getattr(window, '_recent_runs', []) or [])[:5]
+        recents = list(window.history.recent_runs)[:5]
         if recents:
             rc_label = QLabel("RECENT RUNS  (click to restore)")
             rc_label.setStyleSheet(
@@ -188,7 +188,7 @@ class OverviewDialog(QDialog):
         self.accept()
 
     def _load_recent(self, entry):
-        self._w._load_recent_run(entry)
+        self._w.history.load_recent_run(entry)
         self.accept()
 
 

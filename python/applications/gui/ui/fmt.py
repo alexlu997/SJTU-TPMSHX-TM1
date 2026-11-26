@@ -17,6 +17,19 @@ def preset_display(name):
     return str(name).replace("Shanghai", "算例工况")
 
 
+def display_number(text, scale=1.0):
+    """Format a numeric string to 6 significant digits for unfocused display."""
+    try:
+        value = float(text) * scale
+    except (TypeError, ValueError):
+        return str(text)
+    if value != 0 and (abs(value) >= 1e6 or abs(value) < 1e-3):
+        return f"{value:.4e}"
+    if value == int(value) and abs(value) < 1e6:
+        return str(int(value))
+    return f"{value:.6g}"
+
+
 def duration(seconds):
     """'8.4s' / '2m15s' / '1h12m'."""
     try:

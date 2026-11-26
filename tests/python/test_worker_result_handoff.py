@@ -382,7 +382,7 @@ def test_display_timing_reaches_result_and_export_cache(win, monkeypatch, mode):
     monkeypatch.setattr(win.results, 'render', render)
     monkeypatch.setattr(win.single_run, '_finish', end)
     monkeypatch.setattr(win._run_status_card, 'finish', finish)
-    monkeypatch.setattr(win, '_stamp_result_provenance', provenance_elapsed.append)
+    monkeypatch.setattr(win.history, 'stamp_result_provenance', provenance_elapsed.append)
     win.single_run.submit()
     _wait_for(win.single_run.is_idle)
 
@@ -593,7 +593,7 @@ def test_workspace_switch_waits_for_worker_publication_and_exit(win, monkeypatch
         assert entered.wait(5)
         win.le_Nx.setText('37')  # Ordinary draft edits remain available.
         draft = win.case_files.capture_current_preset('Current draft')
-        win._workspace_menu.actions()[1].trigger()
+        next(a for a in win.history.build_load_menu().actions() if '工作区 B' in a.text()).trigger()
         assert win.case_files.active_workspace == 'A'
         assert win.case_files.capture_current_preset('Current draft') == draft
         assert win.cache.get_result(mode) is cached
@@ -608,7 +608,7 @@ def test_workspace_switch_waits_for_worker_publication_and_exit(win, monkeypatch
         assert not win.single_run.compute.is_idle(), 'terminal delivery is not worker exit'
         published = win.cache.get_result(mode)
         assert published.Q_W == 456.
-        win._workspace_menu.actions()[1].trigger()
+        next(a for a in win.history.build_load_menu().actions() if '工作区 B' in a.text()).trigger()
         assert win.case_files.active_workspace == 'A'
         assert win.case_files.capture_current_preset('Current draft') == draft
         assert win.cache.get_result(mode) is published
@@ -618,7 +618,7 @@ def test_workspace_switch_waits_for_worker_publication_and_exit(win, monkeypatch
         exit_worker.set()
         _wait_for(win.single_run.is_idle)
 
-    win._workspace_menu.actions()[1].trigger()
+    next(a for a in win.history.build_load_menu().actions() if '工作区 B' in a.text()).trigger()
     assert win.case_files.active_workspace == 'B'
     assert saves == [True]
     assert not win.cache.has_any_results()
@@ -745,7 +745,7 @@ def test_quick_design_page_keeps_its_job_across_navigation(win, monkeypatch):
     try:
         _wait_for(entered.is_set)
         win.workbench.switch_tab('layout')
-        assert win.page_stack.currentWidget() is win._splitter
+        assert win.page_stack.currentWidget() is win._workbench_canvas
         assert not page.is_idle() and not page._worker.isInterruptionRequested()
         win.btn_quick_design.click()
         assert win.page_stack.currentWidget() is page

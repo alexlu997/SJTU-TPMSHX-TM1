@@ -125,7 +125,7 @@ def test_close_and_restart_keep_owner_alive_until_imports_finish(win, imports, m
     win.workbench.schedule_3d_preinit()
     _wait_for(imports.entered.is_set)
     workspace = win.case_files.active_workspace
-    win._restart_for_appearance()
+    win.appearance.restart()
     win.case_files.switch_workspace('B' if workspace == 'A' else 'A')
     assert len(messages) == 2 and win.case_files.active_workspace == workspace
     assert not win.close() and win._close_pending and isValid(win)

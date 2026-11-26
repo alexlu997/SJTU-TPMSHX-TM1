@@ -84,7 +84,7 @@ def test_failed_attempt_retains_one_complete_accepted_snapshot(
     drawn = win.cache.get_drawn_tabs()
     availability = win.workbench.canvas_tab_availability()
     plotted = win.canvas_temp._hover_data['fields'][0].copy()
-    history_count = len(win._recent_runs)
+    history_count = len(win.history.recent_runs)
     _assert_export(win, monkeypatch, tmp_path / 'accepted.csv', accepted)
 
     _configure(win, monkeypatch, attempt_mode)
@@ -121,7 +121,7 @@ def test_failed_attempt_retains_one_complete_accepted_snapshot(
     assert win.workbench.canvas_tab_availability() == availability
     np.testing.assert_array_equal(win.canvas_temp._hover_data['fields'][0], plotted)
     assert win.btn_export.isEnabled()
-    assert len(win._recent_runs) == history_count
+    assert len(win.history.recent_runs) == history_count
     assert win.single_run.provenance is None
     assert win._run_status_card.state == ('error' if outcome == 'error' else 'cancelled')
     assert '最近完成' in win._run_status_card.note.text()
@@ -204,7 +204,7 @@ def test_named_preset_source_reaches_accepted_result_and_export(snapshot_window,
     win = snapshot_window
     _configure(win, monkeypatch, '2d')
     preset = win.case_files.capture_current_preset('custom user design')
-    win._load_user_preset(preset)
+    win.history.load_user_preset(preset)
     result = _result('2d')
     result.metadata['snapshot_marker'] = 444
     _stub_compute_result(monkeypatch, lambda config, **kwargs: result)

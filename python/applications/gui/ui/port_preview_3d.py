@@ -112,12 +112,14 @@ def draw_layout_rect_3d(window, ax, L, H, Lz):
         0, 0, 0, 0, 0, triad_len, color=_t['triad_z'],
         arrow_length_ratio=0.3, linewidth=1.8))
 
-    # Axis labels — bold
-    ax.set_xlabel('x [mm]', color=_t['ax_text'], fontsize=11,
+    from .symbols import MPL
+
+    # Axis labels — ISO italic quantities with upright units
+    ax.set_xlabel(MPL["x_mm"], color=_t['ax_text'], fontsize=11,
                   fontweight='bold', labelpad=10)
-    ax.set_ylabel('y [mm]', color=_t['ax_text'], fontsize=11,
+    ax.set_ylabel(MPL["y_mm"], color=_t['ax_text'], fontsize=11,
                   fontweight='bold', labelpad=10)
-    ax.set_zlabel('z [mm]', color=_t['ax_text'], fontsize=11,
+    ax.set_zlabel(MPL["z_mm"], color=_t['ax_text'], fontsize=11,
                   fontweight='bold', labelpad=10)
 
     # Ticks: only endpoints (clean up "115.5" midpoint artefact)
@@ -144,8 +146,7 @@ def draw_layout_rect_3d(window, ax, L, H, Lz):
     except Exception:
         pass
 
-    ax.set_title('3D Computational Domain\ninlet: orange · outlet: blue',
-                 color=_t['ax_text'], fontsize=11, fontweight='bold', pad=10)
+    ax.set_title('计算域', color=_t['ax_text'], fontsize=11, fontweight='bold', pad=10)
 
     # ── Mouse-wheel camera zoom (override canvas_wheel_zoom which scrolls) ──
     # Save original wheelEvent once so 2D mode can restore it.

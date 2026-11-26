@@ -156,7 +156,7 @@ def test_appearance_restart_keeps_live_tasks(win, active_task, monkeypatch):
     with monkeypatch.context() as busy:
         busy.setattr(win.case_files, 'save_session', lambda: pytest.fail('restart must wait for tasks'))
         busy.setattr(getattr(win, active_task), 'is_idle', lambda: False)
-        win._restart_for_appearance()
+        win.appearance.restart()
     assert len(messages) == 1
 
 
@@ -167,7 +167,7 @@ def test_restart_saves_inputs_and_preserves_source_or_frozen_entry(win, frozen, 
     monkeypatch.setattr(sys, 'argv', ['/old/main.py', '--example-option'])
     monkeypatch.setattr(os, 'execv', lambda executable, args: events.append((executable, args)))
     monkeypatch.setattr(win.case_files, 'save_session', lambda: events.append('saved') or True)
-    win._restart_for_appearance()
+    win.appearance.restart()
     expected = [sys.executable] + ([] if frozen else ['-m', 'sjtu_tpmshx.main']) + ['--example-option']
     assert events == ['saved', (sys.executable, expected)]
 
@@ -178,7 +178,7 @@ def test_restart_aborts_when_inputs_cannot_be_saved(win, monkeypatch):
     monkeypatch.setattr(os, 'execv', lambda *args: pytest.fail('replaced unsaved inputs'))
     with monkeypatch.context() as failed:
         failed.setattr(win.case_files, 'save_session', lambda: False)
-        win._restart_for_appearance()
+        win.appearance.restart()
     assert len(messages) == 1
 
 
@@ -212,7 +212,7 @@ def test_preset_write_failure_is_reported_without_success_toast(win, monkeypatch
     assert manager.save_user_presets(original)
     monkeypatch.setattr(QInputDialog, 'getText', lambda *args, **kwargs: ('new', True))
     monkeypatch.setattr(QMessageBox, 'warning', lambda *args: messages.append(args[-1]))
-    monkeypatch.setattr(win, '_rebuild_recent_menu', lambda: pytest.fail('presented an unsaved preset'))
+    monkeypatch.setattr(win.history, 'rebuild_recent_menu', lambda: pytest.fail('presented an unsaved preset'))
     with monkeypatch.context() as failed:
         failed.setattr(manager, '_atomic_write_json', lambda *args: False)
         win.case_files.save_current_as_preset()

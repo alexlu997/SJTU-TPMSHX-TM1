@@ -17,21 +17,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-POPOVER_WIDTH = 344
+from sjtu_tpmshx.applications.gui.ui.theme import get_theme
 
-_DEFAULT_TOKENS: dict[str, Any] = {
-    "popover": "#FFFFFF",
-    "row_hover": "#E3E2DD",
-    "border": "#D9D8D4",
-    "border_strong": "#C1BFBA",
-    "fg": "#181715",
-    "sub": "#474643",
-    "tert": "#686663",
-    "accent_fg": "#0B5161",
-    "ok": "#176B3E",
-    "warn": "#96530C",
-    "err": "#B43025",
-}
+POPOVER_WIDTH = 344
 
 _STATUS_COLOR_KEY: dict[str, str] = {
     "ok": "ok",
@@ -152,7 +140,7 @@ def _make_label(text: str, size_px: float, color_hex: str, weight: int = 400) ->
     if "<" in text:
         lab.setTextFormat(Qt.TextFormat.RichText)
     lab.setStyleSheet(
-        f"color: {color_hex}; font-size: {size_px}px; font-weight: {weight}; "
+        f"color: {color_hex}; font-size: {int(round(size_px))}px; font-weight: {weight}; "
         "background: transparent;"
     )
     _enable_tnum(lab)
@@ -174,7 +162,7 @@ class RunInfoPopover(QFrame):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self._tokens: dict[str, Any] = dict(_DEFAULT_TOKENS)
+        self._tokens: dict[str, Any] = dict(get_theme())
         if tokens is not None:
             self._tokens.update(tokens)
         self._data: RunInfoData = data or RunInfoData()
@@ -221,6 +209,8 @@ class RunInfoPopover(QFrame):
             item = self._layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
+                widget.hide()
+                widget.setParent(None)
                 widget.deleteLater()
 
     def _add_group(self, title: str) -> None:

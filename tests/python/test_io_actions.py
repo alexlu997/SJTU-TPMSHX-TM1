@@ -148,10 +148,11 @@ def test_complete_config_menu_roundtrip(tmp_path, monkeypatch, win,
     path = str(tmp_path / 'complete.json')
     monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: (path, ''))
     monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *a: (path, ''))
-    actions = {a.text(): a for a in win.btn_recent.menu().actions()}
-    assert '保存配置文件…' in actions
-    assert '加载配置文件…' in actions
-    actions['保存配置文件…'].trigger()
+    load_actions = {a.text(): a for a in win.btn_recent.menu().actions()}
+    save_actions = {a.text(): a for a in win.btn_save.menu().actions()}
+    assert '保存配置文件…' in save_actions
+    assert '加载配置文件…' in load_actions
+    save_actions['保存配置文件…'].trigger()
     for name in win.case_files.SESSION_LINE_EDITS:
         getattr(win, name).setText('1')
     for name in win.case_files.PRESET_COMBOS:
@@ -165,7 +166,7 @@ def test_complete_config_menu_roundtrip(tmp_path, monkeypatch, win,
     win._pareto_x_decision = [8.0, 0.6] * 18
     win.cache.set_result('2d', ComputeResult())
     win._undo_last = {'le_L': 'old'}
-    actions['加载配置文件…'].trigger()
+    load_actions['加载配置文件…'].trigger()
     assert not errors
     assert win.combo_dim.currentIndex() == dim
     assert win.le_pipeA_in_z_ctr.isHidden() == (dim == 0)
@@ -786,7 +787,7 @@ def test_legacy_session_without_zone_data_disables_and_clears_stale_zones(win, m
 def test_shared_preset_callers_restore_new_inputs(monkeypatch, win, route):
     from types import SimpleNamespace
     from PySide6.QtWidgets import QInputDialog
-    import sjtu_tpmshx.applications.gui.ui.mixins.run_history as history
+    import sjtu_tpmshx.applications.gui.ui.run_history as history
 
     win.chk_allow_extrap.setChecked(True)
     win.combo_zone_axis.setCurrentIndex(1)
@@ -796,16 +797,16 @@ def test_shared_preset_callers_restore_new_inputs(monkeypatch, win, route):
     tokens = []
     monkeypatch.setattr(history, 'QApplication', SimpleNamespace(
         clipboard=lambda: SimpleNamespace(setText=tokens.append)))
-    win._copy_reproducible_link()
+    win.history.copy_reproducible_link()
     win.chk_allow_extrap.setChecked(False)
     win.combo_zone_axis.setCurrentIndex(2)
     if route == 'preset':
-        win._load_user_preset(saved)
+        win.history.load_user_preset(saved)
     elif route == 'recent':
-        win._load_recent_run({'preset': saved, 'ts': 'test'})
+        win.history.load_recent_run({'preset': saved, 'ts': 'test'})
     else:
         monkeypatch.setattr(QInputDialog, 'getText', lambda *a: (tokens[0], True))
-        win._load_reproducible_link()
+        win.history.load_reproducible_link()
     assert win.case_files.capture_current_preset('test') == saved
 
 
