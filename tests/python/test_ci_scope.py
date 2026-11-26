@@ -14,7 +14,7 @@ from engineering.scripts.ci_scope import require_jobs, select_scope
     ('pull_request', ['tests/python/test_ui_typography.py'], 'application'),
     ('pull_request', ['python/applications/gui/ui/assets/icons/play.svg'], 'application'),
     ('pull_request', ['python/applications/gui/ui/expr_eval.py'], 'full'),
-    ('pull_request', ['python/applications/gui/ui/mixins/run_controller.py'], 'full'),
+    ('pull_request', ['python/applications/gui/ui/single_run.py'], 'full'),
     ('pull_request', ['python/applications/result_adapter.py'], 'full'),
     ('pull_request', ['docs/contracts/three_module_v1/files.md'], 'full'),
     ('pull_request', ['tests/python/fixture.md'], 'full'),

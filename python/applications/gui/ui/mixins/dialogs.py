@@ -6,7 +6,7 @@ Adopted via ``class Main_Menu(RunHistoryMixin, DialogsMixin, ..., QMainWindow)``
 methods resolve on the live window through the MRO, so external callers
 (command palette, Ctrl+D shortcut) keep working unchanged.
 
-Host contract: ``_last_solve_log`` (str, optional) and ``statusBar()``.
+Read the last solver log from ``single_run.compute.last_log()``.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ class DialogsMixin:
 
     def _show_solve_log(self):
         """Modal text viewer for the last captured solver stdout."""
-        text = getattr(self, '_last_solve_log', None) or ""
+        text = self.single_run.compute.last_log() or ""
         if not text.strip():
             QMessageBox.information(
                 self, "Solve log",

@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QLabel
 
 from sjtu_tpmshx.applications.gui.ui.coord_inspector import CoordInspector, _resolve_fields
 from sjtu_tpmshx.applications.gui.ui.matplotlib_canvas import MatplotlibCanvas, cell_index_mm
-from sjtu_tpmshx.applications.gui.ui.mixins.tab_view import TabViewMixin
+from sjtu_tpmshx.applications.gui.ui.workbench import Workbench
 from sjtu_tpmshx.applications.gui.ui.plot_2d_results import finalize_plots, plot_temperature_3panel
 from sjtu_tpmshx.applications.gui.ui.theme import get_theme
 
@@ -31,6 +31,7 @@ def test_plot_hover_and_inspector_locate_nonuniform_cells():
                              _DIR_MAP={0: 'x+', 3: 'y-'}, _update_tout=lambda _: None,
                              canvas_temp=canvas, canvas_pres=pres_canvas,
                              _hover_label=QLabel())
+    window.workbench = Workbench(window)
     window.cache.set_result('2d', ComputeResult(fields=result))
     plot_temperature_3panel(window, result, get_theme())
     np.testing.assert_array_equal(canvas._hover_data['dx_arr'], result['dx_arr'])
@@ -40,22 +41,22 @@ def test_plot_hover_and_inspector_locate_nonuniform_cells():
     assert ('P_A', '120.001', 'kPa') in rows
     assert ('P_B', '125.001', 'kPa') in rows
     event = SimpleNamespace(inaxes=canvas.axes[0][0], xdata=20., ydata=10., canvas=canvas)
-    TabViewMixin._on_hover(window, event)
+    window.workbench.on_hover(event)
     assert '400.00 K' in window._hover_label.text()
 
     # 2D pressure hover keeps 0.01 Pa resolution in kPa across adjacent cells.
     finalize_plots(window, field='pres')
     pres_axis = pres_canvas.axes[0][0]
-    window._last_hover_t = 0.0
-    TabViewMixin._on_hover(window, SimpleNamespace(
+    window.workbench.last_hover_time = 0.0
+    window.workbench.on_hover(SimpleNamespace(
         inaxes=pres_axis, xdata=5., ydata=10., canvas=pres_canvas))
     label_00 = window._hover_label.text()
-    window._last_hover_t = 0.0
-    TabViewMixin._on_hover(window, SimpleNamespace(
+    window.workbench.last_hover_time = 0.0
+    window.workbench.on_hover(SimpleNamespace(
         inaxes=pres_axis, xdata=5., ydata=30., canvas=pres_canvas))
     label_01 = window._hover_label.text()
-    window._last_hover_t = 0.0
-    TabViewMixin._on_hover(window, SimpleNamespace(
+    window.workbench.last_hover_time = 0.0
+    window.workbench.on_hover(SimpleNamespace(
         inaxes=pres_axis, xdata=20., ydata=10., canvas=pres_canvas))
     label_10 = window._hover_label.text()
     assert '120.00000 kPa' in label_00
@@ -81,6 +82,7 @@ def test_plot_hover_and_inspector_locate_nonuniform_cells():
     window._temp_unit = 'C'
     CoordInspector.update_from_event(inspector, event)
     assert ('T_fA', '126.85', '°C') in rendered[-1]
+    window.workbench = Workbench(window)
     window.cache.set_result('2d', ComputeResult(fields={**result, 'Ta': temperature + 10.0}))
     CoordInspector.update_from_event(inspector, event)
     assert ('T_fA', '136.85', '°C') in rendered[-1]

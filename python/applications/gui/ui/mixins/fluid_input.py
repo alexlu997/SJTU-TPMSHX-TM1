@@ -234,8 +234,8 @@ class FluidInputMixin:
         self._sync_temp_unit_labels()
         self._refresh_field_validation()
         self._discard_temperature_history()
-        self._resync_undo_baseline()
-        self._update_result_summary()
+        self.case_files.resync_undo_baseline()
+        self.results.refresh_summary()
         from sjtu_tpmshx.applications.gui.ui.plot_2d_results import redraw_result_fields
         redraw_result_fields(self)
         self.statusBar().showMessage(
@@ -243,7 +243,7 @@ class FluidInputMixin:
 
     def _update_tout(self, t_idx: int):
         """Render this run's result scalars in the selected temperature unit."""
-        self._update_result_summary()
+        self.results.refresh_summary()
 
     def _on_dir_changed(self):
         """Show the actual transverse axis and unit for each port coordinate."""
@@ -297,7 +297,7 @@ class FluidInputMixin:
     def _preview_initial_geometry(self):
         """Show the restored core envelope without opening input dialogs."""
         import math
-        if getattr(self, '_active_tab', 'layout') != 'layout':
+        if self.workbench.active_tab != 'layout' or self.page_stack.currentWidget() is self.quick_design:
             return
         fields = [self.le_L, self.le_H]
         if self.combo_dim.currentIndex() == 1:

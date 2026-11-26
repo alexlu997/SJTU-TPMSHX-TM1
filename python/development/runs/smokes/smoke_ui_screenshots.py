@@ -46,7 +46,7 @@ def main(argv=None):
                 raise RuntimeError('Required optimization entry is unavailable')
             button.click()
             app.processEvents()
-            if win._active_tab != 'pareto' or not win._canvas_cards['pareto'].isVisibleTo(win):
+            if win.workbench.active_tab != 'pareto' or not win._canvas_cards['pareto'].isVisibleTo(win):
                 raise RuntimeError('Navigation did not show the optimization page')
             _save_window(win, args.output / '04_optimize_panel.png')
     except Exception:

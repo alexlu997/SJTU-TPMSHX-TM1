@@ -32,7 +32,7 @@ def session_window(tmp_path, monkeypatch):
 
     yield build
     for window in windows:
-        monkeypatch.setattr(window, '_save_session', lambda: True)
+        monkeypatch.setattr(window.case_files, 'save_session', lambda: True)
         window.close()
         window.deleteLater()
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
@@ -58,15 +58,15 @@ def test_workspace_switch_preserves_rejected_workspace_file(session_window):
     from PySide6.QtWidgets import QApplication
     window, path, raw, messages = session_window(_bad_preset(), 'B')
     window.le_L.setText('0.211')
-    window._switch_workspace('B')
+    window.case_files.switch_workspace('B')
     QApplication.processEvents()
-    assert window._active_workspace == 'B'
+    assert window.case_files.active_workspace == 'B'
     assert window.le_L.text() != '0.333'
     window.le_L.setText('0.199')
-    window._switch_workspace('C')
-    assert window._active_workspace == 'C'
+    window.case_files.switch_workspace('C')
+    assert window.case_files.active_workspace == 'C'
     assert json.loads(path.read_text())['line_edits']['le_L'] == '0.199'
-    assert json.loads(window.sm.session_path('A').read_text())['line_edits']['le_L'] == '0.211'
+    assert json.loads(window.case_files.store.session_path('A').read_text())['line_edits']['le_L'] == '0.211'
     backups = list(path.parent.glob(path.name + '.corrupt-*'))
     assert len(backups) == 1 and backups[0].read_bytes() == raw
     assert any('le_TinA' in text for _, text in messages)
@@ -78,8 +78,8 @@ def test_failed_preservation_blocks_overwrite_then_retries(session_window, monke
     window, path, raw, messages = session_window(_bad_preset())
     window.le_L.setText('0.199')
     assert not window.close()
-    window._switch_workspace('B')
-    assert window._active_workspace == 'A'
+    window.case_files.switch_workspace('B')
+    assert window.case_files.active_workspace == 'A'
     assert path.read_bytes() == raw
     assert any('会话未保存' == title for title, _ in messages)
     monkeypatch.setattr(SessionManager, '_quarantine_corrupt', original)
@@ -153,7 +153,7 @@ def test_lazy_volume_ranges_survive_session_save_and_reopen(session_window):
               'optimization': {'mode': 'custom', 'ranges': {'L_mm': [4., 8.]}}}
     window, path, _, messages = session_window({'ui_state': {'volume_color_ranges': ranges}})
     assert window._volume_color_ranges == ranges
-    assert window._save_session()
+    assert window.case_files.save_session()
     saved = json.loads(path.read_text())
     assert saved['ui_state']['volume_color_ranges'] == ranges
     reopened, _, _, _ = session_window(saved)

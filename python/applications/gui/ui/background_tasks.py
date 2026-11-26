@@ -1,16 +1,17 @@
-"""Desktop task lifetime, including queued results and 3D imports."""
+"""Desktop task lifetime and background imports for the 3D views."""
 from __future__ import annotations
 
 from importlib import import_module
 
-from PySide6.QtCore import QThread, Qt, Signal, Slot
+from PySide6.QtCore import QThread, QTimer, Qt, Signal, Slot
 
 
-class _ViewImports(QThread):
+class ViewImports(QThread):
     prepared = Signal()
 
-    def __init__(self, window):
-        super().__init__(window)
+    def __init__(self, workbench):
+        super().__init__(workbench.window)
+        self.workbench = workbench
         self.error = None
         self.finished.connect(self._deliver, Qt.ConnectionType.QueuedConnection)
 
@@ -22,51 +23,22 @@ class _ViewImports(QThread):
 
     @Slot()
     def _deliver(self):
-        window = self.parent()
-        window._view_imports_ready = True
+        from .compute_resources import refresh_resource_availability
+        if not self.wait(0):
+            QTimer.singleShot(10, self, self._deliver)
+            return
+        workbench = self.workbench
+        workbench.imports_ready = True
         if self.error is not None:
-            window._vis3d_import_error = self.error
+            workbench.import_error = self.error
         try:
             self.prepared.emit()
         finally:
-            window._view_import_worker = None
+            workbench.import_worker = None
+            refresh_resource_availability(workbench.window)
             self.deleteLater()
 
 
-def prepare_3d(window, callback):
-    """Prepare imports, then call back on the GUI thread."""
-    if (getattr(window, '_vis3d_import_error', None)
-            or getattr(window, '_view_imports_ready', False)):
-        callback()
-        return
-    worker = getattr(window, '_view_import_worker', None)
-    first = worker is None
-    if first:
-        worker = _ViewImports(window)
-        window._view_import_worker = worker
-    worker.prepared.connect(callback)
-    if first:
-        refresh_resource_availability(window)
-        worker.start()
-
-
 def has_active_tasks(window) -> bool:
-    compute = getattr(window, 'compute', None)
-    return bool(
-        (compute is not None and not compute.is_idle())
-        or getattr(window, '_view_import_worker', None) is not None
-        or getattr(window, '_opt_worker', None) is not None
-        or getattr(getattr(window, '_qd_dialog', None), '_qd_worker', None) is not None
-    )
-
-
-def refresh_resource_availability(window):
-    if getattr(window, '_cpu_card', None) is None:
-        return
-    busy = has_active_tasks(window) or getattr(window, '_opt_launching', False)
-    window._cpu_card.setEnabled(not busy)
-    if busy:
-        # Terminal publication can precede the worker's actual return.
-        window._resource_refresh_timer.start()
-    else:
-        window._resource_refresh_timer.stop()
+    return not all(owner.is_idle() for owner in (
+        window.single_run, window.optimization, window.quick_design, window.workbench))

@@ -124,6 +124,8 @@ Experimental corrections have geometry, operating, and calibration limits. They 
 
 ## Quick Design
 
+Quick Design opens in the main window. You can change pages while it runs. Complete and partial results record the case IDs, both pressure-drop limits and the elapsed time for this job.
+
 Quick Design screens dimensions against fluid conditions, heat duty, and pressure-drop constraints using a prescribed-velocity approximation. Automatic Search / Fixed Cell map to `auto/fixed`. Crossflow / Counterflow map to `cross/counter`. Case tables use K, absolute kPa, kg/s, and kW. Pressure limits are fractions: enter `0.05` for 5%.
 
 Since 2026-11-25, the GUI and the CLI (`python -m sjtu_tpmshx.applications.design.cli`) use the same defaults: `cross` flow, `mean` properties, and a square face. Default CLI and GUI results change when you omit these options. On 2026-11-25, the CLI default changed from `prop_model` `const` to `mean` (arrangement stays `cross`). The GUI default changed from Counterflow (`counter`) to Crossflow (`cross`), and its property model stays `mean`. To get the previous CLI default result, pass `--prop-model const`. To get the previous GUI default result, select Counterflow (`逆流`). Both flow and property options stay available in both interfaces (`--arrangement counter` on the CLI, and `const` in the GUI). To set a fixed rectangular face on the CLI, pass a positive finite `--height` value in mm. To set a fixed rectangular face in the GUI, select the fixed-height option.
@@ -138,7 +140,7 @@ If candidates exist, Quick Design CLI saves a partial report to `--out`, then ra
 
 Optimization supports air A / water B and two-fluid pairs with a CO₂ or sCO₂ side. It searches continuous fields in the active dimension: L(x,y)/t(x,y) for 2D and L(x,y,z)/t(x,y,z) for 3D. The default objectives compare B-side heat-uptake improvement and equally weighted two-side relative pressure drop. Core-mass mode uses absolute per-condition limits instead. The heat metric stays `-Q_B`; the baseline must be positive. All conditions keep the same A/B fluid models. Pareto designs keep complete controls. The default mode supports Sobol, qLogNEHVI, and qLogNParEGO. Core-mass mode supports qLogNEI and Sobol. BO requires its separate locked environment.
 
-Optimization Design → Results switches between Pareto and size/wall fields. Select a Pareto design to inspect its continuous field. The geometry canvas stays independent. Optimization plots support separate copy/export.
+Optimization Design → Results switches between Pareto and size/wall fields. Select a Pareto design to preview its continuous field. Use Load Selected Design to apply it to the case. If the uniform baseline fails, Results shows the reason. Set the 2D total-flow depth in the study. Optimization plots support separate copy/export.
 
 The optimization page uses the full workbench width. Its configuration page shows common geometry, fluids, grid, objectives, variables, and solve count.
 Select Edit Common Conditions to open the existing parameter controls. Page buttons support keyboard navigation.

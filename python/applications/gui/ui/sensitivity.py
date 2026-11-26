@@ -361,16 +361,7 @@ class SensitivityDialog(QDialog):
             self._hint.setText(f"Cannot load: {exc} " + _SCOPE_NOTE)
             return
         vx = float(xs[i]); vy = float(ys[j])
-        # 2026-05-20 UI sweep (Tier 24): a picked design changes the input
-        # fields, so the previous compute result is now stale. Invalidate
-        # it up front (same helper the preset / recent-run paths use), so
-        # the result tabs disable and the user is not left looking at the
-        # old plots beside the new inputs.
-        if hasattr(self._window, '_invalidate_results_for_preset_load'):
-            try:
-                self._window._invalidate_results_for_preset_load()
-            except Exception:
-                pass
+        self._window.case_files.invalidate_results_for_preset_load()
         # Write the picked params into the matching left-panel fields.
         attr_map = {'L_cell': 'le_Lcell', 't': 'le_t', 'u_A': 'le_uA'}
         for key, val in ((gp['key_x'], vx), (gp['key_y'], vy)):

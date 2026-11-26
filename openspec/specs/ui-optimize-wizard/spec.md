@@ -8,10 +8,10 @@
 ## Requirements
 
 ### Requirement: Three-page wizard
-优化页 SHALL 为 QStackedWidget 三页（配置/运行/结果），阶段票据 SHALL 可点击切页；`_set_stage_pill(key,'active')` SHALL 同步翻到对应页——启动→运行页、完成→结果页、错误→配置页均由引擎既有阶段流转驱动。
+优化页 SHALL 为 QStackedWidget 三页（配置/运行/结果），阶段票据 SHALL 可点击切页；`OptimizationPage.set_stage(key,'active')` SHALL 同步翻到对应页——启动→运行页、完成→结果页、错误→配置页均由引擎既有阶段流转驱动。
 
 #### Scenario: Engine drives pages
-- **WHEN** `_set_stage_pill('running','active')`
+- **WHEN** `OptimizationPage.set_stage('running','active')`
 - **THEN** 栈当前页 = 1（运行）
 
 ### Requirement: Inline BO parameters
@@ -34,6 +34,10 @@ n_init 默认16，允许1–256；优化器 SHALL 继承当前计算配置的数
 #### Scenario: Zone panel relocated
 - **WHEN** 检查配置页
 - **THEN** `_zone_panel` 位于单点计算分区卡；优化搜索空间独立，启动 CTA 在首屏可见
+
+### Requirement: Design selection and baseline evidence
+
+选择 Pareto 点 SHALL 只选中方案并预览连续场。“载入所选方案” SHALL 将方案应用到算例。基准失败时结果页 SHALL 显示失败原因。二维优化的总流量深度 SHALL 独立于算例深度。
 
 ### Requirement: Constrained core mass
 导入工况 JSON 可提供 `mass_requirements`，包含实体密度和每个工况的换热下限、两侧压降上限。

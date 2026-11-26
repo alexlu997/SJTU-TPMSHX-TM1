@@ -43,7 +43,7 @@ from .builders_canvas import build_canvas_area
 def build_ui(window):
     """Build the engineering workbench around the existing input widgets."""
     from PySide6.QtCore import QSize, QPoint
-    from PySide6.QtWidgets import QMenu
+    from PySide6.QtWidgets import QMenu, QStackedWidget
     from .field_factory import default_factory
     from .responsive import ResponsiveRow
     from .builders_base import MenuToolButton
@@ -57,7 +57,11 @@ def build_ui(window):
     root.setSpacing(0)
 
     # Construct inputs first: the canvas builders consume their widget references.
+    from .optimize_panel import OptimizationPage
+    from .quick_design_panel import QuickDesignPage
     params = build_param_tabs(window)
+    window.optimization = OptimizationPage(window)
+    window.quick_design = QuickDesignPage(window)
     canvas = build_canvas_area(window)
     window._param_panel = params
     window._workbench_canvas = canvas
@@ -95,7 +99,8 @@ def build_ui(window):
     quick.setFixedHeight(36)
     quick.setIcon(icon('activity', theme['sub_fg']))
     quick.setIconSize(QSize(18, 18))
-    quick.clicked.connect(window._open_quick_design)
+    window.btn_quick_design = quick
+    quick.clicked.connect(window.workbench.show_quick_design)
     row.addWidget(quick)
     row.addStretch(1)
     header.addWidget(navigation)
@@ -125,8 +130,8 @@ def build_ui(window):
     window.btn_recent.setToolTip('载入配置、预设或最近运行')
     window._rebuild_recent_menu()
     window.btn_save, save_menu = menu_button('保存', 'save')
-    save_menu.addAction('保存配置文件…', window.save_config)
-    save_menu.addAction('保存为预设…', window._save_current_as_preset)
+    save_menu.addAction('保存配置文件…', window.case_files.save_config)
+    save_menu.addAction('保存为预设…', window.case_files.save_current_as_preset)
     action_row.addWidget(window.btn_export, 0, Qt.AlignmentFlag.AlignVCenter)
     window.btn_more, more_menu = menu_button('更多', 'more-horizontal')
     search = QToolButton()
@@ -144,7 +149,7 @@ def build_ui(window):
     action_row.addWidget(search, 0, Qt.AlignmentFlag.AlignVCenter)
 
     window._workspace_menu = QMenu(window.btn_more)
-    window._rebuild_workspace_menu()
+    window.case_files.rebuild_workspace_menu()
     theme_action = more_menu.addAction('', window._toggle_theme)
     theme_action.setToolTip('切换浅色或深色主题')
     unit_action = more_menu.addAction('', window._toggle_temp_unit)
@@ -154,7 +159,7 @@ def build_ui(window):
     more_menu.addSeparator()
     more_menu.addAction('收起 / 展开参数栏', window._toggle_left_panel)
     more_menu.addAction('计算日志…', window._show_solve_log)
-    more_menu.addAction('诊断详情…', window._show_diag_dialog)
+    more_menu.addAction('诊断详情…', window.results.show_diag_dialog)
     more_menu.addAction('重置参数', window._reset_defaults)
     help_action = more_menu.addAction(
         '帮助与快捷键', lambda: window._show_help_menu(window.btn_more))
@@ -214,7 +219,7 @@ def build_ui(window):
         window._param_rail_btns.append(button)
     rail_layout.addStretch(1)
     window.btn_rail_diagnostics = nav_button(
-        '诊断', 'activity', lambda: window._show_diag_dialog())
+        '诊断', 'activity', lambda: window.results.show_diag_dialog())
     rail.hide()
     window._param_rail = rail
 
@@ -249,7 +254,10 @@ def build_ui(window):
     splitter.setStretchFactor(1, 1)
     splitter.setSizes([360, 960])
     window._splitter = splitter
-    body.addWidget(splitter, 1)
+    window.page_stack = QStackedWidget()
+    window.page_stack.addWidget(splitter)
+    window.page_stack.addWidget(window.quick_design)
+    body.addWidget(window.page_stack, 1)
     root.addLayout(body, 1)
 
 
@@ -280,7 +288,7 @@ def refresh_group_badges(window):
     counts = {}
     for title, content in contents.items():
         n = 0
-        for name in getattr(window, '_SESSION_LINE_EDITS', ()):
+        for name in window.case_files.SESSION_LINE_EDITS:
             if not inlet_input_active(window, name):
                 continue
             le = getattr(window, name, None)
@@ -460,11 +468,7 @@ def build_param_tabs(window):
 
     window._param_btns = []
 
-    # ── Sticky Compute CTA (ui-batch2 IA-3) ──────────────────────────
-    # The ONE primary action, permanently visible at the bottom of the
-    # parameter panel (moved from the header's far corner). Same widget
-    # object the run_controller ticker owns — text/handler state machine
-    # untouched.
+    # Keep the single-run button at the bottom of the parameter panel.
     panel = QWidget()
     panel.setObjectName('parameterInspector')
     panel.setMinimumWidth(320)
@@ -538,7 +542,7 @@ def build_param_tabs(window):
     diagnostics.setIcon(icon('activity', _ts['sub_fg']))
     diagnostics.setStyleSheet(t.style('BTN_TERTIARY'))
     diagnostics.setToolTip('查看求解收敛、能量闭合与模型适用范围')
-    diagnostics.clicked.connect(lambda: window._show_diag_dialog())
+    diagnostics.clicked.connect(lambda: window.results.show_diag_dialog())
     window.btn_parameter_diagnostics = diagnostics
     cta_lay.addWidget(diagnostics, 0, Qt.AlignmentFlag.AlignRight)
     # CJK mnemonics are useless — no '&'; Ctrl+R stays the shortcut.
@@ -547,7 +551,7 @@ def build_param_tabs(window):
     btn_run.setMinimumHeight(48)
     btn_run.setStyleSheet(t.style('BTN_PRIMARY'))
     btn_run.setToolTip("运行单点计算 (Ctrl+R)")
-    btn_run.clicked.connect(window.run_calculation)
+    btn_run.clicked.connect(window.single_run.toggle)
     window.btn_compute = btn_run
     cta_lay.addWidget(btn_run)
     p_lay.addWidget(cta_bar, 0)
@@ -821,7 +825,7 @@ def build_page_zones(window):
     def _preview_and_switch():
         window._draw_layout()
         try:
-            window._switch_tab('layout')
+            window.workbench.switch_tab('layout')
         except Exception:
             pass
     btn_preview_z.clicked.connect(_preview_and_switch)

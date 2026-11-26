@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox, QTableWidgetItem
 
 from sjtu_tpmshx.run_control.cancellation import CancelledError
 from sjtu_tpmshx.data_types.compute_result import ComputeResult
-from sjtu_tpmshx.applications.gui.ui.mixins.run_results import RunResultsMixin
+from sjtu_tpmshx.applications.gui.ui.field_results import FieldResults
 from tests.python.gui_worker_support import _stub_compute_result
 from tests.python.gui_worker_support import win as win, _wait_for
 
@@ -24,8 +24,8 @@ def run_window(win, monkeypatch, tmp_path):
     def render(window, **kwargs):
         return False  # These tests check scalar publication without a renderer.
 
-    monkeypatch.setattr(win, '_finalize_plots',
-                        lambda: RunResultsMixin._finalize_plots(win))
+    monkeypatch.setattr(win.results, 'finalize_plots',
+                        lambda: FieldResults.finalize_plots(win.results))
     monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.plot_2d_results.finalize_plots', render)
     monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.plot_3d_results.finalize_plots_3d', render)
     monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.plot_2d_results.ensure_result_plot',
@@ -43,11 +43,11 @@ def test_recent_menu_rebuild_releases_evicted_entries_and_keeps_restore(win):
         """Keep the normal entry payload while observing its lifetime."""
 
     menu_count = len(win.findChildren(QMenu))
-    win.write_result(ComputeResult())
+    win.results.publish(ComputeResult())
     for index in range(8):
-        preset = win._capture_current_preset('Run inputs')
+        preset = win.case_files.capture_current_preset('Run inputs')
         preset['line_edits']['le_Nx'] = str(20 + index)
-        win._run_provenance = dict(preset=preset, preset_source='test', mode='2d',
+        win.cache.get_result().metadata["run_provenance"] = dict(preset=preset, preset_source='test', mode='2d',
                                    input_grid=[20 + index, 10], actual_grid=[20 + index, 10])
         win._push_recent_run()
         if index == 0:
@@ -116,12 +116,12 @@ def test_accepted_state_reaches_recent_menu_and_persisted_timeline(
     result.metadata.update(source_result_id=expected['source_result_id'],
                            metric_status=statuses, metric_reasons=reasons, qualification=qualification)
     _stub_compute_result(monkeypatch, lambda config, **kwargs: result)
-    monkeypatch.setattr(win, '_render_compute_result', lambda: True)
-    win.run_calculation()
-    _wait_for(win.compute.is_idle)
+    monkeypatch.setattr(win.results, 'render', lambda mode: True)
+    win.single_run.submit()
+    _wait_for(win.single_run.is_idle)
 
     entry = win._recent_runs[0]
-    timeline = win.sm.base_dir / '.session_timeline.jsonl'
+    timeline = win.case_files.store.base_dir / '.session_timeline.jsonl'
     persisted = json.loads(timeline.read_text().splitlines()[-1])
     # History owns only a small snapshot, independent of mutable GUI results.
     cached = win.cache.get_result(mode)
@@ -153,7 +153,7 @@ def test_legacy_history_keeps_unknown_state_without_rewriting_or_blocking_restor
     from collections import deque
 
     metrics = dict.fromkeys(('Q', 'dP_A', 'dP_B', 'T_out_A', 'T_out_B'), 'available')
-    preset = win._capture_current_preset('Historical input')
+    preset = win.case_files.capture_current_preset('Historical input')
     preset['line_edits']['le_Nx'] = '37'
     base = dict(ts='2000-01-01T00:00:00', label='00:00:00', Q='123.0',
                 Q_unit='W/m', dP_A='10.0', dP_B='8.0', preset=preset)
@@ -161,7 +161,7 @@ def test_legacy_history_keeps_unknown_state_without_rewriting_or_blocking_restor
     labels = [text + ' · 设计未核实' for text in
               ('状态未知', '已收敛 · 指标状态未知', '收敛状态未知')]
     win._recent_runs = deque(entries, maxlen=5)
-    timeline = win.sm.base_dir / '.session_timeline.jsonl'
+    timeline = win.case_files.store.base_dir / '.session_timeline.jsonl'
     original = '\n'.join(json.dumps({k: v for k, v in e.items() if k != 'preset'})
                          for e in entries) + '\n'
     timeline.write_text(original, encoding='utf-8')
@@ -176,26 +176,26 @@ def test_legacy_history_keeps_unknown_state_without_rewriting_or_blocking_restor
     actions[0].trigger()
     assert win.le_Nx.text() == '37'
     assert not win.cache.has_any_results()
-    assert not win.compute.is_running()
+    assert not win.single_run.compute.is_running()
 
 
 def test_running_edits_recent_restore_and_consecutive_dimensions(run_window, monkeypatch):
     win = run_window
     gui_thread = threading.get_ident()
-    original_capture = win._capture_current_preset
+    original_capture = win.case_files.capture_current_preset
     captures = []
 
     def capture(name):
         captures.append(threading.get_ident())
         return original_capture(name)
 
-    monkeypatch.setattr(win, '_capture_current_preset', capture)
+    monkeypatch.setattr(win.case_files, 'capture_current_preset', capture)
     for dim in (0, 1):
         win.combo_dim.setCurrentIndex(dim)
         win.le_Nx.setText('24')
         win.le_Ny.setText('18')
         win.le_Nz.setText('5')
-        win._active_preset_name = f'start-{dim}'
+        win.case_files.active_preset_name = f'start-{dim}'
         win.combo_grid.setCurrentIndex(win.combo_grid.findData(True))
         win.auto_fill_fluid_a()
         win.auto_fill_fluid_b()
@@ -212,22 +212,22 @@ def test_running_edits_recent_restore_and_consecutive_dimensions(run_window, mon
 
         _stub_compute_result(monkeypatch, run)
         try:
-            win.run_calculation()
+            win.single_run.submit()
             # A busy click must not replace the accepted run's snapshot.
             win.combo_dim.setCurrentIndex(1 - dim)
             win.combo_fluidA.setCurrentIndex(1)
             win.le_Nx.setText('99')
             win.le_Nz.setText('13')
-            win._active_preset_name = 'next draft'
+            win.case_files.active_preset_name = 'next draft'
             win.zone_table.setItem(0, 0, QTableWidgetItem('17'))
-            win.run_calculation()
+            win.single_run.submit()
             draft = original_capture('draft')
             QApplication.processEvents()
         finally:
             release.set()
-        _wait_for(win.compute.is_idle)
-        assert win.compute.last_result() is result, (
-            f"{win.compute.last_log()}\nGUI errors: {win._test_error_dialogs!r}")
+        _wait_for(win.single_run.is_idle)
+        assert win.single_run.compute.last_result() is result, (
+            f"{win.single_run.compute.last_log()}\nGUI errors: {win._test_error_dialogs!r}")
         assert original_capture('draft') == draft, 'completion overwrote editable inputs'
         entry = win._recent_runs[0]
         restored = deepcopy(entry['preset'])
@@ -245,8 +245,8 @@ def test_running_edits_recent_restore_and_consecutive_dimensions(run_window, mon
         input_grid = '24×18×5' if dim else '24×18'
         assert f'input grid {input_grid}' in tip_fields
         assert 'actual result grid ' + '×'.join(map(str, sizes)) in tip_fields
-        assert win._run_provenance is None
-        win._on_orch_finished(result)  # duplicate terminal delivery is ignored
+        assert win.single_run.provenance is None
+        win.single_run.compute.finished.emit(result)  # duplicate terminal delivery is ignored
         assert len(win._recent_runs) == dim + 1
         win._load_recent_run(entry)
         assert original_capture('Run inputs') == expected
@@ -269,30 +269,30 @@ def test_failed_or_rejected_run_cannot_record_or_leak(run_window, monkeypatch, o
         return ComputeResult(Q_W=99)
 
     _stub_compute_result(monkeypatch, run)
-    original_start = win.compute.start
+    original_start = win.single_run.compute.start
     if outcome == 'reject':
-        monkeypatch.setattr(win.compute, 'start', lambda *args, **kwargs: False)
+        monkeypatch.setattr(win.single_run.compute, 'start', lambda *args, **kwargs: False)
     try:
-        win.run_calculation()
+        win.single_run.submit()
         if outcome == 'close':
             assert not win.close()
         elif outcome == 'cancel':
-            win._on_cancel_compute()
+            win.single_run.cancel()
         win.le_Nx.setText('66')
     finally:
         release.set()
-    _wait_for(win.compute.is_idle)
+    _wait_for(win.single_run.is_idle)
     assert not getattr(win, '_recent_runs', [])
-    assert getattr(win, '_run_provenance', None) is None
+    assert win.single_run.provenance is None
     if outcome == 'close':
         return
-    monkeypatch.setattr(win.compute, 'start', original_start)
+    monkeypatch.setattr(win.single_run.compute, 'start', original_start)
     _stub_compute_result(monkeypatch, lambda config, **kwargs: ComputeResult(Q_W=321))
-    win._active_preset_name = 'recovery'
+    win.case_files.active_preset_name = 'recovery'
     win.auto_fill_fluid_a()
     win.auto_fill_fluid_b()
-    win.run_calculation()
-    _wait_for(win.compute.is_idle)
+    win.single_run.submit()
+    _wait_for(win.single_run.is_idle)
     assert len(win._recent_runs) == 1
     assert win._recent_runs[0]['input_grid'][0] == '66'
     assert win._recent_runs[0]['preset_source'] == 'recovery'
@@ -300,10 +300,10 @@ def test_failed_or_rejected_run_cannot_record_or_leak(run_window, monkeypatch, o
 
 def test_snapshot_deepcopies_nested_preset_payload(run_window, monkeypatch):
     win = run_window
-    payload = win._capture_current_preset('Run inputs')
+    payload = win.case_files.capture_current_preset('Run inputs')
     payload['zone_inputs']['pareto_x_decision'] = [6.0, 0.4]
     expected = deepcopy(payload)
-    monkeypatch.setattr(win, '_capture_current_preset', lambda name: payload)
+    monkeypatch.setattr(win.case_files, 'capture_current_preset', lambda name: payload)
     release = threading.Event()
 
     def run(config, *, control, progress_cb):
@@ -313,13 +313,13 @@ def test_snapshot_deepcopies_nested_preset_payload(run_window, monkeypatch):
     _stub_compute_result(monkeypatch, run)
     win.combo_dim.setCurrentIndex(0)
     try:
-        win.run_calculation()
+        win.single_run.submit()
         payload['zone_inputs']['pareto_x_decision'][0] = 99
         payload['line_edits']['le_Nx'] = '99'
     finally:
         release.set()
-    _wait_for(win.compute.is_idle)
-    assert win.compute.last_result().metadata['run_provenance']['preset'] == expected
+    _wait_for(win.single_run.is_idle)
+    assert win.single_run.compute.last_result().metadata['run_provenance']['preset'] == expected
     assert win._recent_runs[0]['preset']['zone_inputs'] == expected['zone_inputs']
 
 
@@ -335,7 +335,7 @@ def test_python_export_restores_complete_gui_inputs(run_window, monkeypatch):
     win.combo_dirA.setCurrentIndex(1)
     win.combo_df_mode.setCurrentIndex(0)
     win.combo_grid.setCurrentIndex(win.combo_grid.findData(True))
-    win._set_sco2_nu_parameters(asdict(SYNTHETIC))
+    win.case_files.set_sco2_nu_parameters(asdict(SYNTHETIC))
     win.combo_sco2_nu_mode.setCurrentIndex(1)
     win._temp_unit = 'C'
     win.le_TinA.setText('76.85')
@@ -346,7 +346,7 @@ def test_python_export_restores_complete_gui_inputs(run_window, monkeypatch):
     win.chk_zones.setChecked(True)
     win._pareto_x_decision = [6.5, .45] * 18
     win._pareto_y_trans_inlet, win._pareto_y_trans_outlet = .15, .18
-    expected = win._capture_current_preset('Python inputs')
+    expected = win.case_files.capture_current_preset('Python inputs')
     copied = []
     monkeypatch.setattr(QApplication, 'clipboard',
                         lambda: SimpleNamespace(setText=copied.append))
@@ -358,7 +358,7 @@ def test_python_export_restores_complete_gui_inputs(run_window, monkeypatch):
     namespace = {'window': win}
     exec(compile(copied[0], '<generated GUI preset>', 'exec'), namespace)
     assert namespace['cfg'] == expected
-    assert win._capture_current_preset('Python inputs') == expected
+    assert win.case_files.capture_current_preset('Python inputs') == expected
     assert win._temp_unit == 'C' and win.le_TinA.text() == '76.85'
 
 
@@ -366,7 +366,7 @@ def test_python_export_restores_complete_gui_inputs(run_window, monkeypatch):
 def test_started_signal_edits_happen_after_config_and_snapshot(run_window, monkeypatch, dim):
     win = run_window
     win.combo_dim.setCurrentIndex(dim)
-    expected = win._capture_current_preset('Run inputs')
+    expected = win.case_files.capture_current_preset('Run inputs')
     received = []
 
     def edit_on_started(mode):
@@ -379,11 +379,11 @@ def test_started_signal_edits_happen_after_config_and_snapshot(run_window, monke
         return ComputeResult(Q_W=42, diagnostics={'mode': '3d' if dim else '2d'})
 
     _stub_compute_result(monkeypatch, run)
-    win.compute.started.connect(edit_on_started)
-    win.run_calculation()
-    _wait_for(win.compute.is_idle)
+    win.single_run.compute.started.connect(edit_on_started)
+    win.single_run.submit()
+    _wait_for(win.single_run.is_idle)
     assert received == [24]
-    assert win.compute.last_result().metadata['run_provenance']['preset'] == expected
+    assert win.single_run.compute.last_result().metadata['run_provenance']['preset'] == expected
     assert win.le_Nx.text() == '88'
     assert len(win._recent_runs) == 1
 
@@ -395,8 +395,8 @@ def test_footer_and_history_follow_each_successful_result(run_window, monkeypatc
         win.auto_fill_fluid_a()
         win.auto_fill_fluid_b()
         _stub_compute_result(monkeypatch, lambda config, **kwargs: ComputeResult(Q_W=value))
-        win.run_calculation()
-        _wait_for(win.compute.is_idle)
+        win.single_run.submit()
+        _wait_for(win.single_run.is_idle)
         assert win._sb_labels['q'].text() == f'{value:.1f} W/m'
     assert [entry['Q'] for entry in win._recent_runs] == ['180.0', '120.0', '100.0']
 
@@ -410,7 +410,7 @@ def test_nu_run_snapshot_history_and_export(run_window, monkeypatch, tmp_path, d
     from tests.python.test_sco2_nu_modes import SYNTHETIC
     from sjtu_tpmshx.physical_models.nu_correlations import sco2_nu_metadata
     win = run_window
-    win._set_sco2_nu_parameters(asdict(SYNTHETIC))
+    win.case_files.set_sco2_nu_parameters(asdict(SYNTHETIC))
     win.combo_sco2_nu_mode.setCurrentIndex(1)
     win.combo_dim.setCurrentIndex(dim)
     release = threading.Event()
@@ -425,23 +425,23 @@ def test_nu_run_snapshot_history_and_export(run_window, monkeypatch, tmp_path, d
                       'darcy_forchheimer': {'mode': config.df_mode}})
     _stub_compute_result(monkeypatch, run)
     try:
-        win.run_calculation()
+        win.single_run.submit()
         win.combo_sco2_nu_mode.setCurrentIndex(0)
-        win._set_sco2_nu_parameters(asdict(replace(SYNTHETIC, alpha_D=1.3)))
+        win.case_files.set_sco2_nu_parameters(asdict(replace(SYNTHETIC, alpha_D=1.3)))
     finally:
         release.set()
-    _wait_for(win.compute.is_idle)
+    _wait_for(win.single_run.is_idle)
     expected = sco2_nu_metadata(SYNTHETIC)
     assert win._recent_runs[0]['model_metadata']['sco2_nu'] == expected
     assert win._recent_runs[0]['model_metadata'][eos_key] == eos
     assert win._recent_runs[0]['runtime_resources'] == resources
-    timeline = json.loads((win.sm.base_dir / '.session_timeline.jsonl').read_text().splitlines()[-1])
+    timeline = json.loads((win.case_files.store.base_dir / '.session_timeline.jsonl').read_text().splitlines()[-1])
     assert timeline['model_metadata']['sco2_nu'] == expected
     assert timeline['model_metadata'][eos_key] == eos
     assert timeline['runtime_resources'] == resources
     output = tmp_path / 'result.csv'
     monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: (str(output), ''))
-    win._export_results()
+    win.result_export.export_results()
     with output.open() as stream:
         rows = dict(csv.reader(stream))
     assert json.loads(rows['metadata'])['sco2_nu'] == expected

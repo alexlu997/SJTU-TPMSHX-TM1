@@ -274,13 +274,12 @@ def build_actions(w) -> list[Action]:
         acts.append(Action(title, cat, cb, **kw))
 
     # Compute & export
-    add("Run Compute", "Compute", w.run_calculation,
+    add("Run Compute", "Compute", w.single_run.submit,
         keywords=("solve", "simulate", "run"))
     add("Reset parameters to preset", "Compute", w._reset_defaults,
         keywords=("reset", "default", "clear"))
-    if hasattr(w, '_export_results'):
-        add("Export results to CSV…", "Compute", w._export_results,
-            keywords=("save", "csv", "export"))
+    add("Export results to CSV…", "Compute", w.result_export.export_results,
+        keywords=("save", "csv", "export"))
     if hasattr(w, '_copy_inputs_as_python'):
         add("Copy inputs as Python code", "Compute",
             w._copy_inputs_as_python,
@@ -303,9 +302,8 @@ def build_actions(w) -> list[Action]:
     if hasattr(w, '_show_overview'):
         add("Overview dashboard…", "Compute", w._show_overview,
             keywords=("dashboard", "overview", "summary", "home"))
-    if hasattr(w, '_run_optimize'):
-        add("Optimize (continuous field)", "Compute", w._run_optimize,
-            keywords=("pareto", "qlognehvi", "bayesian", "optimise", "search"))
+    add("Optimize (continuous field)", "Compute", w.optimization.start,
+        keywords=("pareto", "qlognehvi", "bayesian", "optimise", "search"))
     def _open_sens():
         from sjtu_tpmshx.applications.gui.ui.sensitivity import open_sensitivity
         open_sensitivity(w)
@@ -332,7 +330,7 @@ def build_actions(w) -> list[Action]:
             keywords=("inspector", "probe", "hover", "values"))
 
     # Tabs: list only views backed by currently available result state.
-    _available_tabs = w._canvas_tab_availability()
+    _available_tabs = w.workbench.canvas_tab_availability()
     # ui-shortcuts-persist: labels in Chinese to match the toolbar chrome;
     # the English keywords stay so "temp"/"pareto" still find the entries.
     for tab, key, desc in [
@@ -346,15 +344,14 @@ def build_actions(w) -> list[Action]:
         if not _available_tabs.get(tab, False):
             continue
         add(desc, "Tabs",
-            (lambda t=tab: w._switch_tab(t)),
+            (lambda t=tab: w.workbench.switch_tab(t)),
             keywords=(key, "tab", "view"))
 
-    # Presets — display de-branded (ui.fmt.preset_display); the internal
-    # key passed to _load_named_preset keeps the historical spelling.
+    # Show the display name and pass the stored key to CaseFiles.
     from sjtu_tpmshx.applications.gui.ui.fmt import preset_display as _pd
-    for name in getattr(w, '_BUILTIN_PRESETS', ()):
+    for name in w.case_files.BUILTIN_PRESETS:
         add(f"Preset: {_pd(name)}", "Preset",
-            (lambda n=name: w._load_named_preset(n)),
+            (lambda n=name: w.case_files.load_named_preset(n)),
             keywords=("preset", "load", "算例", name.lower()))
 
     # Fluid type switches
@@ -375,9 +372,9 @@ def build_actions(w) -> list[Action]:
                 keywords=("fluid", "b", fluid_name.lower()))
 
     # Workspaces
-    for ws in getattr(w, '_WORKSPACES', ('A', 'B', 'C')):
+    for ws in w.case_files.WORKSPACES:
         add(f"Switch to workspace {ws}", "Workspace",
-            (lambda name=ws: w._switch_workspace(name)),
+            (lambda name=ws: w.case_files.switch_workspace(name)),
             keywords=("workspace", "ws", ws.lower()))
 
     # Help surface
@@ -397,11 +394,11 @@ def build_actions(w) -> list[Action]:
     _3d_tab_ready = _available_tabs.get('3d', False)
     _3d_panel_ready = getattr(w, 'canvas_3d', None) is not None
     if _3d_tab_ready and _3d_panel_ready:
-        if getattr(w, '_3d_detached_window', None) is None:
-            add("Open 3D in new window", "3D", w._detach_3d_window,
+        if w.workbench.detached_volume is None:
+            add("Open 3D in new window", "3D", w.workbench.detach_3d_window,
                 keywords=("detach", "window", "multi-monitor"))
         else:
-            add("Re-dock 3D panel", "3D", w._reattach_3d_window,
+            add("Re-dock 3D panel", "3D", w.workbench.reattach_3d_window,
                 keywords=("redock", "reattach"))
 
     # Recent runs (top 5)

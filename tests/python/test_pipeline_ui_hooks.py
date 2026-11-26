@@ -5,7 +5,7 @@ from sjtu_tpmshx.applications.gui.controllers.compute_orchestrator import Cancel
 from sjtu_tpmshx.run_control.cancellation import CancelledError
 from sjtu_tpmshx.data_types.compute_config import ComputeConfig
 from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.applications.gui.ui.mixins.run_controller import _run_compute
+from sjtu_tpmshx.applications.gui.ui.single_run import _run_compute
 
 
 def test_cancel_token_cancelled_property():
@@ -16,7 +16,7 @@ def test_cancel_token_cancelled_property():
 
 
 @pytest.mark.parametrize('source', ['gui', 'host'])
-def test_cancelled_run_skips_preparation(monkeypatch, source):
+def test_cancelled_run_skips_preparation(tmp_path, monkeypatch, source):
     token = CancelToken()
     if source == 'gui':
         token.cancel()
@@ -24,14 +24,15 @@ def test_cancelled_run_skips_preparation(monkeypatch, source):
     monkeypatch.setattr('sjtu_tpmshx.preprocess.api.prepare_case',
                         lambda *a, **k: pytest.fail('prepared cancelled run'))
     with pytest.raises(CancelledError):
-        _run_compute(ComputeConfig(), token, lambda p: None, ui_hooks={}, control=host)
+        _run_compute(ComputeConfig(), token, lambda p: None, ui_hooks={}, control=host,
+                     run_directory=tmp_path, checkpoint_interval_s=60.)
 
 
 
 
 @pytest.mark.parametrize('nz', [1, 3])
 @pytest.mark.parametrize('host_hooks', [False, True])
-def test_gui_and_host_controls_reach_solver(monkeypatch, nz, host_hooks):
+def test_gui_and_host_controls_reach_solver(tmp_path, monkeypatch, nz, host_hooks):
     gui_progress, host_progress, residuals, labels, outer = [], [], [], [], []
     gui_labels, gui_outer = [], []
     requested = [False]
@@ -45,6 +46,11 @@ def test_gui_and_host_controls_reach_solver(monkeypatch, nz, host_hooks):
     token, case = CancelToken(), object()
     config = ComputeConfig()
     config.solver.Nz, config.geometry.Lz_m = nz, .03
+
+    from sjtu_tpmshx.compute import compute
+    monkeypatch.setattr('sjtu_tpmshx.applications.execution.recovery.compute_run',
+                        lambda cfg, directory, *, control, progress_cb, **kwargs:
+                        compute(cfg, control=control, progress_cb=progress_cb))
 
     def prepare(actual, *, case_id):
         assert actual is config and case_id
@@ -76,7 +82,8 @@ def test_gui_and_host_controls_reach_solver(monkeypatch, nz, host_hooks):
     monkeypatch.setattr('sjtu_tpmshx.postprocess.api.evaluate',
                         lambda *a: pytest.fail('evaluated cancelled result'))
     with pytest.raises(CancelledError):
-        _run_compute(config, token, gui_progress.append, control=host, ui_hooks={
+        _run_compute(config, token, gui_progress.append, control=host,
+                     run_directory=tmp_path, checkpoint_interval_s=60., ui_hooks={
             'iter_label_cb': gui_labels.append,
             'iter_cb': lambda k, n: gui_outer.append((k, n))})
     assert gui_progress == [20, 55, 90]

@@ -101,8 +101,8 @@ def test_co2_gui_defaults_save_and_fixed_preview_are_distinct_from_sco2(mass_win
         assert compute('Gyroid', 7., .6, .3, 340., 8e6, 16., fluid_type='co2', df_mode=mode) == expected
         assert float(getattr(window, '_v_dPL' + side).text()) == pytest.approx(expected['dP_per_L'], abs=.05)
         assert float(getattr(window, '_v_Nu' + side).text()) == pytest.approx(expected['Nu'], abs=.00005)
-    preset = window._capture_current_preset('co2 inputs')
+    preset = window.case_files.capture_current_preset('co2 inputs')
     combo.setCurrentIndex(2)
     assert getattr(config_from_window(window), 'fluid_' + side).type == 'sco2'
-    window._apply_user_preset(preset, show_notice=False)
+    window.case_files.apply_user_preset(preset, show_notice=False)
     assert getattr(config_from_window(window, strict=True), 'fluid_' + side).type == 'co2'

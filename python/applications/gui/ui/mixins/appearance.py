@@ -78,7 +78,7 @@ class AppearanceMixin:
                 self, "任务仍在运行", "外观设置已保存。请等待当前任务结束后重启软件。")
             return
         try:
-            saved = bool(self._save_session())
+            saved = bool(self.case_files.save_session())
         except Exception:
             saved = False
         if not saved:
@@ -104,7 +104,7 @@ class AppearanceMixin:
         if focused and not getattr(self, '_left_collapsed', False) and self._parameter_host.isVisible():
             self._param_width = self._parameter_host.width()
         self._3d_immersive = focused
-        optimizing = getattr(self, '_active_tab', None) == 'pareto'
+        optimizing = self.workbench.active_tab == 'pareto'
         self._parameter_host.setVisible(not focused and not optimizing)
         if not focused:
             self._set_parameter_panel_collapsed(getattr(self, '_left_collapsed', False))
@@ -112,7 +112,7 @@ class AppearanceMixin:
         self.btn_focus_view.setText('退出专注' if focused else '专注')
         # A running solve keeps its progress and cancel action visible.
         self._run_status_card.setVisible(
-            (not focused and not optimizing) or getattr(self, '_compute_running', False))
+            (not focused and not optimizing) or not self.single_run.is_idle())
         update_result_sidebar_visibility(self)
         self.statusBar().showMessage(
             '专注当前画布 · 按 F 退出' if focused else '已恢复工作台布局', 3000)

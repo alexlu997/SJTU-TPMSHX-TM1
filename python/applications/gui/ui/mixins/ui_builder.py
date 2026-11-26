@@ -1,14 +1,4 @@
-"""UI construction + install/setup handlers for ``Main_Menu``.
-
-The main UI builder delegates to its owning module; page/tab/canvas
-assembly calls the builder module functions directly. This mixin
-also installs the status bar, undo stack and field help. UI-only -- no solver
-or numeric path. Adopted via
-``class Main_Menu(..., UIBuilderMixin, ..., QMainWindow)``; methods
-resolve on the live window through the MRO so external wiring keeps
-working. Each body keeps its own local imports; the only top-level
-imports needed are PySide6 widgets and ui.theme.get_theme.
-"""
+"""Install the desktop status bar, undo stack and field help."""
 
 from __future__ import annotations
 
@@ -19,10 +9,6 @@ from sjtu_tpmshx.applications.gui.ui.theme import get_theme
 
 class UIBuilderMixin:
     """Page/tab/canvas builders + status-bar / undo / help installers."""
-
-    def _build_ui(self):
-        from sjtu_tpmshx.applications.gui.ui.ui_builders import build_ui
-        return build_ui(self)
 
     def _install_status_bar_widgets(self):
         """Mount permanent status-bar widgets on the right edge of the
@@ -114,7 +100,7 @@ class UIBuilderMixin:
         self._undo_stack.setUndoLimit(200)
         self._undo_last = {}
 
-        for name in self._SESSION_LINE_EDITS:
+        for name in self.case_files.SESSION_LINE_EDITS:
             le = getattr(self, name, None)
             if le is None:
                 continue

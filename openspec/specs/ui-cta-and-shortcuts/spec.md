@@ -17,11 +17,11 @@ Compute 主按钮 SHALL 常驻左面板底部固定条（不随参数滚动消�
 - **THEN** 计算期间按钮文本变为 Cancel 计时样式，结束后恢复
 
 ### Requirement: Empty-state preset shortcut
-空状态 SHALL 含"载入算例工况"按钮，点击 SHALL 调用既有 `_load_named_preset('Shanghai (3D Gyroid)')`（内部键保留历史拼写，显示层经 `applications.gui.ui.fmt.preset_display` 去品牌化）；空状态整体（文案+按钮）SHALL 在首次计算后隐藏（现行为保持）。
+空状态 SHALL 含"载入算例工况"按钮，点击 SHALL 调用 `CaseFiles.load_named_preset('Shanghai (3D Gyroid)')`（内部键保留历史拼写，显示层经 `applications.gui.ui.fmt.preset_display` 去品牌化）。空状态整体（文案和按钮）SHALL 在首次计算后隐藏。
 
 #### Scenario: One-click runnable config
 - **WHEN** 点击空状态 preset 按钮
-- **THEN** 输入字段被算例工况预设改写（`_active_preset_name` 置位）
+- **THEN** 算例工况预设更新输入字段，并设置 `CaseFiles.active_preset_name`
 
 ### Requirement: Result summary
 结果摘要 SHALL 显示当前已接受结果的 Q、ΔP_A、ΔP_B 和出口温度，使用一致的标签、单位及数值层级；不依赖隐藏的旧 KPI chip 或 delta 徽标。
@@ -53,7 +53,7 @@ Compute 主按钮 SHALL 常驻左面板底部固定条（不随参数滚动消�
 - **THEN** 动作文本为「恢复算例工况默认值」，无 "Shanghai"
 
 ### Requirement: Workbench state persists across sessions
-`_save_session` payload SHALL 含 `ui_state`：`active_tab`（结果家族存解析前的家族键）、`left_collapsed`（左栏折叠布尔）、`result_view`（'2d'|'3d'）。`_restore_session` SHALL 尽力恢复：先 `result_view`，再左栏折叠，最后 `active_tab`（若该页签被门控不可用，回落 layout —— 沿用 `_switch_tab` 既有回落，不新增逻辑）。缺失/损坏键 SHALL 静默跳过（与既有会话恢复同风格）。
+`CaseFiles.save_session` payload SHALL 含 `ui_state`：`active_tab`（结果家族存解析前的家族键）、`left_collapsed`（左栏折叠布尔）、`result_view`（'2d'|'3d'）。`CaseFiles.restore_session` SHALL 尽力恢复：先 `result_view`，再左栏折叠，最后 `active_tab`（若该页签被门控不可用，回落 layout —— 沿用 `Workbench.switch_tab` 既有回落，不新增逻辑）。缺失/损坏键 SHALL 静默跳过（与既有会话恢复同风格）。
 
 #### Scenario: Reopen lands on the saved tab
 - **WHEN** 用户在优化设计页关闭应用后重开
