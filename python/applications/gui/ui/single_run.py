@@ -1,6 +1,7 @@
 """Submit, pause, resume and finish one full-domain calculation."""
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
@@ -125,7 +126,7 @@ class SingleRun(QObject):
                 return
 
         files = window.case_files
-        preset = files.capture_current_preset('Run inputs')
+        preset = deepcopy(files.capture_current_preset('Run inputs'))
         axes = 'xyz' if config.is_3d else 'xy'
         provenance = dict(preset=preset, preset_source=files.active_preset_name or '—', mode=mode,
                           input_grid=[preset['line_edits']['le_N' + axis] for axis in axes])

@@ -66,7 +66,7 @@ No visible UI string MUST contain the Shanghai brand name. Tab tooltips MUST use
 - **THEN** the action text is “恢复算例工况默认值” without “Shanghai”
 
 ### Requirement: Workbench state persists across sessions
-The `_save_session` payload MUST contain `ui_state` with `active_tab`, `left_collapsed`, and `result_view`. Result tabs store their family key before resolution. `left_collapsed` is Boolean. `result_view` is '2d' or '3d'. `_restore_session` MUST restore available state in this order: result_view, left rail collapse, then active_tab. If a gate blocks the saved tab, existing `_switch_tab` behavior falls back to layout. No new fallback logic is required. Missing or damaged keys MUST be skipped silently, consistent with existing session restoration.
+The `CaseFiles.save_session` payload MUST contain `ui_state` with `active_tab`, `left_collapsed`, and `result_view`. Result tabs store their family key before resolution. `left_collapsed` is Boolean. `result_view` is '2d' or '3d'. `CaseFiles.restore_session` MUST restore available state in this order: result_view, left rail collapse, then active_tab. If a gate blocks the saved tab, existing `Workbench.switch_tab` behavior falls back to layout. No new fallback logic is required. Missing or damaged keys MUST be skipped silently, consistent with existing session restoration.
 
 #### Scenario: Reopen lands on the saved tab
 - **WHEN** the user closes the application on Design Optimization and opens it again

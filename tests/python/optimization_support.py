@@ -113,13 +113,12 @@ def condition(name='one'):
 
 
 def report(window, *, status='completed'):
-    from sjtu_tpmshx.applications.gui.ui import optimize_panel as panel
     from sjtu_tpmshx.physical_models.continuous_field import decision_dim
-    cfg = panel._gather_cfg(window)
+    cfg = window.optimization.capture_case()
     # Optimizer reports keep the targets used for each condition.
     cfg = replace(cfg, fluid_A=replace(cfg.fluid_A, mass_flow_kg_s=.003),
                   fluid_B=replace(cfg.fluid_B, mass_flow_kg_s=.015))
-    spec = panel._field_spec(window)
+    spec = window.optimization.field_spec()
     count = decision_dim(spec['n_ctrl_x'], spec['n_ctrl_y'], spec['symmetric_y'],
                          n_ctrl_z=spec.get('n_ctrl_z')) // 2
     # Different z controls ensure flattening or mean backfill cannot pass.

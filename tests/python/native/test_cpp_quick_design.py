@@ -779,7 +779,7 @@ from PySide6.QtCore import QObject, Slot
 from PySide6.QtWidgets import QApplication
 from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.solvers import api
-from sjtu_tpmshx.applications.gui.ui.quick_design_panel import _make_worker_class
+from sjtu_tpmshx.applications.gui.ui.quick_design_job import QuickDesignJob
 
 app = QApplication(['native-qd-worker', '-platform', 'offscreen'])
 source, library, termination = sys.argv[1:]
@@ -831,7 +831,7 @@ control = RunControl(backend='cpp', native_library=library,
 params = dict(file=source, mode='fixed', cell=('Diamond', 8., .4),
               arrangement='cross', rho_s=7900., k_s=16., prop_model='const',
               height=None, refine=False)
-worker = _make_worker_class()(params, control=control)
+worker = QuickDesignJob(params, control=control)
 receiver = Receiver()
 worker.finished_with_result.connect(receiver.result)
 worker.error_signal.connect(receiver.error)

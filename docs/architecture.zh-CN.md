@@ -93,6 +93,7 @@ Python 目录的职责见 [Python 分层所有者](#python-分层所有者)表�
 Python 在 [python/](../python/) 下负责公共 API、配置、不可变 DTO、文件 I/O、缓存、警告格式化与应用工作流。
 数值代码保持不依赖 Qt。
 GUI 代码位于 `python/applications/gui/ui/`（`Main_Menu` 位于 `main_window.py`）和 `python/applications/gui/controllers/`。启动入口为 `python/applications/gui/main.py` 与 `python/desktop.py`。
+主窗口组装 `SingleRun`、`OptimizationPage` 和 `QuickDesignPage`。每个任务所有者负责启动、取消和线程退出。`Workbench` 选择视图，`FieldResults` 发布结果，`ResultExport` 导出数据与图表，`CaseFiles` 读写算例、预设和工作区会话。优化输入和工况解码位于无 Qt 依赖的 `applications/optimization/optimization_job.py`。
 
 | 分层 | 所有者路径 | 职责 |
 | --- | --- | --- |

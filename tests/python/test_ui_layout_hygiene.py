@@ -120,7 +120,7 @@ def test_empty_state_preset_button_applies_shanghai(win):
     app = QApplication.instance()
     win._empty_state_preset_btn.click()
     app.processEvents()
-    assert getattr(win, "_active_preset_name", None) == "Shanghai (3D Gyroid)"
+    assert getattr(win.case_files, "active_preset_name", None) == "Shanghai (3D Gyroid)"
 
 
 def test_sticky_cta_outside_scroll(win):
@@ -182,7 +182,7 @@ def test_tpms_computed_is_visible_before_and_after_calculation(win):
 
 def test_diagnostics_reachable_with_expanded_or_collapsed_sidebar(win, monkeypatch):
     calls = []
-    monkeypatch.setattr(win, '_show_diag_dialog', lambda: calls.append(True))
+    monkeypatch.setattr(win.results, 'show_diag_dialog', lambda: calls.append(True))
     try:
         if getattr(win, '_left_collapsed', False):
             win._toggle_left_panel()
@@ -258,16 +258,16 @@ def test_2d_field_segment_drives_combo(win):
     win._2d_field_seg.setEnabled(True)
     btns[2].click()                             # 压力
     assert win.combo_2d_field.currentIndex() == 2
-    assert win._resolve_2d_view_card() == 'pres'
+    assert win.workbench.resolve_2d_view_card() == 'pres'
     win.combo_2d_field.setCurrentIndex(0)       # reverse path
-    assert win._resolve_2d_view_card() == 'temp'
+    assert win.workbench.resolve_2d_view_card() == 'temp'
 
 
 def test_copy_figure_clipboard_no_data_safe(win):
     """No drawn canvas → status message, no exception, clipboard untouched."""
-    win._active_tab = 'layout'
+    win.workbench.active_tab = 'layout'
     win.cache.replace_drawn_tabs(set())
-    win._copy_figure_clipboard()                # must not raise
+    win.result_export.copy_figure_clipboard()                # must not raise
 
 
 # ── ui-plan3-workbench T1: three-tab toolbar + result aggregation ────
@@ -292,14 +292,14 @@ def test_legacy_switch_lights_result_button(win):
     win.combo_dim.setCurrentIndex(0)
     win.cache.set_result('2d', ComputeResult())
     win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})  # These layout stubs represent rendered fields.
-    win._update_tab_visibility()
-    win._switch_tab('temp')
-    assert win._active_tab == 'temp'
-    assert win._result_view == '2d'
+    win.workbench.update_tab_visibility()
+    win.workbench.switch_tab('temp')
+    assert win.workbench.active_tab == 'temp'
+    assert win.workbench.result_view == '2d'
     assert win.btn_tab_result.styleSheet() == win._PTAB_ON
-    win._switch_tab('layout')
+    win.workbench.switch_tab('layout')
     win.cache.clear('2d')       # setter clears the cached result
-    win._update_tab_visibility()
+    win.workbench.update_tab_visibility()
 
 
 def test_result_view_toggle_gating(win):
@@ -308,7 +308,7 @@ def test_result_view_toggle_gating(win):
     win.combo_dim.setCurrentIndex(0)
     win.cache.set_result('2d', ComputeResult())
     win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})  # These layout stubs represent rendered fields.
-    win._update_tab_visibility()
+    win.workbench.update_tab_visibility()
     assert win._result_view_btns['2d'].isEnabled()
     assert not win._result_view_btns['3d'].isEnabled()
     assert win.btn_tab_result.isEnabled()
@@ -317,7 +317,7 @@ def test_result_view_toggle_gating(win):
         assert win._result_view_btns['2d'].isChecked()
         assert not win._result_view_btns['3d'].isChecked()
     win.cache.clear('2d')
-    win._update_tab_visibility()
+    win.workbench.update_tab_visibility()
     assert not win.btn_tab_result.isEnabled()
 
 
@@ -326,21 +326,21 @@ def test_result_summary_toggle_keeps_values_and_tab_choice(win):
     result = ComputeResult()
     win.cache.set_result('2d', result)
     win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})
-    win._update_tab_visibility()
-    win._switch_tab('temp')
+    win.workbench.update_tab_visibility()
+    win.workbench.switch_tab('temp')
     assert win.btn_result_summary.isVisibleTo(win)
     assert win._result_sidebar.isVisibleTo(win)
     before = {key: label.text() for key, label in win._sb_labels.items()}
     win.btn_result_summary.click()
     assert win._result_sidebar.isHidden()
-    win._switch_tab('layout')
+    win.workbench.switch_tab('layout')
     assert win.btn_result_summary.isHidden()
-    win._switch_tab('temp')
+    win.workbench.switch_tab('temp')
     assert win._result_sidebar.isHidden()
     assert {key: label.text() for key, label in win._sb_labels.items()} == before
     win.btn_result_summary.click()
     assert win._result_sidebar.isVisibleTo(win)
-    win._invalidate_results_for_preset_load()
+    win.case_files.invalidate_results_for_preset_load()
     assert win._result_sidebar.isHidden()
     assert win.btn_result_summary.isHidden()
 
@@ -349,33 +349,31 @@ def test_result_summary_toggle_keeps_values_and_tab_choice(win):
 
 
 def test_optimize_wizard_pages(win):
-    """Three wizard pages; pills flip the stack; engine stage transitions
-    drive the page via _set_stage_pill(state='active')."""
-    stack = win._opt_stack
+    """A stage change selects its wizard page."""
+    stack = win.optimization.stack
     assert stack.count() == 3
     assert stack.currentIndex() == 0          # starts on 配置
-    from sjtu_tpmshx.applications.gui.ui.optimize_panel import _set_stage_pill
-    _set_stage_pill(win, 'running', 'active')
+    win.optimization.set_stage('running', 'active')
     assert stack.currentIndex() == 1
-    _set_stage_pill(win, 'result', 'active')
+    win.optimization.set_stage('result', 'active')
     assert stack.currentIndex() == 2
-    _set_stage_pill(win, 'config', 'active')
+    win.optimization.set_stage('config', 'active')
     assert stack.currentIndex() == 0
 
 
 def test_optimize_inline_params_complete(win):
     """Page-1 inline params carry every key the launch path consumes —
     the modal dialog is only the fallback for hosts without the wizard."""
-    keys = set(win._opt_inline_params)
+    keys = set(win.optimization.parameters)
     assert keys == {'n_init', 'n_iter', 'q_batch', 'seed'}
-    for sp in win._opt_inline_params.values():
+    for sp in win.optimization.parameters.values():
         assert sp.value() > 0 or sp.value() == 0   # constructed + in range
 
 
 def test_optimize_zone_panel_in_wizard(win):
     """The zone panel lives inside wizard page 1 (the old splitter is
     retired)."""
-    p1 = win._opt_stack.widget(0)
+    p1 = win.optimization.stack.widget(0)
     assert win._zone_panel.isVisibleTo(p1) or p1.isAncestorOf(win._zone_panel)
 
 
@@ -510,8 +508,8 @@ def test_preflight_dialogs_use_active_theme_tokens(win, monkeypatch, theme_name)
         tokens = get_theme()
 
         win.le_L.setText('')
-        assert not win._validate_inputs_preflight()
-        assert not win._preflight_grid(cfg)
+        assert not win.single_run.validate_inputs()
+        assert not win.single_run.preflight_grid(cfg)
     finally:
         set_theme(previous_theme)
         win.le_L.setText(original_L)
@@ -621,10 +619,10 @@ def test_reveal_invalid_input_opens_its_page_and_inspector(win):
 def test_model_visibility_follows_preset_without_changing_inputs(win, side):
     from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
 
-    win._apply_user_preset({'combos': {'combo_fluidA': 0, 'combo_fluidB': 1}})
+    win.case_files.apply_user_preset({'combos': {'combo_fluidA': 0, 'combo_fluidB': 1}})
     section = win._ia_sections['sco2_nu']
     assert section.isHidden()
-    win._apply_user_preset({
+    win.case_files.apply_user_preset({
         'combos': {f'combo_fluid{side}': 2},
         'line_edits': {f'le_u{side}': '1.8', f'le_Tin{side}': '360',
                        f'le_Pin{side}': '8000000'},
@@ -633,10 +631,10 @@ def test_model_visibility_follows_preset_without_changing_inputs(win, side):
     fluid = getattr(config_from_window(win), f'fluid_{side}')
     assert (fluid.type, fluid.u_mps, fluid.T_in_K, fluid.P_in_Pa) == (
         'sco2', 1.8, 360., 8e6)
-    saved = win._capture_current_preset('sCO2')
-    win._apply_user_preset({'combos': {'combo_fluidA': 0, 'combo_fluidB': 1}})
+    saved = win.case_files.capture_current_preset('sCO2')
+    win.case_files.apply_user_preset({'combos': {'combo_fluidA': 0, 'combo_fluidB': 1}})
     assert section.isHidden()
-    win._apply_user_preset(saved)
+    win.case_files.apply_user_preset(saved)
     assert not section.isHidden()
     assert getattr(config_from_window(win), f'fluid_{side}') == fluid
     # A selected experimental model remains reachable even without sCO2.
@@ -686,14 +684,14 @@ def test_cycle_tab_skips_hidden_legacy(win):
     win.combo_dim.setCurrentIndex(0)
     win.cache.set_result('2d', ComputeResult())
     win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})  # These layout stubs represent rendered fields.
-    win._update_tab_visibility()
-    win._switch_tab('temp')               # result family
+    win.workbench.update_tab_visibility()
+    win.workbench.switch_tab('temp')               # result family
     win._cycle_tab(+1)
-    assert win._active_tab == 'pareto'
+    assert win.workbench.active_tab == 'pareto'
     win._cycle_tab(+1)
-    assert win._active_tab == 'layout'
+    assert win.workbench.active_tab == 'layout'
     win.cache.clear('2d')
-    win._update_tab_visibility()
+    win.workbench.update_tab_visibility()
 
 
 def test_toggle_result_view_gated(win):
@@ -702,14 +700,14 @@ def test_toggle_result_view_gated(win):
     win.combo_dim.setCurrentIndex(0)
     win.cache.set_result('2d', ComputeResult())
     win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})  # These layout stubs represent rendered fields.
-    win._update_tab_visibility()
-    win._switch_tab('temp')
-    assert win._result_view == '2d'
-    win._toggle_result_view()
-    assert win._result_view == '2d'       # 3D gated → no flip
-    win._switch_tab('layout')
+    win.workbench.update_tab_visibility()
+    win.workbench.switch_tab('temp')
+    assert win.workbench.result_view == '2d'
+    win.workbench.toggle_result_view()
+    assert win.workbench.result_view == '2d'       # 3D gated → no flip
+    win.workbench.switch_tab('layout')
     win.cache.clear('2d')
-    win._update_tab_visibility()
+    win.workbench.update_tab_visibility()
 
 
 def test_field_menu_revert_is_debranded(win):
@@ -742,16 +740,16 @@ def test_session_ui_state_round_trip(win):
     win.combo_dim.setCurrentIndex(0)
     win.cache.set_result('2d', ComputeResult())
     win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})  # These layout stubs represent rendered fields.
-    win._update_tab_visibility()
-    win._switch_tab('temp')               # result family, view '2d'
+    win.workbench.update_tab_visibility()
+    win.workbench.switch_tab('temp')               # result family, view '2d'
 
     captured = {}
-    orig_save = win.sm.save_session
-    win.sm.save_session = lambda payload, ws: captured.update(payload) or True
+    orig_save = win.case_files.store.save_session
+    win.case_files.store.save_session = lambda payload, ws: captured.update(payload) or True
     try:
-        win._save_session()
+        win.case_files.save_session()
     finally:
-        win.sm.save_session = orig_save
+        win.case_files.store.save_session = orig_save
     ui = captured.get('ui_state')
     assert ui is not None
     assert ui['active_tab'] == 'result'   # family key collapsed
@@ -760,15 +758,15 @@ def test_session_ui_state_round_trip(win):
 
     # Restoring inputs invalidates the old field cache; a saved result tab
     # therefore falls back to layout until this restored case is computed.
-    win._switch_tab('layout')
-    orig_load = win.sm.load_session
-    win.sm.load_session = lambda ws: dict(captured)
+    win.workbench.switch_tab('layout')
+    orig_load = win.case_files.store.load_session
+    win.case_files.store.load_session = lambda ws: dict(captured)
     try:
-        win._restore_session()
+        win.case_files.restore_session()
     finally:
-        win.sm.load_session = orig_load
-    assert win._active_tab == 'layout'
+        win.case_files.store.load_session = orig_load
+    assert win.workbench.active_tab == 'layout'
     assert not win.cache.has_results('2d')
-    win._switch_tab('layout')
+    win.workbench.switch_tab('layout')
     win.cache.clear('2d')
-    win._update_tab_visibility()
+    win.workbench.update_tab_visibility()

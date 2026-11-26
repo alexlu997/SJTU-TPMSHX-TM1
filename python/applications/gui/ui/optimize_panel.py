@@ -327,7 +327,7 @@ class OptimizationPage(QWidget):
             "预览二维连续场；三维可查看中面切片与交互体视图"
             "（未选 Pareto 解时显示界中值均匀场）")
 
-        btn_field_prev.clicked.connect(self.show_field_preview)
+        btn_field_prev.clicked.connect(lambda: self.show_field_preview())
         space_lay.addWidget(btn_field_prev)
         space_lay.addStretch(1)
         p1row.addWidget(space_card)
@@ -730,6 +730,8 @@ class OptimizationPage(QWidget):
         try:
             inputs = (self._capture_input() if resume_file is None
                       else study.OptimizationInput.from_checkpoint(resume_file))
+            if self._form._close_pending:
+                return
             name = f'{inputs.method}_{time.strftime("%Y%m%d_%H%M%S")}_{time.time_ns()%1000000:06d}'
             output_dir = optimization_output_dir() / name
             self._job = OptimizationJob(inputs, output_dir, self._form.run_control, self._terminal, self)
@@ -1251,8 +1253,8 @@ class OptimizationPage(QWidget):
             data = self.volume_data
             panel = self.volume_panel
             if panel is None:
-                if self._form._vis3d_import_error:
-                    raise RuntimeError(self._form._vis3d_import_error)
+                if self._form.workbench.import_error:
+                    raise RuntimeError(self._form.workbench.import_error)
                 from .panel_vis_3d import ThreeDVisPanel
                 panel = ThreeDVisPanel(self.volume_host)
                 panel.restore_color_ranges(self._volume_ranges)

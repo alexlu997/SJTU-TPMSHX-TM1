@@ -53,7 +53,7 @@ Compute 主按钮 SHALL 常驻左面板底部固定条（不随参数滚动消�
 - **THEN** 动作文本为「恢复算例工况默认值」，无 "Shanghai"
 
 ### Requirement: Workbench state persists across sessions
-`_save_session` payload SHALL 含 `ui_state`：`active_tab`（结果家族存解析前的家族键）、`left_collapsed`（左栏折叠布尔）、`result_view`（'2d'|'3d'）。`_restore_session` SHALL 尽力恢复：先 `result_view`，再左栏折叠，最后 `active_tab`（若该页签被门控不可用，回落 layout —— 沿用 `_switch_tab` 既有回落，不新增逻辑）。缺失/损坏键 SHALL 静默跳过（与既有会话恢复同风格）。
+`CaseFiles.save_session` payload SHALL 含 `ui_state`：`active_tab`（结果家族存解析前的家族键）、`left_collapsed`（左栏折叠布尔）、`result_view`（'2d'|'3d'）。`CaseFiles.restore_session` SHALL 尽力恢复：先 `result_view`，再左栏折叠，最后 `active_tab`（若该页签被门控不可用，回落 layout —— 沿用 `Workbench.switch_tab` 既有回落，不新增逻辑）。缺失/损坏键 SHALL 静默跳过（与既有会话恢复同风格）。
 
 #### Scenario: Reopen lands on the saved tab
 - **WHEN** 用户在优化设计页关闭应用后重开

@@ -73,6 +73,7 @@ def test_narrow_field_colorbars_keep_distinct_absolute_labels(dimension, field, 
 def test_frozen_b_temperature_remains_selectable_in_real_phase_controls():
     from PySide6.QtWidgets import QApplication, QFrame, QPushButton
     from sjtu_tpmshx.applications.gui.ui.builders_canvas import refresh_field_controls
+    from sjtu_tpmshx.applications.gui.ui.workbench import Workbench
 
     app = QApplication.instance() or QApplication([])
     host = QFrame()
@@ -84,16 +85,17 @@ def test_frozen_b_temperature_remains_selectable_in_real_phase_controls():
                              _field_phase_btns=buttons, _phase_styles=('', ''),
                              _result_view_switch=QFrame(host),
                              btn_update_geometry=QPushButton('更新几何', host))
+    window.workbench = Workbench(window)
     window.cache.set_result('3d', result)
     for tab in ('temp', 'pres', 'vel'):
-        window._active_tab = tab
+        window.workbench.active_tab = tab
         window._field_phase = 1
         refresh_field_controls(window)
         assert buttons[1].isEnabled() == (tab == 'temp')
         assert buttons[1].isChecked() == (tab == 'temp')
         assert window._field_phase == (1 if tab == 'temp' else 0)
     result.fields['Tb'] = None
-    window._active_tab, window._field_phase = 'temp', 1
+    window.workbench.active_tab, window._field_phase = 'temp', 1
     refresh_field_controls(window)
     assert not buttons[1].isEnabled()
     assert window._field_phase == 0

@@ -24,17 +24,17 @@ def test_partial_import_preserves_unsupplied_physical_inputs(win, tmp_path, monk
     win.le_TinB.setText('26.85')
     win.combo_df_mode.setCurrentIndex(win.combo_df_mode.findData('experimental'))
     win.combo_grid.setCurrentIndex(win.combo_grid.findData(True))
-    before = win._capture_current_preset('before')
+    before = win.case_files.capture_current_preset('before')
     path = tmp_path / 'partial.json'
     path.write_text(json.dumps(payload))
-    assert win._load_config_path(str(path))
+    assert win.case_files.load_config_path(str(path))
     config = config_from_window(win)
     assert config.fluid_A.T_in_K == pytest.approx(410 if 'temp_unit' in payload else 422)
     assert config.fluid_B.T_in_K == pytest.approx(300)
     assert win.combo_df_mode.currentData() == 'experimental'
     assert win.combo_grid.currentData() is True
     assert win._temp_unit == payload.get('temp_unit', 'C')
-    after = win._capture_current_preset('before')
+    after = win.case_files.capture_current_preset('before')
     for section in ('combos', 'checks', 'sco2_nu_parameters', 'zone_inputs',
                     'continuous_field', 'optimization_conditions'):
         assert after.get(section) == before.get(section)
@@ -52,23 +52,23 @@ def test_partial_import_keeps_full_continuous_field_and_conditions(win, tmp_path
     win._apply_shanghai_defaults()
     win.combo_dim.setCurrentIndex(dimension)
     study = report(win)
-    preset = win._capture_current_preset('continuous')
+    preset = win.case_files.capture_current_preset('continuous')
     preset['checks']['chk_zones'] = True
     preset['continuous_field'] = {**study['field_spec'],
                                   'x_decision': study['history'][0]['x_decision']}
     preset['optimization_conditions'] = [condition()]
     from tests.python.test_mass_design import requirements
     preset['optimization_mass_requirements'] = requirements(('one',))
-    win._apply_user_preset(preset)
-    win._opt_method.setCurrentIndex(win._opt_method.findData(method))
-    before = win._capture_current_preset('before')
+    win.case_files.apply_user_preset(preset)
+    win.optimization.method.setCurrentIndex(win.optimization.method.findData(method))
+    before = win.case_files.capture_current_preset('before')
     path = tmp_path / 'partial.json'
     path.write_text(json.dumps({'line_edits': {'le_rho_s': '7950'}}))
-    assert win._load_config_path(str(path))
-    after = win._capture_current_preset('before')
+    assert win.case_files.load_config_path(str(path))
+    after = win.case_files.capture_current_preset('before')
     assert 'le_rho_s' not in after['line_edits']
     assert after == before
-    assert win._opt_method.currentData() == method
+    assert win.optimization.method.currentData() == method
 
 
 @pytest.mark.parametrize('kind', ['continuous', 'zones'])
@@ -88,7 +88,7 @@ def test_partial_import_rejects_conflicting_context_without_mutation(
         win._continuous_field_spec = {
             **study['field_spec'], 'x_decision': study['history'][0]['x_decision']}
     win.chk_zones.setChecked(True)
-    before = win._capture_current_preset('before')
+    before = win.case_files.capture_current_preset('before')
     previous_result = ComputeResult(Q_W=123.)
     win.cache.set_result('3d', previous_result)
     patch = {'line_edits': {}, 'combos': {
@@ -97,9 +97,9 @@ def test_partial_import_rejects_conflicting_context_without_mutation(
     path = tmp_path / 'conflicting-partial.json'
     path.write_text(json.dumps(patch))
 
-    assert not win._load_config_path(str(path))
+    assert not win.case_files.load_config_path(str(path))
     assert errors
-    assert win._capture_current_preset('before') == before
+    assert win.case_files.capture_current_preset('before') == before
     assert win.cache.get_result('3d') is previous_result
 
 
@@ -120,7 +120,7 @@ def test_partial_field_update_uses_current_dimension_and_axis(
         win._continuous_field_spec = {
             **study['field_spec'], 'x_decision': study['history'][0]['x_decision']}
     win.chk_zones.setChecked(True)
-    expected = win._capture_current_preset('before')
+    expected = win.case_files.capture_current_preset('before')
     name = 'continuous_field' if kind == 'continuous' else 'zone_inputs'
     updated = deepcopy(expected[name])
     if kind == 'continuous':
@@ -130,9 +130,9 @@ def test_partial_field_update_uses_current_dimension_and_axis(
     path = tmp_path / 'field-update.json'
     path.write_text(json.dumps({'line_edits': {}, name: updated}))
 
-    assert win._load_config_path(str(path)), errors
+    assert win.case_files.load_config_path(str(path)), errors
     expected[name] = updated
-    assert win._capture_current_preset('before') == expected
+    assert win.case_files.capture_current_preset('before') == expected
 
 
 @pytest.mark.parametrize('section,value', [
@@ -146,11 +146,11 @@ def test_partial_import_does_not_coerce_invalid_section_containers(
 
     errors = []
     monkeypatch.setattr(QMessageBox, 'critical', lambda *a: errors.append(a[-1]))
-    before = win._capture_current_preset('before')
+    before = win.case_files.capture_current_preset('before')
     patch = {'line_edits': {}}
     patch[section] = value
     path = tmp_path / 'invalid-section.json'
     path.write_text(json.dumps(patch))
-    assert not win._load_config_path(str(path))
+    assert not win.case_files.load_config_path(str(path))
     assert errors
-    assert win._capture_current_preset('before') == before
+    assert win.case_files.capture_current_preset('before') == before

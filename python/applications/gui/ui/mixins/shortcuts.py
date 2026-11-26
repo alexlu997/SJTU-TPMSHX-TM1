@@ -29,14 +29,14 @@ class ShortcutsMixin:
         # are bound to local names (not inline) so adopt() can hold them
         # for later disconnect.
         ts = self._track_shortcut
-        ts("Ctrl+R", self.run_calculation)
+        ts("Ctrl+R", self.single_run.submit)
         ts("Ctrl+Shift+R", self._reset_defaults)
         # Match the three visible workbench tabs; 'result' uses _result_view.
         # Ctrl+4 switches between its 2D and 3D views.
         for key, name in (('Ctrl+1', 'layout'), ('Ctrl+2', 'result'),
                           ('Ctrl+3', 'pareto')):
-            ts(key, (lambda n=name: self._switch_tab(n)))
-        ts("Ctrl+4", self._toggle_result_view)
+            ts(key, (lambda n=name: self.workbench.switch_tab(n)))
+        ts("Ctrl+4", self.workbench.toggle_result_view)
         ts("Ctrl+\\", self._toggle_left_panel)
         ts("F", self._toggle_3d_immersive)
         ts("Ctrl+?", self._show_shortcuts)
@@ -56,8 +56,8 @@ class ShortcutsMixin:
         # D7 — Ctrl+D overview dashboard
         ts("Ctrl+D", self._show_overview)
         # qNEHVI launch
-        ts("Ctrl+Return", self._run_optimize)
-        ts("Ctrl+Enter", self._run_optimize)
+        ts("Ctrl+Return", self.optimization.start)
+        ts("Ctrl+Enter", self.optimization.start)
         # E18 — Ctrl+↑/↓ cycle tabs
         ts("Ctrl+Up", (lambda: self._cycle_tab(-1)))
         ts("Ctrl+Down", (lambda: self._cycle_tab(+1)))
@@ -98,7 +98,7 @@ class ShortcutsMixin:
                     and btn_map[k].isEnabled()]
         if not enabled:
             return
-        cur = getattr(self, '_active_tab', enabled[0])
+        cur = self.workbench.active_tab
         if cur in ('temp', 'pres', 'vel', '3d'):
             cur = 'result'
         try:
@@ -106,7 +106,7 @@ class ShortcutsMixin:
         except ValueError:
             i = 0
         new_tab = enabled[(i + step) % len(enabled)]
-        self._switch_tab(new_tab)
+        self.workbench.switch_tab(new_tab)
 
     def _scrub_recent(self, step):
         """Alt+↑/↓ walk through `_recent_runs`, loading each as a preset."""
@@ -120,7 +120,7 @@ class ShortcutsMixin:
         self._scrub_idx = idx
         entry = recents[idx]
         try:
-            self._apply_user_preset(entry.get('preset') or {},
+            self.case_files.apply_user_preset(entry.get('preset') or {},
                                     source_name=entry.get('preset_source') or '')
             self.statusBar().showMessage(
                 f"Recent #{idx + 1}/{len(recents)} — {entry.get('label','?')}"

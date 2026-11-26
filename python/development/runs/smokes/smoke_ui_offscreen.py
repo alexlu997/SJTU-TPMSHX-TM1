@@ -112,7 +112,7 @@ def _inspect_window(app, win):
             b.click()
             app.processEvents()
             expected = 'layout' if t == 'btn_tab_layout' else 'pareto'
-            if win._active_tab != expected or not win._canvas_cards[expected].isVisibleTo(win):
+            if win.workbench.active_tab != expected or not win._canvas_cards[expected].isVisibleTo(win):
                 raise RuntimeError(f'Navigation did not show {expected}')
 
     # Combo dim switch (2D ↔ 3D)

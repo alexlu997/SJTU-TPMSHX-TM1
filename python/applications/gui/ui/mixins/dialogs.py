@@ -28,7 +28,7 @@ class DialogsMixin:
 
     def _show_solve_log(self):
         """Modal text viewer for the last captured solver stdout."""
-        text = getattr(self, '_last_solve_log', None) or ""
+        text = self.single_run.compute.last_log() or ""
         if not text.strip():
             QMessageBox.information(
                 self, "Solve log",

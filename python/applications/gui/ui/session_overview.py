@@ -55,8 +55,8 @@ class OverviewDialog(QDialog):
         _tm = default_factory().theme
         from .fmt import preset_display as _pd
         sub = QLabel(
-            f"Preset: {_pd(getattr(window, '_active_preset_name', '—'))}  "
-            f"·  Workspace: {getattr(window, '_active_workspace', 'A')}  "
+            f"Preset: {_pd(window.case_files.active_preset_name)}  "
+            f"·  Workspace: {window.case_files.active_workspace}  "
             f"·  v{_app_version}")
         sub.setStyleSheet(
             f"color:{_sub}; font-size:10pt; font-family:{_mono};"
@@ -140,7 +140,7 @@ class OverviewDialog(QDialog):
         root.addWidget(preset_label)
 
         pr_row = QHBoxLayout(); pr_row.setSpacing(8)
-        for name in getattr(window, '_BUILTIN_PRESETS', ()):
+        for name in window.case_files.BUILTIN_PRESETS:
             from .fmt import preset_display
             btn = QPushButton(preset_display(name))
             btn.setFixedHeight(34)

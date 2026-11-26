@@ -1,21 +1,4 @@
-"""Run-history & reproducibility behaviour for ``Main_Menu``.
-
-Owns the recent-runs ring buffer, persistent session timeline, reproducible
-links, result provenance tooltips and complete GUI-preset Python export.
-These methods restore inputs and describe accepted results; they do not solve.
-
-Host contract — the live window MUST provide (all remain on ``Main_Menu``):
-    methods : _capture_current_preset(label) -> dict
-              _apply_user_preset(dict) -> None
-    widgets : btn_recent (QToolButton), statusBar()
-              _sb_labels (visible result footer)
-    run     : _run_provenance (accepted inputs and returned grid)
-    results : cache.get_result(mode) (accepted result)
-    state   : _active_preset_name (str, optional)
-              _MAX_RECENT_RUNS (int, optional — defaults to 5)
-
-The mixin owns ``self._recent_runs`` (a deque) lazily.
-"""
+"""Show completed runs and restore their recorded case inputs."""
 
 from __future__ import annotations
 
@@ -72,11 +55,9 @@ class RunHistoryMixin:
         """Record the accepted run's input snapshot + headline numbers in a bounded
         ring buffer feeding the "Recent ▾" header menu, and append a slim row
         to the persistent JSONL timeline."""
-        provenance = getattr(self, '_run_provenance', None)
+        result = self.cache.get_result()
+        provenance = result.metadata.get('run_provenance') if result is not None else None
         if provenance is None:
-            return
-        result = self.cache.get_result(provenance['mode'])
-        if result is None:
             return
         if not hasattr(self, "_recent_runs"):
             maxlen = getattr(self, "_MAX_RECENT_RUNS", 5)
@@ -119,7 +100,7 @@ class RunHistoryMixin:
         # timeline dialog can surface the full research-session log.
         try:
             slim = {k: v for k, v in entry.items() if k != "preset"}
-            with open(self.sm.base_dir / '.session_timeline.jsonl', "a", encoding="utf-8") as f:
+            with open(self.case_files.store.base_dir / '.session_timeline.jsonl', "a", encoding="utf-8") as f:
                 f.write(json.dumps(slim) + "\n")
         except Exception:
             pass
@@ -148,7 +129,7 @@ class RunHistoryMixin:
 
         # — User-saved presets —
         try:
-            user = self.sm.load_user_presets()
+            user = self.case_files.store.load_user_presets()
         except Exception:
             user = []
         if user:
@@ -186,13 +167,13 @@ class RunHistoryMixin:
         # — Actions —
         menu.addSeparator()
         load_file = menu.addAction("加载配置文件…")
-        load_file.triggered.connect(self.load_config)
+        load_file.triggered.connect(self.case_files.load_config)
         resume = menu.addAction("继续已保存的计算…")
-        resume.triggered.connect(lambda: self._resume_saved_run())
+        resume.triggered.connect(lambda: self.single_run.resume())
         save_file = menu.addAction("保存配置文件…")
-        save_file.triggered.connect(self.save_config)
+        save_file.triggered.connect(self.case_files.save_config)
         save = menu.addAction("保存当前为预设…")
-        save.triggered.connect(self._save_current_as_preset)
+        save.triggered.connect(self.case_files.save_current_as_preset)
         if entries:
             clr = menu.addAction("清除最近")
             clr.triggered.connect(self._clear_recent_runs)
@@ -201,7 +182,7 @@ class RunHistoryMixin:
     def _load_user_preset(self, p):
         """Apply a user-saved preset dict + status note (header 载入 menu)."""
         try:
-            self._apply_user_preset(p)
+            self.case_files.apply_user_preset(p)
         except ValueError as e:
             QMessageBox.warning(self, "Preset load failed", str(e))
             return
@@ -215,7 +196,7 @@ class RunHistoryMixin:
             QMessageBox.information(self, '没有 GUI 输入预设', '此记录来自保存的工况，可从检查点继续计算。')
             return
         try:
-            self._apply_user_preset(entry.get("preset") or {},
+            self.case_files.apply_user_preset(entry.get("preset") or {},
                                     source_name=entry.get('preset_source') or '')
             self.statusBar().showMessage(
                 f"Restored run from {entry.get('ts', '?')}.", 5000)
@@ -232,7 +213,7 @@ class RunHistoryMixin:
     def _show_full_timeline(self):
         """E15 — viewer for the persistent .session_timeline.jsonl log."""
         entries = []
-        timeline_file = self.sm.base_dir / '.session_timeline.jsonl'
+        timeline_file = self.case_files.store.base_dir / '.session_timeline.jsonl'
         if timeline_file.exists():
             try:
                 with open(timeline_file, "r", encoding="utf-8") as f:
@@ -313,7 +294,7 @@ class RunHistoryMixin:
     def _copy_reproducible_link(self):
         """E14 — encode current inputs as a compact base64 token and copy to
         clipboard. Loadable in another window via `Load reproducible link…`."""
-        preset = self._capture_current_preset("Repro link")
+        preset = self.case_files.capture_current_preset("Repro link")
         blob = json.dumps(preset, separators=(",", ":")).encode("utf-8")
         compressed = zlib.compress(blob, level=9)
         b64 = base64.urlsafe_b64encode(compressed).decode("ascii").rstrip("=")
@@ -338,7 +319,7 @@ class RunHistoryMixin:
             pad = "=" * (-len(payload) % 4)  # restore stripped base64 padding
             compressed = base64.urlsafe_b64decode(payload + pad)
             preset = json.loads(zlib.decompress(compressed))
-            self._apply_user_preset(preset)
+            self.case_files.apply_user_preset(preset)
             self.statusBar().showMessage(
                 "Reproducible link loaded. Click Compute to run.", 5000)
         except Exception as e:
@@ -347,7 +328,7 @@ class RunHistoryMixin:
     # ── provenance & export ──────────────────────────────────────────────
     def _stamp_result_provenance(self, elapsed):
         """Describe the run's inputs and returned grid, never the editable draft."""
-        provenance = getattr(self, '_run_provenance', None)
+        provenance = self.cache.get_result().metadata.get('run_provenance')
         if provenance is None:
             return
         ts = datetime.datetime.now().strftime("%H:%M:%S")
@@ -369,7 +350,7 @@ class RunHistoryMixin:
 
     def _copy_inputs_as_python(self):
         """Copy a complete GUI preset and its window restore call as Python."""
-        preset = self._capture_current_preset('Python inputs')
+        preset = self.case_files.capture_current_preset('Python inputs')
         lines = ["# Generated by SJTU-TPMSHX — complete GUI input preset",
                  "# Run with an existing SJTU-TPMSHX window named `window`.",
                  "# This is a GUI preset, not a solver ComputeConfig or CLI input."]
@@ -381,7 +362,7 @@ class RunHistoryMixin:
         lines.append("")
         lines.append("cfg = " + pformat(preset, width=88, sort_dicts=False))
         lines.append("")
-        lines.append("window._apply_user_preset(cfg)")
+        lines.append("window.case_files.apply_user_preset(cfg)")
         QApplication.clipboard().setText("\n".join(lines))
         self.statusBar().showMessage(
             "Copied current inputs as Python snippet to clipboard.", 5000)

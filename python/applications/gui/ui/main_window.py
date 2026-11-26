@@ -16,27 +16,25 @@ from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
 from sjtu_tpmshx.physical_models.tpms_calc import geometry as tpms_geometry, adaptive_grid
 from sjtu_tpmshx.applications.gui.ui.fmt import duration as _fmt_dur
 from sjtu_tpmshx.applications.gui.ui.window_config import LINE_EDITS, parse_field_value
-from sjtu_tpmshx.applications.gui.ui.mixins import (RunHistoryMixin, DialogsMixin, ZonePanelMixin,
-                       OptimizeUIMixin, TabViewMixin, UIBuilderMixin,
-                       FluidInputMixin, RunControllerMixin, RunResultsMixin,
-                       AppearanceMixin, SessionPresetsMixin,
-                       ShortcutsMixin, IOActionsMixin)
-from sjtu_tpmshx.applications.gui.ui.theme import get_theme
+from sjtu_tpmshx.applications.gui.ui.case_files import CaseFiles
+from sjtu_tpmshx.applications.gui.ui.field_results import FieldResults
+from sjtu_tpmshx.applications.gui.ui.result_export import ResultExport
+from sjtu_tpmshx.applications.gui.ui.single_run import SingleRun
+from sjtu_tpmshx.applications.gui.ui.workbench import Workbench
+from sjtu_tpmshx.applications.gui.ui.mixins import (
+    AppearanceMixin, DialogsMixin, FluidInputMixin, RunHistoryMixin,
+    ShortcutsMixin, UIBuilderMixin, ZonePanelMixin,
+)
 from sjtu_tpmshx.applications.gui.ui.ui_constants import (
-    TOAST_MS_BRIEF, TOAST_MS_MED,
+    TOAST_MS_MED,
 )
 
 from sjtu_tpmshx._version import __version__  # noqa: E402
 from sjtu_tpmshx.run_control.provenance import SOURCE_ROOT, repository_revision
 from sjtu_tpmshx.run_control.module_ports import RunControl
 
-# ── Auto-select delegate for zone table editing ─────────────
-class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
-                TabViewMixin, UIBuilderMixin, FluidInputMixin,
-                RunControllerMixin, RunResultsMixin,
-                AppearanceMixin, SessionPresetsMixin,
-                ShortcutsMixin, IOActionsMixin,
-                QMainWindow):
+class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, UIBuilderMixin,
+                FluidInputMixin, AppearanceMixin, ShortcutsMixin, QMainWindow):
     def __init__(self, *, control=RunControl()):
         super().__init__()
         self.run_control = control
@@ -67,16 +65,9 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         # what the user is typing.
         self._temp_unit = 'K'
 
-        # Compute lifecycle state (P0 re-entrancy guard, 2026-05-05 audit).
-        # Explicit init at construction time so `getattr(self, ..., False)`
-        # fallbacks elsewhere can't accidentally surface a stale value if a
-        # future refactor removes the getattr safety nets.
-        self._compute_running = False
-        self._compute_btn_handler = None
-
-        # Controller ownership and lifecycle are defined in docs/architecture.md.
-        from sjtu_tpmshx.applications.gui.controllers import (ComputeOrchestrator, ResultCache,
-                                  SessionManager, SignalRouter)
+        self._close_pending = False
+        self._continuous_field_spec = None
+        from sjtu_tpmshx.applications.gui.controllers import ResultCache, SignalRouter
         from sjtu_tpmshx.applications.gui.ui.theme_manager import ThemeManager
 
         # ThemeManager owns the styles consumed by FieldFactory and builders.
@@ -90,33 +81,18 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         from sjtu_tpmshx.applications.gui.ui.field_factory import FieldFactory, set_default_factory
         set_default_factory(FieldFactory(self.theme))
 
-        # Phase 1: solver lifecycle (refactor-p1-done).
-        self.compute = ComputeOrchestrator(self)
-        self.signals.connect(self.compute.started, self._on_orch_started,
-                             sender=self.compute)
-        self.signals.connect(self.compute.progress, self._on_orch_progress,
-                             sender=self.compute)
-        self.signals.connect(self.compute.iteration, self._on_orch_iteration,
-                             sender=self.compute)
-        self.signals.connect(self.compute.finished, self._on_orch_finished,
-                             sender=self.compute)
-        self.signals.connect(self.compute.error, self._on_orch_error,
-                             sender=self.compute)
-        self.signals.connect(self.compute.cancelled, self._on_orch_cancelled,
-                             sender=self.compute)
-        self.signals.connect(self.compute.paused, self._on_orch_paused,
-                             sender=self.compute)
-
-        # Persist user sessions separately from current renderable results.
-        self.sm = SessionManager(parent=self)
         self.cache = ResultCache(self)
+        self.case_files = CaseFiles(self)
+        self.results = FieldResults(self)
+        self.result_export = ResultExport(self)
+        self.workbench = Workbench(self)
+        self.single_run = SingleRun(self)
 
-        # Active workspace loaded from disk via SessionManager (replaces
-        # the legacy inline .workspace marker read). Defaults to 'A' if
-        # the marker file is missing or contains garbage.
-        self._active_workspace = self.sm.get_active_workspace()
-
-        self._build_ui()
+        from sjtu_tpmshx.applications.gui.ui.ui_builders import build_ui
+        build_ui(self)
+        from sjtu_tpmshx.applications.gui.ui.compute_resources import bind_resource_controls
+        bind_resource_controls(self)
+        self.optimization.figures_changed.connect(self.result_export.refresh_export_button)
         self._apply_accessibility()
         # Tooltips must be attached BEFORE the validators so the validator
         # captures the help HTML as its baseline tooltip (saved and later
@@ -140,7 +116,8 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         # Restore the last-used field state on top of the Shanghai baseline
         # so returning users see exactly what they had, while the Reset
         # button still snaps back to the canonical preset.
-        self._restore_session()
+        self.case_files.restore_session()
+        self.optimization.depth.setText(self.le_Lz.text())
         # Track manual grid edits so `compute_tpms` (invoked by Auto-fill)
         # does NOT overwrite user-customised Nx/Ny/Nz. textEdited fires on
         # keyboard input only, not on programmatic `setText`. NB: do NOT
@@ -157,7 +134,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         # after startup. Keep it lazy unless explicitly opted in for demos.
         import os as _os_perf
         if _os_perf.environ.get('TPMSHX_PREINIT_3D', '0') == '1':
-            self._schedule_3d_preinit()
+            self.workbench.schedule_3d_preinit()
         self._schedule_tpms_geometry_prewarm()
         # Note: ``_install_inline_unit_parser`` was merged into
         # ``_attach_field_validation`` at line 257 (audit C5 H4 fix).
@@ -203,7 +180,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         if not paths:
             event.ignore()
             return
-        if self._load_config_path(paths[0]):
+        if self.case_files.load_config_path(paths[0]):
             event.acceptProposedAction()
         else:
             event.ignore()
@@ -219,7 +196,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         # clears cached fields) before re-seeding defaults. Without this
         # the old Temperature/Pressure/Velocity/3D plots stayed visible
         # next to freshly-reset inputs.
-        self._invalidate_results_for_preset_load()
+        self.case_files.invalidate_results_for_preset_load()
         self._apply_shanghai_defaults()
         self.statusBar().showMessage("Parameters reset to Shanghai Electric preset.", TOAST_MS_MED)
 
@@ -228,10 +205,10 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
     # ─────────────────────────────────────────────────────────
     def _apply_shanghai_defaults(self):
         """Restore Shanghai case 8 with its recorded inlet flows and states."""
-        self._active_preset_name = "Shanghai (3D Gyroid)"
-        self._set_shanghai_grid(is_3d=True)
+        self.case_files.active_preset_name = "Shanghai (3D Gyroid)"
+        self.case_files.set_shanghai_grid(is_3d=True)
         self.combo_df_mode.setCurrentIndex(self.combo_df_mode.findData('experimental'))
-        from sjtu_tpmshx.applications.gui.ui.mixins.session_presets import shanghai_field_defaults
+        from sjtu_tpmshx.applications.gui.ui.case_files import shanghai_field_defaults
         presets = shanghai_field_defaults(is_3d=True)
         # Temperature fields are authored in Kelvin. If the UI is currently
         # showing °C, convert on write so the displayed digits match the
@@ -286,7 +263,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
                 pass
         self.combo_sco2_nu_mode.setCurrentIndex(
             self.combo_sco2_nu_mode.findData('cfd_smooth'))
-        self._set_sco2_nu_parameters({})
+        self.case_files.set_sco2_nu_parameters({})
         self.chk_allow_extrap.setChecked(True)
         self.chk_zones.setChecked(False)
         self.combo_zone_axis.setCurrentIndex(0)
@@ -294,10 +271,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         self._zone_init_1d(3)
         self._pareto_x_decision = None
         self._pareto_y_trans_inlet = self._pareto_y_trans_outlet = 0.2
-        self._opt_conditions = None
-        self._opt_mass_requirements = None
-        from sjtu_tpmshx.applications.gui.ui.optimize_panel import refresh_setup
-        refresh_setup(self)
+        self.optimization.use_current_condition()
         # Treat preset Nx/Ny/Nz as authoritative — without this flag the next
         # `compute_tpms` call would auto-overwrite the preset values with
         # D_h-derived suggestions (e.g. 20/20/20 → 14/25/25).
@@ -307,35 +281,12 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         # the values that preceded the preset load. Safe at init (the
         # helper no-ops when `_undo_last` is not yet built).
         self._refresh_field_validation()
-        self._resync_undo_baseline()
+        self.case_files.resync_undo_baseline()
         from sjtu_tpmshx.applications.gui.ui.builders_fluids import refresh_fluid_model_visibility
         refresh_fluid_model_visibility(self)
         self.statusBar().showMessage(
             "Loaded Shanghai Electric preset (3D, Gyroid L=7 t=0.6, 182×42×42 mm).",
             5000)
-
-    def _schedule_3d_preinit(self):
-        """Prepare optional 3D imports before creating the panel on the GUI thread."""
-        from PySide6.QtCore import QTimer
-        from sjtu_tpmshx.applications.gui.ui.background_tasks import prepare_3d
-
-        def _preinit():
-            if self.canvas_3d is not None or getattr(self, '_close_pending', False):
-                return
-            self.statusBar().showMessage("Preparing 3D viewer…")
-            def ready():
-                try:
-                    self._lazy_init_3d_panel()
-                    if not getattr(self, '_close_pending', False) and self._vis3d_import_error:
-                        self.statusBar().showMessage(
-                            f"3D viewer unavailable: {self._vis3d_import_error}", 5000)
-                except Exception as exc:
-                    self.statusBar().showMessage(
-                        f"3D viewer init deferred (will retry on first click): {exc}", 5000)
-
-            prepare_3d(self, ready)
-
-        QTimer.singleShot(500, self, _preinit)
 
     def _schedule_tpms_geometry_prewarm(self):
         """Warm the current TPMS geometry cache off the UI thread.
@@ -461,18 +412,6 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
     }
 
 
-    # Detached 3D panel — right-click the "3D View" tab offers "Open in
-    # new window". The panel widget is reparented to a borderless QDialog
-    # so users on multi-monitor setups can drag it to a second screen.
-    # Closing the detached window reattaches to the card.
-    _3d_detached_window = None
-
-
-    # ─── D17 — generic any-canvas detach ─────────────────────────────
-    _detached_canvases = {}
-
-
-    # ─────────────────────────────────────────────────────────
     #  Status bar — persistent context strip (IDE-style)
     # ─────────────────────────────────────────────────────────
 
@@ -492,10 +431,10 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             pass
         try:
             last = getattr(self, '_last_elapsed_s', None)
-            mode = self._active_compute_mode()
-            if last is None:
+            if last is None or not self.cache.has_any_results():
                 self._sb_clock.setText("⏱ —")
             else:
+                mode = self.cache.get_result().diagnostics.get('mode', '2d')
                 self._sb_clock.setText(
                     f"⏱ {_fmt_dur(last)} · {mode.upper()}")
         except Exception:
@@ -511,196 +450,11 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         except Exception:
             pass
 
-    def _validate_inputs_preflight(self):
-        """Check active fields before configuration capture.
-
-        Keep field errors and required blanks visible. A complete blank second
-        transverse span is valid.
-        """
-        bad = []
-        is_3d = self.combo_dim.currentIndex() == 1
-        from sjtu_tpmshx.applications.gui.ui.window_config import blank_second_span, field_active
-        for name in self._SESSION_LINE_EDITS:
-            if not field_active(self, LINE_EDITS[name], is_3d=is_3d):
-                continue
-            le = getattr(self, name, None)
-            if le is None:
-                continue
-            if name in ('le_TinA', 'le_TinB'):
-                # The Compute shortcut can leave the inlet edit in focus.
-                self._field_validators[name]()
-            if le.property('inpError') == 'true':
-                label = (le.accessibleName() or name)
-                val = le.text() or '(empty)'
-                bad.append((label, name, val))
-            elif not le.text().strip() and not blank_second_span(self, name):
-                # Keep required empty fields in the same error list.
-                label = (le.accessibleName() or name)
-                bad.append((label, name, '(empty)'))
-        if not bad:
-            return True
-        # Escape user-typed text before interpolating into RichText HTML.
-        # Without escape, a user typing `<img>` / `&` / quote characters
-        # into a LineEdit would either break the table layout or render
-        # arbitrary HTML in the modal. (Qt RichText doesn't run JS but
-        # still parses tags; we escape every cell to be safe.) — 2026-04-29
-        import html as _html_esc
-        t = get_theme()
-        rows = "".join(
-            f"<tr><td style='padding:4px 14px 4px 0;'>{_html_esc.escape(str(lbl))}</td>"
-            f"<td style='padding:4px 14px 4px 0; color:{t['sub_fg']};'>"
-            f"<code>{_html_esc.escape(str(name))}</code></td>"
-            f"<td style='padding:4px 0; color:{t['err']};'>"
-            f"{_html_esc.escape(str(val))}</td></tr>"
-            for lbl, name, val in bad[:30])
-        html = (
-            f"<h3 style='margin:0 0 8px 0;'>"
-            f"{len(bad)} 个无效输入</h3>"
-            f"<p style='margin:0 0 10px 0; color:{t['sub_fg']};'>"
-            "运行计算前请先修正下列字段；悬停字段可查看原因。</p>"
-            "<table style='border-collapse:collapse;'>"
-            f"{rows}</table>")
-        msg = QMessageBox(self)
-        msg.setWindowTitle("检查输入")
-        msg.setIcon(QMessageBox.Icon.Warning)
-        msg.setTextFormat(Qt.TextFormat.RichText)
-        msg.setText(html)
-        msg.setStandardButtons(QMessageBox.StandardButton.Ok)
-        msg.exec()
-        # Focus the first invalid field so Tab navigation works from there.
-        first_attr = bad[0][1]
-        le = getattr(self, first_attr, None)
-        if le is not None:
-            from sjtu_tpmshx.applications.gui.ui.ui_builders import reveal_parameter
-            reveal_parameter(self, le)
-            try:
-                le.setFocus(); le.selectAll()
-            except Exception:
-                pass
-        return False
-
-    def _preflight_grid(self, compute_cfg):
-        """Check captured inputs and request confirmation for grid warnings."""
-        from sjtu_tpmshx.data_types.compute_config import bc_to_dict
-        from sjtu_tpmshx.applications.gui.ui.preflight import FluidCfg, compute_preflight
-        geometry, solver = compute_cfg.geometry, compute_cfg.solver
-
-        def _cfg(bc):
-            # Keep mixed widths for validation; typed configurations always have two fluids.
-            port = bc_to_dict(bc, geometry.L_dom_m, geometry.H_dom_m,
-                              side='B', with_z=compute_cfg.is_3d)
-            if port is None:
-                port = bc_to_dict(bc, geometry.L_dom_m, geometry.H_dom_m,
-                                  side='A', with_z=compute_cfg.is_3d)
-            return FluidCfg(
-                dir=port['dir'], in_ctr=port['in_ctr'], in_w=port['in_w'],
-                out_ctr=port['out_ctr'], out_w=port['out_w'],
-                z_in_ctr=port.get('in_z_ctr'), z_in_w=port.get('in_z_w'),
-                z_out_ctr=port.get('out_z_ctr'), z_out_w=port.get('out_z_w'))
-
-        # Geometry/D-F coverage is separate from Nu and calibration limits.
-        # Hard invalid geometry blocks; soft findings join the grid report.
-        _geom_warnings = []
-        try:
-            from sjtu_tpmshx.data_types.validator import validate_geometry as _vg
-            _geom_warnings = _vg(
-                geometry.L_dom_m, geometry.H_dom_m, geometry.Lz_m,
-                geometry.L_cell_mm, geometry.t_wall_mm,
-                ks=geometry.k_s_W_mK, is_3d=compute_cfg.is_3d)
-        except ValueError as _ge:
-            QMessageBox.critical(
-                self, "几何输入不合法", str(_ge))
-            return False
-        except Exception:
-            pass  # validator itself failing must not block a run
-
-        report = compute_preflight(
-            L=geometry.L_dom_m, H=geometry.H_dom_m, Lz=geometry.Lz_m,
-            Nx=solver.Nx, Ny=solver.Ny, Nz=solver.Nz,
-            is_3d=compute_cfg.is_3d,
-            port_wall_refine=compute_cfg.flags.port_wall_refine,
-            zone_axis=compute_cfg.zones.axis if compute_cfg.zones.enabled else None,
-            fluid_A=_cfg(compute_cfg.bc_A), fluid_B=_cfg(compute_cfg.bc_B),
-            T_inA=compute_cfg.fluid_A.T_in_K, T_inB=compute_cfg.fluid_B.T_in_K)
-        for _w in _geom_warnings:
-            _msg = getattr(_w, 'message', None) or str(_w)
-            if getattr(_w, 'severity', 'warning') == 'error':
-                report.errors.append(_msg)
-            else:
-                report.warnings.append(_msg)
-
-        if not report.errors and not report.warnings:
-            # Still surface info in the status bar so the user knows the
-            # effective grid size even when everything passes.
-            if report.info:
-                self.statusBar().showMessage(
-                    " · ".join(report.info[:2]), 6000)
-            return True
-
-        import html as _h
-        t = get_theme()
-
-        def _rows(items, color):
-            return "".join(
-                f"<li style='margin:4px 0; color:{color};'>{_h.escape(s)}</li>"
-                for s in items)
-
-        sev_html = []
-        if report.errors:
-            sev_html.append(
-                f"<h4 style='margin:8px 0 4px 0; color:{t['err']};'>"
-                f"{len(report.errors)} error"
-                f"{'s' if len(report.errors) != 1 else ''}</h4>"
-                f"<ul style='margin:0;'>{_rows(report.errors, t['err'])}</ul>")
-        if report.warnings:
-            sev_html.append(
-                f"<h4 style='margin:8px 0 4px 0; color:{t['search_hl']};'>"
-                f"{len(report.warnings)} warning"
-                f"{'s' if len(report.warnings) != 1 else ''}</h4>"
-                f"<ul style='margin:0;'>{_rows(report.warnings, t['search_hl'])}</ul>")
-        if report.info:
-            sev_html.append(
-                f"<h4 style='margin:8px 0 4px 0; color:{t['sub_fg']};'>Info</h4>"
-                f"<ul style='margin:0;'>{_rows(report.info, t['sub_fg'])}</ul>")
-
-        html = (
-            "<h3 style='margin:0 0 8px 0;'>Grid preflight</h3>"
-            f"<p style='margin:0 0 8px 0; color:{t['sub_fg']};'>"
-            "Reviewed wall-refine fit, inlet/outlet coverage, "
-            "and Richardson budget.</p>" + "".join(sev_html))
-
-        msg = QMessageBox(self)
-        msg.setWindowTitle("Grid preflight")
-        msg.setTextFormat(Qt.TextFormat.RichText)
-        msg.setText(html)
-        if report.errors:
-            msg.setIcon(QMessageBox.Icon.Critical)
-            msg.setStandardButtons(QMessageBox.StandardButton.Ok)
-            msg.exec()
-            return False
-        msg.setIcon(QMessageBox.Icon.Warning)
-        msg.setStandardButtons(
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        msg.setDefaultButton(QMessageBox.StandardButton.No)
-        return msg.exec() == QMessageBox.StandardButton.Yes
-
     def closeEvent(self, event):
-        """Single close-event handler — covers all three concerns:
-
-        1. Persist session (legacy contract — was lost when a duplicate
-           closeEvent at L4399 silently shadowed this one prior to the
-           2026-05-20 UI sweep merge).
-        2. Tear down PyVistaQt GL context before Qt destroys the widgets
-           (moved here from the deleted L4399 dup).
-        3. Bulk-disconnect router-tracked signal connections (Phase 3
-           2026-05-06 #4 — belt-and-braces against bound-method slots
-           that close over ``self`` and outlive C++ widget destruction).
-        """
-        # Ask before cancelling workers: declining the close must leave live
-        # work and its terminal callbacks intact. Timer retries reuse this choice.
-        if not getattr(self, '_close_pending', False):
+        """Save inputs, wait for worker exit, then release views and connections."""
+        if not self._close_pending:
             try:
-                saved = bool(self._save_session())
+                saved = bool(self.case_files.save_session())
             except Exception:
                 saved = False
             if not saved:
@@ -715,18 +469,13 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
                     return
         # Keep every task owner alive until terminal delivery and worker exit.
         # Native computation or view imports can exceed a fixed timeout.
-        opt_worker = getattr(self, '_opt_worker', None)
-        qd_dialog = getattr(self, '_qd_dialog', None)
-        qd_worker = getattr(qd_dialog, '_qd_worker', None)
         from sjtu_tpmshx.applications.gui.ui.background_tasks import has_active_tasks
         if has_active_tasks(self):
             event.ignore()
-            self._close_pending = True
-            self.compute.cancel()
-            if opt_worker is not None:
-                opt_worker.requestInterruption()
-            if qd_worker is not None:
-                qd_dialog.close()
+            if not self._close_pending:
+                self._close_pending = True
+                for page in (self.single_run, self.optimization, self.quick_design):
+                    page.cancel()
             self.setEnabled(False)
             self.statusBar().showMessage("正在关闭 — 等待当前任务安全结束…")
             if not hasattr(self, '_close_retry_timer'):
@@ -735,48 +484,11 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
                 self._close_retry_timer.timeout.connect(self.close)
                 self._close_retry_timer.start(100)
             return
+        self._close_pending = True
         if hasattr(self, '_close_retry_timer'):
             self._close_retry_timer.stop()
-        # 2b. Neutralise any floating/detached canvas windows BEFORE Qt
-        #     tears them down. Each was given a closeEvent override that
-        #     calls _reattach_* → self.statusBar(); firing that during
-        #     main-window destruction dereferences a half-dead C++
-        #     object. Replace the override with a plain accept and close
-        #     them now. Added 2026-05-20 UI sweep (Tier 21).
-        _dw3d = getattr(self, '_3d_detached_window', None)
-        if _dw3d is not None:
-            try:
-                _dw3d.closeEvent = lambda ev: ev.accept()
-                _dw3d.close()
-            except Exception:
-                pass
-            self._3d_detached_window = None
-        for _k, _dw in list(getattr(self, '_detached_canvases', {}).items()):
-            if _dw is not None:
-                try:
-                    _dw.closeEvent = lambda ev: ev.accept()
-                    _dw.close()
-                except Exception:
-                    pass
-        try:
-            self._detached_canvases = {}
-        except Exception:
-            pass
-        # 3. PyVistaQt GL context teardown — must happen before Qt
-        #    destroys child widgets, otherwise vtkRenderWindow leaks.
-        for name in ('canvas_3d', 'canvas_opt_3d'):
-            panel = getattr(self, name, None)
-            if panel is not None:
-                try:
-                    panel.cleanup()
-                except Exception:
-                    pass
-        # 5. Bulk-disconnect router-tracked signal connections.
-        try:
-            if getattr(self, 'signals', None) is not None:
-                self.signals.disconnect_all()
-        except Exception:
-            pass
+        self.workbench.close_views()
+        self.signals.disconnect_all()
         super().closeEvent(event)
 
     def _maybe_show_onboarding(self):
@@ -785,7 +497,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         `.first_run_done` in the user data directory; future launches skip.
         """
         import os as _os_ob
-        flag = self.sm.base_dir / '.first_run_done'
+        flag = self.case_files.store.base_dir / '.first_run_done'
         if _os_ob.path.exists(flag):
             return
         # Headless guard: a fresh checkout has no flag file, and a modal
@@ -851,13 +563,14 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
              "Show zone layout preview"),
             ('btn_tab_pareto', "Pareto tab",
              "Show Pareto-front optimisation results"),
-            ('_opt_btn', "Optimize",
-             "Start multi-condition continuous-field search with the selected optimization method"),
             ('progress', "Computation progress",
              "Current solve progress as a percentage"),
             ('zone_table', "Zone table",
              "Per-zone start, end, L, t parameters. Tab to navigate cells."),
         ]
+        self.optimization.start_button.setAccessibleName("Optimize")
+        self.optimization.start_button.setAccessibleDescription(
+            "Start multi-condition continuous-field search with the selected optimization method")
         for attr, name, desc in _A:
             w = getattr(self, attr, None)
             if w is None:
@@ -949,7 +662,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
     def _show_quick_tour(self):
         """Re-show the first-run onboarding dialog (clears the flag)."""
         import os as _os_qt
-        flag = self.sm.base_dir / '.first_run_done'
+        flag = self.case_files.store.base_dir / '.first_run_done'
         try:
             if _os_qt.path.exists(flag):
                 _os_qt.remove(flag)
@@ -1156,45 +869,3 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
 
 
     _MAX_RECENT_RUNS = 5
-
-    def _lazy_init_3d_panel(self):
-        """Create the prepared 3D panel on the GUI thread."""
-        if getattr(self, '_close_pending', False):
-            return
-        if getattr(self, '_vis3d_import_error', None):
-            return      # Offscreen / disabled — leave placeholder
-        if getattr(self, 'canvas_3d', None) is not None:
-            return      # Already initialised by a prior call.
-        if getattr(self, '_lazy_init_3d_running', False):
-            return      # In flight on another (nested) event loop call.
-        self._lazy_init_3d_running = True
-        try:
-            try:
-                from sjtu_tpmshx.applications.gui.ui.panel_vis_3d import ThreeDVisPanel
-                panel = ThreeDVisPanel()
-                panel.restore_color_ranges(getattr(self, '_volume_color_ranges', {}).get('results', {}))
-            except Exception as e:
-                self._vis3d_import_error = str(e)
-                return
-            # Swap placeholder → real panel in the card layout
-            card = self._canvas_cards.get('3d')
-            if card is None:
-                return
-            placeholder = getattr(self, '_canvas_3d_placeholder', None)
-            lay = card.layout()
-            if placeholder is not None and lay is not None:
-                lay.replaceWidget(placeholder, panel)
-                placeholder.deleteLater()
-            self._canvas_3d_placeholder = None
-            self.canvas_3d = panel
-            # Fit the 3D card to the scroll viewport now that the real panel is
-            # in (avoids the fixed 1144 px card overflowing → scrollbar).
-            _fit = getattr(self, '_fit_3d_card_to_viewport', None)
-            if _fit is not None:
-                try:
-                    _fit()
-                except Exception:
-                    pass
-            self.statusBar().showMessage("3D view initialised.", TOAST_MS_BRIEF)
-        finally:
-            self._lazy_init_3d_running = False

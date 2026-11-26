@@ -928,7 +928,7 @@ def test_volume_tab_is_lazy_reuses_panel_and_keeps_failed_updates_unavailable(wi
             created.append(self)
 
     monkeypatch.setattr(panel_vis_3d, 'ThreeDVisPanel', VolumePanel)
-    monkeypatch.setattr(window, '_vis3d_import_error', None)
+    monkeypatch.setattr(window.workbench, 'import_error', None)
     study = report(window)
     page.report = study
     page.show_field_preview(study['history'][0]['x_decision'])

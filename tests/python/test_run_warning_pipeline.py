@@ -55,9 +55,9 @@ def test_real_pipeline_warning_ownership_and_numerical_transparency(monkeypatch,
     assert any(row['low'] or row['high'] for row in local)
     assert main_nu_warnings(result)
     assert result.extrap_reasons == []  # both cases remain inside the D-F grid
-    win.write_result(result)
+    win.results.publish(result)
     assert win.cache.get_result().extrap_reasons == []
-    assert win._result_summary()['warnings'] == result.warnings
+    assert win.results.summary()['warnings'] == result.warnings
     assert len(result.warnings) == len(set(result.warnings))
 
     repeated = compute_result(cfg)

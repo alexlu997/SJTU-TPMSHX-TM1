@@ -20,7 +20,7 @@ def install_field_menus(window):
     """
     window._field_history = {}
 
-    for attr in window._SESSION_LINE_EDITS:
+    for attr in window.case_files.SESSION_LINE_EDITS:
         le = getattr(window, attr, None)
         if le is None:
             continue
@@ -103,7 +103,7 @@ def _attach_history_tracker(window, le, attr):
 
 def _revert_field_to_default(window, le, attr):
     """Look up the Shanghai preset default for this attr and write it back."""
-    from .mixins.session_presets import shanghai_field_defaults
+    from .case_files import shanghai_field_defaults
     defaults = shanghai_field_defaults(is_3d=window.combo_dim.currentIndex() == 1)
     val = defaults.get(attr)
     if val is None:
