@@ -174,6 +174,10 @@ Python 仅绑定保存态阶段生命周期：`full_2d_stage.py`（二维保存�
 `applications.optimization.multi_condition` 通过 `compute_prepared_run`（60 秒检查点）评估有序工况批次，并由 `resume_condition_batch` 恢复至新目录。
 优化器使用 `evaluate_compact_condition_batch`：返回紧凑摘要，并在原目录内继续已保存的批次；复用已完成成员，保留失败成员且不重新运行。
 默认 `workers = None` 最多启动 4 个原生工作进程，每进程至少分配 2 个 CPU 槽位，平分总 CPU 上限并保持输入顺序与单管理进程暂停／取消控制。
+正常并行求解期间，若工作进程意外退出，父进程会把批次记为失败，并抛出 `BrokenProcessPool`。
+最近一次完整写入的检查点仍可读取。若进程池拒绝某个工况的提交请求，父进程会把该工况记为 `failed`。
+在新批次中，父进程始终未选中的工况保持 `not_run`。
+在原目录内续算时，若父进程始终未选中已保存为 `paused` 的工况，该工况保持 `paused`。
 批次只使用 1 个工作进程时（例如只有 1 个 CPU 槽位时），调用进程按输入顺序逐个运行工况，不创建管理进程。
 `run_multi_condition_optimization` 支持 `qLogNEHVI`、`qLogNParEGO` 与 `Sobol` 基于完整合格批次最大化 `(heat_gain_percent, -pressure_ratio)`，或使用 `qLogNEI` 与 `Sobol` 结合 `mass_requirements`（含可选逐工况 `T_out`/`P_out` 限制与 `allow_nu_re_extrapolation`）执行约束最小芯体质量优化。
 `resume_multi_condition_optimization` 将原归档复制到新目录并校验 `optimization-input.json`、Sobol 序列与已保存提议后继续。

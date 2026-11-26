@@ -647,6 +647,10 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
                                 str(root / row['case_file']), str(root / row['directory']),
                                 control.native_library, worker_threads, row.get('resume_checkpoint'))
                             pending[future] = index
+                            # CPython's submit() can wake the manager before it registers a new worker.
+                            # Wake the manager again so its wait includes the new worker's sentinel.
+                            with pool._shutdown_lock:
+                                pool._executor_manager_thread_wakeup.wakeup()
                         except PausedRun as caught:
                             row.update(status='paused', reason=str(caught))
                             error = caught
