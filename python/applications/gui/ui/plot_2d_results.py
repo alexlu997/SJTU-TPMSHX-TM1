@@ -1,15 +1,4 @@
-"""ui/plot_2d_results.py — 2D compute-result rendering for SJTU-TPMSHX.
-
-Extracted from ``runs/run_calculation.py`` in batch-3 (2026-06-13), mirroring
-``ui/plot_3d_results.py``: holds the matplotlib canvas population for the
-temperature / pressure / velocity tabs so the preparation adapter
-(``cpp_interface/native_preparation.py``) stays Qt/matplotlib-free.
-
-Public entry points (consumed by ``ui.mixins.run_controller`` and ``main``):
-    finalize_plots(window, field)   — render one 2D result canvas (main thread)
-    redraw_result_fields(window) — invalidate and redraw visible cached fields
-    plot_temperature_3panel(window, r, _t, zones=None) — the shared T_fA/T_fB/T_s helper
-"""
+"""Draw cached 2D fields and slices from the accepted 3D result."""
 import numpy as np
 from matplotlib.ticker import ScalarFormatter
 
@@ -71,10 +60,10 @@ def redraw_result_fields(window):
     """Invalidate hidden fields; redraw only visible or detached result plots."""
     fields = {'temp', 'pres', 'vel'}
     window.cache.replace_drawn_tabs(set(window.cache.get_drawn_tabs()) - fields)
-    visible = set(getattr(window, '_split_tabs', None) or
-                  (getattr(window, '_active_tab', None),))
+    visible = set(window.workbench.split_tabs or
+                  (window.workbench.active_tab,))
     visible.update(key for key, dialog in
-                   getattr(window, '_detached_canvases', {}).items()
+                   window.workbench.detached_canvases.items()
                    if dialog.isVisible())
     for field in visible & fields:
         ensure_result_plot(window, field)

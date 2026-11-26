@@ -1,55 +1,54 @@
-"""Publish finished compute data, render fields and expose result diagnostics.
-
-RunControllerMixin owns worker dispatch and cancellation; this mixin only
-consumes ComputeResult and publishes it to the GUI result cache.
-"""
-
+"""Publish the accepted single-run result and display its fields and diagnostics."""
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import replace
+from time import perf_counter
 
 from sjtu_tpmshx.applications.gui.ui.fmt import qualification_reasons
-from sjtu_tpmshx.applications.gui.ui.ui_constants import TOAST_MS_SHORT
+from sjtu_tpmshx.applications.gui.ui.ui_constants import TOAST_MS_MED, TOAST_MS_SHORT
 
 
-class RunResultsMixin:
-    """ComputeResult→window adapter + plot finalizer + diagnostics surface."""
+class FieldResults:
+    def __init__(self, window):
+        self.window = window
 
-    def _finalize_plots(self):
+    def finalize_plots(self):
         """Show the initial temperature plot; other fields render on demand."""
+        window = self.window
         from sjtu_tpmshx.applications.gui.ui.plot_2d_results import finalize_plots, ensure_result_plot
-        self.setUpdatesEnabled(False)
+        window.setUpdatesEnabled(False)
         try:
-            out = finalize_plots(self)
-            for field, dialog in getattr(self, '_detached_canvases', {}).items():
+            out = finalize_plots(window)
+            for field, dialog in window.workbench.detached_canvases.items():
                 if field in ('temp', 'pres', 'vel') and dialog.isVisible():
-                    ensure_result_plot(self, field)
+                    ensure_result_plot(window, field)
         finally:
-            self.setUpdatesEnabled(True)
+            window.setUpdatesEnabled(True)
         return out
 
-    def write_result(self, result):
+    def publish(self, result):
         """Publish one ComputeResult for rendering, diagnostics and export."""
+        window = self.window
         if not getattr(result, 'converged', True):
             _nc_msg = ("求解未收敛 — Q/ΔP 来自未收敛场，仅供参考"
                        "（请查看诊断，核对工况、网格与迭代预算后重算）。")
             if _nc_msg not in result.warnings:
                 result.warnings.insert(0, _nc_msg)
-        from copy import deepcopy
 
         # Only the latest published run owns the summary, plots and exports.
         # A new accepted result also invalidates readiness of the old 3D views.
-        self._3d_view_ready = False
-        self._3d_view_error = False
-        self._requested_3d_result = None
-        self._requested_3d_action = None
-        panel = getattr(self, 'canvas_3d', None)
+        window.workbench.volume_ready = False
+        window.workbench.volume_error = False
+        window.workbench.requested_3d_result = None
+        window.workbench.requested_3d_action = None
+        panel = getattr(window, 'canvas_3d', None)
         if panel is not None and hasattr(panel, 'hide'):
             panel.hide()
-        self._rendered_3d_slices = False
+        window.workbench.rendered_slices = False
         mode = result.diagnostics.get('mode', '2d')
         # Isolate published containers while sharing the field arrays.
-        self.cache.set_result(mode, replace(
+        window.cache.set_result(mode, replace(
             result, fields=dict(result.fields), coeffs=dict(result.coeffs),
             residuals=dict(result.residuals), zones=deepcopy(result.zones),
             metadata=deepcopy(result.metadata), warnings=list(result.warnings),
@@ -60,9 +59,10 @@ class RunResultsMixin:
                 result.diagnostics.get('convergence_detail') or {})},
         ))
 
-    def _result_summary(self):
+    def summary(self):
         """Read diagnostics and scalar values from the published result."""
-        result = self.cache.get_result()
+        window = self.window
+        result = window.cache.get_result()
         if result is None:
             return {}
         return {
@@ -96,19 +96,20 @@ class RunResultsMixin:
                        ('K_ffA', 'K_ffB', 'K_ss', 'h_vA', 'h_vB')},
         }
 
-
-    def _update_result_summary(self):
+    def refresh_summary(self):
         """Refresh the visible footer from the published result."""
+        window = self.window
         from sjtu_tpmshx.applications.gui.ui.builders_sidebar import (
             refresh_result_sidebar, update_result_sidebar_visibility,
         )
-        refresh_result_sidebar(self)
-        update_result_sidebar_visibility(self)
+        refresh_result_sidebar(window)
+        update_result_sidebar_visibility(window)
 
-    def _diag_summary_text(self):
+    def diagnostic_text(self):
         """Plain-text diagnostics block (ui-plan3-workbench T3) — pasteable
         into 组会/周报. Returns '' when no run has landed."""
-        d = self._result_summary()
+        window = self.window
+        d = self.summary()
         if not d:
             return ''
         def _f(v, fmt="{:.4g}"):
@@ -143,7 +144,7 @@ class RunResultsMixin:
         for name, label in (('physical', '物理台账'), ('applicability', '适用范围'), ('model_scope', '模型适用性')):
             passed = qualification.get(name, {}).get('passed')
             lines.append(label + '：' + ('通过' if passed is True else '未通过' if passed is False else '未核实'))
-        co2_model = self.cache.get_result().metadata.get('co2')
+        co2_model = window.cache.get_result().metadata.get('co2')
         if co2_model:
             lines.append('CO₂ 侧 ' + '/'.join(co2_model['sides'])
                          + f"：单相 HEOS；固定阻力 ×{co2_model['pressure_multiplier']:g}"
@@ -161,19 +162,20 @@ class RunResultsMixin:
             lines.append(f"⚠ 外推: {e}")
         return "\n".join(lines)
 
-    def _show_diag_dialog(self):
+    def show_diag_dialog(self):
         """诊断详情 dialog: energy ledger, coefficients, iterations,
         warnings, one-click copy (ui-plan3-workbench T3)."""
-        txt = self._diag_summary_text()
+        window = self.window
+        txt = self.diagnostic_text()
         if not txt:
-            self.statusBar().showMessage("暂无诊断数据 — 请先计算。",
+            window.statusBar().showMessage("暂无诊断数据 — 请先计算。",
                                          TOAST_MS_SHORT)
             return
         from PySide6.QtWidgets import (QDialog, QVBoxLayout, QPlainTextEdit,
                                        QPushButton, QHBoxLayout)
         from sjtu_tpmshx.applications.gui.ui.theme import get_theme as _gt
         _t = _gt()
-        dlg = QDialog(self)
+        dlg = QDialog(window)
         dlg.setWindowTitle("诊断详情")
         dlg.resize(560, 420)
         lay = QVBoxLayout(dlg)
@@ -188,11 +190,100 @@ class RunResultsMixin:
         btn_copy = QPushButton("复制诊断摘要")
         def _copy():
             from PySide6.QtGui import QGuiApplication
-            QGuiApplication.clipboard().setText(self._diag_summary_text())
-            self.statusBar().showMessage("诊断摘要已复制。", TOAST_MS_SHORT)
+            QGuiApplication.clipboard().setText(self.diagnostic_text())
+            window.statusBar().showMessage("诊断摘要已复制。", TOAST_MS_SHORT)
         btn_copy.clicked.connect(_copy)
         btn_close = QPushButton("关闭")
         btn_close.clicked.connect(dlg.accept)
         row.addStretch(1); row.addWidget(btn_copy); row.addWidget(btn_close)
         lay.addLayout(row)
         dlg.exec()
+
+    def render(self, mode):
+        """Render the published result and report presentation success."""
+        window = self.window
+        if mode == '3d':
+            from sjtu_tpmshx.applications.gui.ui.plot_2d_results import ensure_result_plot
+            field = window.workbench.resolve_2d_view_card()
+            success = ensure_result_plot(window, field)
+            window.workbench.rendered_slices = success
+            window.workbench.update_tab_visibility()
+            if success:
+                window.workbench.switch_tab(field, foreground=False)
+                window.statusBar().showMessage('场图已显示；首次选择三维时加载体视图。', 8000)
+            for key, dialog in window.workbench.detached_canvases.items():
+                if key in ('temp', 'pres', 'vel') and dialog.isVisible():
+                    ensure_result_plot(window, key)
+            detached = window.workbench.detached_volume
+            if detached is not None and detached.isVisible():
+                from PySide6.QtCore import QTimer
+                QTimer.singleShot(0, window, lambda: window.workbench.request_3d_view(
+                    lambda: None, background=True))
+            return success
+
+        # 2D mode (default).
+        # 2026-05-09 — wrap finalize_plots so a panel crash (e.g. NaN
+        # contourf, water-side LTNE divergence) does NOT block 2D results
+        # from unlocking. The user still benefits from valid velocity /
+        # pressure canvases even when one panel fails to render.
+        _finalize_ok = True
+        try:
+            self.finalize_plots()
+        except Exception as _fe:
+            _finalize_ok = False
+            import traceback
+            traceback.print_exc()
+            window.statusBar().showMessage(
+                f"Plot finalize failed: {_fe!r} — partial 2D results available.",
+                8000)
+        window.workbench.update_tab_visibility()
+        window.workbench.switch_tab('temp', foreground=False)
+        if _finalize_ok:
+            window.statusBar().showMessage("Done.", TOAST_MS_MED)
+        return _finalize_ok
+
+    def present(self, result, *, mode, provenance, elapsed):
+        """Publish the accepted run before drawing. Keep it when drawing fails."""
+        window = self.window
+        started = perf_counter()
+        published = False
+        success = False
+        try:
+            if provenance is not None:
+                axes = ('dx', 'dy', 'dz') if mode == '3d' else ('dx_arr', 'dy_arr')
+                recorded = deepcopy(provenance)
+                recorded['actual_grid'] = [
+                    len(result.fields[key]) if result.fields.get(key) is not None else '?'
+                    for key in axes]
+                result.metadata['run_provenance'] = recorded
+            self.publish(result)
+            published = True
+            if provenance is None or not provenance.get('resumed_from'):
+                for side, inlet in result.metadata.get('inlet_inputs', {}).items():
+                    if inlet['mass_flow_kg_s'] is not None:
+                        getattr(window, 'le_u' + side).setText(format(inlet['u_mps'], '.17g'))
+            success = self.render(mode)
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+            stage = 'display' if published else 'publication'
+            window.statusBar().showMessage(f"Result {stage} failed: {exc}", 12000)
+        if published:
+            display_s = perf_counter() - started
+            window.cache.get_result().metadata.setdefault('timings_s', {})['display'] = display_s
+            if not success:
+                for field in ('temp', 'pres', 'vel'):
+                    canvas = getattr(window, f'canvas_{field}', None)
+                    if canvas is not None and not window.cache.is_drawn(field):
+                        canvas.fig.clear()
+                        canvas._hover_data = None
+                        canvas.draw_idle()
+            self.refresh_summary()
+            window.workbench.update_tab_visibility()
+            window.btn_export.setEnabled(True)
+            window._last_elapsed_s = elapsed + display_s
+            window._refresh_status_bar()
+            window._stamp_result_provenance(window._last_elapsed_s)
+            if success:
+                window._push_recent_run()
+        return success

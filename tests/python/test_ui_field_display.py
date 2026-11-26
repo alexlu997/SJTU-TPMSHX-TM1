@@ -63,15 +63,15 @@ def test_speed_scales_stay_separate_and_pressure_can_share_across_slices(win, mo
     f['vmag_A'][:] = np.abs(f['ucA'])
     f['vmag_B'][:] = np.abs(f['ucB'])
     original = {key: value.copy() for key, value in f.items() if isinstance(value, np.ndarray)}
-    win.write_result(result)
+    win.results.publish(result)
     win._field_phase = 1
-    win._active_tab = field
+    win.workbench.active_tab = field
     assert win.chk_shared_pressure_scale.isChecked()
     assert ensure_result_plot(win, field)
     if mode == '3d':
         assert win._slice_index == f['Ta'].shape[2] // 2
-        win._rendered_3d_slices = True
-    win._switch_tab(field)
+        win.workbench.rendered_slices = True
+    win.workbench.switch_tab(field)
     assert win.chk_shared_pressure_scale.isVisible() == (field == 'pres')
     pressure_unit = 1000.
     independent = (.10, .35) if field == 'vel' else (
@@ -151,7 +151,7 @@ def test_nearly_uniform_fields_still_render(win, mode, field, value, spec_key):
         for key in ('vcA', 'vcB', 'wcA', 'wcB'):
             if key in result.fields:
                 result.fields[key][:] = 0.
-    win.write_result(result)
+    win.results.publish(result)
     win._field_phase = 0
     assert ensure_result_plot(win, field)
     contour = getattr(win, 'canvas_' + field).axes[0][0].collections[0]
@@ -169,9 +169,9 @@ def test_shared_temperature_levels_and_ticks_stay_fixed_across_phases_and_slices
     fields = result.fields
     for key, low, high in [('Ta', 400., 500.), ('Tb', 300., 320.), ('Ts', 330., 390.)]:
         fields[key][:] = np.linspace(low, high, fields[key].size).reshape(fields[key].shape)
-    win.write_result(result)
+    win.results.publish(result)
     win._temp_unit = unit
-    win._active_tab = 'temp'
+    win.workbench.active_tab = 'temp'
     win.chk_sync_colorbar_T.setChecked(True)
     offset = 273.15 if unit == 'C' else 0.
     expected = np.linspace(300. - offset, 500. - offset, 257 if mode == '3d' else 129)
@@ -196,7 +196,7 @@ def test_2d_speed_uses_original_components_even_with_historical_display_copies(w
     result = _result('2d')
     for key in ('ucA', 'vcA', 'ucB', 'vcB'):
         result.fields[key + '_disp'] = np.zeros_like(result.fields[key])
-    win.write_result(result)
+    win.results.publish(result)
     win._field_phase = 0
     assert ensure_result_plot(win, 'vel')
     expected = np.hypot(result.fields['ucA'], result.fields['vcA'])
@@ -209,18 +209,18 @@ def test_2d_speed_uses_original_components_even_with_historical_display_copies(w
 @pytest.mark.parametrize('mode', ['2d', '3d'])
 def test_runtime_colormap_override_updates_selected_quantity_only(win, mode):
     result = _result(mode)
-    win.write_result(result)
+    win.results.publish(result)
     win._field_phase = 0
     try:
         set_cmap('temperature', 'cividis')
-        win._active_tab = 'temp'
+        win.workbench.active_tab = 'temp'
         redraw_result_fields(win)
         assert win.canvas_temp.axes[0][0].collections[0].get_cmap().name == 'cividis'
-        win._active_tab = 'pres'
+        win.workbench.active_tab = 'pres'
         redraw_result_fields(win)
         assert win.canvas_pres.axes[0][0].collections[0].get_cmap().name == 'viridis'
         set_cmap('temperature', None)
-        win._active_tab = 'temp'
+        win.workbench.active_tab = 'temp'
         redraw_result_fields(win)
         assert win.canvas_temp.axes[0][0].collections[0].get_cmap().name == 'coolwarm'
     finally:
@@ -240,8 +240,8 @@ def test_qualification_reason_preserves_rejection_and_distinguishes_nu_inputs(wi
     result = _result('3d')
     q['design']['eligible'] = False
     result.metadata['qualification'] = q
-    win.write_result(result)
-    win._update_result_summary()
+    win.results.publish(result)
+    win.results.refresh_summary()
     label = win._sb_labels['design']
     assert label.text() == '未通过 ⚠：B 侧 Nu（原始输入） 水 Gyroid Re 超范围'
     assert 'Nu（计算输入）' in label.toolTip()

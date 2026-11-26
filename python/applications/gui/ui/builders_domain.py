@@ -33,8 +33,7 @@ def _on_dim_changed(window):
         if hasattr(window, 'le_mass_flow' + side):
             refresh_inlet_mode(window, side)
     # Mode change also reveals/hides the result tabs for the current mode
-    if hasattr(window, '_update_tab_visibility'):
-        window._update_tab_visibility()
+    window.workbench.update_tab_visibility()
 
 
 def build_domain_sections(window, lay):
@@ -209,8 +208,6 @@ def build_domain_sections(window, lay):
     # Hide the heading too when this 3D-only control is unavailable.
     window._3d_only_widgets.append(sec_cpu)
 
-    from .compute_resources import bind_resource_controls
-    bind_resource_controls(window)
 
     # Hide 3D-only inputs by default (2D mode)
     _on_dim_changed(window)

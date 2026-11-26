@@ -47,21 +47,21 @@ def test_real_fluid_builder_enables_each_supported_fluid(win):
 def test_normal_compute_ignores_2d_drafts_and_checks_them_in_3d(win, monkeypatch, bad):
     from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
     win.combo_dim.setCurrentIndex(0)
-    names = ['le_Lz', 'le_Nz'] + [name for name in win._SESSION_LINE_EDITS if '_z_' in name]
+    names = ['le_Lz', 'le_Nz'] + [name for name in win.case_files.SESSION_LINE_EDITS if '_z_' in name]
     for name in names:
         field = getattr(win, name)
         field.setText(bad)
         field.setProperty('inpError', 'true')
     dialogs = []
     monkeypatch.setattr(QMessageBox, 'exec', lambda self: dialogs.append(self.text()))
-    assert win._validate_inputs_preflight()
+    assert win.single_run.validate_inputs()
     cfg = config_from_window(win).validate()
     assert cfg.solver.Nz == 1 and cfg.geometry.Lz_m is None
     assert cfg.bc_A.in_z_ctr is None and cfg.bc_B.out_z_w is None
     assert [getattr(win, name).text() for name in names] == [bad] * len(names)
     assert not dialogs
     win.combo_dim.setCurrentIndex(1)
-    assert not win._validate_inputs_preflight()
+    assert not win.single_run.validate_inputs()
     assert dialogs
     with pytest.raises(ValueError, match='Lz|Nz'):
         config_from_window(win)
@@ -78,7 +78,7 @@ def test_compute_shortcut_commits_focused_inlet(win, monkeypatch, side, unit, ze
         at_grid.append(getattr(config, 'fluid_' + side).T_in_K)
         return False
 
-    monkeypatch.setattr(win, '_preflight_grid', record_grid)
+    monkeypatch.setattr(win.single_run, 'preflight_grid', record_grid)
     monkeypatch.setattr(QMessageBox, 'exec', lambda box: QMessageBox.StandardButton.Ok)
     monkeypatch.setattr(QMessageBox, 'warning', lambda *args: QMessageBox.StandardButton.Ok)
     if unit == 'C':
@@ -184,7 +184,7 @@ def test_zone_cell_validation_follows_actual_column_roles(win, columns):
 @pytest.mark.parametrize('direction', range(6))
 def test_3d_layout_rectangles_follow_both_port_axes(direction, monkeypatch):
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-    from sjtu_tpmshx.applications.gui.ui.layout_drawer import draw_layout_rect_3d
+    from sjtu_tpmshx.applications.gui.ui.port_preview_3d import draw_layout_rect_3d
     from sjtu_tpmshx.data_types.validator import cross_axes_for_dir
     fig = Figure()
     fig.canvas.wheelEvent = lambda event: None
@@ -275,7 +275,7 @@ def test_real_port_reader_rejects_half_pair_and_ignores_2d_draft(win, side, end,
 @pytest.mark.parametrize('side', ['A', 'B'])
 def test_3d_layout_omits_invalid_port_instead_of_drawing_full_face(win, side):
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-    from sjtu_tpmshx.applications.gui.ui.layout_drawer import draw_layout_rect_3d
+    from sjtu_tpmshx.applications.gui.ui.port_preview_3d import draw_layout_rect_3d
     win.combo_dim.setCurrentIndex(1)
     getattr(win, f'le_pipe{side}_out_z_ctr').setText('.021')
     getattr(win, f'le_pipe{side}_out_z_w').clear()
@@ -304,7 +304,7 @@ def blank_spans(win, monkeypatch):
     monkeypatch.setattr(QMessageBox, 'exec', lambda dialog: dialogs.append(dialog.text()))
     monkeypatch.setattr(QMessageBox, 'warning', lambda *args: dialogs.append(args[-1]))
     monkeypatch.setattr(QMessageBox, 'information', lambda *args: None)
-    monkeypatch.setattr(win.compute, 'start', lambda *args, **kwargs: starts.append(kwargs['cfg']) or False)
+    monkeypatch.setattr(win.single_run.compute, 'start', lambda *args, **kwargs: starts.append(kwargs['cfg']) or False)
     return win, dialogs, starts
 
 
@@ -315,7 +315,7 @@ def test_blank_second_spans_reach_real_compute_dispatch(blank_spans, partial):
         side, end = partial
         getattr(win, f'le_pipe{side}_{end}_z_ctr').setText('.021')
         getattr(win, f'le_pipe{side}_{end}_z_w').setText('.02')
-    win.run_calculation()
+    win.single_run.submit()
     assert not dialogs
     assert len(starts) == 1
     cfg = starts[0].validate()
@@ -333,7 +333,7 @@ def test_half_second_span_stops_real_compute_dispatch(blank_spans, side, end, mi
     win, dialogs, starts = blank_spans
     for field, value in (('ctr', '.021'), ('w', '.02')):
         getattr(win, f'le_pipe{side}_{end}_z_{field}').setText('' if field == missing else value)
-    win.run_calculation()
+    win.single_run.submit()
     assert not starts
     assert len(dialogs) == 1
     assert '1 个无效输入' in dialogs[0]
@@ -349,7 +349,7 @@ def test_invalid_second_span_stops_real_compute_dispatch(blank_spans, bad, messa
     win, dialogs, starts = blank_spans
     win.le_pipeA_in_z_ctr.setText('.021')
     win.le_pipeA_in_z_w.setText(bad)
-    win.run_calculation()
+    win.single_run.submit()
     assert not starts
     assert len(dialogs) == 1
     assert message in dialogs[0]
@@ -396,7 +396,7 @@ def test_inlet_mode_changes_refresh_badges(blank_spans, side):
         while win._group_badge_counts['流体'] != expected and monotonic() < deadline:
             QApplication.processEvents()
         assert win._group_badge_counts['流体'] == expected
-        assert win._validate_inputs_preflight() is (expected == 0)
+        assert win.single_run.validate_inputs() is (expected == 0)
         if expected:
             assert f'le_mass_flow{side}' in dialogs[-1]
 
@@ -407,7 +407,7 @@ def test_blank_second_spans_recover_and_round_trip(blank_spans, monkeypatch):
     win, dialogs, starts = blank_spans
     win.le_pipeA_in_z_w.setText('invalid')
     win.le_pipeA_in_z_w.editingFinished.emit()
-    win.run_calculation()
+    win.single_run.submit()
     assert dialogs and not starts
     dialogs.clear()
     win.le_pipeA_in_z_w.clear()
@@ -417,11 +417,11 @@ def test_blank_second_spans_recover_and_round_trip(blank_spans, monkeypatch):
     assert win._group_badge_counts['进出口边界'] == 0
     before = asdict(config_from_window(win, strict=True).validate())
     saved = {}
-    monkeypatch.setattr(win.sm, 'save_session', lambda payload, workspace: saved.update(payload) or True)
-    assert win._save_session()
+    monkeypatch.setattr(win.case_files.store, 'save_session', lambda payload, workspace: saved.update(payload) or True)
+    assert win.case_files.save_session()
     win._apply_shanghai_defaults()
-    monkeypatch.setattr(win.sm, 'load_session', lambda workspace: saved)
-    win._restore_session()
+    monkeypatch.setattr(win.case_files.store, 'load_session', lambda workspace: saved)
+    win.case_files.restore_session()
     assert asdict(config_from_window(win, strict=True).validate()) == before
-    win.run_calculation()
+    win.single_run.submit()
     assert len(starts) == 1 and not dialogs

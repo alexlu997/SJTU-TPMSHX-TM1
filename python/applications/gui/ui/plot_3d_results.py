@@ -54,20 +54,11 @@ def finalize_plots_3d(window) -> bool:
 
     # ── 1. PyVistaQt 3D panel ──
     panel = getattr(window, 'canvas_3d', None)
-    if panel is None and hasattr(window, '_lazy_init_3d_panel'):
-        try:
-            window._lazy_init_3d_panel()
-            panel = getattr(window, 'canvas_3d', None)
-        except Exception as _e_lazy:
-            panel = None
-            _log.warning(f"[3D vis] _lazy_init_3d_panel failed: {_e_lazy}")
     if panel is None:
-        # Either lazy init failed, or offscreen mode left the placeholder
-        # in place. Either way, the 3D visualisation cannot be displayed
-        # and the caller must not switch the user to a blank tab.
-        _log.warning("[3D vis] no PyVistaQt panel (canvas_3d is None after lazy "
-                     "init) — embedded 3D view cannot be populated. Check the "
-                     "[3D vis] _lazy_init_3d_panel line above for the import error.")
+        window.workbench.create_volume_panel()
+        panel = window.canvas_3d
+    if panel is None:
+        _log.warning("[3D vis] Cannot display the volume: %s", window.workbench.import_error)
         _3d_vis_ok = False
     if panel is not None:
         try:

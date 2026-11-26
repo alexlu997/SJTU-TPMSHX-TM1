@@ -40,7 +40,7 @@ def test_workbench_teardown_preserves_window_if_close_is_declined(tmp_path, monk
     window = next(lifecycle)
     try:
         with monkeypatch.context() as patch:
-            patch.setattr(window, '_save_session', lambda: False)
+            patch.setattr(window.case_files, 'save_session', lambda: False)
             patch.setattr(QMessageBox, 'warning', lambda *a: QMessageBox.StandardButton.Cancel)
             with pytest.raises(AssertionError, match='workbench window refused to close'):
                 next(lifecycle)
@@ -69,18 +69,18 @@ def test_fit_view_targets_the_active_optimization_volume(win, monkeypatch):
     from sjtu_tpmshx.applications.gui.ui.builders_canvas import canvas_zoom_reset
 
     main_panel, optimization_panel = (SimpleNamespace(
-        fit_view=Mock(), color_range_state=lambda: {'mode': 'global', 'ranges': {}}) for _ in range(2))
+        fit_view=Mock(), cleanup=Mock(), color_range_state=lambda: {'mode': 'global', 'ranges': {}}) for _ in range(2))
     monkeypatch.setattr(win, 'canvas_3d', main_panel)
-    monkeypatch.setattr(win, 'canvas_opt_3d', optimization_panel)
-    win._opt_result_tabs.setCurrentWidget(win._opt_3d_host)
-    win._active_tab = 'pareto'
+    monkeypatch.setattr(win.optimization, 'volume_panel', optimization_panel)
+    win.optimization.result_tabs.setCurrentWidget(win.optimization.volume_host)
+    win.workbench.active_tab = 'pareto'
     canvas_zoom_reset(win)
     optimization_panel.fit_view.assert_called_once_with()
     main_panel.fit_view.assert_not_called()
-    win._opt_result_tabs.setCurrentWidget(win.canvas_pareto)
+    win.optimization.result_tabs.setCurrentWidget(win.optimization.pareto_canvas)
     canvas_zoom_reset(win)
     optimization_panel.fit_view.assert_called_once_with()
-    win._active_tab = '3d'
+    win.workbench.active_tab = '3d'
     canvas_zoom_reset(win)
     main_panel.fit_view.assert_called_once_with()
 
@@ -93,13 +93,13 @@ def test_window_close_cleans_both_volume_plotters_and_their_popups(win):
 
     panels = []
     popups = []
-    for name in ('canvas_3d', 'canvas_opt_3d'):
+    for owner, name in ((win, 'canvas_3d'), (win.optimization, 'volume_panel')):
         popup = QDialog(win)
         popup.show()
         panel = SimpleNamespace(_popup_dialogs=[popup], _stop_camera_tween=Mock(),
                                 plotter=Mock(), color_range_state=lambda: {'mode': 'global', 'ranges': {}})
         panel.cleanup = MethodType(ThreeDVisPanel.cleanup, panel)
-        setattr(win, name, panel)
+        setattr(owner, name, panel)
         panels.append(panel)
         popups.append(popup)
     win.close()
@@ -158,11 +158,11 @@ def test_more_workspace_menu_preserves_each_workspace_inputs(win, monkeypatch):
     assert len(opened) == 1
     win.le_Nx.setText('37')
     menu.actions()[1].trigger()
-    assert win._active_workspace == 'B'
+    assert win.case_files.active_workspace == 'B'
     assert menu.actions()[1].text().startswith('● ')
     win.le_Nx.setText('45')
     menu.actions()[0].trigger()
-    assert win._active_workspace == 'A'
+    assert win.case_files.active_workspace == 'A'
     assert win.le_Nx.text() == '37'
     menu.actions()[1].trigger()
     assert win.le_Nx.text() == '45'
@@ -200,7 +200,7 @@ def test_collapse_restore_preserves_fields_page_scroll_and_width(win):
 
 
 @pytest.mark.parametrize('collapsed', [False, True])
-def test_optimization_space_restores_parameter_state_and_keeps_active_cancel(win, collapsed):
+def test_optimization_space_restores_parameter_state_and_keeps_active_cancel(win, collapsed, monkeypatch):
     win._select_param_page(1)
     win._accordion_groups['进出口边界'].setChecked(True)
     win._splitter.setSizes([426, 850])
@@ -212,7 +212,7 @@ def test_optimization_space_restores_parameter_state_and_keeps_active_cancel(win
     win._set_parameter_panel_collapsed(collapsed)
     QApplication.processEvents()
     width = win._parameter_host.width()
-    win._switch_tab('pareto')
+    win.workbench.switch_tab('pareto')
     QApplication.processEvents()
     assert not win._parameter_host.isVisibleTo(win)
     assert not win._run_status_card.isVisibleTo(win)
@@ -221,13 +221,13 @@ def test_optimization_space_restores_parameter_state_and_keeps_active_cancel(win
     win._toggle_3d_immersive()
     win._toggle_3d_immersive()
     assert not win._parameter_host.isVisibleTo(win)
-    win._compute_running = True
-    win._run_status_card.start('2d')
-    win._switch_tab('pareto')
-    assert win._run_status_card.cancel_button.isVisibleTo(win)
-    win._compute_running = False
+    with monkeypatch.context() as running:
+        running.setattr(win.single_run, 'is_idle', lambda: False)
+        win._run_status_card.start('2d')
+        win.workbench.switch_tab('pareto')
+        assert win._run_status_card.cancel_button.isVisibleTo(win)
     win._run_status_card.finish('cancelled', 0.)
-    win._switch_tab('layout')
+    win.workbench.switch_tab('layout')
     QApplication.processEvents()
     assert win._parameter_host.isVisibleTo(win)
     assert win._parameter_host.width() == width
@@ -240,18 +240,18 @@ def test_optimization_page_buttons_work_by_keyboard_and_public_edit_keeps_values
     from PySide6.QtTest import QTest
     win.le_Nx.setText('37')
     win._set_parameter_panel_collapsed(True)
-    win._switch_tab('pareto')
+    win.workbench.switch_tab('pareto')
     for index, key in enumerate(('config', 'running', 'result')):
-        button = win._opt_stage_pills[key]
+        button = win.optimization.stage_pills[key]
         assert button.focusPolicy() != Qt.FocusPolicy.NoFocus
         button.setFocus()
         QTest.keyClick(button, Qt.Key.Key_Space)
-        assert win._opt_stack.currentIndex() == index
-    win._opt_stack.setCurrentIndex(0)
+        assert win.optimization.stack.currentIndex() == index
+    win.optimization.stack.setCurrentIndex(0)
     win._toggle_3d_immersive()
-    win._opt_edit_common_btn.click()
+    win.optimization.edit_common_button.click()
     QApplication.processEvents()
-    assert win._active_tab == 'layout' and not win._3d_immersive
+    assert win.workbench.active_tab == 'layout' and not win._3d_immersive
     assert win._parameter_host.isVisibleTo(win) and not win._left_collapsed
     assert win.le_Nx.text() == '37'
 
@@ -264,25 +264,25 @@ def test_optimization_session_restores_saved_parameter_width(win, monkeypatch, c
     width = win._parameter_host.width()
     if collapsed:
         win._set_parameter_panel_collapsed(True)
-    win._switch_tab('pareto')
+    win.workbench.switch_tab('pareto')
     QApplication.processEvents()
     saved = {}
-    monkeypatch.setattr(win.sm, 'save_session', lambda payload, ws: saved.update(payload) or True)
-    assert win._save_session()
+    monkeypatch.setattr(win.case_files.store, 'save_session', lambda payload, ws: saved.update(payload) or True)
+    assert win.case_files.save_session()
     assert saved['ui_state']['parameter_width'] == width
     assert saved['ui_state']['left_collapsed'] == collapsed
-    win._switch_tab('layout')
+    win.workbench.switch_tab('layout')
     win._set_parameter_panel_collapsed(False)
     win._splitter.setSizes([320, 980])
-    win._switch_tab(restore_tab)
+    win.workbench.switch_tab(restore_tab)
     # Keep the test viewport; offscreen screen geometry must not clamp it.
     saved.pop('geometry')
-    monkeypatch.setattr(win.sm, 'load_session', lambda ws: saved)
-    win._restore_session()
+    monkeypatch.setattr(win.case_files.store, 'load_session', lambda ws: saved)
+    win.case_files.restore_session()
     QApplication.processEvents()
-    assert win._active_tab == 'pareto' and win._left_collapsed == collapsed
+    assert win.workbench.active_tab == 'pareto' and win._left_collapsed == collapsed
     assert win._param_width == width
-    win._switch_tab('layout')
+    win.workbench.switch_tab('layout')
     win._set_parameter_panel_collapsed(False)
     QApplication.processEvents()
     assert win._parameter_host.width() == width
@@ -292,10 +292,9 @@ def test_optimization_figure_menu_keeps_copy_and_export_reachable(win, monkeypat
     from types import SimpleNamespace
     from PySide6.QtGui import QGuiApplication
     from PySide6.QtWidgets import QInputDialog
-    from sjtu_tpmshx.applications.gui.ui.optimize_panel import show_pareto
     from tests.python.optimization_support import report
-    win._switch_tab('pareto')
-    show_pareto(win, report(win))
+    win.workbench.switch_tab('pareto')
+    win.optimization.show_pareto(report(win))
     QApplication.processEvents()
     assert win.btn_export.isVisibleTo(win) and win.btn_export.isEnabled()
     copied, choices = [], []
@@ -315,13 +314,13 @@ def test_focus_restores_preferences_and_does_not_persist_transient_hiding(
     win.combo_dim.setCurrentIndex(0)
     win.cache.set_result('2d', ComputeResult())
     win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})  # These layout stubs represent rendered fields.
-    win._update_tab_visibility()
-    win._switch_tab('temp')
+    win.workbench.update_tab_visibility()
+    win.workbench.switch_tab('temp')
     win._set_parameter_panel_collapsed(collapsed)
     win.btn_result_summary.setChecked(summary)
     previous_height = win._canvas_cards['temp'].height()
     saved = {}
-    monkeypatch.setattr(win.sm, 'save_session', lambda payload, ws: saved.update(payload) or True)
+    monkeypatch.setattr(win.case_files.store, 'save_session', lambda payload, ws: saved.update(payload) or True)
 
     win._toggle_3d_immersive()
     QApplication.processEvents()
@@ -330,10 +329,10 @@ def test_focus_restores_preferences_and_does_not_persist_transient_hiding(
     assert win._run_status_card.isHidden()
     assert win._result_sidebar.isHidden()
     assert previous_height <= win._canvas_cards['temp'].height() <= win._canvas_scroll.viewport().height()
-    win._save_session()
+    win.case_files.save_session()
     assert saved['ui_state']['left_collapsed'] == collapsed
     assert saved['ui_state']['result_summary_visible'] == summary
-    win._switch_tab('pres')
+    win.workbench.switch_tab('pres')
     assert win._result_sidebar.isHidden()
 
     win._toggle_3d_immersive()
@@ -353,8 +352,8 @@ def test_session_restores_width_page_and_legacy_defaults(win, monkeypatch):
     width = win._parameter_host.width()
     win._toggle_left_panel()
     saved = {}
-    monkeypatch.setattr(win.sm, 'save_session', lambda payload, ws: saved.update(payload) or True)
-    win._save_session()
+    monkeypatch.setattr(win.case_files.store, 'save_session', lambda payload, ws: saved.update(payload) or True)
+    win.case_files.save_session()
     win._toggle_left_panel()
     win._splitter.setSizes([320, 980])
     win._select_param_page(0)
@@ -363,8 +362,8 @@ def test_session_restores_width_page_and_legacy_defaults(win, monkeypatch):
     # clamps restored window geometry to the offscreen backend's small screen,
     # where the chart's minimum width prevents a 450 px parameter panel.
     saved.pop('geometry')
-    monkeypatch.setattr(win.sm, 'load_session', lambda ws: saved)
-    win._restore_session()
+    monkeypatch.setattr(win.case_files.store, 'load_session', lambda ws: saved)
+    win.case_files.restore_session()
     QApplication.processEvents()
     assert win._left_collapsed
     assert win._param_width == width
@@ -375,7 +374,7 @@ def test_session_restores_width_page_and_legacy_defaults(win, monkeypatch):
     assert win._parameter_host.width() == width
 
     saved.pop('ui_state')
-    win._restore_session()
+    win.case_files.restore_session()
     QApplication.processEvents()
     assert not win._left_collapsed
     assert win._param_page == 0
@@ -388,8 +387,8 @@ def test_palette_field_selection_updates_visible_buttons(win):
 
     win.combo_dim.setCurrentIndex(0)
     win.cache.set_result('2d', _result('2d'))
-    win._update_tab_visibility()
-    win._switch_tab('temp')
+    win.workbench.update_tab_visibility()
+    win.workbench.switch_tab('temp')
     buttons = win._2d_field_btns
     selected, unselected = buttons[0].styleSheet(), buttons[1].styleSheet()
     assert selected != unselected
@@ -398,7 +397,7 @@ def test_palette_field_selection_updates_visible_buttons(win):
 
     for field, index in (('pres', 2), ('vel', 1), ('temp', 0)):
         actions[field].callback()
-        assert win._active_tab == field
+        assert win.workbench.active_tab == field
         assert win.combo_2d_field.currentIndex() == index
         assert win._canvas_cards[field].isVisibleTo(win)
         assert [button.styleSheet() for button in buttons] == [
@@ -411,13 +410,47 @@ def test_palette_enter_runs_selected_command_once(win, monkeypatch):
     from sjtu_tpmshx.applications.gui.ui.command_palette import CommandPalette
 
     calls = []
-    monkeypatch.setattr(win, '_export_results', lambda: calls.append('export'))
+    monkeypatch.setattr(win.result_export, 'export_results', lambda: calls.append('export'))
     palette = CommandPalette(win)
     palette.open_palette()
     palette._input.setText('Export results to CSV')
     QApplication.processEvents()
     QTest.keyClick(palette._input, Qt.Key.Key_Return)
     assert calls == ['export']
+
+
+def test_quick_design_keeps_its_page_and_valid_result_route(win):
+    from tests.python.gui_workbench_support import _result
+
+    win.btn_quick_design.click()
+    assert win.btn_tab_result.styleSheet() == win._PTAB_DISABLED
+    assert win.results.present(_result('2d'), mode='2d', provenance=None, elapsed=1)
+    assert win.page_stack.currentWidget() is win.quick_design
+    assert win.btn_tab_result.isEnabled() and win.btn_tab_result.styleSheet() == win._PTAB_OFF
+
+    win.btn_tab_result.click()
+    win.btn_quick_design.click()
+    shortcut = next(item for item in win.findChildren(QShortcut) if item.key() == QKeySequence('Ctrl+4'))
+    shortcut.activated.emit()
+    assert win._canvas_cards['temp'].isVisibleTo(win)
+    assert win.workbench.active_tab == 'temp'
+
+    win.btn_quick_design.click()
+    win.case_files.load_named_preset('Shanghai (2D Gyroid)')
+    assert win.page_stack.currentWidget() is win.quick_design
+    assert win.workbench.active_tab == 'layout'
+    assert win.case_files.save_session()
+    assert win.case_files.store.load_session()['ui_state']['active_tab'] == 'layout'
+
+
+def test_volume_only_result_enables_the_result_tab(win):
+    from tests.python.gui_workbench_support import _result
+
+    win.results.publish(_result('3d'))
+    win.workbench.update_tab_visibility()
+    assert not win.workbench.rendered_slices
+    assert win.workbench.result_view == '3d'
+    assert win.btn_tab_result.isEnabled() and win.btn_tab_result.styleSheet() == win._PTAB_OFF
 
 
 def test_same_field_refreshes_result_dimension_and_slice_controls(win):
@@ -427,14 +460,14 @@ def test_same_field_refreshes_result_dimension_and_slice_controls(win):
 
     for mode in ('2d', '3d', '2d'):
         result = _result(mode)
-        win.write_result(result)
+        win.results.publish(result)
         if mode == '3d':
             _render_2d_slices_from_3d(win, result, field='temp')
-            win._rendered_3d_slices = win.cache.is_drawn('temp')
+            win.workbench.rendered_slices = win.cache.is_drawn('temp')
         else:
             finalize_plots(win, field='temp')
-        win._update_tab_visibility()
-        win._switch_tab('temp')
+        win.workbench.update_tab_visibility()
+        win.workbench.switch_tab('temp')
         QApplication.processEvents()
         assert win._result_heading.text() == f'本次结果 · {mode.upper()}'
         assert win._slice_controls.isVisibleTo(win) == (mode == '3d')
@@ -465,14 +498,14 @@ def test_current_solver_controls_are_visible_and_roundtrip(win):
     win.combo_grid.setCurrentIndex(win.combo_grid.findData(False))
     win.chk_allow_extrap.setChecked(False)
     before = config_from_window(win)
-    preset = win._capture_current_preset('current settings')
+    preset = win.case_files.capture_current_preset('current settings')
     assert not before.flags.port_wall_refine
     assert before.flags.variable_rho_cp
     assert before.bc_A.uniform_inlet_2d and before.bc_B.uniform_inlet_2d
     win.combo_dim.setCurrentIndex(0)
     win.combo_grid.setCurrentIndex(win.combo_grid.findData(True))
     win.chk_allow_extrap.setChecked(True)
-    win._apply_user_preset(preset)
+    win.case_files.apply_user_preset(preset)
     after = config_from_window(win)
     assert after.flags == before.flags
     assert after.extrap == before.extrap

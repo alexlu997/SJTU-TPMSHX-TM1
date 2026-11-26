@@ -42,12 +42,12 @@ def test_closure_warning_worker_to_export(win, monkeypatch, tmp_path, mode, sour
         return {}
 
     _stub_stages(monkeypatch, mode, build)
-    monkeypatch.setattr(win, '_render_compute_result', lambda: True)
+    monkeypatch.setattr(win.results, 'render', lambda mode: True)
     for run in range(2):
-        win.run_calculation()
-        _wait_for(win.compute.is_idle)
+        win.single_run.submit()
+        _wait_for(win.single_run.is_idle)
         assert not win._test_error_dialogs
-        result = win.compute.last_result()
+        result = win.single_run.compute.last_result()
         assert any(f'[{source} extrap]' in message for message in result.warnings)
         if source == 'D-F':
             notice = next(m for m in result.warnings if '[D-F extrap]' in m)
@@ -57,10 +57,10 @@ def test_closure_warning_worker_to_export(win, monkeypatch, tmp_path, mode, sour
         if mode == '3d' and source == 'Nu':
             assert any('zoned L=[5,6] mm, t=[0.3,0.4] mm' in message for message in result.warnings)
         assert result.extrap_reasons == []
-        assert win._result_summary()['warnings'] == result.warnings
+        assert win.results.summary()['warnings'] == result.warnings
         out = tmp_path / f'{run}.csv'
         monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: (str(out), ''))
-        win._export_results()
+        win.result_export.export_results()
         assert not win._test_error_dialogs
         with out.open(encoding='utf-8', newline='') as stream:
             rows = dict(csv.reader(stream))
@@ -89,16 +89,16 @@ def test_converged_outside_range_result_keeps_design_rejection_in_gui_and_export
     performance = replace(performance, qualification=quality)
     result = to_compute_result(native, performance)
     assert result.converged and result.metadata['qualification']['design']['eligible'] is False
-    win.write_result(result)
-    win._update_result_summary()
+    win.results.publish(result)
+    win.results.refresh_summary()
     assert win._sb_labels['design'].text().startswith('未通过 ⚠：')
     assert '超范围' in win._sb_labels['design'].toolTip()
-    assert '允许' in win._diag_summary_text()
+    assert '允许' in win.results.diagnostic_text()
     assert win._sb_labels['extrap'].text() == '未通过 ⚠'
-    assert '设计资格：不合格' in win._diag_summary_text()
+    assert '设计资格：不合格' in win.results.diagnostic_text()
     path = tmp_path / 'range-rejected.csv'
     monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: (str(path), 'CSV'))
-    win._export_results()
+    win.result_export.export_results()
     with path.open(encoding='utf-8', newline='') as stream:
         rows = dict(csv.reader(stream))
     archived = json.loads(rows['metadata'])['qualification']
@@ -131,7 +131,7 @@ def test_extrapolation_watermarks_name_recorded_model_without_constdf(win, mode)
         'darcy_forchheimer': {'mode': 'experimental'},
         'model_refs': [{'name': 'darcy_forchheimer', 'version': 'cfd_full_core_3cell_fixed_v2'}],
     }
-    win.write_result(result)
+    win.results.publish(result)
     if mode == '2d':
         _real_finalize_plots(win, field='temp')
         texts = [item.get_text() for item in win.canvas_temp.fig.texts]
@@ -141,6 +141,7 @@ def test_extrapolation_watermarks_name_recorded_model_without_constdf(win, mode)
     else:
         seen = {}
         win.canvas_3d = SimpleNamespace(
+            cleanup=lambda: None, color_range_state=lambda: {},
             set_fields=lambda **kw: seen.update(kw),
             set_watermark=lambda text: seen.__setitem__('watermark', text),
         )

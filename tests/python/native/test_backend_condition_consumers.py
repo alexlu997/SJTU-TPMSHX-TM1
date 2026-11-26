@@ -45,15 +45,15 @@ def test_gui_co2_mass_input_save_reopen_geometry_and_export(win, native_path, tm
     assert win.run_control.backend == 'cpp'
     saved = tmp_path/'co2-config.json'
     monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: (str(saved), 'JSON'))
-    win.save_config()
+    win.case_files.save_config()
     assert saved.is_file(), errors
     win.combo_fluidA.setCurrentIndex(2)
     win.combo_inlet_modeA.setCurrentIndex(0)
-    assert win._load_config_path(saved), errors
+    assert win.case_files.load_config_path(saved), errors
     reopened = config_from_window(win, strict=True)
     assert reopened.fluid_A.type == 'co2' and reopened.fluid_A.mass_flow_kg_s == target
     finished = []
-    win.compute.finished.connect(finished.append)
+    win.single_run.compute.finished.connect(finished.append)
     try:
         for factor in (1., 2.):
             depth = config.geometry.Lz_m * factor
@@ -62,8 +62,8 @@ def test_gui_co2_mass_input_save_reopen_geometry_and_export(win, native_path, tm
                 for end in ('in', 'out'):
                     getattr(win, f'le_pipe{side}_{end}_z_ctr').setText(str(depth/2))
                     getattr(win, f'le_pipe{side}_{end}_z_w').setText(str(depth))
-            win.run_calculation()
-            _wait_for(win.compute.is_idle, timeout=180)
+            win.single_run.submit()
+            _wait_for(win.single_run.is_idle, timeout=180)
             assert len(finished) == int(factor), errors
             result = finished[-1]
             assert result.converged and result.metadata['backend_id'] == 'cpp'
@@ -76,13 +76,13 @@ def test_gui_co2_mass_input_save_reopen_geometry_and_export(win, native_path, tm
             assert abs(result.residuals['mass_imbalance_rel_A']) <= 1e-6
             output = tmp_path/f'co2-{int(factor)}.csv'
             monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: (str(output), 'CSV'))
-            win._export_results()
+            win.result_export.export_results()
             assert output.is_file() and not errors
     finally:
-        win.compute.finished.disconnect(finished.append)
-        if not win.compute.is_idle():
-            win.compute.cancel()
-            _wait_for(win.compute.is_idle, timeout=30)
+        win.single_run.compute.finished.disconnect(finished.append)
+        if not win.single_run.compute.is_idle():
+            win.single_run.compute.cancel()
+            _wait_for(win.single_run.is_idle, timeout=30)
 
 
 def _conditions(dimension, fluid='air'):
@@ -382,15 +382,15 @@ def test_gui_resumes_sou_and_exports_the_saved_result(win, native_path, tmp_path
     win.run_control = control
     win.le_Nx.setText('99')
     finished = []
-    win.compute.finished.connect(finished.append)
+    win.single_run.compute.finished.connect(finished.append)
     try:
-        win._resume_saved_run(source / 'checkpoint.h5')
-        _wait_for(win.compute.is_idle, timeout=180)
+        win.single_run.resume(source / 'checkpoint.h5')
+        _wait_for(win.single_run.is_idle, timeout=180)
     finally:
-        win.compute.finished.disconnect(finished.append)
-        if not win.compute.is_idle():
-            win.compute.cancel()
-            _wait_for(win.compute.is_idle, timeout=30)
+        win.single_run.compute.finished.disconnect(finished.append)
+        if not win.single_run.compute.is_idle():
+            win.single_run.compute.cancel()
+            _wait_for(win.single_run.is_idle, timeout=30)
     assert len(finished) == 1 and not errors
     directory, = tmp_path.glob('run-*')
     actual = load_result(directory / 'results.h5')
@@ -405,7 +405,7 @@ def test_gui_resumes_sou_and_exports_the_saved_result(win, native_path, tmp_path
     assert {name: (source / name).read_bytes() for name in original} == original
     output = tmp_path / 'sou.csv'
     monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *args: (str(output), 'CSV'))
-    win._export_results()
+    win.result_export.export_results()
     with output.open(encoding='utf-8-sig') as stream:
         rows = list(csv.reader(stream))
     assert [f'Q [{"W" if dimension == 3 else "W/m"}]', f'{display.Q_W:.4f}'] in rows

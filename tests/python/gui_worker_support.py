@@ -29,10 +29,10 @@ def win(tmp_path, monkeypatch):
                             self, base_dir=tmp_path, parent=parent))
     monkeypatch.setenv('TPMSHX_DISABLE_3D_PANEL', '1')
     window = Main_Menu()
-    monkeypatch.setattr(window, '_validate_inputs_preflight', lambda: True)
-    monkeypatch.setattr(window, '_preflight_grid', lambda config: True)
-    monkeypatch.setattr(window, '_preflight_3d', lambda config: (True, 8, '2×2×2'))
-    monkeypatch.setattr(window, '_finalize_plots', lambda: None)
+    monkeypatch.setattr(window.single_run, 'validate_inputs', lambda: True)
+    monkeypatch.setattr(window.single_run, 'preflight_grid', lambda config: True)
+    monkeypatch.setattr(window.single_run, '_preflight_3d', lambda config: (True, 8, '2×2×2'))
+    monkeypatch.setattr(window.results, 'finalize_plots', lambda: None)
     monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.plot_3d_results.finalize_plots_3d',
                         lambda _window: False)
     window._test_error_dialogs = []
@@ -40,8 +40,8 @@ def win(tmp_path, monkeypatch):
                         lambda *args: window._test_error_dialogs.append(args))
     yield window
     if isValid(window):
-        window.compute.cancel()
-        _wait_for(window.compute.is_idle)
+        window.single_run.compute.cancel()
+        _wait_for(window.single_run.is_idle)
         # Some tests intentionally leave invalid drafts (e.g. a short Pareto
         # vector). Exercise saving, but discard those drafts during cleanup;
         # close-confirmation behavior itself is asserted inside the tests.

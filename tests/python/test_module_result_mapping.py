@@ -2,7 +2,8 @@
 from dataclasses import replace
 from types import SimpleNamespace
 from sjtu_tpmshx.applications.gui.controllers.result_cache import ResultCache
-from sjtu_tpmshx.applications.gui.ui.mixins.run_results import RunResultsMixin
+from sjtu_tpmshx.applications.gui.ui.field_results import FieldResults
+from sjtu_tpmshx.applications.gui.ui.workbench import Workbench
 import importlib
 
 import numpy as np
@@ -22,9 +23,11 @@ from tests.python.integration_tm1.integration_support import baseline_config
 from tests.python.integration_tm1.test_public_api import assert_slots, legacy_2d_result, native_3d_mapping_input
 
 
-class _ResultWindow(RunResultsMixin):
+class _ResultWindow:
     def __init__(self):
         self.cache = ResultCache()
+        self.workbench = Workbench(self)
+        self.results = FieldResults(self)
 
 
 def _synthetic_results(dimension=3, *, delta_levelset=0.0):
@@ -85,7 +88,7 @@ def test_thread_resource_record_reaches_the_detached_gui_result(dimension):
     display = to_compute_result(native, performance)
     assert display.metadata['runtime_resources'] == resources
     window = _ResultWindow()
-    window.write_result(display)
+    window.results.publish(display)
     display.metadata['runtime_resources']['cpu_thread_limit'] = 1
     assert window.cache.get_result(f'{dimension}d').metadata['runtime_resources'] == resources
     assert dict(native.metadata['runtime_resources']) == resources
@@ -550,7 +553,6 @@ def test_unavailable_metrics_and_incomplete_execution_stay_visible(native_result
 @pytest.mark.parametrize('native_result', [2], indirect=True)
 @pytest.mark.parametrize('state', ['accepted_warning', 'accepted', 'failed', 'no_richardson'])
 def test_richardson_grid_warning_reaches_gui_without_changing_verdict(native_result, state):
-    from sjtu_tpmshx.applications.gui.ui.mixins.run_results import RunResultsMixin
     fields, _ = native_result
     performance = evaluate(fields)
     diagnostics = mutable_data(fields.metadata['diagnostics'])
@@ -570,22 +572,21 @@ def test_richardson_grid_warning_reaches_gui_without_changing_verdict(native_res
     if state == 'failed':
         assert sum('未外推' in item for item in result.warnings) == 1
     window = _ResultWindow()
-    RunResultsMixin.write_result(window, result)
-    assert (warning in RunResultsMixin._diag_summary_text(window)) == (state == 'accepted_warning')
+    window.results.publish(result)
+    assert (warning in window.results.diagnostic_text()) == (state == 'accepted_warning')
 
 
 def test_native_result_reaches_gui_diagnostics_and_display_cache(native_result):
-    from sjtu_tpmshx.applications.gui.ui.mixins.run_results import RunResultsMixin
     fields, _ = native_result
     result = to_compute_result(fields, evaluate(fields))
     window = _ResultWindow()
-    RunResultsMixin.write_result(window, result)
+    window.results.publish(result)
     if fields.grid['dimension'] == 3:
         for side in ('A', 'B'):
-            assert window._result_summary()['Q_' + side] == pytest.approx(
+            assert window.results.summary()['Q_' + side] == pytest.approx(
                 result.residuals['Q_' + side], nan_ok=True)
-        assert window._result_summary()['closure_basis'] == '主网格两侧有符号焓流'
-        text = RunResultsMixin._diag_summary_text(window)
+        assert window.results.summary()['closure_basis'] == '主网格两侧有符号焓流'
+        text = window.results.diagnostic_text()
         assert '两侧焓流: Q_A' in text and '能量闭合（主网格两侧有符号焓流）' in text
     else:
         for name in ('ucA', 'vcA', 'ucB', 'vcB'):
@@ -594,28 +595,26 @@ def test_native_result_reaches_gui_diagnostics_and_display_cache(native_result):
 
 
 def test_diagnostic_text_includes_recorded_stage_seconds():
-    from sjtu_tpmshx.applications.gui.ui.mixins.run_results import RunResultsMixin
     window = _ResultWindow()
-    window.write_result(ComputeResult(metadata={'timings_s': {
+    window.results.publish(ComputeResult(metadata={'timings_s': {
         'prepare': 0.125, 'solve': 12.5, 'postprocess': 0.25, 'display': 0.375}}))
-    text = RunResultsMixin._diag_summary_text(window)
+    text = window.results.diagnostic_text()
     assert '阶段耗时：准备 0.125 s · 求解 12.500 s · 后处理 0.250 s · 显示 0.375 s' in text
 
 
 @pytest.mark.parametrize('mode', ['2d', '3d'])
 @pytest.mark.parametrize('outer_iters', [0, 7, None])
 def test_gui_summary_uses_recorded_outer_iterations(mode, outer_iters):
-    from sjtu_tpmshx.applications.gui.ui.mixins.run_results import RunResultsMixin
     result = ComputeResult(diagnostics={
         'mode': mode, '_max_outer': 99,
         'convergence_detail': {'outer_iters': outer_iters},
     })
     window = _ResultWindow()
-    RunResultsMixin.write_result(window, result)
+    window.results.publish(result)
     result.diagnostics['convergence_detail']['outer_iters'] = 99
-    assert window._result_summary()['iters']['iter_outer'] == outer_iters
+    assert window.results.summary()['iters']['iter_outer'] == outer_iters
     expected = '—' if outer_iters is None else str(outer_iters)
-    assert f'迭代: 外循环 {expected} · SIMPLE A/B —/—' in RunResultsMixin._diag_summary_text(window)
+    assert f'迭代: 外循环 {expected} · SIMPLE A/B —/—' in window.results.diagnostic_text()
 
 
 @pytest.mark.parametrize('mode', ['2d', '3d'])
@@ -623,10 +622,10 @@ def test_gui_summary_keeps_published_coefficients_and_envelope_notices(mode):
     result = ComputeResult(coeffs={'K_ss': 16.}, diagnostics={
         'mode': mode, 'envelope_warnings': ['recorded envelope notice']})
     window = _ResultWindow()
-    window.write_result(result)
+    window.results.publish(result)
     result.coeffs['K_ss'] = -1.
     result.diagnostics['envelope_warnings'].append('later source edit')
-    summary = window._result_summary()
+    summary = window.results.summary()
     assert summary['coeffs']['K_ss'] == 16.
     assert summary['envelope_warnings'] == ['recorded envelope notice']
 
