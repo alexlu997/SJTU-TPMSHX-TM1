@@ -320,10 +320,15 @@ def test_save_load_config_roundtrip(tmp_path, monkeypatch, win):
     win.save_config()
 
     data = json.loads(Path(cfg_path).read_text(encoding='utf-8'))
+    assert data['config_format'] == 1
+    assert 'le_rho_s' not in data['preset']['line_edits']
     assert data['preset']['line_edits']['le_Lcell'] == '6.5'
     assert data['preset']['line_edits']['le_t'] == '0.45'
     assert data['preset']['combos']['combo_df_mode'] == 1
 
+    # A complete file from the old writer can include the retired edit.
+    data['preset']['line_edits']['le_rho_s'] = '8123'
+    Path(cfg_path).write_text(json.dumps(data), encoding='utf-8')
     # Perturb, then load back — fields must restore.
     win.le_Lcell.setText('9.9')
     win.le_t.setText('0.9')
@@ -469,6 +474,7 @@ def test_legacy_file_preserves_fields_and_reports_missing_inputs(tmp_path, monke
     untouched = (win.le_Nz.text(), win.combo_dim.currentIndex(),
                  win.le_pipeA_in_z_w.text())
     expected = win._legacy_config_preset(payload)
+    assert 'le_rho_s' not in expected['line_edits']
     assert win.load_config()
     assert warnings and '不是完整工况恢复' in warnings[0][2]
     for name, value in expected['line_edits'].items():
@@ -524,11 +530,9 @@ def test_shanghai_preset_restores_ports_and_valid_grid(win, name, unit):
     win.combo_dirB.setCurrentIndex(2)
     win.chk_zones.setChecked(True)
     win.combo_zone_axis.setCurrentIndex(2)
-    win._zone_grid = {'stale': True}
     win._pareto_x_decision = [6.0, 0.4] * 18
     win._set_sco2_nu_parameters(asdict(SYNTHETIC))
     win.combo_sco2_nu_mode.setCurrentIndex(1)
-    win.le_rho_s.setText('1234')
     win.chk_allow_extrap.setChecked(False)
     # Loading after a smaller case must not retain its 30 mm Z openings.
     win.le_Lz.setText('0.03')
@@ -555,9 +559,9 @@ def test_shanghai_preset_restores_ports_and_valid_grid(win, name, unit):
             assert target is None
     assert win._temp_unit == unit
     assert cfg.sco2_nu.mode == 'cfd_smooth' and win._sco2_nu_parameters == {}
-    assert not cfg.zones.enabled and win._zone_grid is None
+    assert not cfg.zones.enabled and cfg.zones.grid is None
     assert win._pareto_x_decision is None and win.combo_zone_axis.currentIndex() == 0
-    assert float(win.le_rho_s.text()) == 7900 and cfg.extrap.allow
+    assert cfg.extrap.allow
     assert win._active_preset_name == name
     for side in ('A', 'B'):
         for end in ('in', 'out'):
@@ -772,7 +776,7 @@ def test_legacy_session_without_zone_data_disables_and_clears_stale_zones(win, m
     monkeypatch.setattr(QMessageBox, 'information', lambda *args: messages.append(args[2]))
     win._restore_session()
     assert not win.chk_zones.isChecked() and win.zone_table.rowCount() == 0
-    assert win._zone_grid is None and win._pareto_x_decision is None
+    assert win._pareto_x_decision is None
     assert win.combo_zone_axis.currentIndex() == 0 and win._grid_nx == 2
     assert old['checks']['chk_zones'] and 'zone_inputs' not in old
     for callback in callbacks:
@@ -956,7 +960,11 @@ def test_result_status_survives_notification_and_mode_switch(
             extrap_reasons=reasons.copy(),
             diagnostics={'mode': mode, 'envelope_valid': envelope,
                          'convergence_detail': {'outer_converged': outer}},
-            metadata={'source': {'name': f'accepted-{index}'}},
+            metadata={
+                'source': {'name': f'accepted-{index}'},
+                'darcy_forchheimer': {'mode': 'cfd_smooth'},
+                'model_refs': [{'name': 'darcy_forchheimer', 'version': 'cfd_full_core_3cell_fixed_v2'}],
+            },
             residuals={'Q_A': 10., 'Q_B': -9., 'Q_net': 1.,
                        'energy_imbalance_rel': .1},
             fields={key: field for key in
@@ -1003,7 +1011,11 @@ def test_result_status_survives_notification_and_mode_switch(
         assert rows['dP_B [Pa]'] == '6.00'
         assert rows['Ta_min [K]'] == '300.00'
         assert rows['Ta_max [K]'] == '307.00'
-        assert json.loads(rows['metadata']) == {'source': {'name': f'accepted-{index}'}}
+        assert json.loads(rows['metadata']) == {
+            'source': {'name': f'accepted-{index}'},
+            'darcy_forchheimer': {'mode': 'cfd_smooth'},
+            'model_refs': [{'name': 'darcy_forchheimer', 'version': 'cfd_full_core_3cell_fixed_v2'}],
+        }
         for key, value in (('converged', converged), ('envelope_valid', envelope),
                            ('outer_converged', outer), ('warnings', expected_warnings),
                            ('extrap_reasons', reasons)):

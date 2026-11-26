@@ -187,7 +187,9 @@ def test_real_window_zone_snapshot_is_independent(win, axis):
     win.zone_table.item(0, win.zone_table.columnCount() - 2).setText('8')
     assert cfg.zones.pareto_x_decision == pytest.approx([0.1, 0.2, 0.3])
     if axis == 2:
-        win._zone_grid['cells'][0]['L'] = 8
+        assert not hasattr(win, '_zone_grid')
+        assert cfg.zones.config is None
+        assert config_from_window(win).zones.grid['cells'][0]['L'] == 8
         assert cfg.zones.grid['cells'][0]['L'] == 6
     else:
         cfg.zones.config.compute_properties(5, 3, 400, 300)
@@ -759,7 +761,7 @@ def test_field_restore_uses_the_current_case_dimension_and_remains_undoable(win,
     from sjtu_tpmshx.applications.gui.ui.field_menu import _revert_field_to_default
     win.combo_dim.setCurrentIndex(dimension)
     win._temp_unit = 'C'
-    for attr in ('le_Nx', 'le_Ny', 'le_Nz', 'le_rho_s', 'le_pipeB_in_z_ctr', 'le_TinA'):
+    for attr in ('le_Nx', 'le_Ny', 'le_Nz', 'le_ks', 'le_pipeB_in_z_ctr', 'le_TinA'):
         getattr(win, attr).setText('100')
     win._resync_undo_baseline()
     win._undo_stack.clear()
@@ -773,7 +775,7 @@ def test_field_restore_uses_the_current_case_dimension_and_remains_undoable(win,
     assert win.le_TinA.text() == '100'
     win._undo_stack.redo()
     assert float(win.le_TinA.text()) == pytest.approx(148.9083382933427, rel=0, abs=1e-12)
-    for attr, expected_value in [('le_rho_s', 7900.), ('le_pipeB_in_z_ctr', .021)]:
+    for attr, expected_value in [('le_ks', 16.), ('le_pipeB_in_z_ctr', .021)]:
         _revert_field_to_default(win, getattr(win, attr), attr)
         assert float(getattr(win, attr).text()) == expected_value
 

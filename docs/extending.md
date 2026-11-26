@@ -110,8 +110,12 @@ Separate dialogs own their own window and background worker state.
 
 - **Qt boundary rule**: Keep `PySide6` imports inside `python/applications/gui/ui/`, `python/applications/gui/controllers/`, the GUI entry point [python/applications/gui/main.py](../python/applications/gui/main.py), and the desktop launcher [python/desktop.py](../python/desktop.py).
   Lower layers (`data_types/`, `physical_models/`, `preprocess/`, `solvers/`, `postprocess/`, `file_io/`, `run_control/`, `cpp_interface/`) must stay free of Qt.
-- **Widget-to-config boundary**: Read input widgets once at the UI boundary in [python/applications/gui/ui/window_config.py](../python/applications/gui/ui/window_config.py) (`config_from_window`, `CONFIG_FIELDS`, `FieldSpec`).
-  `window_config.py` imports no Qt, so headless tests can pass plain stub objects.
+- Each physical quantity has a symbol, stored unit, applicable dimensions and range reference on its [configuration field](../python/data_types/compute_config.py).
+  Keep the default on that field and the enforced limit with its model or validator.
+- Give every new configuration leaf one disposition in [`CONFIG_FIELDS`](../python/applications/gui/ui/window_config.py).
+  The choices are `edited`, `derived`, `api-only` and `archive`. Bind edited leaves to their desktop controls.
+  The table supplies units, defaults and validation order to the case form.
+  Run [the parameter mapping check](../tests/python/test_compute_config_roundtrip.py) after a change.
 - **Single result owner**: [python/applications/gui/ui/mixins/run_results.py](../python/applications/gui/ui/mixins/run_results.py) (`RunResultsMixin.write_result`) publishes one isolated `ComputeResult` to `ResultCache` (`set_result`, `get_result`, `has_results`, `mark_drawn`).
   Do not copy result fields onto `Main_Menu` attributes.
   For example, 2D zone overlays in [python/applications/gui/ui/plot_2d_results.py](../python/applications/gui/ui/plot_2d_results.py) (`finalize_plots`, `plot_temperature_3panel`, `_draw_zone_overlays`) read `result.zones` directly from `ResultCache`.

@@ -129,15 +129,22 @@ def reject_retired_research_options(config):
 # ── dataclasses ──────────────────────────────────────────────────────
 
 
+def _quantity(symbol, unit, range_ref='ComputeConfig.validate_static_inputs', *,
+              dimensions=(2, 3)):
+    """Describe a stored quantity. A range reference names its validator or model resource."""
+    return dict(symbol=symbol, unit=unit, dimensions=dimensions,
+                range_ref=range_ref)
+
+
 @dataclass
 class FluidConfig:
     """Single-side fluid inlet state."""
     type: FluidType = 'air'
-    u_mps: float = 5.0
-    T_in_K: float = 300.0
-    P_in_Pa: float = 101325.0
+    u_mps: float = field(default=5.0, metadata=_quantity('u', 'm/s', 'ComputeConfig.validate'))
+    T_in_K: float = field(default=300.0, metadata=_quantity('T_in', 'K'))
+    P_in_Pa: float = field(default=101325.0, metadata=_quantity('P_in', 'Pa'))
     # None prescribes velocity; otherwise total inlet flow is authoritative.
-    mass_flow_kg_s: Optional[float] = None
+    mass_flow_kg_s: Optional[float] = field(default=None, metadata=_quantity('ṁ', 'kg/s'))
 
 
 @dataclass
@@ -149,17 +156,17 @@ class GeometryConfig:
     explicit positive physical depth ``Lz_m``. Integral results keep per-unit-depth units.
     """
     tpms: TPMSType = 'Gyroid'
-    L_cell_mm: float = 7.0
-    t_wall_mm: float = 0.6
-    k_s_W_mK: float = 16.0
-    L_dom_m: float = 0.182
-    H_dom_m: float = 0.042
-    Lz_m: Optional[float] = None
+    L_cell_mm: float = field(default=7.0, metadata=_quantity('L', 'mm', 'model_configs.df_domain.TRAIN_L'))
+    t_wall_mm: float = field(default=0.6, metadata=_quantity('t', 'mm', 'model_configs.df_domain.TRAIN_T'))
+    k_s_W_mK: float = field(default=16.0, metadata=_quantity('k_s', 'W/(m·K)'))
+    L_dom_m: float = field(default=0.182, metadata=_quantity('L_x', 'm'))
+    H_dom_m: float = field(default=0.042, metadata=_quantity('H', 'm'))
+    Lz_m: Optional[float] = field(default=None, metadata=_quantity('L_z', 'm'))
     # Asymmetric porosity: offset-isosurface centre δ (φ-units). 0.0 →
     # symmetric 50/50 (bit-identical). |δ|>0 → ε_A (φ<δ−C) ≠ ε_B (φ>δ+C);
     # consumed by native 3D geometry preparation. Human targets
     # (A%/B%) convert to δ in run scripts via runs/diagnostics/asym_target_scan.
-    delta_levelset: float = 0.0
+    delta_levelset: float = field(default=0.0, metadata=_quantity('δ', '1'))
 
 
 @dataclass
@@ -198,23 +205,26 @@ class SolverConfig:
     independently of these exit gates.
     """
     max_outer_ltne: Optional[int] = None
-    outer_tol_K: Optional[float] = None
+    outer_tol_K: Optional[float] = field(default=None, metadata=_quantity('ΔT', 'K'))
     max_iter_simple: Optional[int] = None
     simple_velocity_relaxation: Optional[float] = None
-    Nx: int = 30
-    Ny: int = 60
-    Nz: int = 1
-    T_s_init_K: Optional[float] = None
+    Nx: int = field(default=30, metadata=_quantity('N_x', '1'))
+    Ny: int = field(default=60, metadata=_quantity('N_y', '1'))
+    Nz: int = field(default=1, metadata=_quantity('N_z', '1'))
+    T_s_init_K: Optional[float] = field(
+        default=None, metadata=_quantity('T_s,0', 'K', 'solver/full_2d.cpp:validate (2D)'))
     convergence_mode: Optional[str] = None      # None -> pipelines resolve 'f2' (env wins)
     mom_tol: Optional[float] = None
     mass_local_tol: Optional[float] = None
     mass_global_tol: Optional[float] = None
     # Historical IDs remain readable; the selected native library validates execution.
     enthalpy_algorithm: Literal['legacy_h_fou', 'temperature_fou', 'temperature_sou'] = _MODEL['native_controls']['enthalpy_algorithm']
-    enthalpy_temperature_tol_K: float = _MODEL['native_controls']['enthalpy_temperature_tol_K']
+    enthalpy_temperature_tol_K: float = field(
+        default=_MODEL['native_controls']['enthalpy_temperature_tol_K'],
+        metadata=_quantity('ΔT', 'K', 'validate_enthalpy_algorithm'))
     # Optional integral h(T) controls; None keeps the actual route defaults.
     model_h_max_iterations: Optional[int] = None
-    model_h_temperature_tol_K: Optional[float] = None
+    model_h_temperature_tol_K: Optional[float] = field(default=None, metadata=_quantity('ΔT', 'K'))
     model_h_q_relative_tol: Optional[float] = None
     # Optional full EOS thermal controls. None keeps the route's existing
     # defaults; explicit values survive config -> prepared case -> replay.
@@ -255,14 +265,14 @@ class PartialBCConfig:
     into ``window._fluid_config(which)``.
     """
     dir: int = 0
-    in_ctr: float = 0.0
-    in_w: float = 0.0
-    out_ctr: float = 0.0
-    out_w: float = 0.0
-    in_z_ctr: Optional[float] = None
-    in_z_w: Optional[float] = None
-    out_z_ctr: Optional[float] = None
-    out_z_w: Optional[float] = None
+    in_ctr: float = field(default=0.0, metadata=_quantity('s_1,in', 'm'))
+    in_w: float = field(default=0.0, metadata=_quantity('w_1,in', 'm'))
+    out_ctr: float = field(default=0.0, metadata=_quantity('s_1,out', 'm'))
+    out_w: float = field(default=0.0, metadata=_quantity('w_1,out', 'm'))
+    in_z_ctr: Optional[float] = field(default=None, metadata=_quantity('s_2,in', 'm', dimensions=(3,)))
+    in_z_w: Optional[float] = field(default=None, metadata=_quantity('w_2,in', 'm', dimensions=(3,)))
+    out_z_ctr: Optional[float] = field(default=None, metadata=_quantity('s_2,out', 'm', dimensions=(3,)))
+    out_z_w: Optional[float] = field(default=None, metadata=_quantity('w_2,out', 'm', dimensions=(3,)))
     # 2D only: False preserves the historical four-cell edge profile.
     # 3D already imposes uniform flow over the geometric opening.
     uniform_inlet_2d: bool = False
@@ -323,7 +333,7 @@ class ZoneInputConfig:
     input, restored at the 1D pipeline boundary. It is ``None`` when zones are disabled or
     running in grid mode (``grid`` carries the cell list instead).
     The UI adapter snapshots ``config`` via
-    ``ui.zone_table.build_zone_config(window)`` at the boundary so the Pipeline
+    ``ui.zone_table.build_zone_config`` at the boundary so the pipeline
     layer never has to touch the Qt zone-table widget.
     Discrete zones vary L/t only. Their optional ``tpms_type`` and ``k_s``
     copies must agree with the main GeometryConfig; they do not select an
@@ -342,9 +352,13 @@ class ZoneInputConfig:
     axis: ZoneAxis = 'y'
     grid: Optional[Dict[str, Any]] = None  # cells / tpms_type / k_s
     config: Optional[Any] = None  # 1D ZoneConfig or canonical 1D/continuous dictionary
-    pareto_x_decision: Optional[Any] = None
-    pareto_y_trans_inlet: float = 0.2
-    pareto_y_trans_outlet: float = 0.2
+    pareto_x_decision: Optional[Any] = field(
+        default=None, metadata=_quantity('L, t', 'mm', 'preprocess/preparation_case.cpp:sigmoid_geometry',
+                                         dimensions=(2,)))
+    pareto_y_trans_inlet: float = field(
+        default=0.2, metadata=_quantity('y_in/H', '1', None, dimensions=(2,)))
+    pareto_y_trans_outlet: float = field(
+        default=0.2, metadata=_quantity('y_out/H', '1', None, dimensions=(2,)))
 
     def validate(self) -> 'ZoneInputConfig':
         """Validate active spatial input without altering the supplied design."""
@@ -454,8 +468,8 @@ class Sco2NuConfig:
     or its packaged parameter file; saved inputs retain their own values.
     """
     mode: str = 'cfd_smooth'
-    alpha_D: float | None = None
-    alpha_G: float | None = None
+    alpha_D: float | None = field(default=None, metadata=_quantity('C_eff,D', '1', 'Sco2NuConfig.validate'))
+    alpha_G: float | None = field(default=None, metadata=_quantity('C_eff,G', '1', 'Sco2NuConfig.validate'))
     parameter_version: str = ''
     source: str = ''
     applicability: str = ''

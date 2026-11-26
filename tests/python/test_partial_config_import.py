@@ -66,7 +66,7 @@ def test_partial_import_keeps_full_continuous_field_and_conditions(win, tmp_path
     path.write_text(json.dumps({'line_edits': {'le_rho_s': '7950'}}))
     assert win._load_config_path(str(path))
     after = win._capture_current_preset('before')
-    before['line_edits']['le_rho_s'] = '7950'
+    assert 'le_rho_s' not in after['line_edits']
     assert after == before
     assert win._opt_method.currentData() == method
 

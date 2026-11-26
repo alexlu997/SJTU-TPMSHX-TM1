@@ -109,8 +109,11 @@
 
 - **Qt 边界规则**：仅允许在 `python/applications/gui/ui/`、`python/applications/gui/controllers/`、GUI 入口 [python/applications/gui/main.py](../python/applications/gui/main.py) 以及桌面启动器 [python/desktop.py](../python/desktop.py) 中导入 `PySide6`。
   下层模块（`data_types/`、`physical_models/`、`preprocess/`、`solvers/`、`postprocess/`、`file_io/`、`run_control/`、`cpp_interface/`）必须保持无 Qt 依赖。
-- **控件到配置边界**：在 [python/applications/gui/ui/window_config.py](../python/applications/gui/ui/window_config.py)（`config_from_window`、`CONFIG_FIELDS`、`FieldSpec`）中一次性将控件读取为无 Qt 依赖的 `ComputeConfig`。
-  `window_config.py` 不导入 Qt，无头测试可直接传入轻量桩对象。
+- 在[配置字段](../python/data_types/compute_config.py)上记录物理量的符号、存储单位、适用维度及范围来源。
+  默认值由字段定义，实际限值由相应模型或校验器执行。
+- 在 [`CONFIG_FIELDS`](../python/applications/gui/ui/window_config.py) 中为每个新增配置叶字段指定一种用途。
+  可选值为 `edited`（界面编辑）、`derived`（派生或固定）、`api-only`（仅 API）和 `archive`（存档）。将可编辑字段绑定到相应控件。
+  算例表单从绑定表取得单位、默认值和校验顺序。修改后运行[参数映射检查](../tests/python/test_compute_config_roundtrip.py)。
 - **单一结果所有者**：[python/applications/gui/ui/mixins/run_results.py](../python/applications/gui/ui/mixins/run_results.py)（`RunResultsMixin.write_result`）将隔离后的 `ComputeResult` 发布到 `ResultCache`（`set_result`、`get_result`、`has_results`、`mark_drawn`）。
   不得在 `Main_Menu` 上另存结果字段副本。
   例如 [python/applications/gui/ui/plot_2d_results.py](../python/applications/gui/ui/plot_2d_results.py)（`finalize_plots`、`plot_temperature_3panel`、`_draw_zone_overlays`）中的二维分区叠加线已直接从 `ResultCache` 读取 `result.zones`。

@@ -27,7 +27,7 @@ class _ResultWindow(RunResultsMixin):
         self.cache = ResultCache()
 
 
-def _synthetic_results(dimension=3):
+def _synthetic_results(dimension=3, *, delta_levelset=0.0):
     """Mapping inputs with distinct original geometry and pressure states."""
     from sjtu_tpmshx.data_types.field_result import FieldResult
     from sjtu_tpmshx.data_types.metric_spec import MetricSpec
@@ -45,18 +45,22 @@ def _synthetic_results(dimension=3):
         native_fields['P_f' + side + '_display'] = pressure + cell
         native_fields['P_gauge_' + side] = cell
         native_fields['P_report_' + side] = pressure + cell + 500.
+    parameters = dict(L=.2, H=.1, Lz=.05, extrap_reasons=[],
+                      tpms_type='Gyroid', dir_A=1, dir_B=4, zone_config=None,
+                      static_properties=dict(geometry=dict(epsilon=.8, D_h=.003, A_0=.01)),
+                      fluid_A_cfg=dict(dir=1, in_ctr=.05, in_w=.1, out_ctr=.05, out_w=.1),
+                      fluid_B_cfg=dict(dir=4, in_ctr=.16, in_w=.04, out_ctr=.03, out_w=.02,
+                                       in_z_ctr=.025, in_z_w=.01, out_z_ctr=.07, out_z_w=.02),
+                      prepared=dict(geometry=dict(epsilon=.8, D_h=.003, A_0=.01)))
     if dimension == 2:
         grid.update(dimension=2, axis_order=('x', 'y'))
         del grid['dz']
+        parameters['run_settings'] = dict(geometry=dict(tpms='Gyroid', delta_levelset=delta_levelset))
+    else:
+        parameters['delta_levelset'] = delta_levelset
     native = FieldResult('synthetic-result', 'synthetic-case', 'test', grid=grid,
         fields=native_fields, run_status=dict(execution='completed', converged=True),
-        metadata=dict(parameters=dict(L=.2, H=.1, Lz=.05, extrap_reasons=[],
-                          dir_A=1, dir_B=4, zone_config=None,
-                          static_properties=dict(geometry=dict(epsilon=.8, D_h=.003, A_0=.01)),
-                          fluid_A_cfg=dict(dir=1, in_ctr=.05, in_w=.1, out_ctr=.05, out_w=.1),
-                          fluid_B_cfg=dict(dir=4, in_ctr=.16, in_w=.04, out_ctr=.03, out_w=.02,
-                                           in_z_ctr=.025, in_z_w=.01, out_z_ctr=.07, out_z_w=.02),
-                          prepared=dict(geometry=dict(epsilon=.8, D_h=.003, A_0=.01))),
+        metadata=dict(parameters=parameters,
                       design_fields=dict(L_field_m=L_m, t_field_m=t_m),
                       diagnostics=dict(dir_A=1, dir_B=4, mass_imbalance_rel_A=0., mass_imbalance_rel_B=0.,
                                        Q_A=100., Q_B=-100., energy_imbalance_rel=0.,
@@ -88,11 +92,19 @@ def test_thread_resource_record_reaches_the_detached_gui_result(dimension):
 
 
 def test_synthetic_3d_mapping_preserves_full_geometry_and_report_pressure():
-    native, performance = _synthetic_results()
+    native, performance = _synthetic_results(delta_levelset=0.15)
     native_fields, grid = native.fields, native.grid
     L_m = native.metadata['design_fields']['L_field_m']
     t_m = native.metadata['design_fields']['t_field_m']
     result = to_compute_result(native, performance)
+    assert result.metadata['tpms'] == 'Gyroid'
+    assert result.metadata['delta_levelset'] == pytest.approx(0.15)
+    assert 'tpms' not in result.fields and 'delta_levelset' not in result.fields
+    native_2d, perf_2d = _synthetic_results(dimension=2, delta_levelset=-0.12)
+    result_2d = to_compute_result(native_2d, perf_2d)
+    assert result_2d.metadata['tpms'] == 'Gyroid'
+    assert result_2d.metadata['delta_levelset'] == pytest.approx(-0.12)
+    assert 'tpms' not in result_2d.fields and 'delta_levelset' not in result_2d.fields
     np.testing.assert_array_equal(result.fields['L_mm'], L_m * 1e3)
     np.testing.assert_array_equal(result.fields['t_mm'], t_m * 1e3)
     for name in ('ucA', 'vcA', 'wcA', 'ucB', 'vcB', 'wcB', 'vmag_A', 'vmag_B'):
@@ -102,13 +114,15 @@ def test_synthetic_3d_mapping_preserves_full_geometry_and_report_pressure():
                                       native_fields['P_report_' + side])
     for name in ('dx', 'dy', 'dz'):
         np.testing.assert_array_equal(result.fields[name], grid[name])
-    # The plot must use the accepted result's ports, independently of draft inputs.
+    # The plot must use the accepted result's ports and t_mm, independently of draft inputs.
     from sjtu_tpmshx.applications.gui.ui.plot_3d_results import finalize_plots_3d
     shown = {}
     window = SimpleNamespace(cache=SimpleNamespace(get_result=lambda mode: result),
         canvas_3d=SimpleNamespace(set_fields=lambda **kw: shown.update(kw),
                                   set_watermark=lambda text: None))
     assert finalize_plots_3d(window)
+    np.testing.assert_array_equal(shown['L_mm'], result.fields['L_mm'])
+    np.testing.assert_array_equal(shown['t_mm'], result.fields['t_mm'])
     for side in ('A', 'B'):
         expected = native.metadata['parameters'][f'fluid_{side}_cfg']
         assert shown[f'ports_{side}'] == expected
@@ -760,3 +774,113 @@ def test_compute_result_independent_default_dicts():
     b = ComputeResult()
     a.fields['foo'] = 1
     assert 'foo' not in b.fields
+
+
+_EXPECTED_DISPLAY_KEYS = {
+    2: frozenset(('Ta', 'Tb', 'Ts', 'vmag_A', 'vmag_B', 'P_fA', 'P_fB')),
+    3: frozenset(('Ta', 'Tb', 'Ts', 'vmag_A', 'vmag_B', 'P_fA', 'P_fB', 'L_mm', 't_mm')),
+}
+
+_EXPECTED_PANEL_KEYS = {
+    'Ta': 'Ta',
+    'Tb': 'Tb',
+    'Ts': 'Ts',
+    'vmag_A': 'vmag',
+    'vmag_B': 'vmag_B',
+    'P_fA': 'P_kPa',
+    'P_fB': 'P_B_kPa',
+    'L_mm': 'L_mm',
+    't_mm': 't_mm',
+}
+
+
+@pytest.mark.parametrize('active_b', [True, False])
+def test_result_display_table_maps_real_2d_and_3d_results_by_dimension_and_phase(
+        native_result, active_b):
+    """Check 2: required display keys exist in real 2D/3D results by dimension and phase."""
+    from sjtu_tpmshx.data_types.persistence_validation import validate_result
+    from sjtu_tpmshx.postprocess.result_display import (
+        COLORMAP_CHOICES, COLORMAP_QUANTITIES, DEFAULT_COLORMAPS,
+        PANEL_FIELD_SPECS, RESULT_FIELD_SPECS, field_spec,
+    )
+
+    fields, _ = native_result
+    dimension = fields.grid['dimension']
+    if not active_b:
+        if dimension == 2:
+            pytest.skip('2D solver always runs both A and B sides')
+        metadata = mutable_data(fields.metadata)
+        metadata['diagnostics']['dir_B'] = None
+        metadata['parameters']['fluid_B_cfg'] = None
+        # Mirror solver/stage_capture_3d.cpp:478, which omits inactive-B flow arrays.
+        inactive_keys = ('P_gauge_B', 'P_report_B', 'P_fB_display', 'ucB', 'vcB', 'wcB', 'vmag_B')
+        reduced_fields = {k: v for k, v in fields.fields.items() if k not in inactive_keys}
+        reduced_field_meta = {
+            k: v for k, v in fields.field_metadata.items() if k not in inactive_keys
+        }
+        reduced_pressure = {k: v for k, v in fields.pressure_evidence.items() if k != 'B'}
+        source = replace(
+            fields,
+            fields=reduced_fields,
+            field_metadata=reduced_field_meta,
+            pressure_evidence=reduced_pressure,
+            metadata=metadata,
+        )
+    else:
+        source = fields
+    validate_result(source)
+    performance = evaluate(source)
+    if not active_b:
+        assert performance.metrics['dP_B'].status == 'insufficient_data'
+        assert performance.metrics['dP_B'].value is None
+    result = to_compute_result(source, performance)
+
+    # Independent expected key sets catch any dropped row or swapped A/B panel key.
+    expected_keys = _EXPECTED_DISPLAY_KEYS[dimension]
+    declared_for_dim = {key for key, spec in RESULT_FIELD_SPECS.items() if dimension in spec.dims}
+    assert declared_for_dim == expected_keys
+    assert set(RESULT_FIELD_SPECS) == _EXPECTED_DISPLAY_KEYS[3]
+    assert set(PANEL_FIELD_SPECS) == set(_EXPECTED_PANEL_KEYS.values())
+
+    assert result.metadata['tpms'] == source.metadata['parameters']['tpms_type']
+    expected_delta = (
+        float(source.metadata['parameters']['run_settings']['geometry']['delta_levelset'])
+        if dimension == 2 else float(source.metadata['parameters']['delta_levelset'])
+    )
+    assert result.metadata['delta_levelset'] == pytest.approx(expected_delta)
+    assert 'tpms' not in result.fields and 'delta_levelset' not in result.fields
+
+    if dimension == 2:
+        for side in ('A', 'B'):
+            expected_speed = np.hypot(result.fields['uc' + side], result.fields['vc' + side])
+            np.testing.assert_allclose(result.fields['vmag_' + side], expected_speed)
+    elif not active_b:
+        for absent in ('ucB', 'vcB', 'wcB', 'vmag_B', 'P_fB'):
+            assert result.fields[absent] is None
+
+    expected_shape = result.fields['Ta'].shape
+    for key in _EXPECTED_DISPLAY_KEYS[3]:
+        spec = RESULT_FIELD_SPECS[key]
+        expected_panel_key = _EXPECTED_PANEL_KEYS[key]
+        assert spec.key == key
+        assert spec.panel_key == expected_panel_key
+        assert PANEL_FIELD_SPECS[expected_panel_key] is spec
+        assert field_spec(spec.key) is spec and field_spec(expected_panel_key) is spec
+        assert spec.quantity in COLORMAP_QUANTITIES
+        assert spec.default_cmap in COLORMAP_CHOICES
+        assert spec.default_cmap == DEFAULT_COLORMAPS[spec.quantity]
+        if key not in expected_keys:
+            assert key not in result.fields
+            continue
+        assert key in result.fields
+        value = result.fields[key]
+        if spec.phase == 'B' and not active_b and spec.quantity in ('speed', 'pressure'):
+            assert value is None
+            continue
+        assert isinstance(value, np.ndarray)
+        assert value.ndim == dimension and value.shape == expected_shape
+        assert np.all(np.isfinite(value))
+        if spec.quantity == 'pressure':
+            assert spec.stored_unit == 'Pa' and spec.display_unit == 'kPa'
+            assert spec.display_scale == pytest.approx(1e-3)
+            np.testing.assert_array_equal(value, source.fields['P_report_' + spec.phase])

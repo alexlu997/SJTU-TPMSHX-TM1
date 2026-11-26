@@ -18,6 +18,16 @@
 - **WHEN** 选择 3D 并进入求解页
 - **THEN** Nz 行可见；切回 2D 后不可见，其他页输入保留
 
+### Requirement: Case input contract
+每个配置叶字段 SHALL 指定桌面端用途，每个可编辑字段 SHALL 绑定至对应的控件或控件组。
+表单 SHALL 使用配置数据类的字段单位及默认值，命名预设提供各自的取值。
+读取算例 SHALL 返回独立的分区快照，并保留当前表格和窗口状态。
+入口预览 SHALL 使用选定的 D-F 模式。CO₂ 在两种模式下均 SHALL 使用固定修正。
+
+#### Scenario: Restore an older case
+- **WHEN** 完整 GUI 配置包含 `le_rho_s`，或平铺配置包含 `rho_s`
+- **THEN** 载入时忽略该输入，再次保存时省略该字段并保留 `config_format: 1`。
+
 ### Requirement: One shared parameter scroll area
 三页 SHALL 共用一个外层 QScrollArea，不嵌套页级滚动壳。开始计算与诊断入口 SHALL 位于固定底栏；参数栏收起后 SHALL 提供展开及诊断入口。
 
