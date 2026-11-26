@@ -9,7 +9,7 @@ from collections import deque
 
 from PySide6.QtWidgets import QApplication
 
-from .window_config import FIELD_UNITS
+from .window_config import LINE_EDITS
 
 
 def install_field_menus(window):
@@ -49,9 +49,10 @@ def _attach_context_menu(window, le, attr):
         act_revert.triggered.connect(
             lambda: _revert_field_to_default(window, le, attr))
 
-        family, target = FIELD_UNITS.get(attr, ('', ''))
-        unit_txt = (('°C' if window._temp_unit == 'C' else 'K')
-                    if family == 'temp' else target or '')
+        spec = LINE_EDITS[attr]
+        unit_txt = spec.unit if spec.family != 'count' else ''
+        if spec.family == 'temp' and window._temp_unit == 'C':
+            unit_txt = '°C'
         unit_label = f" [{unit_txt}]" if unit_txt else ""
         act_expr = menu.addAction(f"Copy with unit{unit_label}")
         act_expr.triggered.connect(

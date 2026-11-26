@@ -326,6 +326,9 @@ def test_unit_switch_discards_only_untyped_temperature_history(win):
     ('K', 'le_Nx', '20', '20'),
     ('K', 'le_L', '0.2', '0.2 m'),
     ('K', 'le_Lcell', '7', '7 mm'),
+    ('K', 'le_pipeB_out_z_w', '0.021', '0.021 m'),
+    ('K', 'le_mass_flowA', '0.02', '0.02 kg/s'),
+    ('K', 'le_ks', '16', '16 W/(m·K)'),
 ])
 def test_copy_menu_uses_display_units(win, unit, field, text, expected):
     from PySide6.QtCore import QPoint, QTimer

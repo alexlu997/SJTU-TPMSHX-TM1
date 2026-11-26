@@ -192,10 +192,11 @@ def test_config_from_window_temp_to_K_hook_called():
 def test_config_from_window_blank_lineedit_uses_default():
     """An empty QLineEdit (user deleted the value) falls back to the
     dataclass default rather than raising."""
-    window = _StubWindow(uA='', Nx='', TinA='')
+    window = _StubWindow(uA='', Nx='', Ny='', Lz='', TinA='')
     cfg = config_from_window(window)
     assert cfg.fluid_A.u_mps == 5.0   # FluidConfig default
-    assert cfg.solver.Nx == 30        # SolverConfig default
+    assert (cfg.solver.Nx, cfg.solver.Ny) == (30, 60)
+    assert cfg.geometry.Lz_m is None
     assert cfg.fluid_A.T_in_K == 300.0
 
 
@@ -354,8 +355,7 @@ def test_c4_config_from_window_skips_partial_bc_z_in_2d():
 
 
 def test_c4_config_from_window_reads_zone_state():
-    """``chk_zones`` + ``combo_zone_axis`` + ``_zone_grid`` snapshot
-    into ``cfg.zones``. ``_pareto_*`` carried through unchanged."""
+    """Capture the grid table and detach the loaded Pareto settings."""
     window = _StubWindow()
     window.chk_zones = _StubCheckBox(checked=True)
     window.combo_zone_axis = _StubComboBox('grid', index=2)
@@ -373,7 +373,9 @@ def test_c4_config_from_window_reads_zone_state():
     assert cfg.zones.grid['tpms_type'] == 'Diamond'
     assert cfg.zones.pareto_x_decision == [0.1, 0.2, 0.3]
     assert cfg.zones.pareto_y_trans_inlet == pytest.approx(0.15)
-    window._zone_grid['cells'][0]['L'] = 8
+    assert not hasattr(window, '_zone_grid')
+    assert cfg.zones.config is None
+    window.zone_table.item(0, 4).setText('8')
     window._pareto_x_decision[0] = 9
     assert cfg.zones.grid['cells'][0]['L'] == 6
     assert cfg.zones.pareto_x_decision == [0.1, 0.2, 0.3]

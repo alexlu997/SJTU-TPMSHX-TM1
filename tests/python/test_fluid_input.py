@@ -50,6 +50,7 @@ def test_autofill_re_label_and_status_follow_selected_fluid(
         assert status.showMessage.call_args.args[0] == (
             f'Fluid {side} filled.  Re={re:.0f}{tag}  Nu=4.00  dP/L=5.0 Pa/m')
         assert compute.call_args.kwargs['fluid_type'] == fluid
+        assert compute.call_args.kwargs['df_mode'] == 'cfd_smooth'
         for name, expected in (('rho', '7.0000'), ('Nu', '4.0000'), ('dPL', '5.0')):
             assert getattr(window, '_v_' + name + side).text() == expected
         details._set_expanded.assert_called_once_with(True)
@@ -76,6 +77,7 @@ def test_co2_gui_defaults_save_and_fixed_preview_are_distinct_from_sco2(mass_win
     for mode in ('cfd_smooth', 'experimental'):
         window.combo_df_mode.setCurrentIndex(window.combo_df_mode.findData(mode))
         window._auto_fill_fluid(side)
+        assert compute('Gyroid', 7., .6, .3, 340., 8e6, 16., fluid_type='co2', df_mode=mode) == expected
         assert float(getattr(window, '_v_dPL' + side).text()) == pytest.approx(expected['dP_per_L'], abs=.05)
         assert float(getattr(window, '_v_Nu' + side).text()) == pytest.approx(expected['Nu'], abs=.00005)
     preset = window._capture_current_preset('co2 inputs')

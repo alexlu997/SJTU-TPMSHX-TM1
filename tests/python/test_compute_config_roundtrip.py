@@ -1,45 +1,38 @@
-"""B2 2.4 — ComputeConfig field registry + round-trip guards.
-
-CONFIG_FIELDS is the single source for scalar field wiring (dataclass slot
-↔ widget ↔ parse kind ↔ required-validation membership). These tests pin:
-
-  1. registry completeness — every non-special row maps onto a real
-     dataclass field of its section (a renamed/removed field fails here
-     instead of silently defaulting);
-  2. validation membership/order == the retired _REQUIRED_* lists;
-  3. round-trips: cfg → json → cfg equality (non-default values), and
-     stub-window → cfg → json → cfg equality;
-  4. 2D vs 3D required-set parity (Lz/Nz only demanded in 3D);
-  5. retired settings: solver budgets default to automatic, and archived
-     optimizer sections load and round-trip without reinterpretation.
-"""
+"""Check coverage of desktop case inputs, submit order and archive round trips."""
 import json
-from dataclasses import asdict
+from dataclasses import asdict, fields, is_dataclass
 import warnings as _warnings
 
 import pytest
 
-from sjtu_tpmshx.data_types.compute_config import (ComputeConfig, FluidConfig,
-                                    GeometryConfig, OptimizerConfig, SolverConfig)
-from sjtu_tpmshx.applications.gui.ui.window_config import (CONFIG_FIELDS, config_from_window,
+from sjtu_tpmshx.data_types.compute_config import ComputeConfig, OptimizerConfig, SolverConfig
+from sjtu_tpmshx.applications.gui.ui.window_config import (CONFIG_FIELDS, LINE_EDITS, config_from_window,
                               _validate_required_widgets)
+from tests.python.gui_io_support import win as win
 from tests.python.window_stubs import _StubWindow
 
-_SECTION_TYPES = {
-    'geometry': GeometryConfig,
-    'solver': SolverConfig,
-    'fluid_A': FluidConfig,
-    'fluid_B': FluidConfig,
-}
-
-
-def test_registry_rows_map_to_real_dataclass_fields():
-    for fs in CONFIG_FIELDS:
-        cls = _SECTION_TYPES[fs.section]
-        assert fs.name in cls.__dataclass_fields__, (
-            f"CONFIG_FIELDS row {fs.widget!r} names unknown field "
-            f"{fs.section}.{fs.name}")
-        assert fs.kind in ('float', 'int', 'temp')
+def test_registry_covers_case_leaves_and_live_editors(win):
+    config = ComputeConfig(optimizer=OptimizerConfig())
+    leaves = set()
+    for root in fields(config):
+        section = getattr(config, root.name)
+        if is_dataclass(section):
+            leaves.update(f'{root.name}.{leaf.name}' for leaf in fields(section))
+        else:
+            leaves.add(root.name)
+    paths = [spec.path for spec in CONFIG_FIELDS]
+    assert set(paths) == leaves
+    assert len(paths) == len(leaves)
+    for spec in CONFIG_FIELDS:
+        assert spec.disposition in ('edited', 'derived', 'api-only', 'archive')
+        if spec.disposition == 'edited':
+            assert spec.widget and hasattr(win, spec.widget), spec.path
+        if spec.family:
+            meta = spec.definition.metadata
+            assert meta['symbol'] and meta['unit'] and meta['range_ref'], spec.path
+            assert meta['dimensions'] in ((2, 3), (3,)), spec.path
+    # Inspect the case form independently of its save and validation lists.
+    assert set(LINE_EDITS) == {name for name in vars(win) if name.startswith('le_')}
 
 
 def test_validation_membership_and_order_preserved():
@@ -93,13 +86,16 @@ def test_window_to_json_roundtrip(tmp_path):
     assert cfg.fluid_A.u_mps == 9.5 and cfg.fluid_B.u_mps == 0.2
 
 
-def test_fluid_b_velocity_cross_default():
-    """fluid_B.u_mps defaults to fluid_A's value when its widget is absent
-    (the registry marks it special for exactly this reason)."""
-    window = _StubWindow(uA='7.25')
-    delattr(window, 'le_uB')
+@pytest.mark.parametrize('absent', [True, False])
+def test_fluid_b_velocity_cross_default(absent):
+    """Partial capture uses side A's speed for a missing B speed."""
+    window = _StubWindow(uA='7.25', uB='')
+    if absent:
+        delattr(window, 'le_uB')
     cfg = config_from_window(window)
     assert cfg.fluid_B.u_mps == cfg.fluid_A.u_mps == 7.25
+    with pytest.raises(ValueError, match='Velocity B'):
+        config_from_window(window, strict=True)
 
 
 def test_required_set_2d_vs_3d_parity():

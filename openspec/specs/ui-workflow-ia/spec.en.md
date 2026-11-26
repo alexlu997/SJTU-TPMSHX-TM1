@@ -18,6 +18,16 @@ The left rail MUST have three pages: Geometry, Boundary, and Solver. Geometry co
 - **WHEN** the user selects 3D and opens Solver
 - **THEN** the Nz row is visible. It becomes hidden after selection of 2D. Inputs on other pages stay unchanged.
 
+### Requirement: Case input contract
+Each configuration leaf MUST have a desktop disposition. Each edited leaf MUST bind to its input control or group.
+The form MUST use field units and defaults from the configuration dataclasses. Named presets supply their own values.
+Reading a case MUST return a separate zone snapshot. It MUST leave the table and the window state intact.
+The inlet preview MUST use the selected D-F mode. CO₂ MUST keep its fixed correction in both modes.
+
+#### Scenario: Restore an older case
+- **WHEN** a complete GUI case contains `le_rho_s` or a flat case contains `rho_s`
+- **THEN** the loader ignores that input. The next save omits it and keeps `config_format: 1`.
+
 ### Requirement: One shared parameter scroll area
 The three pages MUST share one outer QScrollArea. Pages MUST NOT have nested scroll containers. Compute and diagnostics controls MUST be in a fixed bottom bar. The collapsed rail MUST give expand and diagnostics controls.
 

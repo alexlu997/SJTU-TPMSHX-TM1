@@ -1,22 +1,16 @@
-"""Window-harvest adapter: Qt widgets -> ComputeConfig (contracts-layer).
-
-Split out of ``controllers/compute_config.py`` (openspec contracts-layer,
-2026-07-02): the contracts (dataclasses, ``bc_to_dict``, JSON adapters) now
-live in ``domain.compute_config``; THIS module is the only place that reads
-``window.le_*`` / ``window.combo_*`` widget values.
-
-Duck-typed throughout (``getattr`` + ``text()``/``currentText()`` probing) —
-deliberately imports no Qt, so headless tests can pass plain stub objects.
-"""
+"""Bind desktop inputs to the case configuration and capture the active case."""
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass
-from typing import Any, Literal, Optional, get_args
+from dataclasses import dataclass, replace
+from itertools import chain
+from math import isfinite
+from typing import Literal, Optional, get_args
 
 from sjtu_tpmshx.data_types.compute_config import (
     ComputeConfig, ExtrapPolicy, FeatureFlags, FluidConfig, FluidType,
-    GeometryConfig, PartialBCConfig, SolverConfig, TPMSType, ZoneAxis, ZoneInputConfig,
+    GeometryConfig, OptimizerConfig, PartialBCConfig, Sco2NuConfig, SolverConfig, TPMSType,
+    ZoneAxis, ZoneInputConfig,
 )
 from sjtu_tpmshx.data_types.validator import parse_unit_value
 
@@ -56,7 +50,7 @@ def _selected_topology(combo) -> TPMSType:
     return name
 
 
-def _qt_float(widget, default: float) -> float:
+def _qt_float(widget, default):
     """Parse ``widget.text()`` as float, fall back to ``default``."""
     txt = _qt_text(widget).strip()
     if not txt:
@@ -78,121 +72,129 @@ def _qt_int(widget, default: int) -> int:
         return default
 
 
-# Required widget attributes and human-readable labels for strict validation.
 @dataclass(frozen=True)
 class FieldSpec:
-    """One scalar ComputeConfig field's wiring: dataclass slot ↔ Qt widget
-    ↔ parse kind ↔ required-validation membership (B2 2.4, 2026-06-12).
+    """Bind a configuration leaf to its desktop input or state its other use."""
 
-    Single source for the add-a-field procedure — previously adding one
-    field meant touching the dataclass, ``config_from_window``, and the
-    ``_REQUIRED_*`` lists independently (silent-default drift when one
-    was missed). ``kind``: 'float' | 'int' | 'temp' (unit-aware Kelvin).
-    ``special=True`` rows participate in validation only; their read has
-    bespoke semantics kept explicit in ``config_from_window`` (cross-field
-    defaults, None-when-missing, combo parsing).
-    """
-    section: str            # 'geometry' | 'solver' | 'fluid_A' | 'fluid_B'
-    name: str               # dataclass field name
-    widget: str             # window attribute, e.g. 'le_Lcell'
-    kind: str               # 'float' | 'int' | 'temp'
-    default: Any
-    label: str = ''         # human label for the validation message
-    required_2d: bool = False
-    required_3d_extra: bool = False
-    special: bool = False   # validated here, read bespokely
+    path: str
+    widget: str = ''
+    family: str = ''  # Unit parser for a line edit.
+    label: str = ''
+    required_order: int = 0  # Order of errors on strict capture.
+    when: Literal['always', '3d', 'velocity', 'mass_flow'] = 'always'
+    disposition: Literal['edited', 'derived', 'api-only', 'archive'] = 'edited'
+    positive: bool = True  # Immediate sign check in the numeric editor.
+
+    @property
+    def definition(self):
+        section, _, name = self.path.rpartition('.')
+        owner = ComputeConfig
+        if section:
+            # The optional optimizer archive has no default factory.
+            owner = (OptimizerConfig if section == 'optimizer'
+                     else ComputeConfig.__dataclass_fields__[section].default_factory)
+        return owner.__dataclass_fields__[name]
+
+    @property
+    def default(self):
+        return self.definition.default
+
+    @property
+    def unit(self):
+        return self.definition.metadata['unit']
+
+    def editor_text(self, title, side=''):
+        """Return the quantity label and initial text for a numeric row."""
+        symbol, _, subscript = self.definition.metadata['symbol'].partition('_')
+        subscript = ','.join(part for part in (subscript, side) if part)
+        quantity = f'<i>{symbol}</i>'
+        if subscript:
+            quantity += f'<sub>{subscript}</sub>'
+        units = '' if self.family == 'count' else f' [{self.unit}]'
+        initial = '' if self.default is None else str(self.default)
+        return f'{title} {quantity}{units}', initial
 
 
-# Declaration order == legacy validation-message order (2D block first,
-# then the 3D extras), preserved verbatim from the retired _REQUIRED_* lists.
-CONFIG_FIELDS: tuple = (
-    FieldSpec('geometry', 'L_dom_m',   'le_L',     'float', 0.182,
-              label="Domain Length (L)", required_2d=True),
-    FieldSpec('geometry', 'H_dom_m',   'le_H',     'float', 0.042,
-              label="Domain Height (H)", required_2d=True),
-    FieldSpec('solver',   'Nx',        'le_Nx',    'int',   30,
-              label="Grid Nx", required_2d=True),
-    FieldSpec('solver',   'Ny',        'le_Ny',    'int',   60,
-              label="Grid Ny", required_2d=True),
-    FieldSpec('fluid_A',  'u_mps',     'le_uA',    'float', 5.0,
-              label="Velocity A (u_A)", required_2d=True),
-    FieldSpec('fluid_B',  'u_mps',     'le_uB',    'float', None,
-              label="Velocity B (u_B)", required_2d=True,
-              special=True),   # default = fluid_A.u_mps (cross-field)
-    FieldSpec('fluid_A',  'T_in_K',    'le_TinA',  'temp',  300.0,
-              label="Inlet Temp A (T_inA)", required_2d=True),
-    FieldSpec('fluid_B',  'T_in_K',    'le_TinB',  'temp',  300.0,
-              label="Inlet Temp B (T_inB)", required_2d=True),
-    FieldSpec('geometry', 'L_cell_mm', 'le_Lcell', 'float', 7.0,
-              label="TPMS L_cell", required_2d=True),
-    FieldSpec('geometry', 't_wall_mm', 'le_t',     'float', 0.6,
-              label="TPMS t", required_2d=True),
-    FieldSpec('geometry', 'k_s_W_mK',  'le_ks',    'float', 16.0,
-              label="TPMS k_s", required_2d=True),
-    FieldSpec('geometry', 'Lz_m',      'le_Lz',    'float', 0.042,
-              label="Width Lz", required_3d_extra=True,
-              special=True),   # None for 2D or an absent widget
-    FieldSpec('solver',   'Nz',        'le_Nz',    'int',   1,
-              label="Grid Nz", required_3d_extra=True),
-    # Non-required scalars — blank keeps the default, but NON-EMPTY text
-    # must parse (W2, 2026-07-07; enforced in _validate_required_widgets):
-    FieldSpec('fluid_A',  'P_in_Pa',   'le_PinA',  'float', 101325.0,
-              label="Inlet Pressure A (P_inA)"),
-    FieldSpec('fluid_B',  'P_in_Pa',   'le_PinB',  'float', 101325.0,
-              label="Inlet Pressure B (P_inB)"),
+# Line edits follow the file and preflight focus order. Each port row has one
+# transverse coordinate. The second pair applies only to 3D openings.
+CONFIG_FIELDS = (
+    FieldSpec('geometry.L_dom_m', 'le_L', 'length', 'Domain Length (L)', 1),
+    FieldSpec('geometry.H_dom_m', 'le_H', 'length', 'Domain Height (H)', 2),
+    FieldSpec('geometry.Lz_m', 'le_Lz', 'length', 'Width Lz', 14, '3d'),
+    FieldSpec('geometry.L_cell_mm', 'le_Lcell', 'length', 'TPMS L_cell', 9),
+    FieldSpec('geometry.t_wall_mm', 'le_t', 'length', 'TPMS t', 10),
+    FieldSpec('geometry.k_s_W_mK', 'le_ks', 'conductivity', 'TPMS k_s', 11),
+    FieldSpec('fluid_A.u_mps', 'le_uA', 'speed', 'Velocity A (u_A)', 5, 'velocity'),
+    FieldSpec('fluid_A.T_in_K', 'le_TinA', 'temp', 'Inlet Temp A (T_inA)', 7),
+    FieldSpec('fluid_A.P_in_Pa', 'le_PinA', 'pressure', 'Inlet Pressure A (P_inA)'),
+    FieldSpec('fluid_B.u_mps', 'le_uB', 'speed', 'Velocity B (u_B)', 6, 'velocity'),
+    FieldSpec('fluid_B.T_in_K', 'le_TinB', 'temp', 'Inlet Temp B (T_inB)', 8),
+    FieldSpec('fluid_B.P_in_Pa', 'le_PinB', 'pressure', 'Inlet Pressure B (P_inB)'),
+    *(FieldSpec(f'fluid_{side}.mass_flow_kg_s', f'le_mass_flow{side}', 'mass_flow',
+                f'Total mass flow {side} [kg/s]', order, 'mass_flow')
+      for side, order in (('A', 12), ('B', 13))),
+    FieldSpec('solver.Nx', 'le_Nx', 'count', 'Grid Nx', 3),
+    FieldSpec('solver.Ny', 'le_Ny', 'count', 'Grid Ny', 4),
+    FieldSpec('solver.Nz', 'le_Nz', 'count', 'Grid Nz', 15, '3d'),
+    *(FieldSpec(f'bc_{side}.{name}', f'le_pipe{side}_{name}', 'length',
+                f'Pipe {side} {name}', positive=False)
+      for names in (('in_ctr', 'in_w', 'out_ctr', 'out_w'),
+                    ('in_z_ctr', 'in_z_w', 'out_z_ctr', 'out_z_w'))
+      for side in 'AB' for name in names),
+    FieldSpec('geometry.tpms', 'combo_tpms'),
+    FieldSpec('df_mode', 'combo_df_mode'),
+    *(FieldSpec(f'fluid_{side}.type', f'combo_fluid{side}') for side in 'AB'),
+    *(FieldSpec(f'bc_{side}.dir', f'combo_dir{side}') for side in 'AB'),
+    FieldSpec('flags.port_wall_refine', 'combo_grid'),
+    FieldSpec('flags.temp_unit', '_temp_unit'),
+    FieldSpec('extrap.allow', 'chk_allow_extrap'),
+    FieldSpec('sco2_nu.mode', 'combo_sco2_nu_mode'),
+    *(FieldSpec(f'sco2_nu.{name}', '_sco2_nu_parameters')
+      for name in ('alpha_D', 'alpha_G', 'parameter_version', 'source', 'applicability')),
+    FieldSpec('zones.enabled', 'chk_zones'),
+    FieldSpec('zones.axis', 'combo_zone_axis'),
+    FieldSpec('zones.grid', 'zone_table'),
+    FieldSpec('zones.config', 'zone_table'),  # A loaded continuous field replaces the table.
+    *(FieldSpec(f'zones.{name}', f'_{name}', disposition='derived')
+      for name in ('pareto_x_decision', 'pareto_y_trans_inlet', 'pareto_y_trans_outlet')),
+    FieldSpec('flags.variable_rho_cp', disposition='derived'),
+    *(FieldSpec(f'bc_{side}.uniform_inlet_2d', disposition='derived') for side in 'AB'),
+    FieldSpec('geometry.delta_levelset', disposition='api-only'),
+    FieldSpec('envelope_mode', disposition='api-only'),
+    *(FieldSpec(f'solver.{name}', disposition='api-only') for name in (
+        'max_outer_ltne', 'outer_tol_K', 'max_iter_simple', 'simple_velocity_relaxation',
+        'T_s_init_K', 'convergence_mode', 'mom_tol', 'mass_local_tol', 'mass_global_tol',
+        'enthalpy_algorithm', 'enthalpy_temperature_tol_K', 'model_h_max_iterations',
+        'model_h_temperature_tol_K', 'model_h_q_relative_tol', 'ltne_enthalpy_outer',
+        'ltne_enthalpy_nsweep', 'ltne_enthalpy_omega', 'ltne_enthalpy_tol',
+        'ltne_enthalpy_coupled_energy_tol', 'ltne_enthalpy_equation_energy_tol',
+        'require_enthalpy_update_on_temperature')),
+    *(FieldSpec(f'optimizer.{name}', disposition='archive') for name in (
+        'max_outer_ltne', 'outer_tol_K', 'max_iter_simple', 'alpha_T')),
 )
+LINE_EDITS = {spec.widget: spec for spec in CONFIG_FIELDS if spec.family}
+_BY_PATH = {spec.path: spec for spec in CONFIG_FIELDS}
+_REQUIRED = sorted((spec for spec in LINE_EDITS.values() if spec.required_order != 0),
+                   key=lambda spec: spec.required_order)
 
 
-# The unit parser also handles pipe fields outside CONFIG_FIELDS.
-FIELD_UNITS = {
-    # geometry — metres
-    'le_L': ('length', 'm'), 'le_H': ('length', 'm'),
-    'le_Lz': ('length', 'm'),
-    'le_pipeA_in_ctr': ('length', 'm'), 'le_pipeA_in_w':  ('length', 'm'),
-    'le_pipeA_out_ctr': ('length', 'm'), 'le_pipeA_out_w': ('length', 'm'),
-    'le_pipeB_in_ctr': ('length', 'm'), 'le_pipeB_in_w':  ('length', 'm'),
-    'le_pipeB_out_ctr': ('length', 'm'), 'le_pipeB_out_w': ('length', 'm'),
-    # TPMS geometry — millimetres
-    'le_Lcell': ('length', 'mm'), 'le_t': ('length', 'mm'),
-    # flow / thermo
-    'le_uA': ('speed', 'm/s'), 'le_uB': ('speed', 'm/s'),
-    'le_PinA': ('pressure', 'Pa'), 'le_PinB': ('pressure', 'Pa'),
-    'le_TinA': ('temp', None), 'le_TinB': ('temp', None),
-    # counts (no unit allowed)
-    'le_Nx': ('count', None), 'le_Ny': ('count', None),
-    'le_Nz': ('count', None),
-}
+def _bound_input(window, path, default=None):
+    return getattr(window, _BY_PATH[path].widget, default)
 
 
-POSITIVE_FIELDS = frozenset((
-    'le_L', 'le_H', 'le_Lz', 'le_Lcell', 'le_t', 'le_ks',
-    'le_uA', 'le_uB',
-    'le_mass_flowA', 'le_mass_flowB',
-    'le_TinA', 'le_TinB', 'le_PinA', 'le_PinB',
-    'le_Nx', 'le_Ny', 'le_Nz',
-    'le_rho_s',
-))
-
-
-COUNT_TOKEN_WHITELIST = frozenset((
-    'cells', 'cell', 'pts', 'points', 'nodes',
-))
+COUNT_TOKEN_WHITELIST = frozenset(('cells', 'cell', 'pts', 'points', 'nodes'))
 
 
 def parse_field_value(field_attr: str, raw_value: float, unit_text: str,
                       temp_unit: str = 'K') -> Optional[float]:
-    """Convert a value with units for the specified input field."""
-    fam_target = FIELD_UNITS.get(field_attr)
-    if fam_target is None:
+    """Convert a quantity to the unit of its active editor."""
+    spec = LINE_EDITS.get(field_attr)
+    if spec is None:
         return None
-    family, target_unit = fam_target
-    if family == 'count':
-        u = (unit_text or '').strip().lower()
-        if u in COUNT_TOKEN_WHITELIST:
-            return raw_value
-        return None
-    return parse_unit_value(raw_value, unit_text, family,
-                            target_unit=target_unit, temp_unit=temp_unit)
+    if spec.family == 'count':
+        return raw_value if (unit_text or '').strip().lower() in COUNT_TOKEN_WHITELIST else None
+    return parse_unit_value(raw_value, unit_text, spec.family,
+                            target_unit=spec.unit, temp_unit=temp_unit)
 
 
 def mass_flow_active(window, side, *, is_3d=None):
@@ -203,12 +205,17 @@ def mass_flow_active(window, side, *, is_3d=None):
     return bool(is_3d and mode is not None and mode.currentData() == 'mass_flow')
 
 
-def inlet_input_active(window, name):
-    if name in ('le_uA', 'le_uB'):
-        return not mass_flow_active(window, name[-1])
-    if name in ('le_mass_flowA', 'le_mass_flowB'):
-        return mass_flow_active(window, name[-1])
+def inlet_input_active(window, name, *, is_3d=None):
+    mode = LINE_EDITS[name].when
+    if mode in ('velocity', 'mass_flow'):
+        return mass_flow_active(window, name[-1], is_3d=is_3d) == (mode == 'mass_flow')
     return True
+
+
+def field_active(window, spec, *, is_3d):
+    if not is_3d and (spec.when == '3d' or 2 not in spec.definition.metadata['dimensions']):
+        return False
+    return inlet_input_active(window, spec.widget, is_3d=is_3d)
 
 
 def blank_second_span(window, name):
@@ -221,112 +228,52 @@ def blank_second_span(window, name):
                for suffix in ('ctr', 'w'))
 
 
-def _read_section_fields(window, section: str, *, is_3d: bool = True) -> dict:
-    """Table-driven scalar reads for one config section (non-special rows)."""
-    out = {}
-    for fs in CONFIG_FIELDS:
-        if fs.section != section or fs.special:
+def _read_section_fields(window, section, *, is_3d, speed_default=None):
+    """Read the numeric inputs for one section in their stored units."""
+    values = {}
+    for spec in LINE_EDITS.values():
+        owner, name = spec.path.split('.')
+        if owner != section:
             continue
-        if fs.required_3d_extra and not is_3d:
-            out[fs.name] = fs.default
+        if spec.when == '3d' and not is_3d:
             continue
-        w = getattr(window, fs.widget, None)
-        if fs.kind == 'float':
-            out[fs.name] = _qt_float(w, fs.default)
-        elif fs.kind == 'int':
-            out[fs.name] = _qt_int(w, fs.default)
-        elif fs.kind == 'temp':
-            out[fs.name] = _temp_in_K(window, w, default_K=fs.default)
-    return out
+        if spec.when == 'mass_flow' and not mass_flow_active(window, section[-1], is_3d=is_3d):
+            continue
+        widget = getattr(window, spec.widget, None)
+        default = spec.default
+        if spec.when == 'velocity' and speed_default is not None:
+            default = speed_default
+        elif spec.when == 'mass_flow':
+            # A blank active flow is invalid. None would select velocity instead.
+            default = 0.0
+        if spec.family == 'count':
+            values[name] = _qt_int(widget, default)
+        elif spec.family == 'temp':
+            values[name] = _temp_in_K(window, widget, default)
+        else:
+            values[name] = _qt_float(widget, default)
+    return values
 
 
 def _validate_required_widgets(window, *, is_3d: bool) -> None:
-    """Raise ``ValueError`` listing every invalid input widget.
-
-    Required numeric widgets reject blank, malformed and nonfinite text.
-    Optional pressure and pipe widgets retain their defaults when missing or
-    blank, but reject malformed or nonfinite non-empty text. Temperature input
-    is interpreted in the selected display unit before ComputeConfig checks
-    positive Kelvin values.
-    """
-    import math as _math
-    required = [fs for fs in CONFIG_FIELDS if fs.required_2d
-                and not (fs.name == 'u_mps' and mass_flow_active(window, fs.section[-1], is_3d=is_3d))]
-    for side in 'AB':
-        if mass_flow_active(window, side, is_3d=is_3d):
-            required.append(FieldSpec('fluid_' + side, 'mass_flow_kg_s', 'le_mass_flow' + side,
-                                     'float', None, label=f'Total mass flow {side} [kg/s]'))
-    if is_3d:
-        required += [fs for fs in CONFIG_FIELDS if fs.required_3d_extra]
+    """Report invalid active inputs in the submit order. Blank optional inputs use their defaults."""
+    optional = (spec for spec in LINE_EDITS.values() if spec.required_order == 0)
     bad = []
-    for fs in required:
-        widget = getattr(window, fs.widget, None)
-        if widget is None:
-            bad.append(fs.label)
+    for spec in chain(_REQUIRED, optional):
+        if not field_active(window, spec, is_3d=is_3d):
             continue
-        txt = _qt_text(widget).strip()
-        if not txt:
-            bad.append(fs.label)
+        text = _qt_text(getattr(window, spec.widget, None)).strip()
+        required = spec.required_order != 0
+        if not text and not required:
             continue
-        caster = int if fs.kind == 'int' else float
         try:
-            v = float(caster(txt))
+            value = int(text) if spec.family == 'count' else float(text)
         except ValueError:
-            bad.append(fs.label)
+            bad.append(spec.label)
             continue
-        # robustness-hardening (2026-07-03): `float("nan")`/`float("inf")`
-        # parse successfully, so castability alone let non-finite values
-        # into ComputeConfig. All required fields are physically positive;
-        # 'temp' fields are exempt from the sign check here because the raw
-        # text may be °C (negative is legit) — their Kelvin positivity is
-        # enforced by ComputeConfig.validate() downstream.
-        if not _math.isfinite(v):
-            bad.append(fs.label)
-        elif fs.kind != 'temp' and v <= 0:
-            bad.append(fs.label)
-    # Optional CONFIG_FIELDS rows (e.g. P_in_Pa): non-empty must parse
-    # finite. No sign check — downstream validation owns physics bounds.
-    _seen = {fs.widget for fs in required}
-    for fs in CONFIG_FIELDS:
-        if fs.name == 'u_mps' and mass_flow_active(window, fs.section[-1], is_3d=is_3d):
-            continue
-        if fs.widget in _seen or fs.special or (fs.required_3d_extra and not is_3d):
-            continue
-        widget = getattr(window, fs.widget, None)
-        if widget is None:
-            continue
-        txt = _qt_text(widget).strip()
-        if not txt:
-            continue
-        caster = int if fs.kind == 'int' else float
-        try:
-            v = float(caster(txt))
-        except ValueError:
-            bad.append(fs.label or fs.name)
-            continue
-        if not _math.isfinite(v):
-            bad.append(fs.label or fs.name)
-    # Partial-BC pipe widgets (read via _qt_float(…, 0.0) in
-    # _read_partial_bc): a parse failure there silently zeroed the pipe
-    # geometry. Non-empty must parse finite; 0.0 itself stays legal.
-    for side in ('A', 'B'):
-        for suffix in ('in_ctr', 'in_w', 'out_ctr', 'out_w',
-                       'in_z_ctr', 'in_z_w', 'out_z_ctr', 'out_z_w'):
-            if not is_3d and '_z_' in suffix:
-                continue
-            w = getattr(window, f'le_pipe{side}_{suffix}', None)
-            if w is None:
-                continue
-            txt = _qt_text(w).strip()
-            if not txt:
-                continue
-            try:
-                v = float(txt)
-            except (TypeError, ValueError):
-                bad.append(f"Pipe {side} {suffix}")
-                continue
-            if not _math.isfinite(v):
-                bad.append(f"Pipe {side} {suffix}")
+        # Temperature can be in degrees Celsius. Validate its sign in kelvin.
+        if not isfinite(value) or (required and spec.family != 'temp' and value <= 0):
+            bad.append(spec.label)
     if bad:
         raise ValueError(f"Invalid input in: {', '.join(bad)}")
 
@@ -350,17 +297,11 @@ def _parse_fluid_label(combo) -> FluidType:
 
 def fluid_types_from_window(window) -> dict[str, FluidType]:
     """Read the selected fluid for each side."""
-    return {side: _parse_fluid_label(getattr(window, 'combo_fluid' + side, None)) for side in 'AB'}
+    return {side: _parse_fluid_label(_bound_input(window, f'fluid_{side}.type')) for side in 'AB'}
 
 
 def _temp_in_K(window, widget, default_K: float) -> float:
-    """Honour the window's ``_temp_to_K`` toggle if present.
-
-    Both ``run_calculation._parse_inputs`` and
-    ``run_calculation_3d._parse_inputs`` route inlet-temperature reads
-    through ``window._temp_to_K`` so the K/°C UI toggle is honoured.
-    We do the same here so ``config_from_window`` always returns Kelvin.
-    """
+    """Read the selected temperature scale. A partial draft uses the default in kelvin."""
     if widget is None:
         return default_K
     converter = getattr(window, '_temp_to_K', None)
@@ -382,8 +323,8 @@ def _read_partial_bc(window, side: Literal['A', 'B'], *, is_3d: bool) -> 'Partia
 
     ``side='B'`` defaults to ``dir=3`` (-y) when ``combo_dirB`` is missing.
     """
-    le_prefix = f'le_pipe{side}'
-    combo_dir = getattr(window, f'combo_dir{side}', None)
+    section = f'bc_{side}'
+    combo_dir = _bound_input(window, f'{section}.dir')
     default_dir = 3 if side == 'B' else 0
     dir_int = default_dir
     if combo_dir is not None:
@@ -393,17 +334,14 @@ def _read_partial_bc(window, side: Literal['A', 'B'], *, is_3d: bool) -> 'Partia
             dir_int = default_dir
     bc = PartialBCConfig(
         dir=dir_int,
-        in_ctr=_qt_float(getattr(window, f'{le_prefix}_in_ctr', None), 0.0),
-        in_w=_qt_float(getattr(window, f'{le_prefix}_in_w', None), 0.0),
-        out_ctr=_qt_float(getattr(window, f'{le_prefix}_out_ctr', None), 0.0),
-        out_w=_qt_float(getattr(window, f'{le_prefix}_out_w', None), 0.0),
+        **{name: _qt_float(_bound_input(window, f'{section}.{name}'), getattr(PartialBCConfig, name))
+           for name in ('in_ctr', 'in_w', 'out_ctr', 'out_w')},
         uniform_inlet_2d=True,
     )
     if is_3d:
-        from math import isfinite
         for end in ('in', 'out'):
-            center_text = _qt_text(getattr(window, f'{le_prefix}_{end}_z_ctr', None)).strip()
-            width_text = _qt_text(getattr(window, f'{le_prefix}_{end}_z_w', None)).strip()
+            center_text = _qt_text(_bound_input(window, f'{section}.{end}_z_ctr')).strip()
+            width_text = _qt_text(_bound_input(window, f'{section}.{end}_z_w')).strip()
             if not center_text and not width_text:
                 continue
             label = f'Pipe {side} {end} second-transverse centre and width'
@@ -420,26 +358,16 @@ def _read_partial_bc(window, side: Literal['A', 'B'], *, is_3d: bool) -> 'Partia
     return bc
 
 
-def _read_zone_input(window) -> 'ZoneInputConfig':
-    """Snapshot zone / sigmoid-field control state.
-
-    Reads ``chk_zones`` and the saved continuous-field state first. An
-    enabled continuous field is captured directly as ``ZoneInputConfig``;
-    other enabled zone modes pre-resolve ``ZoneConfig`` via
-    ``ui.zone_table.build_zone_config(window)`` so downstream pipelines
-    never touch the Qt zone-table widget.
-
-    Invalid enabled zones propagate through the existing input-error channel.
-    Mutable grid and Pareto inputs belong to this snapshot after capture.
-    """
-    chk = getattr(window, 'chk_zones', None)
-    enabled = bool(chk is not None and getattr(chk, 'isChecked', lambda: False)())
+def _read_zone_input(window, geometry: GeometryConfig) -> ZoneInputConfig:
+    """Capture the active zone representation with the geometry of this case."""
+    chk = _bound_input(window, 'zones.enabled')
+    enabled = chk is not None and chk.isChecked()
     continuous = getattr(window, '_continuous_field_spec', None)
     if enabled and continuous is not None:
         return ZoneInputConfig(enabled=True, axis='continuous',
                                config=deepcopy(continuous)).validate()
     axis: ZoneAxis = 'y'
-    combo = getattr(window, 'combo_zone_axis', None)
+    combo = _bound_input(window, 'zones.axis')
     if combo is not None:
         try:
             idx = int(combo.currentIndex())
@@ -447,43 +375,33 @@ def _read_zone_input(window) -> 'ZoneInputConfig':
         except Exception:
             axis = 'y'
 
-    # Pre-resolve ZoneConfig (1D zone mode needs the zone-table rows).
-    # Grid mode populates ``window._zone_grid`` as a side effect.
-    resolved_config = None
+    config, grid = None, None
     if enabled:
-        from sjtu_tpmshx.applications.gui.ui.zone_table import build_zone_config as _bzc
-        resolved_config = _bzc(window)
-    grid = getattr(window, '_zone_grid', None)
-    return deepcopy(ZoneInputConfig(
-        enabled=enabled,
-        axis=axis,
-        grid=grid if isinstance(grid, dict) else None,
-        config=resolved_config,
-        pareto_x_decision=getattr(window, '_pareto_x_decision', None),
-        pareto_y_trans_inlet=float(
-            getattr(window, '_pareto_y_trans_inlet', 0.2)),
-        pareto_y_trans_outlet=float(
-            getattr(window, '_pareto_y_trans_outlet', 0.2)),
-    )).validate()
+        from sjtu_tpmshx.applications.gui.ui.zone_table import build_zone_config
+        table = _bound_input(window, 'zones.grid' if axis == 'grid' else 'zones.config')
+        config, grid = build_zone_config(table, axis, geometry.tpms, geometry.k_s_W_mK)
+    return ZoneInputConfig(
+        enabled=enabled, axis=axis, grid=grid, config=config,
+        pareto_x_decision=deepcopy(_bound_input(window, 'zones.pareto_x_decision')),
+        pareto_y_trans_inlet=float(_bound_input(window, 'zones.pareto_y_trans_inlet', ZoneInputConfig.pareto_y_trans_inlet)),
+        pareto_y_trans_outlet=float(_bound_input(window, 'zones.pareto_y_trans_outlet', ZoneInputConfig.pareto_y_trans_outlet)),
+    ).validate()
 
 
 def _read_feature_flags(window) -> 'FeatureFlags':
     """Snapshot the current desktop mesh and transport policy."""
-    unit = getattr(window, '_temp_unit', 'K')
+    unit = _bound_input(window, 'flags.temp_unit', 'K')
     if unit not in ('K', 'C'):
         unit = 'K'
-    mesh = getattr(window, 'combo_grid', None)
-    return FeatureFlags(
-                        port_wall_refine=bool(mesh is not None and mesh.currentData()),
-                        variable_rho_cp=True,
-                        temp_unit=unit)
+    mesh = _bound_input(window, 'flags.port_wall_refine')
+    return FeatureFlags(port_wall_refine=bool(mesh is not None and mesh.currentData()),
+                        variable_rho_cp=True, temp_unit=unit)
 
 
 def _read_extrap_policy(window) -> 'ExtrapPolicy':
     """Snapshot the surrogate-domain extrapolation allow flag."""
-    chk = getattr(window, 'chk_allow_extrap', None)
-    allow = bool(chk is not None and
-                 getattr(chk, 'isChecked', lambda: False)())
+    chk = _bound_input(window, 'extrap.allow')
+    allow = chk is not None and chk.isChecked()
     return ExtrapPolicy(allow=allow)
 
 
@@ -495,94 +413,54 @@ def validate_domain_shape(shape: int = 0) -> None:
 
 def config_from_window(window, *, strict: bool = False,
                        force_3d: Optional[bool] = None) -> ComputeConfig:
-    """Build a :class:`ComputeConfig` from the main UI window.
+    """Capture the case inputs. A strict read checks all active numeric fields.
 
-    Free-function form of the retired ``ComputeConfig.from_qt_window``
-    classmethod (contracts-layer split). Reads ``window.le_*`` /
-    ``window.combo_*`` exactly once; missing optional widgets fall back
-    to the dataclass defaults. ``strict=True`` raises ``ValueError``
-    listing every blank / non-numeric required widget; ``force_3d``
-    selects the effective dimension (None = combo_dim, or le_Nz for
-    headless callers). Hidden widget values are never changed.
+    A partial read uses the dataclass defaults for missing values. A missing
+    B speed uses the A speed. Without a dimension selector, Nz gives the dimension.
     """
     is_3d = force_3d
     if is_3d is None:
         combo_dim = getattr(window, 'combo_dim', None)
         is_3d = (combo_dim.currentIndex() == 1 if combo_dim is not None
-                 else _qt_int(getattr(window, 'le_Nz', None), 1) >= 2)
+                 else _qt_int(_bound_input(window, 'solver.Nz'), SolverConfig.Nz) >= 2)
     if strict:
         _validate_required_widgets(window, is_3d=is_3d)
     selected_2d = not is_3d and (force_3d is not None or
                                 getattr(window, 'combo_dim', None) is not None)
-    # ── table-driven scalar reads (B2 2.4: CONFIG_FIELDS single source;
-    # ── special rows keep their bespoke semantics explicit below) ──
-    # geometry — topology and the active 3D depth are read separately:
-    topology_combo = getattr(window, 'combo_tpms', None)
+    topology = _bound_input(window, 'geometry.tpms')
     geom = GeometryConfig(
-        tpms=_selected_topology(topology_combo) if topology_combo is not None else GeometryConfig.tpms,
-        Lz_m=(_qt_float(getattr(window, 'le_Lz', None), 0.042)
-              if is_3d and getattr(window, 'le_Lz', None) is not None else None),
-        **_read_section_fields(window, 'geometry'),
+        tpms=_selected_topology(topology) if topology is not None else GeometryConfig.tpms,
+        **_read_section_fields(window, 'geometry', is_3d=is_3d),
     )
-
-    solver = SolverConfig(
-        # remaining knobs keep dataclass defaults; UI does not surface
-        # them yet (audit deferred to a later phase)
-        **_read_section_fields(window, 'solver', is_3d=not selected_2d),
-    )
-    if selected_2d:
-        solver.Nz = 1
-    elif is_3d and solver.Nz < 2:
+    solver = SolverConfig(**_read_section_fields(window, 'solver', is_3d=not selected_2d))
+    if is_3d and solver.Nz < 2:
         raise ValueError('Grid Nz must be >= 2 for 3D compute')
 
-    # fluids — type combos special; fluid_B.u_mps defaults to A's value:
     fluid_types = fluid_types_from_window(window)
-    fluid_A = FluidConfig(
-        type=fluid_types['A'],
-        mass_flow_kg_s=(_qt_float(getattr(window, 'le_mass_flowA', None), 0.)
-                       if mass_flow_active(window, 'A', is_3d=is_3d) else None),
-        **_read_section_fields(window, 'fluid_A'),
-    )
-    fluid_B = FluidConfig(
-        type=fluid_types['B'],
-        mass_flow_kg_s=(_qt_float(getattr(window, 'le_mass_flowB', None), 0.)
-                       if mass_flow_active(window, 'B', is_3d=is_3d) else None),
-        u_mps=_qt_float(getattr(window, 'le_uB', None), fluid_A.u_mps),
-        **_read_section_fields(window, 'fluid_B'),
-    )
+    fluid_A = FluidConfig(type=fluid_types['A'], **_read_section_fields(window, 'fluid_A', is_3d=is_3d))
+    fluid_B = FluidConfig(type=fluid_types['B'], **_read_section_fields(
+        window, 'fluid_B', is_3d=is_3d, speed_default=fluid_A.u_mps))
 
-    # ── audit C4 additions ──────────────────────────────────
-    # Partial-pipe BC + zone state + feature flags + extrap policy.
-    # Defaults preserve legacy behaviour when widgets are missing
-    # (test stubs, headless scripts).
     bc_A = _read_partial_bc(window, 'A', is_3d=is_3d)
     bc_B = _read_partial_bc(window, 'B', is_3d=is_3d)
-    zones = _read_zone_input(window)
+    zones = _read_zone_input(window, geom)
     if zones.enabled and zones.axis == 'continuous' and ('n_ctrl_z' in zones.config) != is_3d:
         raise ValueError('Continuous field dimension differs from the current case; restore the original dimension or clear the field')
     flags = _read_feature_flags(window)
     extrap = _read_extrap_policy(window)
 
-    _df_combo = getattr(window, 'combo_df_mode', None)
-    df_mode = (_df_combo.currentData() if _df_combo is not None else None)
-
-    nu = sco2_nu_from_window(window)
-
-    return ComputeConfig(fluid_A=fluid_A, fluid_B=fluid_B,
-               geometry=geom, solver=solver,
-               bc_A=bc_A, bc_B=bc_B,
-               zones=zones, flags=flags, extrap=extrap,
-               df_mode=df_mode or 'cfd_smooth', sco2_nu=nu)
+    return ComputeConfig(fluid_A=fluid_A, fluid_B=fluid_B, geometry=geom, solver=solver,
+                         bc_A=bc_A, bc_B=bc_B, zones=zones, flags=flags, extrap=extrap,
+                         df_mode=df_mode_from_window(window), sco2_nu=sco2_nu_from_window(window))
 
 
-__all__ = ['config_from_window', 'FieldSpec', 'CONFIG_FIELDS', 'FIELD_UNITS',
-           'POSITIVE_FIELDS', 'COUNT_TOKEN_WHITELIST', 'parse_field_value']
+def df_mode_from_window(window):
+    combo = _bound_input(window, 'df_mode')
+    return (combo.currentData() if combo is not None else None) or ComputeConfig.df_mode
 
 
 def sco2_nu_from_window(window):
-    from dataclasses import replace
-    from sjtu_tpmshx.data_types.compute_config import Sco2NuConfig
-    combo = getattr(window, 'combo_sco2_nu_mode', None)
-    mode = combo.currentData() if combo is not None else 'cfd_smooth'
+    combo = _bound_input(window, 'sco2_nu.mode')
+    mode = combo.currentData() if combo is not None else Sco2NuConfig.mode
     settings = Sco2NuConfig(**getattr(window, '_sco2_nu_parameters', {}))
     return replace(settings, mode=mode).validate()
