@@ -89,6 +89,7 @@ jobs:
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
         run: python engineering/scripts/ci_scope.py gate --tier '${{ needs.scope.outputs.tier }}' --stage summary
+      # The uploads use `overwrite: true`, so after a rerun each name has only the latest attempt.
       - uses: actions/download-artifact@v8
         if: needs.scope.outputs.tier != 'docs' && matrix.python == '3.13'
         with:
@@ -178,6 +179,7 @@ jobs:
           stage_native_notices(Path.cwd(), notices / 'native')
           shutil.copy2('LICENSE', notices / 'LICENSE')
           PY
+      # A rerun replaces the artifact of the earlier attempt (see native.yml).
       - name: Save the independent Linux result image
         uses: actions/upload-artifact@v7
         with:
@@ -185,6 +187,7 @@ jobs:
           path: sjtu_tpmshx/solvers/native/lib/linux-x86_64/
           if-no-files-found: error
           retention-days: 7
+          overwrite: true
       - name: Save result build and caller evidence
         if: always()
         uses: actions/upload-artifact@v7

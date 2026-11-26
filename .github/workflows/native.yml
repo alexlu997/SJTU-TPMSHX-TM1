@@ -11,6 +11,9 @@ on:
         required: true
         type: string
 
+# Each artifact that a later job downloads uses `overwrite: true`. A rerun then deletes
+# the artifact of the same name from the earlier attempt. download-artifact selects the
+# highest artifact ID for a name, and that ID is not always the latest attempt.
 jobs:
   native-build:
     name: native-build
@@ -84,6 +87,7 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
+          overwrite: true
       - name: Fetch fixed native sources and build tool
         shell: bash
         run: '"$CI_PYTHON" engineering/scripts/build_native_dependencies.py fetch'
@@ -179,6 +183,7 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
+          overwrite: true
       - name: Save native build and independent caller logs
         if: always()
         uses: actions/upload-artifact@v7
@@ -311,6 +316,7 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
+          overwrite: true
 
   test-parts:
     needs: native-build
@@ -399,6 +405,7 @@ jobs:
           path: .cache/ci/bo/
           include-hidden-files: true
           retention-days: 7
+          overwrite: true
       - name: Create isolated CI environment
         shell: bash
         run: |
@@ -493,6 +500,7 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
+          overwrite: true
       - name: Run real public module integration
         id: integration
         if: ${{ (success() && matrix.part == 'integration') || (!cancelled() && runner.os == 'macOS' && matrix.part == 'fast-0' && steps.native-env.outcome == 'success') }}
@@ -517,6 +525,7 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
+          overwrite: true
       - name: Save integration outcomes and timings
         if: always() && steps.integration.outcome != 'skipped'
         uses: actions/upload-artifact@v7
@@ -526,6 +535,7 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
+          overwrite: true
 
   bo-tests:
     needs: native-build
@@ -630,3 +640,4 @@ jobs:
           path: .cache/ci/
           include-hidden-files: true
           retention-days: 7
+          overwrite: true
