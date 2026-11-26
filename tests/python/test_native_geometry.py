@@ -30,6 +30,46 @@ def geometry():
 
 
 @pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
+def test_signed_wall_grid_samples_physical_faces_and_cell_centers(geometry, topology):
+    from sjtu_tpmshx.physical_models.tpms_geometry import signed_wall_grid
+
+    cell = 8.
+    box, shape = (10., 9., 7.5), (11, 19, 31)
+    walls = np.linspace(.3, .7, np.prod(shape)).reshape(shape, order='F')
+    delta = np.linspace(-.2, .15, np.prod(shape)).reshape(shape)[..., ::-1]
+    samples, reason = signed_wall_grid(topology, np.full((3, 2), cell), box, shape, walls, delta)
+    assert reason is None
+    angles = [2. * np.pi * np.linspace(0., size, n) / cell for size, n in zip(box, shape)]
+    expected_phi = reference._PHI_FUNCS[topology](*np.meshgrid(*angles, indexing='ij', sparse=True))
+    np.testing.assert_allclose(samples['phi'], expected_phi, atol=5e-15, rtol=0.)
+    # The one-period grid has centers at 1, 3, 5 and 7 mm on each axis.
+    np.testing.assert_allclose(samples['phi'][1:8:2, 2:15:4, 4:29:8],
+                               geometry.phi_grid(topology, 4), atol=5e-15, rtol=0.)
+    C = reference._C_from_tL(topology, walls / cell)
+    np.testing.assert_array_equal(samples['lower'], delta - C)
+    np.testing.assert_array_equal(samples['upper'], delta + C)
+    assert all(field.flags.owndata and field.flags.c_contiguous for field in samples.values())
+
+
+def test_graded_cell_length_reports_the_missing_phase_rule(tmp_path, monkeypatch):
+    from sjtu_tpmshx.physical_models.tpms_geometry import lattice_cell_size, signed_wall_grid
+
+    monkeypatch.setenv('TPMSHX_GEOMETRY_LIBRARY', str(tmp_path / 'missing-library'))
+    cells = np.array([[7., 7.], [7., 7.01]])
+    cell, reason = lattice_cell_size(cells)
+    assert cell is None and 'phase rule for graded L' in reason
+    assert signed_wall_grid('Gyroid', cells, (8., 6., 4.), (5, 4, 3), .5) == (None, reason)
+
+
+def test_signed_wall_grid_requires_sample_fields_on_the_same_axes(geometry):
+    shape = (2, 3, 4)
+    with pytest.raises(ValueError, match='sample shape'):
+        geometry.signed_wall_grid('Gyroid', 7., (8., 6., 4.), shape, .5, np.zeros(shape[::-1]))
+    with pytest.raises(ValueError, match='two samples per axis'):
+        geometry.signed_wall_grid('Gyroid', 7., (8., 6., 4.), (1, 3, 4), .5, 0.)
+
+
+@pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
 def test_standard_binding_matches_independent_scan_and_copies_columns(geometry, topology):
     cells = np.array([[4., 7.], [5., 8.]], order='F')
     walls = np.array([[.3, .6], [.4, .3]], order='F')

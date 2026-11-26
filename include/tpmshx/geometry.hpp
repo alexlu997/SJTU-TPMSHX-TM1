@@ -21,6 +21,11 @@ struct Calibration {
 
 Calibration calibration(Topology topology);
 std::vector<double> phi_grid(Topology topology, std::size_t n);
+// Each axis includes both box faces. The arrays use (x, y, z) order.
+void signed_wall_grid(Topology topology, double cell_mm, const std::array<double, 3>& box_mm,
+                      const Shape& shape, ArrayView<const double> walls_mm,
+                      ArrayView<const double> delta, ArrayView<double> phi,
+                      ArrayView<double> lower, ArrayView<double> upper);
 double level_set_threshold(const Coefficients& coefficients, double wall_over_cell);
 double hydraulic_radius(double hydraulic_diameter);
 
