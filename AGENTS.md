@@ -119,16 +119,17 @@ and rework through complete changes, clear decisions, and verified results.
   Produce new `CaseData` in `python/preprocess/`, new `FieldResult` in `python/solvers/`,
   and new `PerformanceResult` and `MetricValue` in `python/postprocess/`.
   `python/file_io/` can restore saved stage data.
+  Other modules can copy stage data with changed metadata.
   Keep the internal steps of each stage in its stage package.
   Each stage gives its native binding the model caches and the warning, progress, and cancellation callbacks that the binding uses.
   Keep standalone model queries and their caches in `python/physical_models/`.
 - Keep native image loading, C signatures, input packing, C callbacks, status translation, and resource release
   in `python/cpp_interface/`. Keep each callback and its input storage alive during the native call.
   Before native release, copy or detach each output that stays in use after release.
-  A binding can import `run_control`, `model_configs`, and `data_types` modules other than the stage data types.
+  A binding can import `run_control`, `model_configs`, and `data_types` modules other than the modules of the stage data types.
   A binding does not import or build the stage data types
   (`CaseData`, `ModelRef`, `FieldResult`, `MetricSpec`, `MetricValue`, `PerformanceResult`).
-  Imports under `TYPE_CHECKING` are permitted.
+  A binding can import them under `TYPE_CHECKING`.
   The exception is `python/cpp_interface/preparation_host.py`, which imports `ModelRef` to check a saved model reference.
   Do not import stage, application, physical-model, file I/O, `compute`, or development modules in `python/cpp_interface/`.
   `python -m sjtu_tpmshx.development.runs.tools.audit_import_graph --fail-on-violations` checks these imports.
