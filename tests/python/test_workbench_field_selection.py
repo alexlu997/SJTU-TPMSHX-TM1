@@ -11,7 +11,7 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from sjtu_tpmshx.applications.gui.ui.coord_inspector import _resolve_fields
 from sjtu_tpmshx.applications.gui.ui.plot_2d_results import plot_temperature_3panel
 from sjtu_tpmshx.applications.gui.ui.plot_3d_results import _render_2d_slices_from_3d
-from sjtu_tpmshx.applications.gui.ui.theme import FIELD_CMAP, get_theme
+from sjtu_tpmshx.applications.gui.ui.theme import get_theme, resolve_cmap
 
 
 def _canvas():
@@ -39,6 +39,7 @@ def test_narrow_field_colorbars_keep_distinct_absolute_labels(dimension, field, 
         fields = dict(Ta=temperature, Tb=temperature + .1, Ts=temperature + .2,
                       P_fA=pressure, P_fB=pressure + .1,
                       ucA=velocity, vcA=zeros, ucB=velocity, vcB=zeros,
+                      vmag_A=velocity, vmag_B=velocity,
                       N_x=4, N_y=3, L=.04, H=.03, dir_A=0, dir_B=3)
         window = SimpleNamespace(cache=ResultCache(), _field_phase=phase,
             _DIR_MAP={0: 'x+', 3: 'y-'}, canvas_temp=canvas, canvas_pres=canvas,
@@ -52,10 +53,10 @@ def test_narrow_field_colorbars_keep_distinct_absolute_labels(dimension, field, 
             _plot_3d_temperature(canvas, temperature, temperature + .1,
                                  temperature + .2, x, y, '', phase=phase)
         elif field == 'pres':
-            _plot_3d_pressure(canvas, pressure, pressure + .1, x, y, .4, .4, '', phase=phase)
+            _plot_3d_pressure(canvas, pressure / 1000., (pressure + .1) / 1000.,
+                              x, y, .4, .4, '', phase=phase)
         else:
-            _plot_3d_velocity_slice(canvas, velocity, zeros, zeros,
-                                    velocity, zeros, zeros, x, y, '', phase=phase)
+            _plot_3d_velocity_slice(canvas, velocity, velocity, x, y, '', phase=phase)
     FigureCanvasAgg(canvas.fig).draw()
     plot_axes = [axis for row in canvas.axes for axis in row]
     colorbars = [axis for axis in canvas.fig.axes if axis not in plot_axes]
@@ -124,7 +125,7 @@ def test_selected_temperature_phase_and_celsius_keep_source_kelvin():
     window = SimpleNamespace(_field_phase=1, _temp_unit='C', canvas_temp=_canvas())
     plot_temperature_3panel(window, result, get_theme())
     assert len(window.canvas_temp.axes[0]) == 1
-    assert window.canvas_temp.axes[0][0].collections[0].get_cmap().name == FIELD_CMAP
+    assert window.canvas_temp.axes[0][0].collections[0].get_cmap().name == resolve_cmap('Tb')
     assert window.canvas_temp._hover_data['names'] == ['T_fB']
     assert window.canvas_temp._hover_data['unit'] == '°C'
     np.testing.assert_allclose(window.canvas_temp._hover_data['fields'][0], raw + 20. - 273.15)
@@ -178,15 +179,19 @@ def test_3d_slice_phase_and_probe_use_same_nonuniform_cell():
              ucB=raw * .04, vcB=raw * .05, wcB=raw * .06,
              dx=np.array([.01, .09]), dy=np.array([.02, .03]),
              dz=np.array([.001, .002, .007]), Lx=.1, Ly=.05, Lz=.01, dir_B=1)
-    result = SimpleNamespace(fields=f, dP_A_Pa=10., dP_B_Pa=20., extrap_reasons=[])
+    f['vmag_A'] = np.sqrt(f['ucA']**2 + f['vcA']**2 + f['wcA']**2)
+    f['vmag_B'] = np.sqrt(f['ucB']**2 + f['vcB']**2 + f['wcB']**2)
+    result = ComputeResult(fields=f, dP_A_Pa=10., dP_B_Pa=20., extrap_reasons=[])
     window = SimpleNamespace(cache=ResultCache(), _slice_result_id=id(result),
                              _slice_index=2, _field_phase=1, _temp_unit='C',
                              _slice_label=QLabel(), _slice_slider=QSlider(),
                              canvas_temp=_canvas(), canvas_pres=_canvas(), canvas_vel=_canvas())
     window.cache.set_result('3d', result)
     _render_2d_slices_from_3d(window, result)
-    for canvas in (window.canvas_temp, window.canvas_pres, window.canvas_vel):
-        assert canvas.axes[0][0].collections[0].get_cmap().name == FIELD_CMAP
+    for canvas, spec_key in ((window.canvas_temp, 'Tb'),
+                             (window.canvas_pres, 'P_fB'),
+                             (window.canvas_vel, 'vmag_B')):
+        assert canvas.axes[0][0].collections[0].get_cmap().name == resolve_cmap(spec_key)
     hover = window.canvas_temp._hover_data
     assert hover['slice_index'] == 2
     assert hover['names'] == ['T_fB']
@@ -194,6 +199,8 @@ def test_3d_slice_phase_and_probe_use_same_nonuniform_cell():
     np.testing.assert_array_equal(window.canvas_pres._hover_data['fields'][0], f['P_fB'][:, :, 2] / 1000.)
     rows = _resolve_fields(window, 20., 10.)
     assert ('T_fB', f"{f['Tb'][1, 0, 2] - 273.15:.2f}", '°C') in rows
+    assert ('P_B', f"{f['P_fB'][1, 0, 2] / 1000.:.3f}", 'kPa') in rows
+    assert ('|u_B|', f"{f['vmag_B'][1, 0, 2]:.3f}", 'm/s') in rows
     for side in 'AB':
         assert ('w_' + side, f"{f['wc' + side][1, 0, 2]:.4f}", 'm/s') in rows
     assert window._slice_label.text() == 'z = 6.50 mm (3/3)'

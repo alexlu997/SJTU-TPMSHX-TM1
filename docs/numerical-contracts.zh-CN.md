@@ -145,7 +145,7 @@ Python 仅绑定保存态阶段生命周期：`full_2d_stage.py`（二维保存�
 ## 持久化接口与物理状态
 
 - **`CaseData`、`FieldResult`、`PerformanceResult`**：跨阶段契约的数组保持分离且只读；仅更新元数据时可共享连续只读字节缓冲并创建独立数组头。`data_types.metric_spec` 在 JSON、GUI 与多工况聚合间强制指标族、单位与定义版本一致。
-- **显示别名（`postprocess.result_display`）**：无 Qt 依赖的数据模块，拥有场单位、坐标轴、二维显示别名与分区统计。温度与压力别名保留原始单元值；三维显示别名共享不可变缓冲。
+- **显示契约（`postprocess.result_display`）**：无 Qt 依赖的数据模块，拥有场单位、坐标轴、二维显示别名、分区统计、外推水印格式化以及 `RESULT_FIELD_SPECS`（规范标量键、物理量、相、符号、存储／显示单位及默认色阶：温度 `coolwarm`、速度与压力 `viridis`、几何设计 `turbo`）。温度与压力别名保留原始单元值；三维显示别名共享不可变缓冲。绝对压力场在 GUI 显示边界由 Pa 换算为 kPa，同时保持 ΔP、原始数组与导出键不变。
 - **公共热学与压降定义**：完整热学指标采用 `native_boundary_v1`（`Q` 为主网格 `abs(Q_A)`，`Q_A`/`Q_B` 为有符号放热量，出口温度按质量通量加权，二维 Richardson 换热量另记为 `Q_richardson_A/B`）。完整压降采用 `pressure_face_v1`（最终 SIMPLE 压力外推至物理进出口面并按几何开口面积加权）。
 - **空气入口压力打靶（`numerics/pressure_reference.cpp`）**：以有界 `P^2` 更新迭代出口单元基准，直至物理入口开口面积平均压力与 `P_in` 相对误差不超过 `1e-4`。显式 `p_in_shooting = False` / `TPMSHX_P_IN_SHOOT = 0` 仅为诊断开关，不能证明收敛。不可压路线直接将物理入口面开口面积平均锚定到 `P_in`。
 - **二维入口分布（`PartialBCConfig.uniform_inlet_2d`）**：采用无历史四格过渡的几何重叠分布。桌面端固定为 `True`；脚本 API 设为 `False` 时保留历史过渡分布。

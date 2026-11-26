@@ -27,12 +27,18 @@ def main(argv=None):
     app = QApplication.instance() or QApplication([sys.argv[0], *qt_args])
 
     from sjtu_tpmshx.applications.gui.controllers.user_storage import load_appearance_settings
-    from sjtu_tpmshx.applications.gui.ui.theme import set_accent_override
+    from sjtu_tpmshx.applications.gui.ui.microanim import apply_saved_reduced_motion
+    from sjtu_tpmshx.applications.gui.ui.theme import (
+        apply_saved_colormaps,
+        set_accent_override,
+    )
     saved = load_appearance_settings()
     for name, setter in (('theme', set_theme), ('density', set_density),
                          ('accent', set_accent_override)):
         if name in saved:
             setter(saved[name])
+    apply_saved_colormaps(saved)
+    apply_saved_reduced_motion(saved)
     # Force grayscale anti-aliasing to eliminate sub-pixel color fringing
     from PySide6.QtGui import QFont
     font = app.font()
