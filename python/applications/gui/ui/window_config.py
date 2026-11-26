@@ -462,5 +462,5 @@ def df_mode_from_window(window):
 def sco2_nu_from_window(window):
     combo = _bound_input(window, 'sco2_nu.mode')
     mode = combo.currentData() if combo is not None else Sco2NuConfig.mode
-    settings = Sco2NuConfig(**getattr(window, '_sco2_nu_parameters', {}))
+    settings = Sco2NuConfig(**_bound_input(window, 'sco2_nu.alpha_D', {}))
     return replace(settings, mode=mode).validate()

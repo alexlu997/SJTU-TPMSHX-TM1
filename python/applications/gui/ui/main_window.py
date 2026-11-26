@@ -964,7 +964,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
         "Allow for the computed pressure variation.")
     _FIELD_HELP = {
         'le_L': (
-            "<b>Domain length <i>L</i></b> [m]<br/>"
+            "<b>Domain length <i>L</i><sub>x</sub></b> [m]<br/>"
             "Flow-direction extent of the TPMS heat-exchanger block. "
             "Excludes any external piping."),
         'le_H': (
@@ -974,7 +974,7 @@ class Main_Menu(RunHistoryMixin, DialogsMixin, ZonePanelMixin, OptimizeUIMixin,
             "<b>Domain depth <i>L<sub>z</sub></i></b> [m] (3D only)<br/>"
             "Out-of-plane extent. 2D runs treat Lz as unit depth."),
         'le_Lcell': (
-            "<b>TPMS unit-cell edge <i>L<sub>cell</sub></i></b> [mm]<br/>"
+            "<b>TPMS unit-cell edge <i>L</i></b> [mm]<br/>"
             f"Fixed CFD grid from {TRAIN_L[0]:g} to {TRAIN_L[1]:g} mm. Intermediate values use interpolation. "
             "Drives D<sub>h</sub>, porosity and permeability."),
         'le_t': (

@@ -6,8 +6,9 @@ import warnings as _warnings
 import pytest
 
 from sjtu_tpmshx.data_types.compute_config import ComputeConfig, OptimizerConfig, SolverConfig
-from sjtu_tpmshx.applications.gui.ui.window_config import (CONFIG_FIELDS, LINE_EDITS, config_from_window,
-                              _validate_required_widgets)
+from sjtu_tpmshx.applications.gui.ui.window_config import (
+    CONFIG_FIELDS, LINE_EDITS, _validate_required_widgets, config_from_window, parse_field_value,
+)
 from tests.python.gui_io_support import win as win
 from tests.python.window_stubs import _StubWindow
 
@@ -26,11 +27,17 @@ def test_registry_covers_case_leaves_and_live_editors(win):
     for spec in CONFIG_FIELDS:
         assert spec.disposition in ('edited', 'derived', 'api-only', 'archive')
         if spec.disposition == 'edited':
-            assert spec.widget and hasattr(win, spec.widget), spec.path
+            assert spec.widget, spec.path
+        if spec.disposition in ('api-only', 'archive'):
+            assert not spec.widget and not spec.family, spec.path
+        if spec.widget:
+            assert hasattr(win, spec.widget), spec.path
         if spec.family:
             meta = spec.definition.metadata
             assert meta['symbol'] and meta['unit'] and meta['range_ref'], spec.path
             assert meta['dimensions'] in ((2, 3), (3,)), spec.path
+            if spec.family != 'count':
+                assert parse_field_value(spec.widget, 1.0, spec.unit) == 1.0, spec.path
     # Inspect the case form independently of its save and validation lists.
     assert set(LINE_EDITS) == {name for name in vars(win) if name.startswith('le_')}
 

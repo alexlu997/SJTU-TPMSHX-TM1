@@ -1,14 +1,8 @@
-"""Zone-table editor helpers for the single-computation zoning section.
+"""Edit and capture the zone table for a single case.
 
-The table builds ``models.zone_config.ZoneConfig`` for a single computation.
-Optimizer searches use ``models.continuous_field.ContinuousFieldConfig``
-independently; changing this table does not change their search space.
-
-Extracted from main.py (Task B.5); moved from solvers/zone_editor.py to
-ui/ (it is pure Qt table manipulation — solvers/ stays Qt-free). Distinct
-from ui/zone_editor.py, which owns the draggable canvas handles.
-All functions take `window` (Main_Menu instance) as first argument.
-Intra-module calls use top-level function names, not `window._method(...)`.
+The editing functions update the window. ``build_zone_config`` reads the
+table and returns separate band data or grid cells for the current case.
+The optimization workflow defines its own search space.
 """
 from PySide6.QtWidgets import QTableWidgetItem
 

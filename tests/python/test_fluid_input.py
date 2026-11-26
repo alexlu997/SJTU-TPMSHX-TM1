@@ -60,6 +60,27 @@ def test_autofill_re_label_and_status_follow_selected_fluid(
         getattr(window, '_fluid_computed_' + other_side)._set_expanded.assert_not_called()
 
 
+def test_inlet_query_uses_the_selected_drag_mode_and_reuses_the_smooth_cache():
+    from sjtu_tpmshx.physical_models.tpms_calc import compute
+    from tests.python.df_reference import correction_scale
+
+    speed = 20.
+    args = ('Gyroid', 7., .6, speed, 422., 192362., 16., 'air')
+    compute.cache_clear()
+    smooth = compute(*args).copy()
+    scale_K, scale_F, _, _ = correction_scale('Gyroid', 'air', 7., .6, speed)
+    K, cF = smooth['K_df'] * scale_K, smooth['cF_df'] * scale_F
+    gradient = smooth['mu'] * speed / K + smooth['rho'] * cF * speed**2
+
+    selected = compute(*args, df_mode='experimental')
+    assert (selected['K_df'], selected['cF_df'], selected['dP_per_L']) == pytest.approx((K, cF, gradient))
+    assert compute(*args, df_mode='cfd_smooth') == smooth
+    info = compute.cache_info()
+    assert (info.hits, info.misses) == (2, 1)
+    with pytest.raises(ValueError, match='Unsupported D-F mode'):
+        compute(*args, df_mode='unknown')
+
+
 @pytest.mark.parametrize('side', ['A', 'B'])
 def test_co2_gui_defaults_save_and_fixed_preview_are_distinct_from_sco2(mass_window, monkeypatch, side):
     from PySide6.QtWidgets import QMessageBox
