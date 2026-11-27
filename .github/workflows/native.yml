@@ -10,6 +10,9 @@ on:
       tier:
         required: true
         type: string
+      reuse:
+        required: true
+        type: boolean
 
 # Each artifact that a later job downloads uses `overwrite: true`. A rerun then tries to delete
 # the artifact of the same name from the earlier attempt. download-artifact selects the
@@ -17,10 +20,11 @@ on:
 # If a delete fails, the upload continues. The ci aggregate jobs then fail on the duplicate name.
 jobs:
   native-build:
+    if: ${{ !inputs.reuse }}
     name: native-build
     runs-on: ${{ inputs.os }}
     timeout-minutes: 90
-    env:
+    env: &build-environment
       PYTHONHASHSEED: "0"
       MPLCONFIGDIR: .cache/matplotlib
       XDG_CACHE_HOME: .cache/xdg
@@ -29,7 +33,7 @@ jobs:
       MKL_NUM_THREADS: "1"
       NUMEXPR_NUM_THREADS: "1"
       TPMSHX_REQUIRE_NATIVE_DEPS_TESTS: "1"
-    steps:
+    steps: &build-and-qualify
       - uses: actions/checkout@v7
       - name: Activate MSVC for native qualification
         if: runner.os == 'Windows'
@@ -198,9 +202,16 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  native-qualification:
+    if: inputs.reuse
+    runs-on: ${{ inputs.os }}
+    timeout-minutes: 90
+    env: *build-environment
+    steps: *build-and-qualify
+
   native-dependencies:
     needs: native-build
-    if: inputs.tier == 'full'
+    if: ${{ !cancelled() && inputs.tier == 'full' && (inputs.reuse || needs.native-build.result == 'success') }}
     name: native-dependencies (3.13, ${{ matrix.shard }})
     strategy:
       fail-fast: false
@@ -251,7 +262,7 @@ jobs:
         run: '"$CI_PYTHON" -m pip check'
       - uses: actions/download-artifact@v8
         with:
-          name: native-build-${{ inputs.os }}
+          name: &test-runtime ${{ inputs.reuse && 'trusted-native' || 'native-build' }}-${{ inputs.os }}
           path: .cache/ci-native-build
       - name: Restore native runtime files
         shell: bash
@@ -321,6 +332,7 @@ jobs:
 
   test-parts:
     needs: native-build
+    if: ${{ !cancelled() && (inputs.reuse || needs.native-build.result == 'success') }}
     name: test-part (${{ inputs.os }}, ${{ matrix.python }}, ${{ matrix.part }})
     strategy:
       fail-fast: false
@@ -353,7 +365,7 @@ jobs:
             pyproject.toml
       - uses: actions/download-artifact@v8
         with:
-          name: native-build-${{ inputs.os }}
+          name: *test-runtime
           path: .cache/ci-native-build
       # The full macOS tier runs BO here, before the solver library exists in this checkout.
       # The package discovers a published solver library without environment variables.
@@ -541,7 +553,7 @@ jobs:
   bo-tests:
     needs: native-build
     # The full macOS tier runs these tests in test-parts fast-0.
-    if: inputs.os != 'macos-15' || inputs.tier != 'full'
+    if: ${{ !cancelled() && (inputs.os != 'macos-15' || inputs.tier != 'full') && (inputs.reuse || needs.native-build.result == 'success') }}
     strategy:
       fail-fast: false
       matrix:
@@ -591,7 +603,7 @@ jobs:
         run: '"$CI_PYTHON" -m pip check'
       - uses: actions/download-artifact@v8
         with:
-          name: native-build-${{ inputs.os }}
+          name: *test-runtime
           path: .cache/ci-native-build
       - name: Restore verified geometry, preparation and result libraries for BO
         shell: bash

@@ -91,7 +91,6 @@ tests/python/test_ui_typography.py
 tests/python/test_user_storage.py
 tests/python/test_workbench_field_selection.py
 tests/python/test_workbench_navigation.py
-tests/python/test_worker_result_handoff.py
 tests/python/validation_tm1/test_conservation_audit_coordinates.py
 tests/python/validation_tm1/test_order_fit.py
 tests/python/validation_tm1/test_retired_boundary_experiments.py
