@@ -71,7 +71,13 @@ def test_rename_from_code_to_docs_still_requires_full_ci(tmp_path, event, monkey
                                        *args], cwd=tmp_path, text=True).strip()
 
     git('init', '-q')
-    shutil.copytree(root / '.github/workflows', tmp_path / '.github/workflows')
+    workflows = tmp_path / '.github/workflows'
+    workflows.mkdir(parents=True)
+    (workflows / 'ci.yml').write_text('jobs: {}\n', encoding='utf-8')
+    git('add', '.')
+    git('commit', '-qm', 'Record the CI layout before the native jobs')
+    previous = git('rev-parse', 'HEAD')
+    shutil.copytree(root / '.github/workflows', workflows, dirs_exist_ok=True)
     (tmp_path / 'solver').mkdir()
     (tmp_path / 'solver/model.cpp').write_text('unchanged content\n', encoding='utf-8')
     for path in ('docs/native-stages.md', 'docs/native-stages.zh-CN.md'):
@@ -82,7 +88,8 @@ def test_rename_from_code_to_docs_still_requires_full_ci(tmp_path, event, monkey
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv('GITHUB_REPOSITORY_ID', '10')
     origin = dict(head_branch='main', head_sha=base, repository_id=10, head_repository_id=10)
-    archives = [dict(expired=False, workflow_run=dict(origin, id=i)) for i in (2, 1)]
+    archives = [dict(expired=False, workflow_run=dict(origin, id=i, head_sha=sha))
+                for i, sha in ((2, base), (1, base), (3, previous))]
     monkeypatch.setattr(ci_scope, 'records', lambda *args: archives)
     hosts = {p: dict(image=p, python='3.13.17') for p in ci_scope.PLATFORMS}
     matching = {p: dict(hosts[p], id=p) for p in hosts}
@@ -96,7 +103,9 @@ def test_rename_from_code_to_docs_still_requires_full_ci(tmp_path, event, monkey
         return True
 
     monkeypatch.setattr(ci_scope, 'restore_native', restore)
-    assert ci_scope.restore_pair(ci_scope.native_candidates(base), hosts)
+    candidates = ci_scope.native_candidates(base)
+    assert candidates == [2, 1]
+    assert ci_scope.restore_pair(candidates, hosts)
     assert restored == list(matching.values())
     git('mv', 'solver/model.cpp', 'README.md')
     git('commit', '-qm', 'Move source')
