@@ -6,40 +6,8 @@ from dataclasses import replace
 import math
 from time import perf_counter
 
-from sjtu_tpmshx.applications.gui.ui.fmt import qualification_reasons
+from sjtu_tpmshx.applications.gui.ui.fmt import qualification_reasons, recorded_elapsed_s
 from sjtu_tpmshx.applications.gui.ui.ui_constants import TOAST_MS_SHORT
-
-
-def recorded_elapsed_s(result) -> float | None:
-    """Return the single recorded solve duration in seconds, or None if unrecorded."""
-    if result is None:
-        return None
-    diag = getattr(result, "diagnostics", None)
-    if isinstance(diag, dict):
-        ws = diag.get("wall_time_s")
-        if isinstance(ws, (int, float)) and not isinstance(ws, bool) and math.isfinite(ws):
-            return float(ws)
-    meta = getattr(result, "metadata", None)
-    if isinstance(meta, dict):
-        timings = meta.get("timings_s")
-        if isinstance(timings, dict):
-            total = timings.get("total")
-            if (
-                isinstance(total, (int, float))
-                and not isinstance(total, bool)
-                and math.isfinite(total)
-            ):
-                return float(total)
-            phases = [
-                float(timings[k])
-                for k in ("prepare", "solve", "postprocess")
-                if isinstance(timings.get(k), (int, float))
-                and not isinstance(timings.get(k), bool)
-                and math.isfinite(timings.get(k))
-            ]
-            if len(phases) == 3:
-                return sum(phases)
-    return None
 
 
 class FieldResults:

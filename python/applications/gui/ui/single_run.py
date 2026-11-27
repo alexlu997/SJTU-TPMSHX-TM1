@@ -386,7 +386,7 @@ class SingleRun(QObject):
         try:
             if self.window._close_pending:
                 return
-            from sjtu_tpmshx.applications.gui.ui.field_results import recorded_elapsed_s
+            from sjtu_tpmshx.applications.gui.ui.fmt import recorded_elapsed_s
 
             window = self.window
             window.btn_compute.setEnabled(False)

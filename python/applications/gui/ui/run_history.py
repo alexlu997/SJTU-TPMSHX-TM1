@@ -534,7 +534,7 @@ class RunHistory:
 
     def stamp_result_provenance(self, total_elapsed: float | None = None) -> None:
         """Describe the completed run's inputs and returned grid on result tooltips."""
-        from sjtu_tpmshx.applications.gui.ui.field_results import recorded_elapsed_s
+        from sjtu_tpmshx.applications.gui.ui.fmt import recorded_elapsed_s
 
         result = self.window.cache.get_result()
         provenance = result.metadata.get("run_provenance") if result is not None else None
@@ -673,7 +673,7 @@ class RunHistory:
                 completed_at = str(provenance.get("completed_at") or "").strip()
                 if completed_at:
                     info_rows.append(RunInfoRow("完成时间", completed_at.replace("T", " ")))
-            from sjtu_tpmshx.applications.gui.ui.field_results import recorded_elapsed_s
+            from sjtu_tpmshx.applications.gui.ui.fmt import recorded_elapsed_s
 
             elapsed = recorded_elapsed_s(result)
             if isinstance(elapsed, (int, float)):

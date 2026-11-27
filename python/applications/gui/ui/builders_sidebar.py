@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
 
 from .fmt import duration as fmt_duration
-from .fmt import qualification_reasons, warning_strip_summary
+from .fmt import qualification_reasons, recorded_elapsed_s, warning_strip_summary
 from .inspector_drawer import CollapsibleBand
 from .readout_strip import ReadoutItem, ReadoutNotice
 from .symbols import SYM
@@ -651,8 +651,6 @@ def refresh_result_sidebar(window) -> None:
                 reason_lbl.clear()
                 reason_lbl.hide()
 
-        from sjtu_tpmshx.applications.gui.ui.field_results import recorded_elapsed_s
-
         it = (d.get("iters") or {}).get("iter_outer")
         ws = recorded_elapsed_s(result)
         labels["iters"].setText(
@@ -718,7 +716,6 @@ def refresh_header_status(window) -> None:
     btn = getattr(window, "btn_run_info", None)
     if btn is None:
         return
-    from sjtu_tpmshx.applications.gui.ui.field_results import recorded_elapsed_s
 
     theme = get_theme()
     result = window.cache.get_result()
