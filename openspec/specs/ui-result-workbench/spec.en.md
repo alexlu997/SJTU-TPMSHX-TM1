@@ -15,7 +15,7 @@ The top bar MUST give Case Setup, Field Results, and Optimization workbench entr
 - **THEN** Field Results becomes active and shows the specified field
 
 ### Requirement: Field and volume views
-The results page MUST give a Field/Volume segmented control. Field mode selects temperature, velocity, or pressure and a phase. Volume mode shows the volume rendering panel. This control changes only the view, not the computation dimension. Unavailable modes MUST be disabled, such as volume mode after a 2D computation. After a 3D computation, volume mode opens only when the panel successfully receives the result.
+The results page MUST give a Field/Volume segmented control. Field mode selects temperature, velocity, or pressure and a phase. Volume mode shows the 3D panel with one unified bottom toolbar (no cut-away view), Outer Surface (`外表面`) as the default display mode, three orthogonal slices (`截面`), volume rendering (`体渲染`) with opacity control, floating colorbar and camera-projected port chips, and one composited capture of the 3D scene and overlays used by both Copy and Save in `ResultExport`. Camera preset transitions MUST use the shared reduced-motion decision in `microanim.py`. This control changes only the view, not the computation dimension. Unavailable modes MUST be disabled, such as volume mode after a 2D computation. After a 3D computation, volume mode opens only when the panel successfully receives the result.
 
 #### Scenario: Unavailable volume does not imply failed field results
 - **WHEN** 3D data exists but the volume rendering panel is unavailable

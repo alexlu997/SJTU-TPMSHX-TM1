@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 import re
 
 from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
@@ -129,6 +130,7 @@ class ResultExport:
             window.workbench.volume_ready
             and panel is not None
             and getattr(panel, 'plotter', None) is not None
+            and getattr(panel, '_volume_actor', None) is not None
         )
 
     def available_figure_entries(self) -> list[tuple[str, str]]:
@@ -247,15 +249,8 @@ class ResultExport:
             return
         from PySide6.QtGui import QGuiApplication
         if tab in ('3d', 'opt_3d'):
-            import numpy as np
-            from PySide6.QtGui import QImage
             try:
-                pixels = np.ascontiguousarray(canvas.plotter.screenshot(return_img=True))
-                image_format = (QImage.Format.Format_RGBA8888 if pixels.shape[2] == 4
-                                else QImage.Format.Format_RGB888)
-                # Own the pixels after this local NumPy buffer is released.
-                image = QImage(pixels.data, pixels.shape[1], pixels.shape[0],
-                               pixels.strides[0], image_format).copy()
+                image = canvas.capture_image()
             except Exception as e:
                 QMessageBox.warning(window, "复制失败", str(e))
                 return
@@ -269,7 +264,7 @@ class ResultExport:
         )
 
     def export_figure(self):
-        """Export a 2D figure with DPI/metadata, or a native 3D PNG screenshot."""
+        """Export a 2D figure with DPI/metadata, or a composited 3D PNG."""
         window = self.window
         tab_canvas = {
             'temp': window.canvas_temp,
@@ -298,17 +293,21 @@ class ResultExport:
             return
         key = tab_keys[items.index(choice)]
         canvas = tab_canvas[key]
-        if key == '3d':
+        if key in ('3d', 'opt_3d'):
+            ts = datetime.now().strftime('%Y%m%d-%H%M%S')
+            default = f"volume_{canvas._field}_{canvas._scale_mode}_{ts}.png"
+            path, _ = QFileDialog.getSaveFileName(
+                window, "保存三维视图为 PNG", default, "PNG 图像 (*.png)")
+            if not path:
+                return
             try:
-                canvas._on_screenshot(file_filter="PNG 图像 (*.png)")
+                image = canvas.capture_image()
+                if image.isNull() or not image.save(path, "PNG"):
+                    raise RuntimeError(f"无法将三维图像保存到 {path}")
             except Exception as e:
                 QMessageBox.warning(window, "导出失败", str(e))
-            return
-        if key == 'opt_3d':
-            try:
-                canvas._on_screenshot()
-            except Exception as e:
-                QMessageBox.warning(window, "Export failed", str(e))
+                return
+            window.dialogs.notify(f"已导出：{path}", kind="success", duration_ms=TOAST_MS_MED)
             return
 
         # DPI picker — common research-paper presets.

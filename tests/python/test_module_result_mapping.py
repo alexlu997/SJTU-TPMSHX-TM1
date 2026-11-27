@@ -120,9 +120,14 @@ def test_synthetic_3d_mapping_preserves_full_geometry_and_report_pressure():
     # The plot must use the accepted result's ports and t_mm, independently of draft inputs.
     from sjtu_tpmshx.applications.gui.ui.plot_3d_results import finalize_plots_3d
     shown = {}
-    window = SimpleNamespace(cache=SimpleNamespace(get_result=lambda mode: result),
-        canvas_3d=SimpleNamespace(set_fields=lambda **kw: shown.update(kw),
-                                  set_watermark=lambda text: None))
+    window = SimpleNamespace(
+        cache=SimpleNamespace(get_result=lambda mode: result),
+        chk_sync_colorbar_T=SimpleNamespace(isChecked=lambda: True),
+        chk_shared_pressure_scale=SimpleNamespace(isChecked=lambda: True),
+        canvas_3d=SimpleNamespace(set_scale_sharing=lambda **kw: None,
+                                  set_fields=lambda **kw: shown.update(kw),
+                                  set_watermark=lambda text: None),
+    )
     assert finalize_plots_3d(window)
     np.testing.assert_array_equal(shown['L_mm'], result.fields['L_mm'])
     np.testing.assert_array_equal(shown['t_mm'], result.fields['t_mm'])

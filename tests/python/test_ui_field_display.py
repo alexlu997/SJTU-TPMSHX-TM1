@@ -103,7 +103,7 @@ def test_volume_scale_keeps_weak_fields_visible_and_uses_original_cells():
     from sjtu_tpmshx.applications.gui.ui.panel_vis_3d import ThreeDVisPanel
     arrays = {'vmag': np.array([19., 21.]), 'vmag_B': np.array([.1, .3]),
               'P_kPa': np.array([120., 121.]), 'P_B_kPa': np.array([100., 100.001])}
-    panel = SimpleNamespace(_arrays=arrays)
+    panel = SimpleNamespace(_arrays=arrays, _sync_temp_scale=False, _shared_pressure_scale=False)
     limits = ThreeDVisPanel._build_global_clim(panel)
     assert limits['vmag_B'] == (.1, .3)
     assert limits['P_B_kPa'] == (100., 100.001)
@@ -115,7 +115,9 @@ def test_volume_scale_keeps_weak_fields_visible_and_uses_original_cells():
 def test_volume_speed_scales_stay_separate_when_ranges_overlap():
     from sjtu_tpmshx.applications.gui.ui.panel_vis_3d import ThreeDVisPanel
     arrays = {'vmag': np.array([19., 21.]), 'vmag_B': np.array([18., 22.])}
-    limits = ThreeDVisPanel._build_global_clim(SimpleNamespace(_arrays=arrays))
+    limits = ThreeDVisPanel._build_global_clim(
+        SimpleNamespace(_arrays=arrays, _sync_temp_scale=True, _shared_pressure_scale=True)
+    )
     assert limits == {'vmag': (19., 21.), 'vmag_B': (18., 22.)}
     assert all(resolve_cmap(key) == 'viridis' for key in arrays)
 
@@ -124,14 +126,18 @@ def test_volume_speed_scales_stay_separate_when_ranges_overlap():
     (('Ta', 'Tb', 'Ts'), 'coolwarm'),
     (('P_kPa', 'P_B_kPa'), 'viridis'),
 ])
-@pytest.mark.parametrize('small_max,shared', [(3.9, False), (4., True), (8., True)])
-def test_volume_scale_shares_related_fields_at_the_original_threshold(group, expected_cmap, small_max, shared):
+@pytest.mark.parametrize('shared', [False, True])
+def test_volume_scale_honors_explicit_shared_scale_toggles(group, expected_cmap, shared):
     from sjtu_tpmshx.applications.gui.ui.panel_vis_3d import ThreeDVisPanel
-    arrays = {key: np.array([0., 10. if i == 0 else small_max]) for i, key in enumerate(group)}
-    limits = ThreeDVisPanel._build_global_clim(SimpleNamespace(_arrays=arrays))
-    assert limits[group[0]] == (0., 10.)
+    arrays = {key: np.array([100. + 30. * (i == 0), 102. + 90. * (i == 0)])
+              for i, key in enumerate(group)}
+    limits = ThreeDVisPanel._build_global_clim(
+        SimpleNamespace(_arrays=arrays, _sync_temp_scale=shared, _shared_pressure_scale=shared)
+    )
+    expected_shared = (100., 192.)
+    assert limits[group[0]] == (expected_shared if shared else (130., 192.))
     for key in group[1:]:
-        assert limits[key] == (0., 10. if shared else small_max)
+        assert limits[key] == (expected_shared if shared else (100., 102.))
     assert all(resolve_cmap(key) == expected_cmap for key in group)
 
 
