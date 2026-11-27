@@ -628,7 +628,7 @@ class QuickDesignPage(QWidget):
         worker = QuickDesignJob(params, control=self._window.run_control)
         worker.finished_with_result.connect(self._show_result, Qt.ConnectionType.QueuedConnection)
         worker.error_signal.connect(self._show_error, Qt.ConnectionType.QueuedConnection)
-        worker.finished.connect(self._release_worker, Qt.ConnectionType.QueuedConnection)
+        worker.settled.connect(self._release_worker)
         self._worker = worker
         self.last_result = None
         self._sync_export_enabled()
@@ -706,10 +706,6 @@ class QuickDesignPage(QWidget):
 
     @Slot()
     def _release_worker(self):
-        # QThread emits finished before thread-local cleanup has ended.
-        if not self._worker.wait(0):
-            QTimer.singleShot(10, self, self._release_worker)
-            return
         self._worker.deleteLater()
         self._worker = None
         self._qd_run_btn.setEnabled(True)

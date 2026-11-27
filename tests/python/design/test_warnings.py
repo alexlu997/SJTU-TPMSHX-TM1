@@ -47,6 +47,11 @@ def test_serial_loky_and_refine_keep_selected_cases(monkeypatch):
     nodes = dict(topo=['Diamond'], l=[5., 6.], t=[.5])
     serial, best = select.enumerate_select([_case()], nodes=nodes)
     parallel, pbest = select.enumerate_select([_case()], nodes=nodes, n_jobs=2)
+    import threading
+    assert not any(
+        t.name in ('ExecutorManagerThread', 'QueueFeederThread')
+        for t in threading.enumerate()
+    )
     assert [d.percase for d in parallel] == [d.percase for d in serial]
     assert pbest.percase == best.percase
     monkeypatch.setattr(optimize, 'minimize', lambda *a, **kw: SimpleNamespace(x=[4., .5]))

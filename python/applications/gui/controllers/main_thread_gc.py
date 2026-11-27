@@ -37,10 +37,10 @@ def release() -> None:
         raise RuntimeError('main_thread_gc.release() called without matching acquire()')
     _active -= 1
     if _active == 0:
+        assert _timer is not None
         timer = _timer
         _timer = None
-        if timer is not None:
-            timer.stop()
-            timer.deleteLater()
+        timer.stop()
+        timer.deleteLater()
         gc.collect()
         gc.enable()

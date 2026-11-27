@@ -5,7 +5,7 @@ from dataclasses import replace
 import sys
 from time import perf_counter
 
-from PySide6.QtCore import QThread, Qt, Signal, Slot
+from PySide6.QtCore import QThread, QTimer, Qt, Signal, Slot
 
 from sjtu_tpmshx.applications.gui.controllers import main_thread_gc
 from sjtu_tpmshx.run_control.cancellation import CancelledError
@@ -15,6 +15,7 @@ class QuickDesignJob(QThread):
     finished_with_result = Signal(object)
     error_signal = Signal(str)
     cancelled = Signal()
+    settled = Signal()
 
     def __init__(self, params, *, control):
         super().__init__()
@@ -30,7 +31,12 @@ class QuickDesignJob(QThread):
 
     @Slot()
     def _release_gc(self):
+        # QThread emits finished before thread-local cleanup has ended.
+        if not self.wait(0):
+            QTimer.singleShot(10, self, self._release_gc)
+            return
         main_thread_gc.release()
+        self.settled.emit()
 
     def run(self):
         started = perf_counter()
