@@ -76,7 +76,7 @@ def _valid_appearance(name: str, value: str) -> bool:
         if not isinstance(parsed, dict):
             return False
         for page_key, entry in parsed.items():
-            if page_key not in ('run', 'result') or not isinstance(entry, dict):
+            if page_key not in ('run', 'result', 'opt', 'qd') or not isinstance(entry, dict):
                 return False
             if not isinstance(entry.get('open'), bool):
                 return False

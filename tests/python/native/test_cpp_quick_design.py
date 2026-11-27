@@ -752,7 +752,7 @@ def test_design_cli_performs_real_native_sizing(native_control, tmp_path, monkey
         feasibility = summary[0].index('可行')
         assert [row[feasibility] for row in summary[1:]] == (
             ['是'] if mode == 'fixed' else ['否', '是'])
-        detail = list(workbook['工况明细'].values)
+        detail = list(workbook['算例明细'].values)
         assert len(detail) == 2  # Only the completed feasible design has case evidence.
         assert native_control.native_library not in str(summary + detail)
     finally:

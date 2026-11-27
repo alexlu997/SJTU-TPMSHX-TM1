@@ -636,6 +636,14 @@ class Workbench:
         }
         return mapping.get(key)
 
+    def _replace_pareto_tab(self, page, replacement):
+        tabs = self.window.optimization.result_tabs
+        index = tabs.indexOf(page)
+        tabs.insertTab(index, replacement, tabs.tabText(index))
+        if tabs.currentWidget() is page:
+            tabs.setCurrentWidget(replacement)
+        tabs.removeTab(index + 1)
+
     def detach_canvas(self, key):
         """Reparent any 2D matplotlib canvas into a floating QDialog."""
         window = self.window
@@ -653,7 +661,7 @@ class Workbench:
         if self.detached_canvases.get(key) is not None:
             self.detached_canvases[key].raise_()
             return
-        from PySide6.QtWidgets import QDialog, QVBoxLayout
+        from PySide6.QtWidgets import QDialog, QVBoxLayout, QWidget
 
         dlg = QDialog(window)
         dlg.setWindowTitle(f"SJTU-TPMSHX — {key}（独立窗口）")
@@ -663,11 +671,13 @@ class Workbench:
         lay = QVBoxLayout(dlg)
         lay.setContentsMargins(4, 4, 4, 4)
         lay.setSpacing(0)
-        card = window._canvas_cards.get(key)
-        prev_layout = card.layout() if card is not None else None
-        canvas._prev_layout = prev_layout
+        if key == "pareto":
+            # Keep the field and volume tabs at their indices while the plot is detached.
+            dlg.pareto_placeholder = QWidget()
+            self._replace_pareto_tab(canvas, dlg.pareto_placeholder)
         canvas.setParent(None)
         lay.addWidget(canvas)
+        canvas.show()
         self.detached_canvases[key] = dlg
 
         def _on_close(ev, _k=key):
@@ -690,10 +700,11 @@ class Workbench:
         canvas = self.canvas_for_key(key)
         if dlg is None or canvas is None:
             return
-        prev_layout = getattr(canvas, "_prev_layout", None)
-        if prev_layout is not None:
-            canvas.setParent(None)
-            prev_layout.addWidget(canvas)
+        if key == "pareto":
+            self._replace_pareto_tab(dlg.pareto_placeholder, canvas)
+            dlg.pareto_placeholder.deleteLater()
+        else:
+            window._canvas_cards[key].layout().addWidget(canvas)
         try:
             dlg.close()
         except Exception:

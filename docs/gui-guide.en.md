@@ -122,7 +122,7 @@ Experimental corrections have geometry, operating, and calibration limits. They 
 
 ## Quick Design
 
-Quick Design opens in the main window. You can change pages while it runs. Complete and partial results record the case IDs, both pressure-drop limits and the elapsed time for this job.
+Quick Design opens in the main window. You can change pages while it runs. Complete and partial results record the case IDs, both pressure-drop limits and the elapsed time for this job. The canvas defaults to a full-width 13-column feasible-design table and switches to a ranked volume-versus-pressure-drop dot plot. The right inspector drawer (Input and Selected Design) stays closed by default; when closed, a floating peek card at the bottom left of the chart summarizes the selected design and opens Selected Design on click. The bottom readout strip shows feasible count, minimum volume, lightest mass, and elapsed time.
 
 Quick Design screens dimensions against fluid conditions, heat duty, and pressure-drop constraints using a prescribed-velocity approximation. Automatic Search / Fixed Cell map to `auto/fixed`. Crossflow / Counterflow map to `cross/counter`. Case tables use K, absolute kPa, kg/s, and kW. Pressure limits are fractions: enter `0.05` for 5%.
 
@@ -138,11 +138,9 @@ If candidates exist, Quick Design CLI saves a partial report to `--out`, then ra
 
 Optimization supports air A / water B and two-fluid pairs with a CO₂ or sCO₂ side. It searches continuous fields in the active dimension: L(x,y)/t(x,y) for 2D and L(x,y,z)/t(x,y,z) for 3D. The default objectives compare B-side heat-uptake improvement and equally weighted two-side relative pressure drop. Core-mass mode uses absolute per-condition limits instead. The heat metric stays `-Q_B`; the baseline must be positive. All conditions keep the same A/B fluid models. Pareto designs keep complete controls. The default mode supports Sobol, qLogNEHVI, and qLogNParEGO. Core-mass mode supports qLogNEI and Sobol. BO requires its separate locked environment.
 
-Optimization Design → Results switches between Pareto and size/wall fields. Select a Pareto design to preview its continuous field. Use Load Selected Design to apply it to the case. If the uniform baseline fails, Results shows the reason. Set the 2D total-flow depth in the study. Optimization plots support separate copy/export.
+The Optimization view switch selects between the Pareto Front, Size / Wall Field, and 3D Field views. The Pareto plot shows the uniform baseline #0 crosshair, the better quadrant, and the attainment step front. Clicking a Pareto point selects and previews that design in the Selected Design drawer without changing the active case; only Load applies it to the case. If the uniform baseline fails, a centered card shows the recorded failed condition, stage, and reason while Search Setup stays visible in the inspector drawer. Set the 2D total-flow depth in the study. Optimization plots support separate copy and export.
 
-The optimization page uses the full workbench width. Its configuration page shows common geometry, fluids, grid, objectives, variables, and solve count.
-Select Edit Common Conditions to open the existing parameter controls. Page buttons support keyboard navigation.
-The Results page keeps its export actions beside each other when space permits. A narrow window can scroll longer configuration and status text.
+The right inspector drawer contains Search Setup and Selected Design tabs. Search Setup shows common geometry, fluids, grid, objective mode (current condition, N-condition mean, or per-condition limits), variable count, and solve count, with an Edit action that returns to the Case page. The header keeps Resume Existing Task and Start Search visible, including at 1280x720.
 An active ordinary calculation keeps its progress and Cancel control visible.
 
 The Run page shows the current stage, condition, evaluated candidates, usable candidates, and failures.

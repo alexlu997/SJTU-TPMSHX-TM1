@@ -57,6 +57,8 @@ Codex, Claude, and Antigravity use these rules. The [collaboration guide](docs/c
   [Directory owners](docs/architecture.md#directory-owners) gives the location of each layer. Do not duplicate
   correlations or physical constants between layers. Keep independent test references and physical checks.
 - Keep Qt in `python/applications/gui/` (`ui/`, `controllers/`, `main.py`) and `python/desktop.py` only.
+  The only other modules that can import Qt are `python/development/runs/_smoke_boot.py` and the offscreen GUI
+  smoke tools in `python/development/runs/smokes/`. They start and operate the GUI. Only these smoke tools and their tests import them.
 - Only the stage packages in [directory owners](docs/architecture.md#directory-owners) produce new stage data.
   `python/file_io/` can restore stage data. Other modules can copy it with changed metadata.
 - Each stage keeps its internal steps in its package. It gives its binding the model caches and the warning,

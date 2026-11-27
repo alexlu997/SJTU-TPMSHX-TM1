@@ -135,6 +135,29 @@ def test_split_and_detached_fields_refresh_but_hidden_fields_stay_deferred(win):
     win.workbench.reattach_canvas('pres')
 
 
+@pytest.mark.parametrize('select_preview', [False, True])
+def test_pareto_canvas_returns_to_its_optimization_result_tab(win, select_preview):
+    page = win.optimization
+    tabs = page.result_tabs
+    original = [(tabs.widget(i), tabs.tabText(i)) for i in range(tabs.count())]
+    field_index = tabs.indexOf(page.field_canvas)
+
+    win.workbench.detach_canvas('pareto')
+    dialog = win.workbench.detached_canvases['pareto']
+    assert page.pareto_canvas.window() is dialog
+    assert tabs.widget(field_index) is page.field_canvas
+    assert page.pareto_canvas.isVisible()
+    if select_preview:
+        tabs.setTabEnabled(field_index, True)
+        tabs.setCurrentWidget(page.field_canvas)
+        win.workbench.reattach_canvas('pareto')
+    else:
+        dialog.close()
+
+    assert [(tabs.widget(i), tabs.tabText(i)) for i in range(tabs.count())] == original
+    assert tabs.currentWidget() is (page.field_canvas if select_preview else page.pareto_canvas)
+
+
 def test_failed_visible_redraw_clears_old_plot_and_same_tab_retries(win, monkeypatch):
     from sjtu_tpmshx.applications.gui.ui import plot_2d_results
 
