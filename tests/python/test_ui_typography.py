@@ -54,7 +54,9 @@ def test_qt_interface_uses_native_sans_glyphs():
         result = subprocess.run(
             [sys.executable, '-c',
              'from PySide6.QtWidgets import QApplication; '
+             'from sjtu_tpmshx.applications.gui.controllers import main_thread_gc; '
              'app = QApplication(["font-probe", "-platform", "windows"]); '
+             'main_thread_gc.install(app); '
              'from tests.python.test_ui_typography import _check_native_sans_glyphs; '
              '_check_native_sans_glyphs()'],
             env={**os.environ, 'QT_QPA_PLATFORM': 'windows'},
