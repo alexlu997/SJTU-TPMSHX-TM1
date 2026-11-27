@@ -179,10 +179,12 @@ def check(base_ref):
     run('engineering/scripts/check_docs.py')
     results, lock, unmapped = {}, 'not checked', []
     if tier != 'docs':
+        # The applicable lock is the one that the .venv-path environment matches.
         lock = next((name for name in LOCKS if subprocess.run(
             [python, '-m', 'sjtu_tpmshx.development.runs.tools.check_locked_environment', name],
             cwd=ROOT, capture_output=True).returncode == 0), None)
-        run.commands.append((lock is not None, 0.0, f'check_locked_environment ({" or ".join(LOCKS)})'))
+        run.commands.append((lock is not None, 0.0, 'python -m sjtu_tpmshx.development.runs.tools.'
+                             f'check_locked_environment {lock or " / ".join(LOCKS) + " (no match)"}'))
         run('-m', 'pip', 'check')
         exists = set(git('ls-files').splitlines()).__contains__
         changed_python = [path for path in paths if path.endswith('.py') and exists(path)]
@@ -227,7 +229,10 @@ def check(base_ref):
     RECORDS.mkdir(parents=True, exist_ok=True)
     (RECORDS / f'{head}.txt').write_text('\n'.join(lines) + '\n', encoding='utf-8')
     rows = hazard_rows(paths)
-    print('\n'.join(lines[lines.index('commands:'):]))
+    print('\n'.join(lines[lines.index('commands:'):lines.index('nodes:')]))
+    print('nodes other than passed:', *[f'  {result}\t{node}\t{reason}' for node, (result, reason)
+                                        in sorted(results.items()) if result != 'passed'], sep='\n')
+    print('\n'.join(lines[lines.index('changed modules without a mapped consumer (trace their importers):'):]))
     if rows:
         print('\nOpen hazards for the changed paths (docs/agent-hazards.md):', *rows, sep='\n')
     print(f'\n{summary}\nRun record: .cache/pre-push/{head}.txt')
