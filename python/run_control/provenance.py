@@ -1,4 +1,6 @@
 """Source context recorded at module entry, independent of GUI and solvers."""
+from contextlib import contextmanager
+from contextvars import ContextVar
 import os
 from pathlib import Path
 import subprocess
@@ -7,6 +9,7 @@ from sjtu_tpmshx._version import __version__
 
 SOURCE_ROOT = Path(__file__).resolve().parents[2]
 PUBLISHED_LIBRARY_DIR = SOURCE_ROOT / "sjtu_tpmshx/solvers/native/lib"
+_study_snapshot: ContextVar[dict | None] = ContextVar('study_source_context', default=None)
 
 
 def repository_environment(root):
@@ -40,7 +43,13 @@ def repository_revision(root):
 
 
 def source_context():
-    """A revision context, not a claim that every configured data file was used."""
+    """A revision context, not a claim that every configured data file was used.
+
+    In a study scope, return the snapshot of that study. Outside a study, read the live source state.
+    """
+    snapshot = _study_snapshot.get()
+    if snapshot is not None:
+        return snapshot
     pin = SOURCE_ROOT / 'data-revision.txt'
     raw = SOURCE_ROOT / 'data' / 'raw_data'
     return dict(code=dict(package_version=__version__, **repository_revision(SOURCE_ROOT)),
@@ -48,3 +57,17 @@ def source_context():
                           raw_data_available=raw.is_dir(),
                           repository=repository_revision(raw.resolve().parent),
                           scope='configured raw-data repository; consumed model versions are model_refs'))
+
+
+@contextmanager
+def study_source(snapshot=None):
+    """Record the source context one time for all runs of a study.
+
+    A worker process enters this scope with the snapshot of its parent study.
+    In an existing scope, the study keeps the snapshot of that scope.
+    """
+    token = _study_snapshot.set(source_context() if snapshot is None else snapshot)
+    try:
+        yield
+    finally:
+        _study_snapshot.reset(token)

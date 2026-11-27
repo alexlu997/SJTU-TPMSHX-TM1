@@ -5,6 +5,7 @@ import math
 
 from sjtu_tpmshx.run_control.cancellation import CancelledError
 from sjtu_tpmshx.run_control.module_ports import RunControl
+from sjtu_tpmshx.run_control.provenance import study_source
 
 from . import select, sizing
 from .sizing import Design, K_STEEL, RHO_S
@@ -13,6 +14,8 @@ DEFAULT_ARRANGEMENT = 'cross'
 DEFAULT_PROP_MODEL = 'mean'
 
 
+# A study records the source context one time, also for the runs of its workers.
+@study_source()
 def run_design(
     cases,
     *,

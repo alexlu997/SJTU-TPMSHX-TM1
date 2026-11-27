@@ -9,6 +9,26 @@ from sjtu_tpmshx.run_control.cancellation import CancelledError
 from sjtu_tpmshx.run_control.module_ports import RunControl
 
 
+def _sized_with_source(cases, topo, l, t, *args, **kwargs):
+    # loky imports this module in each worker; the worker does not get the patch of the parent.
+    from sjtu_tpmshx.run_control.provenance import source_context
+    return sizing.Design(True, topo=topo, l=l, t=t, V=l, percase=[source_context()])
+
+
+@pytest.mark.parametrize('n_jobs', [1, 2])
+def test_run_design_records_source_context_once_for_its_workers(monkeypatch, n_jobs):
+    from sjtu_tpmshx.run_control import provenance
+    roots = []
+    monkeypatch.setattr(provenance, 'repository_revision',
+                        lambda root: roots.append(root) or dict(revision='study'))
+    monkeypatch.setattr(select, 'size_fixed_cell', _sized_with_source)
+    results, _ = run_design(['case1'], nodes=dict(topo=['Diamond'], l=[5., 6.], t=[.4]), n_jobs=n_jobs)
+    assert len(roots) == 2  # The code and raw-data repositories of one snapshot.
+    assert [design.percase[0]['code']['revision'] for design in results] == ['study', 'study']
+    provenance.source_context()
+    assert len(roots) == 4  # A run outside a study reads the live source state.
+
+
 @pytest.mark.parametrize('feasible', [True, False])
 def test_run_design_fixed_forwards_controls_and_skips_refinement(monkeypatch, feasible):
     seen = {}
