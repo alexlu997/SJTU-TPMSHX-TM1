@@ -11,6 +11,7 @@ collected the user's text from ``QLineEdit.text()``.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 import math
 from numbers import Integral
 from typing import Any, Dict, List, Optional, Tuple, cast
@@ -299,29 +300,102 @@ def validate_pipe_config(cfg: Dict[str, object],
 # ---------------------------------------------------------------- unit parser
 
 
-_UNIT_LENGTH = {
-    'm': 1.0, 'cm': 1e-2, 'mm': 1e-3, 'μm': 1e-6, 'um': 1e-6,
-    'in': 0.0254, 'inch': 0.0254, 'ft': 0.3048,
+_UNIT_LENGTH_DEC = {
+    'm': (Decimal('1'), Decimal('1')),
+    'cm': (Decimal('1'), Decimal('100')),
+    'mm': (Decimal('1'), Decimal('1000')),
+    'μm': (Decimal('1'), Decimal('1000000')),
+    'um': (Decimal('1'), Decimal('1000000')),
+    'in': (Decimal('0.0254'), Decimal('1')),
+    'inch': (Decimal('0.0254'), Decimal('1')),
+    'ft': (Decimal('0.3048'), Decimal('1')),
 }
-_UNIT_PRESSURE = {
-    'pa': 1.0, 'kpa': 1e3, 'mpa': 1e6, 'bar': 1e5, 'mbar': 1e2,
-    'psi': 6894.757, 'atm': 101325.0, 'torr': 133.322, 'mmhg': 133.322,
+_UNIT_PRESSURE_DEC = {
+    'pa': (Decimal('1'), Decimal('1')),
+    'kpa': (Decimal('1000'), Decimal('1')),
+    'mpa': (Decimal('1000000'), Decimal('1')),
+    'bar': (Decimal('100000'), Decimal('1')),
+    'mbar': (Decimal('100'), Decimal('1')),
+    'psi': (Decimal('6894.757'), Decimal('1')),
+    'atm': (Decimal('101325'), Decimal('1')),
+    'torr': (Decimal('133.322'), Decimal('1')),
+    'mmhg': (Decimal('133.322'), Decimal('1')),
 }
-_UNIT_SPEED = {
-    'm/s': 1.0, 'cm/s': 1e-2, 'mm/s': 1e-3,
-    'km/h': 1.0 / 3.6, 'kph': 1.0 / 3.6,
-    'mph': 0.44704, 'ft/s': 0.3048,
+_UNIT_SPEED_DEC = {
+    'm/s': (Decimal('1'), Decimal('1')),
+    'cm/s': (Decimal('1'), Decimal('100')),
+    'mm/s': (Decimal('1'), Decimal('1000')),
+    'km/h': (Decimal('1'), Decimal('3.6')),
+    'kph': (Decimal('1'), Decimal('3.6')),
+    'mph': (Decimal('0.44704'), Decimal('1')),
+    'ft/s': (Decimal('0.3048'), Decimal('1')),
 }
+_UNIT_MASS_FLOW_DEC = {
+    'kg/s': (Decimal('1'), Decimal('1')),
+    'g/s': (Decimal('1'), Decimal('1000')),
+    'kg/min': (Decimal('1'), Decimal('60')),
+    'g/min': (Decimal('1'), Decimal('60000')),
+    'kg/h': (Decimal('1'), Decimal('3600')),
+    'g/h': (Decimal('1'), Decimal('3600000')),
+}
+_UNIT_CONDUCTIVITY_DEC = {
+    'W/(mK)': (Decimal('1'), Decimal('1')),
+    'W/m/K': (Decimal('1'), Decimal('1')),
+    'W/mK': (Decimal('1'), Decimal('1')),
+    'kW/(mK)': (Decimal('1000'), Decimal('1')),
+    'kW/m/K': (Decimal('1000'), Decimal('1')),
+    'kW/mK': (Decimal('1000'), Decimal('1')),
+}
+_CELSIUS_ZERO_DEC = Decimal(str(CELSIUS_ZERO_K))
 
 
-_UNIT_MASS_FLOW = {
-    'kg/s': 1.0, 'g/s': 1e-3, 'kg/min': 1.0 / 60, 'g/min': 1e-3 / 60,
-    'kg/h': 1.0 / 3600, 'g/h': 1e-3 / 3600,
-}
-_UNIT_CONDUCTIVITY = {
-    'W/(mK)': 1.0, 'W/m/K': 1.0, 'W/mK': 1.0,
-    'kW/(mK)': 1e3, 'kW/m/K': 1e3, 'kW/mK': 1e3,
-}
+def parse_unit_decimal(raw_text: str, unit_text: str,
+                       family: str, target_unit: Optional[str] = None,
+                       temp_unit: str = 'K') -> Optional[Decimal]:
+    """Convert ``raw_text [unit_text]`` to ``target_unit`` with exact Decimal factors."""
+    try:
+        dec = Decimal(str(raw_text).strip())
+    except (InvalidOperation, ValueError):
+        return None
+    if not dec.is_finite():
+        return None
+    u = unit_text.strip().lower().replace('·', '')
+    if family in ('length', 'pressure', 'speed', 'mass_flow', 'conductivity'):
+        if family == 'length':
+            table, default_target = _UNIT_LENGTH_DEC, 'm'
+            target = (target_unit or default_target).lower()
+        elif family == 'pressure':
+            table, default_target = _UNIT_PRESSURE_DEC, 'pa'
+            target = (target_unit or default_target).lower()
+        elif family == 'speed':
+            table, default_target = _UNIT_SPEED_DEC, 'm/s'
+            target = (target_unit or default_target).lower()
+        elif family == 'mass_flow':
+            table, default_target = _UNIT_MASS_FLOW_DEC, 'kg/s'
+            target = (target_unit or default_target).lower()
+        else:
+            # Preserve SI prefix case. Accept the unit on the form and its slash notation.
+            table = _UNIT_CONDUCTIVITY_DEC
+            u = unit_text.strip().replace(' ', '').replace('·', '')
+            target = (target_unit or 'W/(m·K)').replace(' ', '').replace('·', '')
+        if u not in table or target not in table:
+            return None
+        src_mul, src_div = table[u]
+        dst_mul, dst_div = table[target]
+        num = dec * src_mul * dst_div
+        den = src_div * dst_mul
+        return num if den == 1 else num / den
+    if family == 'temp':
+        want_K = (temp_unit == 'K')
+        if u in ('k', 'kelvin'):
+            return dec if want_K else dec - _CELSIUS_ZERO_DEC
+        if u in ('c', '°c', 'celsius', 'degc'):
+            return dec + _CELSIUS_ZERO_DEC if want_K else dec
+        if u in ('f', '°f', 'fahrenheit', 'degf'):
+            K = (dec - Decimal('32')) * Decimal('5') / Decimal('9') + _CELSIUS_ZERO_DEC
+            return K if want_K else K - _CELSIUS_ZERO_DEC
+        return None
+    raise ValueError(f"unknown family {family!r}")
 
 
 def parse_unit_value(value: float, unit_text: str,
@@ -336,45 +410,11 @@ def parse_unit_value(value: float, unit_text: str,
     (``temp_unit``): if ``temp_unit='K'`` the return is Kelvin even if
     the user typed 25 °C. ``target_unit`` is ignored for temp.
     """
-    u = unit_text.strip().lower().replace('·', '')
-    if family == 'length':
-        if u not in _UNIT_LENGTH:
-            return None
-        si = value * _UNIT_LENGTH[u]
-        return si / _UNIT_LENGTH.get((target_unit or 'm').lower(), 1.0)
-    if family == 'pressure':
-        if u not in _UNIT_PRESSURE:
-            return None
-        si = value * _UNIT_PRESSURE[u]
-        return si / _UNIT_PRESSURE.get((target_unit or 'pa').lower(), 1.0)
-    if family == 'speed':
-        if u not in _UNIT_SPEED:
-            return None
-        si = value * _UNIT_SPEED[u]
-        return si / _UNIT_SPEED.get((target_unit or 'm/s').lower(), 1.0)
-    if family in ('mass_flow', 'conductivity'):
-        if family == 'mass_flow':
-            factors = _UNIT_MASS_FLOW
-            target = (target_unit or 'kg/s').lower()
-        else:
-            # Preserve SI prefix case. Accept the unit on the form and its slash notation.
-            factors = _UNIT_CONDUCTIVITY
-            u = unit_text.strip().replace(' ', '').replace('·', '')
-            target = (target_unit or 'W/(m·K)').replace(' ', '').replace('·', '')
-        if u not in factors or target not in factors:
-            return None
-        return value * factors[u] / factors[target]
-    if family == 'temp':
-        want_K = (temp_unit == 'K')
-        if u in ('k', 'kelvin'):
-            return value if want_K else value - CELSIUS_ZERO_K
-        if u in ('c', '°c', 'celsius', 'degc'):
-            return value + CELSIUS_ZERO_K if want_K else value
-        if u in ('f', '°f', 'fahrenheit', 'degf'):
-            K = (value - 32.0) * 5.0 / 9.0 + CELSIUS_ZERO_K
-            return K if want_K else K - CELSIUS_ZERO_K
-        return None
-    raise ValueError(f"unknown family {family!r}")
+    converted = parse_unit_decimal(
+        repr(float(value)), unit_text, family,
+        target_unit=target_unit, temp_unit=temp_unit,
+    )
+    return None if converted is None else float(converted)
 
 
 def format_unit_value(value: float, family: str) -> str:

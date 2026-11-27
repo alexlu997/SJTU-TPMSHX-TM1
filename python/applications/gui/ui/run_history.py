@@ -73,9 +73,6 @@ def _history_status(entry) -> tuple[str, str]:
     return label, "\n".join(details)
 
 
-_UNSET = object()
-
-
 def _format_time_of_day(ts: str) -> str:
     """Format an ISO completion timestamp to HH:MM:SS while preserving time-only strings."""
     raw = str(ts or "").strip()
@@ -581,7 +578,7 @@ class RunHistory:
             if lbl is not None:
                 lbl.setToolTip(tip)
 
-    def build_run_info_data(self, *, folder_path=_UNSET) -> RunInfoData:
+    def build_run_info_data(self, *, folder_path) -> RunInfoData:
         """Assemble metadata strictly from the accepted result and its recorded provenance."""
         from sjtu_tpmshx.applications.gui.ui.builders_sidebar import evaluate_result_status
 
@@ -741,13 +738,7 @@ class RunHistory:
 
         has_log = bool((window.single_run.compute.last_log() or "").strip())
         has_diag = result is not None
-        if folder_path is _UNSET:
-            resolved_folder = window.dialogs.resolve_output_directory(
-                scope=window.dialogs.run_info_directory_scope()
-            )
-        else:
-            resolved_folder = folder_path
-        has_folder = resolved_folder is not None
+        has_folder = folder_path is not None
         return RunInfoData(
             info_rows=tuple(info_rows),
             status_kind=status_kind,

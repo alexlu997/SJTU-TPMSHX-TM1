@@ -532,7 +532,7 @@ def test_stale_readout_badge_and_co2_run_info_provenance(win):
 
     # Non-CO2 accepted result must NOT show CO2 CFD source when draft is changed to CO2.
     win.combo_fluidA.setCurrentIndex(3)
-    info_air = win.history.build_run_info_data()
+    info_air = win.history.build_run_info_data(folder_path=None)
     assert not any('CO₂ CFD 查表' in row.value for row in info_air.info_rows)
 
     # Accepted CO2 result shows CO2 CFD source even if draft is switched back to Air.
@@ -544,5 +544,5 @@ def test_stale_readout_badge_and_co2_run_info_provenance(win):
     co2_result.metadata['co2'] = dict(sides=['A'], common_geometry='co2_cfd')
     win.results.publish(co2_result)
     win.combo_fluidA.setCurrentIndex(0)
-    info_co2 = win.history.build_run_info_data()
+    info_co2 = win.history.build_run_info_data(folder_path=None)
     assert any('CO₂ CFD 查表' in row.value for row in info_co2.info_rows)

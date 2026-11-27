@@ -13,7 +13,7 @@ from sjtu_tpmshx.data_types.validator import format_unit_value
 from sjtu_tpmshx.model_configs.df_domain import TRAIN_L, TRAIN_T
 from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
 from sjtu_tpmshx.physical_models.tpms_calc import geometry as tpms_geometry, adaptive_grid
-from sjtu_tpmshx.applications.gui.ui.window_config import LINE_EDITS, parse_field_value
+from sjtu_tpmshx.applications.gui.ui.window_config import LINE_EDITS, parse_field_decimal
 from sjtu_tpmshx.applications.gui.ui.case_files import CaseFiles
 from sjtu_tpmshx.applications.gui.ui.field_results import FieldResults
 from sjtu_tpmshx.applications.gui.ui.result_export import ResultExport
@@ -676,23 +676,19 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
 
             unit_match = num_unit.match(raw_txt)
             value = None
+            dec_val = None
             parsed_text = None
             if unit_match:
                 raw_num_str = unit_match[1]
-                raw = float(raw_num_str)
                 # Read explicit temperature units in kelvin before display formatting.
-                value = parse_field_value(attr, raw, unit_match[2])
-                if value is not None and not is_temperature:
-                    if spec.family == 'count':
-                        parsed_text = format_unit_value(value, 'count')
-                    else:
-                        factor = parse_field_value(attr, 1.0, unit_match[2])
-                        if factor is not None and len(str(factor)) <= 8:
-                            parsed_text = _format_decimal_exact(
-                                Decimal(raw_num_str) * Decimal(str(factor))
-                            )
+                dec_val = parse_field_decimal(attr, raw_num_str, unit_match[2])
+                if dec_val is not None:
+                    value = float(dec_val)
+                    if not is_temperature:
+                        if spec.family == 'count':
+                            parsed_text = format_unit_value(value, 'count')
                         else:
-                            parsed_text = _format_decimal_exact(Decimal(repr(value)))
+                            parsed_text = _format_decimal_exact(dec_val)
             if value is None:
                 unit_match = None
                 if is_expression(raw_txt):
@@ -731,19 +727,10 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
                 if is_temperature:
                     if unit_match:
                         if temp_unit == 'C':
-                            value = parse_field_value(attr, raw, unit_match[2], temp_unit='C')
-                        # Exact offset for Celsius <-> Kelvin preserves full decimal precision.
-                        unit_norm = unit_match[2].strip().lower().replace('°', '')
-                        if unit_norm in ('c', 'celsius', 'degc') and temp_unit == 'K':
-                            formatted = _format_decimal_exact(
-                                Decimal(raw_num_str) + Decimal(str(CELSIUS_ZERO_K))
+                            dec_val = parse_field_decimal(
+                                attr, raw_num_str, unit_match[2], temp_unit='C'
                             )
-                        elif unit_norm in ('k', 'kelvin') and temp_unit == 'C':
-                            formatted = _format_decimal_exact(
-                                Decimal(raw_num_str) - Decimal(str(CELSIUS_ZERO_K))
-                            )
-                        else:
-                            formatted = _format_decimal_exact(Decimal(repr(value)))
+                        formatted = _format_decimal_exact(dec_val)
                     else:
                         formatted = _format_decimal_exact(Decimal(repr(value)))
                 was = le.blockSignals(True)

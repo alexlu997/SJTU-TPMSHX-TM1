@@ -463,6 +463,8 @@ def test_numeric_inputs_rule_a_left_aligned_with_unit_suffix(win):
     # and convert once to canonical SI without premature 15-digit storage rounding.
     orig_pin = win.le_PinA.text()
     orig_ctr = win.le_pipeA_in_ctr.text()
+    orig_tin = win.le_TinA.text()
+    orig_ua = win.le_uA.text()
     try:
         from PySide6.QtWidgets import QLineEdit
         QLineEdit.setText(win.le_PinA, '100+2')
@@ -493,9 +495,20 @@ def test_numeric_inputs_rule_a_left_aligned_with_unit_suffix(win):
         win.le_pipeA_in_ctr.editingFinished.emit()
         assert win.le_pipeA_in_ctr.text() == '0.04123456789'
         assert win.le_pipeA_in_ctr.formatted_display_text() == '41.2346'
+
+        QLineEdit.setText(win.le_TinA, '300.123456789012345 K')
+        win.le_TinA.editingFinished.emit()
+        assert win.le_TinA.text() == '300.123456789012345'
+        assert win.le_TinA.formatted_display_text() == '300.123'
+
+        QLineEdit.setText(win.le_uA, '1.08 km/h')
+        win.le_uA.editingFinished.emit()
+        assert win.le_uA.text() == '0.3'
     finally:
         win.le_PinA.setText(orig_pin)
         win.le_pipeA_in_ctr.setText(orig_ctr)
+        win.le_TinA.setText(orig_tin)
+        win.le_uA.setText(orig_ua)
 
 
 def test_dialog_theme_applies_first_and_changed_styles_only(monkeypatch):
