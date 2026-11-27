@@ -265,6 +265,7 @@ class OptimizationPage(QWidget):
         self._result_pill.setParent(toolbar)
         toolbar.layout().insertWidget(0, self._result_pill)
         self._result_pill.setVisible(False)
+        self._apply_field_widths()
         btn_export = getattr(self._form, "btn_export", None)
         if btn_export is not None and btn_export.menu() is not None:
             menu = btn_export.menu()
@@ -419,13 +420,27 @@ class OptimizationPage(QWidget):
                 notice = ReadoutNotice("运行中止", str(rep.get("reason") or "详见状态记录"), kind="err")
         return items, notice
 
-    def set_compact(self, compact: bool) -> None:
-        """Adjust Rule A drawer widths, Pareto plot, and header labels for 1280x720."""
-        compact = bool(compact)
-        if self._compact == compact:
-            return
-        self._compact = compact
-        width = _FIELD_WIDTH_COMPACT if compact else _FIELD_WIDTH_DESKTOP
+    def _bound_spin_min_width(self) -> int:
+        """Return the minimum width for bound spinboxes so full decimal values never clip."""
+        needed = 0
+        for spin in self.bounds.values():
+            edit = spin.lineEdit()
+            spin.ensurePolished()
+            edit.ensurePolished()
+            margins = edit.textMargins()
+            sample = spin.textFromValue(spin.maximum()) + spin.suffix()
+            text_w = max(
+                edit.fontMetrics().horizontalAdvance(spin.text()),
+                edit.fontMetrics().horizontalAdvance(sample),
+            )
+            needed = max(needed, text_w + margins.left() + margins.right() + 20)
+        return needed
+
+    def _apply_field_widths(self) -> None:
+        base = _FIELD_WIDTH_COMPACT if self._compact else _FIELD_WIDTH_DESKTOP
+        pair_gap = 6
+        each_bound = max((base - pair_gap) // 2, self._bound_spin_min_width())
+        width = max(base, each_bound * 2 + pair_gap)
         for grid in self._rule_a_grids:
             grid.setColumnMinimumWidth(1, width)
         for widget in self._rule_a_fields:
@@ -433,10 +448,18 @@ class OptimizationPage(QWidget):
         for container, children in self._pair_containers:
             container.setFixedWidth(width)
             n = len(children)
-            gap = 4 if n == 3 else 6
+            gap = 4 if n == 3 else pair_gap
             each = (width - gap * (n - 1)) // n
             for child in children:
                 child.setFixedWidth(each)
+
+    def set_compact(self, compact: bool) -> None:
+        """Adjust Rule A drawer widths, Pareto plot, and header labels for 1280x720."""
+        compact = bool(compact)
+        if self._compact == compact:
+            return
+        self._compact = compact
+        self._apply_field_widths()
         self.pareto_view.set_compact(compact)
         self.selected_panel.set_compact(compact)
 
@@ -1082,8 +1105,9 @@ class OptimizationPage(QWidget):
         # Band 3: 方法与预算
         spin_qss = (
             f"QAbstractSpinBox {{ background: {t['inp_bg']}; color: {t['inp_fg']}; "
+            f"font-family: {t['mono_family']}; "
             f"border: 1px solid {t['inp_border']}; border-radius: {RADIUS_INPUT}px; "
-            "padding: 2px 6px; font-size: 12.5px; }"
+            "padding: 2px 6px; font-size: 12px; }"
             f"QAbstractSpinBox:focus {{ border: 1.5px solid {t['inp_focus']}; }}"
             "QAbstractSpinBox::up-button, QAbstractSpinBox::down-button { "
             "subcontrol-origin: border; width: 0px; height: 0px; border: none; }"
@@ -1260,6 +1284,7 @@ class OptimizationPage(QWidget):
         v.addWidget(self.field_layout)
         v.addWidget(self.selected_field)
         v.addStretch(1)
+        self._apply_field_widths()
 
     def _rebuild_condition_table(self) -> None:
         t = get_theme()
