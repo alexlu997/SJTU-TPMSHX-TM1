@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   diag-macos-15:
-    name: diag-macos-15 (test_public_gui 20x)
+    name: diag-macos-15 (integration_tm1 prefix 8x)
     runs-on: macos-15
     timeout-minutes: 45
     env:
@@ -97,7 +97,7 @@ jobs:
               for name, path in libraries.items():
                   output.write(f'{name}={path.resolve().as_posix()}\n')
           PY
-      - name: Run test_public_gui.py loop (20 runs) with faulthandler and crash capture
+      - name: Run integration_tm1 prefix loop (8 runs) with faulthandler and crash capture
         shell: bash
         run: |
           set +e
@@ -106,13 +106,21 @@ jobs:
           pass=0
           fail=0
           segv=0
-          for i in $(seq 1 20); do
+          for i in $(seq 1 8); do
             log=".cache/diag-macos-gui/run-$(printf '%02d' "$i").log"
-            echo "=== Run $i/20 ($(date -u +%H:%M:%SZ)) ==="
+            echo "=== Run $i/8 ($(date -u +%H:%M:%SZ)) ==="
             PYTHONFAULTHANDLER=1 "$CI_PYTHON" -X faulthandler -m pytest \
-              tests/python/integration_tm1/test_public_gui.py -q -ra \
+              tests/python/integration_tm1/test_2d_real.py \
+              tests/python/integration_tm1/test_handoff_provenance.py \
+              tests/python/integration_tm1/test_minimal_install.py \
+              tests/python/integration_tm1/test_public_api.py \
+              tests/python/integration_tm1/test_public_design.py \
+              tests/python/integration_tm1/test_public_gui.py \
+              -q -ra -p tests.python.ci_shard \
+              --ci-manifest=".cache/diag-macos-gui/manifest-$i" \
               --basetemp=".cache/diag-macos-gui/bt-$i" \
               --timeout=600 --timeout-method=thread \
+              --durations=30 --junitxml=".cache/diag-macos-gui/junit-$i.xml" \
               > "$log" 2>&1
             rc=$?
             echo "Run $i exit=$rc"
@@ -133,7 +141,7 @@ jobs:
               fi
             fi
           done
-          echo "=== SUMMARY: total=20 pass=$pass fail=$fail crash=$segv ==="
+          echo "=== SUMMARY: total=8 pass=$pass fail=$fail crash=$segv ==="
           ls -la .cache/diag-macos-gui/crash-reports/ || true
           "$CI_PYTHON" - <<'PY'
           import json
