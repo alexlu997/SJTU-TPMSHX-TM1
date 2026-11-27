@@ -2,7 +2,7 @@
 import numpy as np
 from matplotlib.ticker import ScalarFormatter
 
-from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
+from sjtu_tpmshx.data_types.validator import kelvin_to_display
 from sjtu_tpmshx.postprocess.result_display import RESULT_FIELD_SPECS, extrapolation_watermark
 
 from .theme import resolve_cmap
@@ -100,9 +100,9 @@ def plot_temperature_3panel(window, r, _t, zones=None):
     shared color range. When it is cleared, Fluid A and Fluid B share one range
     and Solid uses its own range.
     """
-    unit = '°C' if getattr(window, '_temp_unit', 'K') == 'C' else 'K'
-    offset = CELSIUS_ZERO_K if unit == '°C' else 0.0
-    Ta, Tb, Ts = (r[key] - offset for key in ('Ta', 'Tb', 'Ts'))
+    u = window._temp_unit
+    unit = '°C' if u == 'C' else 'K'
+    Ta, Tb, Ts = (kelvin_to_display(r[key], u) for key in ('Ta', 'Tb', 'Ts'))
     N_x, N_y, L, H = r['N_x'], r['N_y'], r['L'], r['H']
 
     window.canvas_temp.fig.clear()
@@ -125,7 +125,7 @@ def plot_temperature_3panel(window, r, _t, zones=None):
     temperatures = [r[key] for key in ('Ta', 'Tb', 'Ts')]
     limits = (field_color_limits(temperatures, shared=True) if _sync else
               field_color_limits(temperatures[:2], shared=True) + field_color_limits(temperatures[2:]))
-    limits = [(lo - offset, hi - offset) for lo, hi in limits]
+    limits = [(kelvin_to_display(lo, u), kelvin_to_display(hi, u)) for lo, hi in limits]
 
     specs = [RESULT_FIELD_SPECS[key] for key in ('Ta', 'Tb', 'Ts')]
     plot_items = [

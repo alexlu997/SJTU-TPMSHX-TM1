@@ -1,6 +1,8 @@
 """Test GUI field units and portable scalar formatting."""
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
 
 from sjtu_tpmshx.applications.gui.ui.window_config import (
@@ -8,7 +10,7 @@ from sjtu_tpmshx.applications.gui.ui.window_config import (
     COUNT_TOKEN_WHITELIST,
     parse_field_value,
 )
-from sjtu_tpmshx.data_types.validator import format_unit_value
+from sjtu_tpmshx.data_types.validator import convert_temp_decimal, format_unit_value
 
 
 def test_portable_validator_keeps_widget_names_in_the_gui():
@@ -107,6 +109,8 @@ def test_parse_temp_field_honours_temp_unit():
     # And vice versa.
     val_C = parse_field_value('le_TinA', 298.15, 'K', temp_unit='C')
     assert val_C == pytest.approx(25.0)
+    d = Decimal('21.11111111111111111111111111')
+    assert convert_temp_decimal(convert_temp_decimal(d, 'C', 'K'), 'K', 'C') == d
 
 
 def test_parse_speed_kph_to_mps():

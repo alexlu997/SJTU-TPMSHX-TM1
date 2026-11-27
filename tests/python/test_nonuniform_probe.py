@@ -86,6 +86,15 @@ def test_plot_hover_and_inspector_locate_nonuniform_cells():
     window.cache.set_result('2d', ComputeResult(fields={**result, 'Ta': temperature + 10.0}))
     CoordInspector.update_from_event(inspector, event)
     assert ('T_fA', '136.85', '°C') in rendered[-1]
+    single = {**result, 'Ta': np.full((2, 2), 300.155, dtype=np.float32)}
+    window.cache.set_result('2d', ComputeResult(fields=single))
+    plot_temperature_3panel(window, single, get_theme())
+    window.workbench = Workbench(window)
+    event.inaxes = canvas.axes[0][0]
+    window.workbench.on_hover(event)
+    CoordInspector.update_from_event(inspector, event)
+    assert ('T_fA', '27.00', '°C') in rendered[-1]
+    assert '27.00\u202f°C' in window._hover_label.text()
     np.testing.assert_array_equal(result['P_fA'], pressure)
 
     for coordinate, expected in [(-1., 0), (0., 0), (9.9, 0), (10., 1), (100., 1), (101., 1)]:

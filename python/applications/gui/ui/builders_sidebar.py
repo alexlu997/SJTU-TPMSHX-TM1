@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
+from sjtu_tpmshx.data_types.validator import kelvin_to_display, temp_text_to_kelvin
 
 from .fmt import duration as fmt_duration
 from .fmt import qualification_reasons, recorded_elapsed_s, warning_strip_summary
@@ -384,15 +384,14 @@ def result_metric_texts(window) -> dict[str, str]:
     def value(number, digits):
         return f"{number:.{digits}f}" if number is not None and math.isfinite(number) else "—"
 
-    offset = CELSIUS_ZERO_K if getattr(window, "_temp_unit", "K") == "C" else 0.0
     temperatures = (d.get("T_out_A_K"), d.get("T_out_B_K"))
     return {
         "Q": value(d.get("Q_W"), 2 if is_3d else 1),
         "Q_unit": d.get("Q_unit", ""),
         "dP_A": value(d.get("dP_A"), 0 if is_3d else 1),
         "dP_B": value(d.get("dP_B"), 0 if is_3d else 1),
-        "ToutA": value(None if temperatures[0] is None else temperatures[0] - offset, 2),
-        "ToutB": value(None if temperatures[1] is None else temperatures[1] - offset, 2),
+        "ToutA": value(None if temperatures[0] is None else kelvin_to_display(temperatures[0], window._temp_unit), 2),
+        "ToutB": value(None if temperatures[1] is None else kelvin_to_display(temperatures[1], window._temp_unit), 2),
     }
 
 
@@ -511,13 +510,12 @@ def is_result_stale(window) -> bool:
         if raw_c == raw_s and (name not in ("le_TinA", "le_TinB") or cur_unit == sav_unit):
             continue
         try:
-            vc = float(raw_c)
-            vs = float(raw_s)
             if name in ("le_TinA", "le_TinB"):
-                if cur_unit == "C":
-                    vc += CELSIUS_ZERO_K
-                if sav_unit == "C":
-                    vs += CELSIUS_ZERO_K
+                vc = float(temp_text_to_kelvin(raw_c, cur_unit))
+                vs = float(temp_text_to_kelvin(raw_s, sav_unit))
+            else:
+                vc = float(raw_c)
+                vs = float(raw_s)
             if not math.isclose(vc, vs, rel_tol=1e-7, abs_tol=1e-9):
                 return True
         except ValueError:
