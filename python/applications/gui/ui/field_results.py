@@ -30,6 +30,17 @@ def recorded_elapsed_s(result) -> float | None:
                 and math.isfinite(total)
             ):
                 return float(total)
+            phases = [
+                float(timings[k])
+                for k in ("prepare", "solve", "postprocess")
+                if isinstance(timings.get(k), (int, float))
+                and not isinstance(timings.get(k), bool)
+                and math.isfinite(timings.get(k))
+            ]
+            if phases and len(phases) == sum(
+                1 for k in ("prepare", "solve", "postprocess") if k in timings
+            ):
+                return sum(phases)
     return None
 
 
@@ -309,9 +320,15 @@ class FieldResults:
                         canvas.fig.clear()
                         canvas._hover_data = None
                         canvas.draw_idle()
-            solve_elapsed = recorded_elapsed_s(published_result)
-            if solve_elapsed is None and isinstance(elapsed, (int, float)) and math.isfinite(elapsed):
+            direct_wall = published_result.diagnostics.get('wall_time_s')
+            if not (isinstance(direct_wall, (int, float)) and not isinstance(direct_wall, bool) and math.isfinite(direct_wall)):
+                direct_wall = (published_result.metadata.get('timings_s') or {}).get('total')
+            if isinstance(direct_wall, (int, float)) and not isinstance(direct_wall, bool) and math.isfinite(direct_wall):
+                solve_elapsed = float(direct_wall)
+            elif isinstance(elapsed, (int, float)) and math.isfinite(elapsed):
                 solve_elapsed = float(elapsed) + display_s
+            else:
+                solve_elapsed = recorded_elapsed_s(published_result)
             window._last_elapsed_s = solve_elapsed
             self.refresh_summary()
             if window.single_run.is_idle() and hasattr(window, '_run_status_card'):

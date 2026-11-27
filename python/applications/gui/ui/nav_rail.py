@@ -658,7 +658,9 @@ class ExpandedNavRail(QFrame):
         self._clear_layout()
         t = self._tokens
         self.setStyleSheet(f"QFrame#expandedNavRail {{ background: {t['panel']}; border: none; }}")
-        self._shadow.setColor(QColor(*t["shadow_drawer_ambient"]))
+        effect = self.graphicsEffect()
+        if isinstance(effect, QGraphicsDropShadowEffect):
+            effect.setColor(QColor(*t["shadow_drawer_ambient"]))
 
         top = QHBoxLayout()
         top.setContentsMargins(0, 0, 0, 0)
