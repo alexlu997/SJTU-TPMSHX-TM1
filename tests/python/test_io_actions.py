@@ -1439,8 +1439,8 @@ def test_optimization_volume_copy_and_export_require_current_render(
     panel = SimpleNamespace(
         _grid=object(), _field='L_mm', _volume_actor=object(), _data_actors=set(),
         _available_fields=('L_mm', 't_mm'), _arrays={'L_mm': object(), 't_mm': object()},
-        _scale_mode='global', _display_mode='surface', plotter=plotter, status=Mock(),
-        colorbar=Mock(), grab=Mock(), field_changed=Mock(),
+        _scale_mode='global', _display_mode='surface', _geometry='simple', _lattice_pending=None,
+        plotter=plotter, status=Mock(), colorbar=Mock(), lattice_card=Mock(), grab=Mock(), field_changed=Mock(),
         _viewport_host=Mock(width=lambda: 0, height=lambda: 0),
         _set_export_typography=Mock(), _layout_overlays=Mock(),
         _capture_overlays=lambda: [],
