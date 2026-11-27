@@ -105,13 +105,17 @@ def test_configuration_and_native_properties_have_no_import_cycle():
 
 
 def test_checker_detects_cycle_across_solver_directories(tmp_path):
-    api, stage = 'sjtu_tpmshx.solvers.api', 'sjtu_tpmshx.cpp_interface.full_2d_stage'
-    modules = {api: tmp_path / 'api.py', stage: tmp_path / 'full_2d_stage.py'}
-    modules[api].write_text(f'import {stage}', encoding='utf-8')
-    modules[stage].write_text(f'import {api}', encoding='utf-8')
+    api, stage, host = ('sjtu_tpmshx.solvers.api', 'sjtu_tpmshx.cpp_interface.full_2d_stage',
+                        'sjtu_tpmshx.solvers.full_2d')
+    imports = {(api, stage), (stage, host), (host, api)}
+    modules = {name: tmp_path / f'{name.rsplit(".", 1)[1]}.py' for name in (api, stage, host)}
+    for source, target in imports:
+        modules[source].write_text(f'import {target}', encoding='utf-8')
     with pytest.raises(CycleError, match='cycle') as error:
         audit.check_cycles(modules)
-    assert set(error.value.args[1]) == {api, stage}
+    path = error.value.args[1]
+    # The reported path follows the import direction.
+    assert len(path) == 4 and set(zip(path, path[1:])) == imports
 
 
 # Each probe runs in a new interpreter so that this module's imports cannot fill sys.modules.

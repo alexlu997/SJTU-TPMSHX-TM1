@@ -565,16 +565,18 @@ def owner_modules(owner: str) -> dict[str, Path]:
 
 
 def check_cycles(modules: dict[str, Path]) -> None:
-    """Raise CycleError when the modules import each other in a cycle; args[1] is the cycle path."""
-    graph = {}
+    """Raise CycleError when the modules import each other in a cycle.
+
+    args[1] is the cycle path in import order: each module imports the next one.
+    """
+    # Each module maps to its importers, so that TopologicalSorter reports the path in import order.
+    graph: dict[str, set[str]] = {module: set() for module in modules}
     for module, path in modules.items():
         package = module if path.name == '__init__.py' else module.rsplit('.', 1)[0]
-        graph[module] = {
-            target
-            for node in ast.walk(ast.parse(path.read_text(encoding='utf-8')))
-            for target in import_targets(node, package)
-            if target in modules
-        }
+        for node in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
+            for target in import_targets(node, package):
+                if target in modules:
+                    graph[target].add(module)
     TopologicalSorter(graph).prepare()
 
 

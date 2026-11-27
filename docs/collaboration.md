@@ -290,9 +290,10 @@ If the user names no other coordinator, the owner is the coordinator.
    Run the [light pre-push check](#light-pre-push-check) on the clean, committed task tree.
    It must pass before the review and before the first push.
    For each changed module, use a text search or the import graph to find its direct importers.
-   Run every test file under `tests/python` that imports the changed module, and the tests for the other importers.
-   Run these tests also when the check did not select them. If such a test starts heavy work, use the
-   [heavy-job slot](#heavy-job-slot) or record it as pending heavy. Record these tests and their results.
+   Run every test file under `tests/python` that imports the changed module.
+   Run the tests for the other importers, the targeted tests, and `tests/python/architecture/test_three_module_imports.py`.
+   Run these tests also when the check did not select them or recorded them as pending heavy.
+   If such a test starts heavy work, use the [heavy-job slot](#heavy-job-slot). Record these tests and their results.
 2. Start the necessary [independent review](#independent-review) of the head commit without a user reminder.
    A PR that only corrects spelling, links, or formatting in documents needs no review.
    It must not change the meaning of a rule, command, or contract.
@@ -335,6 +336,7 @@ PR CI, merged-main CI, desktop acceptance, and experimental validation are separ
 
 `engineering/scripts/pre_push_check.py` selects light checks from the changed paths.
 The selection base is the merge base of `origin/main` and `HEAD`. Use `--base` for another base ref.
+`--head` must name the clean, checked-out commit.
 
 1. Commit all changes. The check stops if the worktree has uncommitted or untracked files.
 2. From the repository root, run `"$(head -n 1 .venv-path)" -m engineering.scripts.pre_push_check`.
@@ -345,21 +347,25 @@ The check runs `check_docs.py` for each diff. For a diff that is not in the `doc
 
 - The lock check, `pip check`, `ruff` on the changed Python files, and `check_types` for `darwin` and `win32`.
 - `audit_import_graph --fail-on-violations`. It includes the import cycle check.
-- The changed test files and the mapped consumer nodes, with `-m "not slow and not heavy"`.
+- The verified-light nodes of the changed test files and of the mapped consumers, with `-m "not slow and not heavy"`.
+  The verified-light list in the check names these files and nodes.
 
 The run record gives a result for each required node: passed, failed, skipped, not collected,
-pending heavy, or CI pending. The check sets `TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1` as CI does.
-Thus a missing native library or caller is a failure, not a skip. The record gives the reason for each other skip.
-Pending heavy nodes start native solves. Run them with the heavy-job slot, or let the PR CI close them.
+pending heavy, or CI pending. A skip is not a pass. The check sets `TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1` as CI does.
+Thus a missing native library or caller is a failure.
+Pending heavy nodes are not on the verified-light list, or they have the `slow` or `heavy` marker.
+Run them as step 1 tells, or let the PR CI close them.
+A failed lock check or `pip check` stops the other checks and gives a failed record.
 A CI pending item names the CI job that closes it. The PR CI of the same head closes it before merge.
 The record also lists the changed modules that have no mapped consumer. Trace their importers as step 1 tells.
 "Light check passed" and "all required checks passed" are different statements.
 
-Add a consumer node to the map in the check only after you examine its call chain.
+Add a consumer node or a verified-light file to the check only after you examine its call chain.
 The chain must start no native solve and no long-running subprocess. A short Git metadata query is permitted.
 The check prints the rows of the [hazard index](agent-hazards.md) that match the changed paths.
 
-The Git hook `engineering/hooks/pre-push` accepts a passing run record for the pushed commit and the same selection base.
+The Git hook `engineering/hooks/pre-push` accepts a complete, passing run record for the pushed commit
+and the same selection base. It examines the push destination: it checks each branch update.
 If no such record exists, the hook runs the check when the worktree is clean and at the pushed commit.
 Otherwise it stops the push. The hook ignores tags and branch deletions.
 The coordinator sets `git config core.hooksPath engineering/hooks` one time. Linked worktrees share this setting.
@@ -405,7 +411,7 @@ Select the reviewer as follows:
 2. The reviewer first traces connected consumers from the requirement and diff.
    Then the reviewer compares those findings with the author's related-change record.
    The reviewer makes sure that the pre-push run record is for the reviewed head commit.
-   It must have no failed or not collected required node. Each skip must have a reason that CI also accepts.
+   It must have no failed, skipped, or not collected required node.
    If the record misses a consumer, the author adds the evidence for that consumer.
    Read relevant code and model documents, including dynamic entries and saved-file consumers.
    Do not limit the review to the author's file list.

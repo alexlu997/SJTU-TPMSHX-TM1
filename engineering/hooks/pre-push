@@ -2,5 +2,5 @@
 # Git pre-push hook: run the light pre-push check for each pushed branch.
 # Set it once for all worktrees: git config core.hooksPath engineering/hooks
 root=$(git rev-parse --show-toplevel) || exit 1
-python=$(head -n 1 "$root/.venv-path") || exit 1
+python=$(head -n 1 "$root/.venv-path" | tr -d '\r') || exit 1
 cd "$root" && exec "$python" -m engineering.scripts.pre_push_check --hook

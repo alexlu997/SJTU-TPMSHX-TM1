@@ -9,7 +9,8 @@ _FENCE = re.compile(r'^\s*(`{3,}|~{3,})')
 _INLINE_CODE = re.compile(r'(?P<ticks>`+).*?(?P=ticks)')
 # The public hazard index: at most 15 rows and no local absolute paths.
 HAZARDS, HAZARD_ROWS = 'docs/agent-hazards.md', 15
-_LOCAL_PATH = re.compile(r'(?<![\w.])(?:~[/\\]|/(?:Users|home|private|tmp|var|Volumes)/|[A-Za-z]:[/\\])')
+# An absolute path: '~/', a drive letter, or a '/' that does not follow a word, a dot, ':' or '/' (URL).
+_LOCAL_PATH = re.compile(r'(?<![\w.:/~])(?:~|[A-Za-z]:)?[/\\][\w.-]+[/\\]')
 
 
 def prose(text):
@@ -68,7 +69,7 @@ def check(root, paths):
             commands += 1
     if HAZARDS in paths:
         text = (root / HAZARDS).read_text(encoding='utf-8')
-        rows = len(re.findall(r'^\| H\d+ \|', text, re.MULTILINE))
+        rows = len(re.findall(r'^\s*\|\s*H\d+\s*\|', text, re.MULTILINE))
         if rows > HAZARD_ROWS:
             failures.append(f'{HAZARDS}: {rows} rows; the limit is {HAZARD_ROWS}')
         failures.extend(f'{HAZARDS}:{number}: local absolute path'
