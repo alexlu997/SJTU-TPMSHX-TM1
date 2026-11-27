@@ -126,6 +126,7 @@ def test_energy_diagnostic_is_reported_without_a_new_feasibility_gate(
 
 def test_final_water_failure_retains_failed_case_and_continues_cases(monkeypatch):
     from sjtu_tpmshx.physical_models.fluid_props import QuickDesignWaterFieldError
+    from sjtu_tpmshx.run_control.run_warnings import record_warning
     cases = [DesignCase(i, 'air', 400., 2e5, .01, 'water', 300., 2e5, .01,
                         100., .05, .05) for i in (1, 2)]
     good = ForwardResult(340., 330., 600., 600., .01, .01, 1000., 1000.,
@@ -134,6 +135,7 @@ def test_final_water_failure_retains_failed_case_and_continues_cases(monkeypatch
     def final(case, *args, **kwargs):
         calls.append(case.case)
         if case.case == 1:
+            record_warning(('test', 'water notice'), 'water notice')
             raise QuickDesignWaterFieldError('design-inlet-pass B water index=(0, 0, 0), T=500 K')
         return good
     monkeypatch.setattr(sizing, 'solve_Lx', lambda *a, **kw: (.1, good))
@@ -141,6 +143,9 @@ def test_final_water_failure_retains_failed_case_and_continues_cases(monkeypatch
     monkeypatch.setattr(sizing, 'tpms_geometry', lambda *a, **kw: {'epsilon': .7})
     monkeypatch.setattr(sizing, 'dP_fracs', lambda *a, **kw: (.01, .01))
     design = sizing.size_fixed_cell(cases, 'Diamond', 6., .4)
+    # The workbook summary reads the warnings before the details sheet reads them again.
+    assert summary_rows([design], {})[0]['警告'] == '[算例 1] water notice'
+    assert detail_rows([design])[0]['警告'] == 'water notice'
     # A parallel search returns each design from a loky worker process.
     design = pickle.loads(pickle.dumps(design))
     assert not design.feasible and calls == [1, 2]
@@ -148,7 +153,7 @@ def test_final_water_failure_retains_failed_case_and_continues_cases(monkeypatch
     failed, good_row = detail_rows([design])
     assert math.isnan(failed['热侧换热量_W'])
     assert failed['数值收敛'] is False
-    assert 'index=(0, 0, 0)' in failed['终验']
+    assert 'index=(0, 0, 0)' in failed['终验'] and failed['警告'] == 'water notice'
     assert good_row['热侧换热量_W'] == 600.
     assert math.isnan(design.dP_hot_max)
     assert not pareto_tags([design])
