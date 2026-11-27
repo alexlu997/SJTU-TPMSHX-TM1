@@ -10,7 +10,6 @@ import subprocess
 import sys
 import tarfile
 import tempfile
-import tomllib
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 import zipfile
@@ -204,18 +203,21 @@ def native_candidates(base):
 
 
 def hosted_toolchain(platform):
+    from engineering.scripts import build_native_dependencies as build
+
     host = 'macos-arm64' if platform == 'macos-15' else 'windows-x64'
-    lock = tomllib.loads(Path('engineering/native_build/dependencies-lock.toml').read_text())
-    generator = lock['cmake'][host]['generator']
+    generator = build.LOCK['cmake'][host]['generator']
     with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory)
+        root = Path(directory).resolve()
+        build.fetch_cmake(root, host)
         (root / 'CMakeLists.txt').write_text(
             'cmake_minimum_required(VERSION 3.31.8)\nproject(probe LANGUAGES C CXX)\n'
             'file(WRITE "${CMAKE_BINARY_DIR}/toolchain" "${CMAKE_C_COMPILER_ID} ${CMAKE_C_COMPILER_VERSION}\\n"\n'
             '  "${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}\\n${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION}")\n',
             encoding='utf-8')
         arch = ['-A', 'x64'] if host == 'windows-x64' else ['-DCMAKE_OSX_ARCHITECTURES=arm64']
-        subprocess.run(['cmake', '-S', root, '-B', root / 'build', '-G', generator, *arch], check=True)
+        subprocess.run([build.cmake_path(root, host), '-S', root, '-B', root / 'build',
+                        '-G', generator, *arch], check=True)
         actual = (root / 'build/toolchain').read_text().splitlines()
     if host == 'macos-arm64':
         sdk_path = subprocess.check_output(['xcrun', '--sdk', 'macosx', '--show-sdk-path'], text=True).strip()
