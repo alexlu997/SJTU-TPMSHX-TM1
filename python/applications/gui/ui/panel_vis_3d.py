@@ -1079,6 +1079,7 @@ class ThreeDVisPanel(QWidget):
             rgba=True,
             lighting=False,
             show_scalar_bar=False,
+            pickable=False,
             name="_contact_shadow",
             render=False,
         )
@@ -1314,6 +1315,7 @@ class ThreeDVisPanel(QWidget):
             color=self._box_edge_color(),
             opacity=opacity,
             line_width=line_width,
+            pickable=False,
             name="_domain_edges",
             show_scalar_bar=False,
             render=False,
@@ -1400,6 +1402,7 @@ class ThreeDVisPanel(QWidget):
             opacity=0.03,
             lighting=False,
             show_scalar_bar=False,
+            pickable=False,
             name="_slice_box_fill",
             render=False,
         )
@@ -1516,4 +1519,6 @@ class ThreeDVisPanel(QWidget):
         if hasattr(self, "status"):
             self.status.setText(text)
             self.status.setToolTip(text)
+            if hasattr(self.status, "hide"):
+                self.status.hide()
         self._last_hover_text = ""
