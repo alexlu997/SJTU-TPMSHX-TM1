@@ -180,12 +180,12 @@ jobs:
           "$CI_PYTHON" -m pytest -q --junitxml=.cache/native-deps/logs/result-contracts.xml
           tests/python/native/test_result_metrics.py
           tests/python/native/test_result_checks.py
-          tests/python/test_native_result_balance.py
-          tests/python/test_native_zone_statistics.py
-          tests/python/test_native_result_loader.py
-          tests/python/test_native_result_stage.py
-          tests/python/test_native_result_stage_host.py
-          tests/python/test_native_quick_result_stage.py
+          tests/python/native_adapters/test_native_result_balance.py
+          tests/python/native_adapters/test_native_zone_statistics.py
+          tests/python/native_adapters/test_native_result_loader.py
+          tests/python/native_adapters/test_native_result_stage.py
+          tests/python/native_adapters/test_native_result_stage_host.py
+          tests/python/native_adapters/test_native_quick_result_stage.py
       - name: Include result distribution notices
         run: |
           "$CI_PYTHON" - <<'PY'

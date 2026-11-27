@@ -1,14 +1,8 @@
-"""Zone-table editor helpers for the single-computation zoning section.
+"""Edit and capture the zone table for a single case.
 
-The table builds ``models.zone_config.ZoneConfig`` for a single computation.
-Optimizer searches use ``models.continuous_field.ContinuousFieldConfig``
-independently; changing this table does not change their search space.
-
-Extracted from main.py (Task B.5); moved from solvers/zone_editor.py to
-ui/ (it is pure Qt table manipulation — solvers/ stays Qt-free). Distinct
-from ui/zone_editor.py, which owns the draggable canvas handles.
-All functions take `window` (Main_Menu instance) as first argument.
-Intra-module calls use top-level function names, not `window._method(...)`.
+The editing functions update the window. ``build_zone_config`` reads the
+table and returns separate band data or grid cells for the current case.
+The optimization workflow defines its own search space.
 """
 from PySide6.QtWidgets import QTableWidgetItem
 
@@ -135,29 +129,16 @@ def zone_axis(window):
     return ['y', 'x', 'grid'][idx]
 
 
-def build_zone_config(window):
-    """Ex-Main_Menu._build_zone_config(self).
-
-    Read zone table and build ZoneConfig (1D) or grid arrays (2D).
-    Returns None if zones disabled.
-    For 1D: returns ZoneConfig object.
-    For grid: returns ZoneConfig (unused) but stores grid info in window._zone_grid.
-    """
-    if not window.chk_zones.isChecked():
-        window._zone_grid = None
-        return None
+def build_zone_config(table, axis, tpms_type, k_s):
+    """Read the active table into a band configuration or a grid of cells."""
     from sjtu_tpmshx.physical_models.zone_config import ZoneConfig, Zone
-    if window.zone_table.rowCount() == 0:
+    if table.rowCount() == 0:
         raise ValueError('At least one zone is required')
-    tpms_type = window.combo_tpms.currentText()
-    k_s = float(window.le_ks.text())
 
-    if not zone_is_grid(window):
-        # 1D mode
-        window._zone_grid = None
+    if axis != 'grid':
         zones = []
-        for r in range(window.zone_table.rowCount()):
-            items = [window.zone_table.item(r, c) for c in range(4)]
+        for r in range(table.rowCount()):
+            items = [table.item(r, c) for c in range(4)]
             if any(it is None or not it.text().strip() for it in items):
                 raise ValueError(f'Zone row {r + 1}: all fields are required')
             y0 = float(items[0].text()) / 100.0
@@ -167,22 +148,19 @@ def build_zone_config(window):
             zones.append(Zone(f"zone_{r}", y0, y1, L, t))
         config = ZoneConfig(zones=zones, tpms_type=tpms_type, k_s=k_s)
         config.validate()
-        return config
-    else:
-        # Grid mode: 6 columns [y0%, y1%, x0%, x1%, L, t]
-        grid_cells = []
-        for r in range(window.zone_table.rowCount()):
-            items = [window.zone_table.item(r, c) for c in range(6)]
-            if any(it is None or not it.text().strip() for it in items):
-                raise ValueError(f'Zone row {r + 1}: all fields are required')
-            y0 = float(items[0].text()) / 100.0
-            y1 = float(items[1].text()) / 100.0
-            x0 = float(items[2].text()) / 100.0
-            x1 = float(items[3].text()) / 100.0
-            Lv = float(items[4].text())
-            tv = float(items[5].text())
-            grid_cells.append({'y0':y0,'y1':y1,'x0':x0,'x1':x1,'L':Lv,'t':tv})
-        window._zone_grid = {'cells': grid_cells,
-                             'tpms_type': tpms_type, 'k_s': k_s}
-        return ZoneConfig(zones=[Zone('grid', 0, 1, 6.0, 0.3)],
-                          tpms_type=tpms_type, k_s=k_s)
+        return config, None
+
+    # The grid table stores y and x bounds in percent, then L and t in mm.
+    grid_cells = []
+    for r in range(table.rowCount()):
+        items = [table.item(r, c) for c in range(6)]
+        if any(it is None or not it.text().strip() for it in items):
+            raise ValueError(f'Zone row {r + 1}: all fields are required')
+        y0 = float(items[0].text()) / 100.0
+        y1 = float(items[1].text()) / 100.0
+        x0 = float(items[2].text()) / 100.0
+        x1 = float(items[3].text()) / 100.0
+        Lv = float(items[4].text())
+        tv = float(items[5].text())
+        grid_cells.append(dict(y0=y0, y1=y1, x0=x0, x1=x1, L=Lv, t=tv))
+    return None, {'cells': grid_cells, 'tpms_type': tpms_type, 'k_s': k_s}

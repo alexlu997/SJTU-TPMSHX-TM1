@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
 )
 
-from .theme import FIELD_CMAP, get_theme
+from .theme import get_theme, resolve_cmap
 from .matplotlib_canvas import MatplotlibCanvas
 
 
@@ -219,7 +219,7 @@ class SensitivityDialog(QDialog):
                 return
             self._hint.setText(_SCOPE_NOTE)
             if key_x == key_y:
-                self._window.statusBar().showMessage("Sweep axes must differ.", 5000)
+                self._window.dialogs.notify("扫描轴不能相同。", kind="warn", duration_ms=5000)
                 return
             fixed = self._collect_fixed_params((key_x, key_y))
         except ValueError as exc:
@@ -262,8 +262,7 @@ class SensitivityDialog(QDialog):
                 # Pump the event loop after each row so the dialog repaints
                 # and stays responsive on large N.
                 try:
-                    self._window.statusBar().showMessage(
-                        f"Sensitivity sweep … row {i + 1}/{n}", 2000)
+                    self._hint.setText(f"正在扫描第 {i + 1}/{n} 行…")
                     _QApp.processEvents()
                 except Exception:
                     pass
@@ -283,14 +282,14 @@ class SensitivityDialog(QDialog):
             'fixed': fixed,
         }
         self._plot()
+        self._hint.setText(_SCOPE_NOTE)
         # Surface sweep failures explicitly (#4).
         if _fail_n:
-            try:
-                self._window.statusBar().showMessage(
-                    f"Sensitivity sweep: {_fail_n}/{n * n} points failed "
-                    f"(shown as blank cells). First error: {_fail_msg}", 10000)
-            except Exception:
-                pass
+            self._window.dialogs.notify(
+                f"参数扫描有 {_fail_n}/{n * n} 个点失败（以空白显示）：{_fail_msg}",
+                kind="warn",
+                duration_ms=8000,
+            )
 
     def _plot(self):
         if self._grid_params is None:
@@ -307,7 +306,7 @@ class SensitivityDialog(QDialog):
         self._grid_axes = ax
         ax.set_facecolor(t['ax_bg'])
 
-        im = ax.pcolormesh(xs, ys, grid, shading='nearest', cmap=FIELD_CMAP)
+        im = ax.pcolormesh(xs, ys, grid, shading='nearest', cmap=resolve_cmap('design'))
         try:
             levels = np.linspace(np.nanmin(grid), np.nanmax(grid), 8)
             ax.contour(xs, ys, grid, levels=levels, colors='white',
@@ -361,16 +360,7 @@ class SensitivityDialog(QDialog):
             self._hint.setText(f"Cannot load: {exc} " + _SCOPE_NOTE)
             return
         vx = float(xs[i]); vy = float(ys[j])
-        # 2026-05-20 UI sweep (Tier 24): a picked design changes the input
-        # fields, so the previous compute result is now stale. Invalidate
-        # it up front (same helper the preset / recent-run paths use), so
-        # the result tabs disable and the user is not left looking at the
-        # old plots beside the new inputs.
-        if hasattr(self._window, '_invalidate_results_for_preset_load'):
-            try:
-                self._window._invalidate_results_for_preset_load()
-            except Exception:
-                pass
+        self._window.case_files.invalidate_results_for_preset_load()
         # Write the picked params into the matching left-panel fields.
         attr_map = {'L_cell': 'le_Lcell', 't': 'le_t', 'u_A': 'le_uA'}
         for key, val in ((gp['key_x'], vx), (gp['key_y'], vy)):
@@ -387,9 +377,11 @@ class SensitivityDialog(QDialog):
                     le.editingFinished.emit()
                 except Exception:
                     pass
-        self._window.statusBar().showMessage(
-            f"Loaded {gp['key_x']}={vx:.3g}, {gp['key_y']}={vy:.3g}. "
-            "Close this dialog and click Compute.", 6000)
+        self._window.dialogs.notify(
+            f"已载入 {gp['key_x']}={vx:.3g}, {gp['key_y']}={vy:.3g}，关闭弹窗后即可计算。",
+            kind="info",
+            duration_ms=6000,
+        )
 
 
 def open_sensitivity(window):

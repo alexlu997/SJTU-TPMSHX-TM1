@@ -8,14 +8,14 @@
 ## Requirements
 
 ### Requirement: Workbench navigation and quick design
-顶部 SHALL 提供“工况设置／场图结果／优化设计”三个工作台入口，以及独立的“快速设计”入口。温度、压力、速度和三维内部路由由 `python/applications/gui/ui/mixins/tab_view.py` 解析，不依赖隐藏按钮对象；有受支持结果时 SHALL 启用“场图结果”。
+顶部 SHALL 提供“工况设置／场图结果／优化设计”三个工作台入口。“快速设计” SHALL 在主窗口中打开页面，切换页面时保留运行中的任务和结果。温度、压力、速度和三维内部路由由 `python/applications/gui/ui/workbench.py` 解析，不依赖隐藏按钮对象。有受支持结果时 SHALL 启用“场图结果”。
 
 #### Scenario: Field routing preserves result navigation
-- **WHEN** 计算完成后调用 `_switch_tab('temp')` 等字段路由
+- **WHEN** 计算完成后调用 `Workbench.switch_tab('temp')` 等字段路由
 - **THEN** “场图结果”入口激活并显示对应字段
 
 ### Requirement: Field and volume views
-结果页 SHALL 提供“场图／三维”段控：场图态选择温度、速度或压力及相位；三维态显示体渲染面板。段控只改变显示方式，不改变计算维度。不可用侧 SHALL 禁用，例如二维计算后的三维视图；三维计算完成后仅在面板成功接收结果时进入三维态。
+结果页 SHALL 提供“场图／三维”段控：场图态选择温度、速度或压力及相位；三维态显示三维视图面板，提供统一底部工具栏（不含剖切）、默认“外表面”显示、三正交“截面”、“体渲染”不透明度调节、悬浮色标卡与端口标签，以及供 `ResultExport` 复制与保存共用的单一场景与叠加层合成捕获。预设视角过渡 SHALL 共用 `microanim.py` 的减动效决策。段控只改变显示方式，不改变计算维度。不可用侧 SHALL 禁用，例如二维计算后的三维视图；三维计算完成后仅在面板成功接收结果时进入三维态。
 
 #### Scenario: Unavailable volume does not imply failed field results
 - **WHEN** 三维数据存在但体渲染面板不可用

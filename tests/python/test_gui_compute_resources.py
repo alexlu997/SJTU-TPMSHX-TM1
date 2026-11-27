@@ -1,6 +1,7 @@
 """Native resource controls preserve inputs and reach each desktop worker."""
 from dataclasses import asdict, replace
 import threading
+from types import SimpleNamespace
 
 import pytest
 
@@ -14,8 +15,8 @@ def test_cpu_budget_updates_consumers_without_changing_case_or_result(win, tmp_p
     library = tmp_path / 'solver-library'
     win.run_control = replace(win.run_control, native_library=str(library),
                               native_table_directory=str(tmp_path / 'tables'))
-    win._open_quick_design()
-    win.write_result(_result('2d'))
+    win.workbench.show_quick_design()
+    win.results.publish(_result('2d'))
     accepted = win.cache.get_result('2d')
     config = asdict(config_from_window(win))
     for count in (1, 0, 1):
@@ -23,7 +24,6 @@ def test_cpu_budget_updates_consumers_without_changing_case_or_result(win, tmp_p
         assert win.run_control.backend == 'cpp'
         assert win.run_control.cpu_threads == (count or None)
         assert win.run_control.native_library == str(library)
-        assert win._qd_dialog.run_control is win.run_control
         assert win.cache.get_result('2d') is accepted
         assert asdict(config_from_window(win)) == config
 
@@ -31,14 +31,13 @@ def test_cpu_budget_updates_consumers_without_changing_case_or_result(win, tmp_p
 @pytest.mark.parametrize('kind', ['compute', 'optimize', 'quick_design'])
 def test_native_control_reaches_workers_and_stays_locked_through_cancel(
         win, tmp_path, monkeypatch, kind):
-    from sjtu_tpmshx.applications.gui.ui import optimize_panel, quick_design_panel
+    from sjtu_tpmshx.applications.gui.ui import optimize_panel, single_run
     from sjtu_tpmshx.applications.gui.ui.background_tasks import has_active_tasks
-    from sjtu_tpmshx.applications.gui.ui.mixins import run_controller
 
     library = tmp_path / 'solver-library'
     library.touch()
     win.run_control = replace(win.run_control, native_library=str(library))
-    win._open_quick_design()
+    win.workbench.show_quick_design()
     win.spin_cpu_cores.setValue(1)
     entered, release = threading.Event(), threading.Event()
     controls = []
@@ -50,35 +49,37 @@ def test_native_control_reaches_workers_and_stays_locked_through_cancel(
         raise CancelledError('test cancelled')
 
     if kind == 'compute':
-        monkeypatch.setattr(win, '_preflight_grid', lambda config: True)
-        monkeypatch.setattr(run_controller, '_run_compute', held)
-        win.run_calculation()
-        cancel = win.compute.cancel
+        monkeypatch.setattr(win.single_run, 'preflight_grid', lambda config: True)
+        monkeypatch.setattr(single_run, '_run_compute', held)
+        win.single_run.submit()
+        cancel = win.single_run.compute.cancel
     elif kind == 'optimize':
         monkeypatch.setattr(
             'sjtu_tpmshx.applications.optimization.multi_condition_optimizer.run_multi_condition_optimization', held)
         monkeypatch.setattr(optimize_panel, 'optimization_output_dir', lambda: tmp_path)
         win.combo_dim.setCurrentIndex(0)
-        win._opt_conditions = [dict(condition_id='selector', T_in_A_K=400., P_in_A_Pa=130000.,
+        win.optimization.conditions = [dict(condition_id='selector', T_in_A_K=400., P_in_A_Pa=130000.,
             mass_flow_A_kg_s=.003, T_in_B_K=295., P_in_B_Pa=120000., mass_flow_B_kg_s=.015)]
-        optimize_panel.run_optimize(win)
-        cancel = lambda: optimize_panel.cancel_optimize(win)
+        win.optimization.start()
+        cancel = win.optimization.cancel
     else:
-        monkeypatch.setattr('sjtu_tpmshx.applications.design.cases.load_cases', lambda _: ['case'])
+        monkeypatch.setattr('sjtu_tpmshx.applications.design.cases.load_cases', lambda _: [SimpleNamespace(case='A', dPlim_h=.05, dPlim_c=.06)])
         monkeypatch.setattr('sjtu_tpmshx.applications.design.sizing.size_fixed_cell', held)
-        dialog = win._qd_dialog
-        dialog.le_qd_file.setText('not-read.xlsx')
-        dialog.combo_qd_mode.setCurrentIndex(dialog.combo_qd_mode.findData('fixed'))
-        quick_design_panel.run_quick_design(dialog)
-        cancel = lambda: quick_design_panel.cancel_quick_design(dialog)
+        page = win.quick_design
+        page.le_qd_file.setText('not-read.xlsx')
+        page.combo_qd_mode.setCurrentIndex(page.combo_qd_mode.findData('fixed'))
+        page.submit()
+        cancel = page.cancel
     try:
         assert entered.wait(5)
         assert controls[0].backend == 'cpp' and controls[0].native_library == str(library)
-        assert controls[0].cpu_threads == win._qd_dialog.run_control.cpu_threads == 1
+        assert controls[0].cpu_threads == win.run_control.cpu_threads == 1
         assert not win.spin_cpu_cores.isEnabled()
         assert has_active_tasks(win)
+        win.spin_cpu_cores.setValue(0)
+        assert win.run_control.cpu_threads == win.spin_cpu_cores.value() == 1
         cancel()
-        assert win.run_control.backend == win._qd_dialog.run_control.backend == 'cpp'
+        assert win.run_control.backend == 'cpp'
         assert not win.spin_cpu_cores.isEnabled()
     finally:
         release.set()

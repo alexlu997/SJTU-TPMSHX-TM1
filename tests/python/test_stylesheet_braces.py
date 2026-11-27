@@ -47,9 +47,9 @@ def test_main_menu_no_qt_parse_warnings(tmp_path, monkeypatch):
         _app = QApplication.instance() or QApplication(sys.argv)
         from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
         w = Main_Menu()
-        assert w.sm.base_dir == tmp_path
+        assert w.case_files.store.base_dir == tmp_path
         w.close()
-        assert w.sm.session_path(w._active_workspace).is_file()
+        assert w.case_files.store.session_path(w.case_files.active_workspace).is_file()
         w.deleteLater()
     finally:
         qInstallMessageHandler(previous_handler)

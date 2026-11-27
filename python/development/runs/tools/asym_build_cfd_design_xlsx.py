@@ -133,7 +133,7 @@ def build():
         ("     results_template 首行为标准 7 列表头，保留列名；对称 r=1 行的 K_cfd/cF_cfd 应与 baseline 比较以验证 CFD setup。", None),
         ("  5. ingest 仅当前进程注册；研究代码可显式调用 kappa_KcF(..., enabled=True) 求值，尚未接入正式求解准备。", None),
         ("  后续接入验收: 固定代码版本、输入及网格，配对比较 κ 关闭/开启时 δ=0 的结果，保留差异及原验收门槛。", None),
-        ("  历史记录: 9.82/3.20 属 2026-06-12 gamma_df 上海 3D 记录，见 tests/test_shanghai_regression.py；不是当前固定精度目标。", None),
+        ("  历史记录: 9.82/3.20 属 2026-06-12 gamma_df 上海 3D 记录，见 tests/python/validation_tm1/test_shanghai_regression.py；不是当前固定精度目标。", None),
         ("", None),
         (f"  Um 名义流体 (仅给入口速度): air ρ={AIR['rho']}/μ={AIR['mu']}, water ρ={WATER['rho']}/μ={WATER['mu']}；κ 跨流体使用需验证。", None),
         ("  Um = Re·μ/(ρ·D_h)。黄色单元格 = 待 CFD 填。绿色行 = 对称锚 (r=1)。", None),

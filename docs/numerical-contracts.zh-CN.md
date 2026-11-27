@@ -145,7 +145,7 @@ Python 仅绑定保存态阶段生命周期：`full_2d_stage.py`（二维保存�
 ## 持久化接口与物理状态
 
 - **`CaseData`、`FieldResult`、`PerformanceResult`**：跨阶段契约的数组保持分离且只读；仅更新元数据时可共享连续只读字节缓冲并创建独立数组头。`data_types.metric_spec` 在 JSON、GUI 与多工况聚合间强制指标族、单位与定义版本一致。
-- **显示别名（`postprocess.result_display`）**：无 Qt 依赖的数据模块，拥有场单位、坐标轴、二维显示别名与分区统计。温度与压力别名保留原始单元值；三维显示别名共享不可变缓冲。
+- **显示契约（`postprocess.result_display`）**：无 Qt 依赖的数据模块，拥有场单位、坐标轴、二维显示别名、分区统计、外推水印格式化以及 `RESULT_FIELD_SPECS`（规范标量键、物理量、相、符号、存储／显示单位及默认色阶：温度 `coolwarm`、速度与压力 `viridis`、几何设计 `turbo`）。温度与压力别名保留原始单元值；三维显示别名共享不可变缓冲。绝对压力场在 GUI 显示边界由 Pa 换算为 kPa，同时保持 ΔP、原始数组与导出键不变。
 - **公共热学与压降定义**：完整热学指标采用 `native_boundary_v1`（`Q` 为主网格 `abs(Q_A)`，`Q_A`/`Q_B` 为有符号放热量，出口温度按质量通量加权，二维 Richardson 换热量另记为 `Q_richardson_A/B`）。完整压降采用 `pressure_face_v1`（最终 SIMPLE 压力外推至物理进出口面并按几何开口面积加权）。
 - **空气入口压力打靶（`numerics/pressure_reference.cpp`）**：以有界 `P^2` 更新迭代出口单元基准，直至物理入口开口面积平均压力与 `P_in` 相对误差不超过 `1e-4`。显式 `p_in_shooting = False` / `TPMSHX_P_IN_SHOOT = 0` 仅为诊断开关，不能证明收敛。不可压路线直接将物理入口面开口面积平均锚定到 `P_in`。
 - **二维入口分布（`PartialBCConfig.uniform_inlet_2d`）**：采用无历史四格过渡的几何重叠分布。桌面端固定为 `True`；脚本 API 设为 `False` 时保留历史过渡分布。
@@ -190,7 +190,7 @@ nTop CSV 导出写出 XY 或 XYZ 坐标及完整控制点来源。
 - **用户存储与启动**：`python/applications/gui/controllers/user_storage.py` 使用临时文件原子替换在平台用户目录保存偏好、会话与历史。`python/desktop.py` 在加载 Qt 前配置可写缓存。已有会话恢复完整输入快照；上海默认配置仅用于新建工作区。
 - **预检与退役设置**：点击计算前先捕获一份 `ComputeConfig` 供网格预检、速度建议、三维规模确认与后台工作线程共用。预检与前处理共享 `python/physical_models/grid.py`。已退役的 `wall_refine_3d`（额外六壁面加层）在开启时拒绝新前处理；`ComputeConfig.from_dict(..., prepared_grid=True)` 用于重放、续算与几何导出（见[退役记录](history/README.md#six-wall-grid-retirement)）。已保存的多边形预设被拒绝。
 - **预设与局部导入**：复制为 Python、可复现链接、菜单载入与拖放共用同一预设解码器。未包装的 `line_edits` 与旧扁平配置仅将提供字段合入当前捕获输入后再做跨字段校验。
-- **工作台模块**：`builders_canvas.py` 组装工作台；`mixins/tab_view.py` 负责标签页路由；`panel_vis_3d.py` 负责 PyVista 渲染（单元中心加边界点）；`background_tasks.py` 在窗口拥有的单个 QThread 中准备三维模块，同时将控件／Matplotlib／OpenGL 保留在 GUI 线程；`field_factory.py` 负责数值标签；`fmt.py` 格式化资格原因；`typography.py` 选择系统无衬线 Qt 字体与出版级 Matplotlib/VTK 字体。
+- **工作台模块**：`builders_canvas.py` 组装工作台；`workbench.py` 负责标签页路由；`panel_vis_3d.py`（配合 `volume_toolbar.py` 与 `volume_overlays.py`）负责 PyVista 三维渲染（单元中心加边界点、默认外表面、三正交截面、体渲染不透明度、悬浮色标卡与端口标签，以及供 `result_export.py` 复制与保存共用的单一合成捕获）；`background_tasks.py` 在工作台拥有的单个 QThread 中准备三维模块，同时将控件／Matplotlib／OpenGL 保留在 GUI 线程；`field_factory.py` 负责数值标签；`fmt.py` 格式化资格原因；`typography.py` 选择系统无衬线 Qt 字体与出版级 Matplotlib/VTK 字体。
 - **结果缓存与导出**：`ResultCache` 为当前维度持有一份已发布的 `ComputeResult`；失败或取消的尝试保留先前已接受结果。三维 NPZ 导出包含温度（K）、速度分量与幅值（m/s）、显示压力 `P_fA`/`P_fB`（Pa）、`L_mm`/`t_mm`（mm）、`dx`/`dy`/`dz`（m）及历史别名 `vmag`/`P_kPa`。
 - **可恢复验证 CLI**：`development.validation.cases.validate_sco2_exp_q` 冻结所选成员，每成员完成后原子发布 `partial.csv` 与 `state.json`，支持基于一致已验证输入的 `--resume-run`，取消时返回退出码 130。
 

@@ -1,6 +1,6 @@
 """Current 2D/3D results and rendered-tab state for the GUI.
 
-Window consumers use this store directly. RunHistoryMixin owns recent-run
+Window consumers use this store directly. ``RunHistory`` owns recent-run
 snapshots and their menu.
 """
 from __future__ import annotations

@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 
 @pytest.fixture
 def win(tmp_path, monkeypatch):
+    from sjtu_tpmshx.applications.gui.controllers import user_storage
     from sjtu_tpmshx.applications.gui.controllers.session_manager import SessionManager
     from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
 
@@ -20,6 +21,7 @@ def win(tmp_path, monkeypatch):
         original_init(self, base_dir=base_dir or tmp_path, parent=parent)
 
     monkeypatch.setattr(SessionManager, '__init__', local_session)
+    monkeypatch.setattr(user_storage, '_appearance_dir', lambda: tmp_path)
     window = Main_Menu()
     window.showNormal()
     window.resize(1300, 760)
@@ -44,6 +46,11 @@ def _result(mode):
                       vmag_B=np.sqrt(fields['ucB']**2 + fields['vcB']**2 + (raw + 6.)**2),
                       dx=fields['dx_arr'], dy=fields['dy_arr'],
                       dz=np.array([.001, .002, .007]),
-                      Lx=.04, Ly=.03, Lz=.01, L_mm=np.full(shape, 7.))
+                      Lx=.04, Ly=.03, Lz=.01,
+                      L_mm=np.full(shape, 7.), t_mm=np.full(shape, .5))
+    else:
+        fields.update(vmag_A=np.hypot(fields['ucA'], fields['vcA']),
+                      vmag_B=np.hypot(fields['ucB'], fields['vcB']))
     return ComputeResult(Q_W=20., dP_A_Pa=10., dP_B_Pa=8.,
-                         diagnostics={'mode': mode}, fields=fields)
+                         diagnostics={'mode': mode}, fields=fields,
+                         metadata={'tpms': 'Gyroid', 'delta_levelset': 0.0})

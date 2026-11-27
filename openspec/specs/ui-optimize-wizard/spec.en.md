@@ -8,10 +8,10 @@ The optimization wizard has Configure, Run, and Results pages. Stage buttons sel
 ## Requirements
 
 ### Requirement: Three-page wizard
-Optimization MUST use a three-page QStackedWidget: Configure, Run, and Results. Stage indicators MUST allow page selection. `_set_stage_pill(key,'active')` MUST select the corresponding page. Existing engine transitions control navigation: start selects Run, completion selects Results, and errors select Configure.
+Optimization MUST use a three-page QStackedWidget: Configure, Run, and Results. Stage indicators MUST allow page selection. `OptimizationPage.set_stage(key,'active')` MUST select the corresponding page. Existing engine transitions control navigation: start selects Run, completion selects Results, and errors select Configure.
 
 #### Scenario: Engine drives pages
-- **WHEN** `_set_stage_pill('running','active')` runs
+- **WHEN** `OptimizationPage.set_stage('running','active')` runs
 - **THEN** the current stack page is 1, Run
 
 ### Requirement: Inline BO parameters
@@ -27,6 +27,10 @@ The Search Space card MUST give continuous-field L/t ranges and show the current
 #### Scenario: Zone panel relocated
 - **WHEN** the configuration page is inspected
 - **THEN** `_zone_panel` is in the single-case zone card. Optimization search space is separate, and Start is visible without scrolling.
+
+### Requirement: Design selection and baseline evidence
+
+Selecting a Pareto point MUST select the design and preview its continuous field. Only Load Selected Design applies it to the case. Results MUST show the reason for a failed baseline. The 2D study MUST have its own total-flow depth.
 
 ### Requirement: Constrained core mass
 Imported condition JSON can supply `mass_requirements`: solid density, minimum heat duty, and both maximum pressure drops for every condition.
