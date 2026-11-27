@@ -70,14 +70,14 @@ def test_cli_refined_best_and_both_export_sheets(monkeypatch, tmp_path, capsys, 
     assert cli.run(['--xlsx', 'unused', '--out', str(path), '--refine']) == 0
     output = capsys.readouterr().out
     assert 'best (min-V): Diamond_l4_t0.5' in output
-    assert '[工况 2] final case 2, cell 4.0' in output
+    assert '[算例 2] final case 2, cell 4.0' in output
     wb = openpyxl.load_workbook(path)
-    for name in ('构型汇总', '工况明细'):
+    for name in ('构型汇总', '算例明细'):
         rows = list(wb[name].values)
         col = rows[0].index('警告')
         assert any('final case 2, cell 4.0' in str(row[col]) for row in rows[1:])
-    assert 'discarded search' not in str(list(wb['工况明细'].values))
-    rows = list(wb['工况明细'].values)
+    assert 'discarded search' not in str(list(wb['算例明细'].values))
+    rows = list(wb['算例明细'].values)
     detail = dict(zip(rows[0], rows[-1]))
     assert detail['热流体'] == hot_fluid
     assert detail['热侧出口_K'] == 400.

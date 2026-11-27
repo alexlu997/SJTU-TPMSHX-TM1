@@ -139,6 +139,12 @@ def build_ui(window):
     drawer = build_param_tabs(window)
     window.optimization = OptimizationPage(window)
     window.quick_design = QuickDesignPage(window)
+    for title_text, tab_body in window.optimization.drawer_tabs():
+        drawer.add_tab(title_text, tab_body)
+    for title_text, tab_body in window.quick_design.drawer_tabs():
+        drawer.add_tab(title_text, tab_body)
+    window.appearance._active_drawer_page = None
+    window.appearance.sync_drawer_visibility()
     canvas = build_canvas_area(window)
     window._workbench_canvas = canvas
 
@@ -224,7 +230,12 @@ def build_ui(window):
     btn_run_info.clicked.connect(lambda: _open_run_info_popover(window))
     window.btn_run_info = btn_run_info
     h_lay.addWidget(btn_run_info)
-    refresh_header_status(window)
+
+    opt_badge, opt_resume, opt_pause, opt_cancel, opt_start = window.optimization.header_widgets()
+    qd_badge, qd_export, qd_cancel, qd_run = window.quick_design.header_widgets()
+    for badge in (opt_badge, qd_badge):
+        badge.hide()
+        h_lay.addWidget(badge)
 
     h_lay.addStretch(1)
 
@@ -253,6 +264,14 @@ def build_ui(window):
     window.btn_export.apply_button_style(t.style("BTN_SECONDARY"))
     window.btn_export.hide()
     h_lay.addWidget(window.btn_export)
+
+    for action_btn in (opt_resume, opt_pause, opt_cancel, opt_start, qd_export, qd_cancel, qd_run):
+        action_btn.hide()
+        h_lay.addWidget(action_btn)
+
+    window.optimization.attach_to_shell()
+    window.quick_design.attach_to_shell()
+    refresh_header_status(window)
 
     btn_drawer = QPushButton("检查器")
     btn_drawer.setCheckable(True)
@@ -349,6 +368,31 @@ def build_ui(window):
                 dots["result"] = "warn"
             else:
                 dots["result"] = "ok"
+        opt_rep = getattr(window.optimization, "report", None)
+        if not window.optimization.is_idle():
+            dots["opt"] = "run"
+        elif isinstance(opt_rep, dict):
+            opt_status = opt_rep.get("status")
+            baseline_failed = (opt_rep.get("baseline") or {}).get("status") == "failed"
+            if baseline_failed or opt_status == "failed":
+                dots["opt"] = "err"
+            elif opt_status in ("cancelled", "paused"):
+                dots["opt"] = "warn"
+            elif opt_rep.get("n_usable", 0) > 0:
+                dots["opt"] = "ok"
+        if not window.quick_design.is_idle():
+            dots["qd"] = "run"
+        else:
+            qd_res = getattr(window.quick_design, "last_result", None)
+            if isinstance(qd_res, dict):
+                if qd_res.get("partial") and qd_res.get("termination_reason") == "failed":
+                    dots["qd"] = "err"
+                elif qd_res.get("partial"):
+                    dots["qd"] = "warn"
+                elif qd_res.get("feasible"):
+                    dots["qd"] = "ok"
+                elif qd_res.get("all"):
+                    dots["qd"] = "warn"
         nav_rail.set_status_dots(dots)
 
         page_meta: dict[str, tuple[str | None, str]] = {}
@@ -359,16 +403,18 @@ def build_ui(window):
                 dots.get("result"),
                 str(d.get("mode", "")).upper(),
             )
-        opt_rep = getattr(window.optimization, "report", None)
         if not window.optimization.is_idle():
             page_meta["opt"] = ("run", "搜索中")
         elif isinstance(opt_rep, dict):
+            baseline_failed = (opt_rep.get("baseline") or {}).get("status") == "failed"
             n_feas = opt_rep.get("n_feasible")
             n_tot = len(opt_rep.get("history") or ())
-            if isinstance(n_feas, int) and n_feas > 0:
+            if baseline_failed or opt_rep.get("status") == "failed":
+                page_meta["opt"] = ("err", "基准失败" if baseline_failed else "失败")
+            elif isinstance(n_feas, int) and n_feas > 0:
                 page_meta["opt"] = ("ok", f"{n_feas} 可行")
             elif n_tot > 0:
-                page_meta["opt"] = ("warn", f"{n_tot} 方案")
+                page_meta["opt"] = (dots.get("opt") or "ok", f"{n_tot} 方案")
         if not window.quick_design.is_idle():
             page_meta["qd"] = ("run", "筛选中")
         else:
@@ -377,7 +423,7 @@ def build_ui(window):
                 feasible = qd_res.get("feasible") or ()
                 all_cands = qd_res.get("all") or ()
                 if feasible:
-                    page_meta["qd"] = ("ok", f"{len(feasible)} 可行")
+                    page_meta["qd"] = (dots.get("qd") or "ok", f"{len(feasible)} 可行")
                 elif all_cands:
                     page_meta["qd"] = ("warn", "0 可行")
         expanded.set_page_meta(page_meta)

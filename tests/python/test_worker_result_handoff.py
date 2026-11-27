@@ -713,7 +713,7 @@ def test_auxiliary_task_close_keeps_thread_until_run_returns(win, monkeypatch, t
     else:
         owner = win.quick_design
         owner.le_qd_file.setText('not-read.xlsx')
-        owner.combo_qd_mode.setCurrentIndex(owner.combo_qd_mode.findData('fixed'))
+        owner.mode_selector.set_value('fixed')
         attr = '_worker'
         owner.submit()
     worker = getattr(owner, attr)
@@ -745,7 +745,7 @@ def test_quick_design_page_keeps_its_job_across_navigation(win, monkeypatch):
     monkeypatch.setattr('sjtu_tpmshx.applications.design.sizing.size_fixed_cell', candidate)
     page = win.quick_design
     page.le_qd_file.setText('unused.xlsx')
-    page.combo_qd_mode.setCurrentIndex(page.combo_qd_mode.findData('fixed'))
+    page.mode_selector.set_value('fixed')
     win.workbench.show_quick_design()
     page.submit()
     try:

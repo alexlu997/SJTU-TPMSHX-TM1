@@ -90,8 +90,8 @@ def run(argv=None) -> int:
         raise
     from .report import write_xlsx, cid, warning_text  # CLI/UI 共用
     n_total, n_feas, n_det = write_xlsx(a.out, results)
-    print(f"[written] {a.out}  构型 {n_total} (可行 {n_feas}) × 工况 {len(cases)} "
-          f"→ 工况明细 {n_det} 行 (sheet: 构型汇总 / 工况明细)")
+    print(f"[written] {a.out}  构型 {n_total} (可行 {n_feas}) × 算例 {len(cases)} "
+          f"→ 算例明细 {n_det} 行 (sheet: 构型汇总 / 算例明细)")
     if best is not None:
         best_h = getattr(best, "height", 0.0) or best.s
         print(f"best (min-V): {cid(best)}  "
