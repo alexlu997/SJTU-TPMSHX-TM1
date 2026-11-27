@@ -10,7 +10,7 @@ import numpy as np
 
 from sjtu_tpmshx.model_configs.model_parameters import load_model_parameters
 from sjtu_tpmshx.cpp_interface import _native_geometry
-from sjtu_tpmshx.cpp_interface._native_values import TOPOLOGIES
+from sjtu_tpmshx.cpp_interface._native_values import TOPOLOGIES, real_array
 
 
 _GEOMETRY_KEYS = ('epsilon', 'epsilon_A', 'epsilon_B', 'A_0', 'D_h')
@@ -24,6 +24,34 @@ def _phi_grid(tpms_type: str, N: int):
 
 _phi_grid.cache_clear = _native_geometry._cached_phi.cache_clear
 _phi_grid.cache_info = _native_geometry._cached_phi.cache_info
+
+
+def lattice_cell_size(L_mm) -> tuple[float | None, str | None]:
+    """Return the common cell length in mm or the reason that the lattice is unavailable."""
+    cells = real_array(L_mm, name='L_mm')
+    if not cells.size or cells.min() <= 0.:
+        raise ValueError('L_mm must contain positive cell lengths')
+    cell = float(cells.flat[0])
+    if np.any(cells != cell):
+        return None, 'The lattice phase rule for graded L is undefined.'
+    return cell, None
+
+
+def signed_wall_grid(
+    tpms_type: str, L_mm, box_mm, sample_counts, t_mm, delta=0.,
+) -> tuple[dict[str, np.ndarray] | None, str | None]:
+    """Return (samples, None) for uniform L or (None, reason) for graded L.
+
+    Each axis runs from zero to its box length in mm and includes both faces.
+    Supply t_mm and delta as scalars or as arrays with sample_counts shape in (x, y, z) order.
+    The owned arrays phi, lower (delta - C) and upper (delta + C) have that shape.
+    C is the calibrated threshold at t_mm / L_mm. Fluid A has phi < lower.
+    Fluid B has phi > upper. Both limits belong to the solid.
+    """
+    cell, reason = lattice_cell_size(L_mm)
+    if reason is not None:
+        return None, reason
+    return _native_geometry.signed_wall_grid(tpms_type, cell, box_mm, sample_counts, t_mm, delta), None
 
 
 def _C_from_tL(tpms_type: str, t_over_L: float | np.ndarray):

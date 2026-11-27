@@ -96,7 +96,7 @@ def test_window_close_cleans_both_volume_plotters_and_their_popups(win):
     for owner, name in ((win, 'canvas_3d'), (win.optimization, 'volume_panel')):
         popup = QDialog(win)
         popup.show()
-        panel = SimpleNamespace(_popup_dialogs=[popup], _stop_camera_tween=Mock(),
+        panel = SimpleNamespace(_popup_dialogs=[popup], _stop_camera_tween=Mock(), _lattice=Mock(),
                                 plotter=Mock(), color_range_state=lambda: {'mode': 'global', 'ranges': {}})
         panel.cleanup = MethodType(ThreeDVisPanel.cleanup, panel)
         setattr(owner, name, panel)
@@ -106,6 +106,7 @@ def test_window_close_cleans_both_volume_plotters_and_their_popups(win):
     for panel, popup in zip(panels, popups):
         panel.plotter.close.assert_called_once_with()
         panel._stop_camera_tween.assert_called_once_with()
+        panel._lattice.close.assert_called_once_with()
         assert panel._popup_dialogs == [] and not popup.isVisible()
 
 

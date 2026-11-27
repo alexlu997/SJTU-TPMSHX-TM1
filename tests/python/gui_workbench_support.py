@@ -53,4 +53,5 @@ def _result(mode):
                       vmag_B=np.hypot(fields['ucB'], fields['vcB']))
     return ComputeResult(Q_W=20., dP_A_Pa=10., dP_B_Pa=8.,
                          diagnostics={'mode': mode}, fields=fields,
-                         metadata={'tpms': 'Gyroid', 'delta_levelset': 0.0})
+                         metadata={'tpms': 'Gyroid', 'delta_levelset': 0.0,
+                                   'source_result_id': 'workbench-sample'})

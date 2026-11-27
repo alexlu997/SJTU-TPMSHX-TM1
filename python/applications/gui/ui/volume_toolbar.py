@@ -22,7 +22,6 @@ from .theme import get_theme
 GEOMETRY_MODES: tuple[str, ...] = ("simple", "lattice")
 DISPLAY_MODES: tuple[str, ...] = ("surface", "slice", "volume")
 DETAIL_LEVELS: tuple[str, ...] = ("low", "medium", "high")
-PHASE_DOMAINS: tuple[str, ...] = ("A", "B", "S")
 CAMERA_PRESETS: tuple[str, ...] = ("xy", "xz", "yz", "iso")
 
 _GEOMETRY_OPTIONS: tuple[tuple[str, str], ...] = (
@@ -38,11 +37,6 @@ _DETAIL_OPTIONS: tuple[tuple[str, str], ...] = (
     ("low", "低"),
     ("medium", "中"),
     ("high", "高"),
-)
-_PHASE_OPTIONS: tuple[tuple[str, str], ...] = (
-    ("A", "流体 A"),
-    ("B", "流体 B"),
-    ("S", "固体"),
 )
 _CAMERA_OPTIONS: tuple[tuple[str, str], ...] = (
     ("xy", SYM["xy"]),
@@ -238,9 +232,6 @@ class _SegmentedGroup(QWidget):
     def set_option_enabled(self, key: str, enabled: bool, tooltip: str = "") -> None:
         self._buttons[key].set_option_enabled(enabled, tooltip)
 
-    def set_option_visible(self, key: str, visible: bool) -> None:
-        self._buttons[key].setVisible(visible)
-
     def button(self, key: str) -> _SegmentButton:
         return self._buttons[key]
 
@@ -272,8 +263,7 @@ class VolumeToolbar(QFrame):
     - Always first: ``几何 [简化 | 晶格]``
     - In ``simple`` mode: ``显示 [外表面 | 截面 | 体渲染]``, followed by
       ``截面 x/y/z mm`` only for ``slice`` or ``不透明度`` only for ``volume``.
-    - In ``lattice`` mode: ``细节 [低 | 中 | 高]``, followed by ``相 [流体 A | 流体 B | 固体]``
-      when ``show_phase_selector`` is True.
+    - In ``lattice`` mode: ``细节 [低 | 中 | 高]``.
     - Always last: ``视角 [xy | xz | yz | 等轴]``
 
     Groups that do not apply to the active mode are hidden, never disabled.
@@ -284,7 +274,6 @@ class VolumeToolbar(QFrame):
     slice_position_changed = Signal(float, float, float)
     opacity_changed = Signal(float)
     detail_level_changed = Signal(str)
-    phase_changed = Signal(str)
     camera_preset_requested = Signal(str)
     layout_changed = Signal()
 
@@ -299,9 +288,6 @@ class VolumeToolbar(QFrame):
         ) = None,
         opacity: float = 0.25,
         detail_level: str = "medium",
-        phase: str = "A",
-        available_phases: Sequence[str] = PHASE_DOMAINS,
-        show_phase_selector: bool = True,
         camera_preset: str | None = "iso",
         lattice_enabled: bool = True,
         lattice_disabled_reason: str = "",
@@ -312,7 +298,6 @@ class VolumeToolbar(QFrame):
         self._validate_choice(geometry_mode, GEOMETRY_MODES, "geometry_mode")
         self._validate_choice(display_mode, DISPLAY_MODES, "display_mode")
         self._validate_choice(detail_level, DETAIL_LEVELS, "detail_level")
-        self._validate_choice(phase, PHASE_DOMAINS, "phase")
         if camera_preset is not None:
             self._validate_choice(camera_preset, CAMERA_PRESETS, "camera_preset")
 
@@ -327,8 +312,6 @@ class VolumeToolbar(QFrame):
         self._slice_xyz_mm = self._clamp_slice(slice_xyz_mm)
         self._opacity = self._clamp_opacity(opacity)
         self._detail_level = detail_level
-        self._phase = phase
-        self._show_phase_selector = show_phase_selector
         self._lattice_enabled = lattice_enabled
         self._lattice_disabled_reason = lattice_disabled_reason
         if not lattice_enabled and self._geometry_mode == "lattice":
@@ -385,16 +368,6 @@ class VolumeToolbar(QFrame):
         self._sep_detail = self._make_sep()
         layout.addWidget(self._sep_detail)
 
-        # 3b. Lattice phase choice group
-        self._phase_group = _SegmentedGroup(
-            "相", _PHASE_OPTIONS, self._phase, self._tokens
-        )
-        self._phase_group.option_activated.connect(self._on_phase_activated)
-        layout.addWidget(self._phase_group)
-
-        self._sep_phase = self._make_sep()
-        layout.addWidget(self._sep_phase)
-
         # 4. Camera preset group (always visible, always last)
         self._camera_group = _SegmentedGroup(
             "视角",
@@ -412,10 +385,8 @@ class VolumeToolbar(QFrame):
             self._sep_slice,
             self._sep_opacity,
             self._sep_detail,
-            self._sep_phase,
         )
 
-        self.set_available_phases(available_phases)
         self.set_lattice_enabled(lattice_enabled, lattice_disabled_reason)
         self.apply_theme(self._tokens)
         self._sync_visibility()
@@ -502,33 +473,6 @@ class VolumeToolbar(QFrame):
         self._detail_level = level
         self._detail_group.set_current(level)
 
-    def phase(self) -> str:
-        """Return the active lattice phase domain (``'A'``, ``'B'``, or ``'S'``)."""
-        return self._phase
-
-    def set_phase(self, phase: str) -> None:
-        """Set the active lattice phase without emitting ``phase_changed``."""
-        self._validate_choice(phase, PHASE_DOMAINS, "phase")
-        self._phase = phase
-        self._phase_group.set_current(phase)
-
-    def set_available_phases(self, phases: Sequence[str]) -> None:
-        """Show only the phase options available in the active result."""
-        allowed = tuple(phases)
-        for p in allowed:
-            self._validate_choice(p, PHASE_DOMAINS, "phase")
-        for key in PHASE_DOMAINS:
-            self._phase_group.set_option_visible(key, key in allowed)
-        if allowed and self._phase not in allowed:
-            self._phase = allowed[0]
-            self._phase_group.set_current(self._phase)
-        self._sync_visibility()
-
-    def set_phase_selector_visible(self, visible: bool) -> None:
-        """Show or hide the inline lattice phase selector group."""
-        self._show_phase_selector = visible
-        self._sync_visibility()
-
     def camera_preset(self) -> str | None:
         """Return the highlighted camera preset or ``None`` after free orbit."""
         return self._camera_group.current()
@@ -567,7 +511,6 @@ class VolumeToolbar(QFrame):
         self._geom_group.apply_theme(t)
         self._display_group.apply_theme(t)
         self._detail_group.apply_theme(t)
-        self._phase_group.apply_theme(t)
         self._camera_group.apply_theme(t)
         for sep in self._separators:
             sep.set_color(t["border"])
@@ -689,7 +632,6 @@ class VolumeToolbar(QFrame):
         show_slice = is_simple and self._display_mode == "slice"
         show_opacity = is_simple and self._display_mode == "volume"
         show_detail = not is_simple
-        show_phase = (not is_simple) and self._show_phase_selector
 
         self._display_group.setVisible(is_simple)
         self._sep_display.setVisible(is_simple)
@@ -702,9 +644,6 @@ class VolumeToolbar(QFrame):
 
         self._detail_group.setVisible(show_detail)
         self._sep_detail.setVisible(show_detail)
-
-        self._phase_group.setVisible(show_phase)
-        self._sep_phase.setVisible(show_phase)
 
         self.updateGeometry()
         self.adjustSize()
@@ -723,10 +662,6 @@ class VolumeToolbar(QFrame):
     def _on_detail_activated(self, level: str) -> None:
         self._detail_level = level
         self.detail_level_changed.emit(level)
-
-    def _on_phase_activated(self, phase: str) -> None:
-        self._phase = phase
-        self.phase_changed.emit(phase)
 
     def _on_camera_activated(self, preset: str) -> None:
         self.camera_preset_requested.emit(preset)

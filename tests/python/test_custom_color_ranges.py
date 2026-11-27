@@ -10,8 +10,15 @@ from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 from sjtu_tpmshx.applications.gui.ui.panel_vis_3d import ThreeDVisPanel
 from sjtu_tpmshx.applications.gui.ui.theme import resolve_cmap, set_cmap
 from sjtu_tpmshx.applications.gui.ui.vis3d_constants import validate_color_range_state
-from sjtu_tpmshx.applications.gui.ui.volume_overlays import PortChipOverlay, StudioColorbarCard
+from sjtu_tpmshx.applications.gui.ui.vis3d_lattice_worker import LatticeBuilder
+from sjtu_tpmshx.applications.gui.ui.volume_overlays import (
+    LatticeDomainCard,
+    LatticeProgressCard,
+    PortChipOverlay,
+    StudioColorbarCard,
+)
 from sjtu_tpmshx.applications.gui.ui.volume_toolbar import VolumeToolbar
+from tests.python.gui_workbench_support import win as win
 
 
 @pytest.fixture
@@ -36,6 +43,11 @@ def panel():
                 lattice_enabled=False,
                 parent=self._viewport_host,
             )
+            self.lattice_progress = LatticeProgressCard(parent=self._viewport_host)
+            self.lattice_progress.hide()
+            self.lattice_card = LatticeDomainCard(parent=self._viewport_host)
+            self.lattice_card.hide()
+            self._lattice = LatticeBuilder(self)
             self._init_state(25)
             self._apply_overlay_styles(self.colorbar._tokens)
             self._update_port_chips = Mock()
@@ -95,23 +107,22 @@ def test_range_modes_preserve_field_specific_limits_and_reject_bad_values(panel,
     window.dialogs = SimpleNamespace(notify=Mock())
     window.chk_sync_colorbar_T.setChecked(True)
     window.chk_shared_pressure_scale.setChecked(True)
-    window.chk_shared_pressure_scale.toggled.connect(
-        lambda on: panel.set_scale_sharing(shared_pressure=on)
-    )
     try:
         _open_colormap_popover(window)
         pop = window._colormap_popover
         assert set(pop._range_mode_btns) == {'global', 'local', 'custom'}
         assert pop._range_min_edit is None and pop._range_max_edit is None
 
-        # Toggling the real 压力共用色阶 switch updates 3D P_B_kPa between shared and own limits.
+        # The real 压力共用色阶 switch sets the header state. The panel gives P_B_kPa shared or own limits.
         from sjtu_tpmshx.applications.gui.ui.colormap_popover import ToggleSwitch
         switches = pop.findChildren(ToggleSwitch)
         assert len(switches) == 2
         assert panel._clim_for('P_B_kPa') == pytest.approx((99.8, 192.4))
         switches[1].click()
+        assert not window.chk_shared_pressure_scale.isChecked()
+        panel.set_scale_sharing(shared_pressure=False)
         assert panel._clim_for('P_B_kPa') == pytest.approx((99.8, 102.1))
-        switches[1].click()
+        panel.set_scale_sharing(shared_pressure=True)
         assert panel._clim_for('P_B_kPa') == pytest.approx((99.8, 192.4))
 
         # Switch to 截面 (local) via real popover button.
@@ -239,3 +250,18 @@ def test_invalid_restore_does_not_change_current_range(panel, state):
         panel.restore_color_ranges(state)
     assert panel.color_range_state() == before
     assert validate_color_range_state({}) == {'mode': 'global', 'ranges': {}}
+
+
+def test_header_scale_switches_reach_the_3d_panel(win, monkeypatch):
+    """The production handlers of the hidden header switches send each change to the 3D panel."""
+    from types import SimpleNamespace
+    from unittest.mock import call
+
+    panel = SimpleNamespace(cleanup=lambda: None, set_scale_sharing=Mock(),
+                            color_range_state=lambda: {'mode': 'global', 'ranges': {}})
+    monkeypatch.setattr(win, 'canvas_3d', panel)
+    win.chk_shared_pressure_scale.setChecked(False)
+    win.chk_sync_colorbar_T.setChecked(False)
+    win.chk_shared_pressure_scale.setChecked(True)
+    assert panel.set_scale_sharing.call_args_list == [
+        call(shared_pressure=False), call(sync_temp=False), call(shared_pressure=True)]

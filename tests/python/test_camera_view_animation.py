@@ -40,6 +40,7 @@ class _CameraPanel(ThreeDVisPanel):
         self._L_mm = (182., 42., 42.)
         self._port_world_anchors = []
         self.toolbar = Mock()
+        self._lattice = Mock()
         self._layout_overlays = Mock()
         self._update_port_chips = Mock()
         self.rendered = []

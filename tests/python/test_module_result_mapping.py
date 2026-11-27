@@ -126,9 +126,12 @@ def test_synthetic_3d_mapping_preserves_full_geometry_and_report_pressure():
         chk_shared_pressure_scale=SimpleNamespace(isChecked=lambda: True),
         canvas_3d=SimpleNamespace(set_scale_sharing=lambda **kw: None,
                                   set_fields=lambda **kw: shown.update(kw),
+                                  set_lattice_geometry=lambda *args: shown.update(lattice=args),
                                   set_watermark=lambda text: None),
     )
     assert finalize_plots_3d(window)
+    metadata = result.metadata
+    assert shown['lattice'] == (metadata['tpms'], metadata['delta_levelset'], metadata['source_result_id'])
     np.testing.assert_array_equal(shown['L_mm'], result.fields['L_mm'])
     np.testing.assert_array_equal(shown['t_mm'], result.fields['t_mm'])
     for side in ('A', 'B'):

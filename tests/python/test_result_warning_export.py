@@ -146,6 +146,7 @@ def test_extrapolation_watermarks_name_recorded_model_without_constdf(win, mode)
             cleanup=lambda: None, color_range_state=lambda: {},
             set_scale_sharing=lambda **kw: None,
             set_fields=lambda **kw: seen.update(kw),
+            set_lattice_geometry=lambda *args: None,
             set_watermark=lambda text: seen.__setitem__('watermark', text),
         )
         assert _real_finalize_plots_3d(win)

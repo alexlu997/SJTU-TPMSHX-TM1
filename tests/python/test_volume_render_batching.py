@@ -150,6 +150,9 @@ def _make_stub_panel():
         _viewport_host=Mock(width=lambda: 1000, height=lambda: 800),
         field_changed=Mock(),
         colorbar=StudioColorbarCard(),
+        _lattice=Mock(),
+        lattice_progress=Mock(),
+        lattice_card=Mock(),
     )
     ThreeDVisPanel._init_state(panel, 30)
     panel.fit_view = Mock()
@@ -167,6 +170,9 @@ def _make_stub_panel():
             '_faint_port_sides', '_add_flow_glyph',
             'active_field', 'available_fields', 'select_field',
             'set_display_mode', 'set_slice_position', 'refresh_colormaps',
+            '_reset_lattice', '_request_lattice', '_render_lattice_actors', '_restore_shown_lattice',
+            '_on_lattice_progress', '_on_lattice_ready', '_on_lattice_failed', '_cancel_lattice',
+            '_on_toolbar_geometry_changed', '_on_toolbar_detail_changed', 'set_lattice_geometry',
         ),
     )
     return panel
@@ -376,13 +382,105 @@ def test_three_orthogonal_slices_snap_to_actual_cells_and_batch_render(scale_mod
         panel.colorbar.deleteLater()
 
 
+def test_lattice_follows_field_phase_and_keeps_the_shown_scene_until_ready():
+    panel = _make_stub_panel()
+    try:
+        shape = (2, 2, 2)
+        widths = np.array([.003, .004])
+        ThreeDVisPanel.set_fields(
+            panel, Ta=np.full(shape, 300.), Ts=np.full(shape, 320.),
+            L_mm=np.array([7., 7., 7., 7., 8., 7., 7., 7.]).reshape(shape), t_mm=np.full(shape, .5),
+            dx=widths, dy=widths, dz=widths,
+        )
+        panel.toolbar.set_lattice_enabled.assert_called_with(False, '此三维视图不提供晶格')
+        panel.set_lattice_geometry('Gyroid', 0., 'run1')
+        panel.toolbar.set_lattice_enabled.assert_called_with(False, '梯度胞元 L 的晶格相规则尚未确定')
+        panel._arrays['L_mm'][1, 0, 0] = 7.
+        panel.set_lattice_geometry('Gyroid', 0., 'run1')
+        panel.toolbar.set_lattice_enabled.assert_called_with(True)
+
+        panel.toolbar.detail_level.return_value = 'high'
+        panel._lattice.submit.return_value = 1
+        panel._on_toolbar_geometry_changed('lattice')
+        request = panel._lattice.submit.call_args.args[0]
+        assert (request.topology, request.phase, request.field_name, request.detail, request.result_id) == (
+            'Gyroid', 'A', 'Ta', 'high', 'run1')
+        np.testing.assert_array_equal(request.dz, widths)
+
+        # Progress of the current request shows its domain and stage. The simplified scene stays.
+        panel._on_lattice_progress(0, 3, '封口')
+        panel._on_lattice_progress(1, 2, '壁面')
+        panel.lattice_progress.set_stage.assert_called_once_with('流体 A 域', '壁面', 2, 5)
+        assert panel._geometry == 'simple'
+
+        mesh = pv.Sphere(center=(3.5, 3.5, 3.5), radius=2.)
+        mesh.point_data['Ta'] = 300. + mesh.points[:, 0]
+        mesh.set_active_scalars('Ta')
+        panel._on_lattice_ready(1, mesh, True)
+        assert panel._geometry == 'lattice' and panel._detail == 'high'
+        drawn = [c for c in panel.plotter.add_mesh.call_args_list if c.kwargs['name'] == 'main_lattice']
+        assert drawn[-1].args[0] is mesh and drawn[-1].kwargs['scalars'] == 'Ta'
+        panel.lattice_card.set_domain_info.assert_called_with(
+            '流体 A 域', '<i>φ</i> &lt; \u2212<i>C</i>', mesh.n_cells, cached=True)
+
+        # A solid field asks for the solid domain and keeps the fluid lattice until then.
+        panel._lattice.submit.return_value = 2
+        panel.plotter.add_mesh.reset_mock()
+        assert panel.select_field('Ts')
+        assert panel._lattice.submit.call_args.args[0].phase == 'S'
+        panel.plotter.add_mesh.assert_not_called()
+        # A theme change clears the scene. The simplified Ts scene shows until the solid mesh is ready.
+        _bind_panel_methods(panel, ('apply_theme', '_render_initial_scene', '_setup_studio_lights',
+                                    '_add_contact_shadow', '_configure_axes_triad', '_apply_isometric_pose',
+                                    '_apply_overlay_styles'))
+        panel.apply_theme()
+        drawn = {c.kwargs['name']: c.kwargs.get('scalars') for c in panel.plotter.add_mesh.call_args_list}
+        assert drawn['main_surface'] == 'Ts' and 'main_lattice' not in drawn
+        panel.lattice_card.hide.assert_called_with()
+        # Cancel shows the fluid A lattice and Ta again.
+        panel.plotter.add_mesh.reset_mock()
+        panel._cancel_lattice()
+        assert panel._field == 'Ta' and panel._lattice_pending is None
+        panel.toolbar.set_geometry_mode.assert_called_with('lattice')
+        drawn = {c.kwargs['name']: c.kwargs.get('scalars') for c in panel.plotter.add_mesh.call_args_list}
+        assert drawn['main_lattice'] == 'Ta'
+
+        # An empty phase domain draws no lattice actor and reports zero triangles.
+        panel._lattice.submit.return_value = 3
+        panel.toolbar.detail_level.return_value = 'low'
+        panel._on_toolbar_detail_changed('low')
+        empty = pv.PolyData()
+        empty.point_data['Ta'] = np.empty(0)
+        empty.set_active_scalars('Ta')
+        panel.plotter.add_mesh.reset_mock()
+        panel._on_lattice_ready(3, empty, True)
+        assert 'main_lattice' not in {c.kwargs['name'] for c in panel.plotter.add_mesh.call_args_list}
+        assert panel.lattice_card.set_domain_info.call_args.args[2] == 0
+
+        panel._on_toolbar_geometry_changed('simple')
+        assert panel._geometry == 'simple' and panel._lattice_mesh is None
+        assert 'main_surface' in {c.kwargs['name'] for c in panel.plotter.add_mesh.call_args_list}
+
+        # Cleanup stops the worker. A late progress signal then has no request to show.
+        panel._lattice.submit.return_value = 4
+        panel._on_toolbar_geometry_changed('lattice')
+        _bind_panel_methods(panel, ('cleanup', '_stop_camera_tween'))
+        panel.cleanup()
+        panel._lattice.close.assert_called_once_with()
+        panel.lattice_progress.set_stage.reset_mock()
+        panel._on_lattice_progress(4, 1, '采样 φ')
+        panel.lattice_progress.set_stage.assert_not_called()
+    finally:
+        panel.colorbar.deleteLater()
+
+
 def test_unified_toolbar_omits_cutaway_and_toggles_conditional_groups():
     assert DISPLAY_MODES == ('surface', 'slice', 'volume')
     bar = VolumeToolbar(
         geometry_mode='simple',
         display_mode='surface',
         lattice_enabled=False,
-        lattice_disabled_reason='pending PR 7',
+        lattice_disabled_reason='此三维视图不提供晶格',
     )
     try:
         assert bar.display_mode() == 'surface'
