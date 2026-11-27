@@ -13,7 +13,7 @@ from tests.python.gui_worker_support import _stub_compute_result
 from tests.python.gui_worker_support import (
     _configure, _wait_for, win as win,
 )
-from sjtu_tpmshx.applications.gui.ui.mixins.run_results import RunResultsMixin
+from sjtu_tpmshx.applications.gui.ui.field_results import FieldResults
 from sjtu_tpmshx.applications.gui.ui.plot_3d_results import finalize_plots_3d
 
 
@@ -21,11 +21,12 @@ from sjtu_tpmshx.applications.gui.ui.plot_3d_results import finalize_plots_3d
 def snapshot_window(win, monkeypatch):
     # Keep the real Qt lifecycle and Matplotlib renderers; only native VTK and
     # numerical work are replaced. Every result carries distinguishable fields.
-    monkeypatch.setattr(win, '_finalize_plots',
-                        lambda: RunResultsMixin._finalize_plots(win))
+    monkeypatch.setattr(win.results, 'finalize_plots',
+                        lambda: FieldResults.finalize_plots(win.results))
     monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.plot_3d_results.finalize_plots_3d',
                         finalize_plots_3d)
     monkeypatch.setattr(win, 'canvas_3d', SimpleNamespace(
+        cleanup=lambda: None, color_range_state=lambda: {},
         set_fields=lambda **kwargs: None, set_watermark=lambda text: None))
     win._temp_unit = 'K'
     win._field_phase = 0
@@ -34,23 +35,23 @@ def snapshot_window(win, monkeypatch):
 
 def _publish(win, monkeypatch, mode, marker):
     _configure(win, monkeypatch, mode)
-    win._active_preset_name = f'accepted-{marker}'
+    win.case_files.active_preset_name = f'accepted-{marker}'
     result = _result(mode)
     result.Q_W = float(marker)
     result.T_out_A_K, result.T_out_B_K = 350. + marker, 300. + marker
     result.fields['Ta'] += marker
     result.metadata['snapshot_marker'] = marker
     _stub_compute_result(monkeypatch, lambda config, **kwargs: result)
-    win.run_calculation()
-    _wait_for(win.compute.is_idle)
+    win.single_run.submit()
+    _wait_for(win.single_run.is_idle)
     return result
 
 
 def _assert_export(win, monkeypatch, path, result):
-    from sjtu_tpmshx.applications.gui.ui.mixins import io_actions
-    monkeypatch.setattr(io_actions.QFileDialog, 'getSaveFileName',
+    from sjtu_tpmshx.applications.gui.ui import result_export
+    monkeypatch.setattr(result_export.QFileDialog, 'getSaveFileName',
                         lambda *args: (str(path), 'CSV (*.csv)'))
-    win._export_results()
+    win.result_export.export_results()
     with path.open(newline='', encoding='utf-8') as stream:
         rows = dict(csv.reader(stream))
     mode = result.diagnostics['mode']
@@ -77,13 +78,13 @@ def test_failed_attempt_retains_one_complete_accepted_snapshot(
     _publish(win, monkeypatch, order[0], 111)
     accepted = _publish(win, monkeypatch, order[1], 222)
     accepted_mode = order[1]
-    summary = deepcopy(win._result_summary())
+    summary = deepcopy(win.results.summary())
     footer = {name: (label.text(), label.toolTip())
               for name, label in win._sb_labels.items()}
     drawn = win.cache.get_drawn_tabs()
-    availability = win._canvas_tab_availability()
+    availability = win.workbench.canvas_tab_availability()
     plotted = win.canvas_temp._hover_data['fields'][0].copy()
-    history_count = len(win._recent_runs)
+    history_count = len(win.history.recent_runs)
     _assert_export(win, monkeypatch, tmp_path / 'accepted.csv', accepted)
 
     _configure(win, monkeypatch, attempt_mode)
@@ -98,30 +99,30 @@ def test_failed_attempt_retains_one_complete_accepted_snapshot(
         raise AssertionError('the cancelled run must not publish')
 
     _stub_compute_result(monkeypatch, unfinished)
-    win._active_preset_name = 'failed-draft'
+    win.case_files.active_preset_name = 'failed-draft'
     try:
-        win.run_calculation()
+        win.single_run.submit()
         _wait_for(entered.is_set)
-        assert win._result_summary() == summary
+        assert win.results.summary() == summary
         assert win.cache.has_results(accepted_mode)
         if outcome == 'cancel':
-            win._on_cancel_compute()
+            win.single_run.cancel()
     finally:
         release.set()
-    _wait_for(win.compute.is_idle)
+    _wait_for(win.single_run.is_idle)
 
-    assert win._result_summary() == summary
+    assert win.results.summary() == summary
     assert {name: (label.text(), label.toolTip())
             for name, label in win._sb_labels.items()} == footer
     assert (win.cache.get_result().T_out_A_K, win.cache.get_result().T_out_B_K) == (accepted.T_out_A_K, accepted.T_out_B_K)
     assert win.cache.has_results(accepted_mode)
     assert not win.cache.has_results(order[0])
     assert win.cache.get_drawn_tabs() == drawn
-    assert win._canvas_tab_availability() == availability
+    assert win.workbench.canvas_tab_availability() == availability
     np.testing.assert_array_equal(win.canvas_temp._hover_data['fields'][0], plotted)
     assert win.btn_export.isEnabled()
-    assert len(win._recent_runs) == history_count
-    assert win._run_provenance is None
+    assert len(win.history.recent_runs) == history_count
+    assert win.single_run.provenance is None
     assert win._run_status_card.state == ('error' if outcome == 'error' else 'cancelled')
     assert '最近完成' in win._run_status_card.note.text()
     _assert_export(win, monkeypatch, tmp_path / 'after_attempt.csv', accepted)
@@ -134,23 +135,24 @@ def test_new_publication_replaces_snapshot_even_if_renderer_raises(
     old_mode = '3d' if new_mode == '2d' else '2d'
     _publish(win, monkeypatch, old_mode, 111)
 
-    def broken_renderer():
+    def broken_renderer(mode):
         raise RuntimeError('display failed after accepted numerical result')
 
-    monkeypatch.setattr(win, '_render_compute_result', broken_renderer)
+    monkeypatch.setattr(win.results, 'render', broken_renderer)
     accepted = _publish(win, monkeypatch, new_mode, 333)
     assert win._run_status_card.state == 'error'
     assert win.cache.has_results(new_mode)
     assert not win.cache.has_results(old_mode)
-    assert win._result_summary()['Q_W'] == accepted.Q_W
+    assert win.results.summary()['Q_W'] == accepted.Q_W
     unit = 'W' if new_mode == '3d' else 'W/m'
-    assert win._sb_labels['q'].text() == f'{accepted.Q_W:.{2 if new_mode == "3d" else 1}f} {unit}'
-    assert 'preset: accepted-333' in win._sb_labels['q'].toolTip()
-    assert 'accepted-111' not in win._sb_labels['q'].toolTip()
-    assert win._sb_labels['tout'].text() == '683.00 / 633.00'
+    items = win.readout_strip.items()
+    assert f'{items[0].value} {items[0].unit}' == f'{accepted.Q_W:.{2 if new_mode == "3d" else 1}f} {unit}'
+    assert '预设：accepted-333' in win.readout_strip.toolTip()
+    assert 'accepted-111' not in win.readout_strip.toolTip()
+    assert f'{items[3].value} / {items[4].value}' == '683.00 / 633.00'
     assert win.btn_export.isEnabled()
-    assert not win._3d_view_ready
-    assert not win._rendered_3d_slices
+    assert not win.workbench.volume_ready
+    assert not win.workbench.rendered_slices
     assert not win.canvas_temp.fig.axes
     assert win.canvas_temp._hover_data is None
     _assert_export(win, monkeypatch, tmp_path / 'render_failed.csv', accepted)
@@ -159,7 +161,7 @@ def test_new_publication_replaces_snapshot_even_if_renderer_raises(
 @pytest.mark.parametrize('accepted_mode,new_mode', [('2d', '3d'), ('2d', '2d'), ('3d', '2d')])
 def test_export_keeps_clicked_snapshot_while_dialog_delivers_new_result(
         snapshot_window, monkeypatch, tmp_path, accepted_mode, new_mode):
-    from sjtu_tpmshx.applications.gui.ui.mixins import io_actions
+    from sjtu_tpmshx.applications.gui.ui import result_export
     win = snapshot_window
     accepted = _publish(win, monkeypatch, accepted_mode, 111)
     _configure(win, monkeypatch, new_mode)
@@ -172,19 +174,19 @@ def test_export_keeps_clicked_snapshot_while_dialog_delivers_new_result(
         assert release.wait(10)
         return newer
     _stub_compute_result(monkeypatch, finish_later)
-    win.run_calculation()
+    win.single_run.submit()
     _wait_for(entered.is_set)
     path = tmp_path / 'clicked.csv'
     def file_dialog(*args):
         release.set()
-        _wait_for(win.compute.is_idle)
+        _wait_for(win.single_run.is_idle)
         return str(path), 'CSV (*.csv)'
-    monkeypatch.setattr(io_actions.QFileDialog, 'getSaveFileName', file_dialog)
+    monkeypatch.setattr(result_export.QFileDialog, 'getSaveFileName', file_dialog)
     try:
-        win._export_results()
+        win.result_export.export_results()
     finally:
         release.set()
-        _wait_for(win.compute.is_idle)
+        _wait_for(win.single_run.is_idle)
     with path.open(newline='', encoding='utf-8') as stream:
         rows = dict(csv.reader(stream))
     assert float(rows['Q [W]' if accepted_mode == '3d' else 'Q [W/m]']) == 111.
@@ -202,31 +204,31 @@ def test_export_keeps_clicked_snapshot_while_dialog_delivers_new_result(
 def test_named_preset_source_reaches_accepted_result_and_export(snapshot_window, monkeypatch, tmp_path):
     win = snapshot_window
     _configure(win, monkeypatch, '2d')
-    preset = win._capture_current_preset('custom user design')
-    win._load_user_preset(preset)
+    preset = win.case_files.capture_current_preset('custom user design')
+    win.history.load_user_preset(preset)
     result = _result('2d')
     result.metadata['snapshot_marker'] = 444
     _stub_compute_result(monkeypatch, lambda config, **kwargs: result)
-    win.run_calculation()
-    _wait_for(win.compute.is_idle)
+    win.single_run.submit()
+    _wait_for(win.single_run.is_idle)
     assert result.metadata['run_provenance']['preset_source'] == 'custom user design'
     _assert_export(win, monkeypatch, tmp_path / 'custom.csv', result)
 
 
 def test_field_figure_metadata_uses_accepted_source_after_draft_changes(
         snapshot_window, monkeypatch, tmp_path):
-    from sjtu_tpmshx.applications.gui.ui.mixins import io_actions
+    from sjtu_tpmshx.applications.gui.ui import result_export
     win = snapshot_window
     _publish(win, monkeypatch, '2d', 111)
-    win._active_preset_name = 'new draft'
-    monkeypatch.setattr(io_actions.QInputDialog, 'getItem',
+    win.case_files.active_preset_name = 'new draft'
+    monkeypatch.setattr(result_export.QInputDialog, 'getItem',
         lambda *args: (args[3][0], True))
-    monkeypatch.setattr(io_actions.QFileDialog, 'getSaveFileName',
+    monkeypatch.setattr(result_export.QFileDialog, 'getSaveFileName',
         lambda *args: (str(tmp_path / 'field.png'), 'PNG (*.png)'))
     exported = {}
     monkeypatch.setattr(win.canvas_temp.fig, 'savefig',
         lambda path, **kwargs: exported.update(kwargs))
-    win._export_figure()
+    win.result_export.export_figure()
     assert exported['metadata']['Subject'] == 'Preset: accepted-111'
 
 
@@ -279,7 +281,7 @@ def test_zone_overlays_read_isolated_cache_and_clear_on_unzoned_run(
     boundaries_x_ref = zoned.zones['boundaries_x']
     boundaries_y_ref = zoned.zones['boundaries_y']
 
-    win.write_result(zoned)
+    win.results.publish(zoned)
     for attr in _LEGACY_ZONE_ATTRS:
         assert not hasattr(win, attr)
 
@@ -287,7 +289,7 @@ def test_zone_overlays_read_isolated_cache_and_clear_on_unzoned_run(
     assert cached.fields['Ta'] is source_ta
     assert cached.fields['ucA'] is source_uc
 
-    win._finalize_plots()
+    win.results.finalize_plots()
     assert ensure_result_plot(win, 'vel')
     for canvas in (win.canvas_temp, win.canvas_vel):
         for vertical, horizontal in _overlay_positions_mm(canvas):
@@ -319,10 +321,10 @@ def test_zone_overlays_read_isolated_cache_and_clear_on_unzoned_run(
     # A later unzoned run clears overlays on both plots.
     unzoned = _result('2d')
     assert unzoned.zones is None
-    win.write_result(unzoned)
+    win.results.publish(unzoned)
     for attr in _LEGACY_ZONE_ATTRS:
         assert not hasattr(win, attr)
-    win._finalize_plots()
+    win.results.finalize_plots()
     assert ensure_result_plot(win, 'vel')
     for canvas in (win.canvas_temp, win.canvas_vel):
         for vertical, horizontal in _overlay_positions_mm(canvas):

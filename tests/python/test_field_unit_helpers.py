@@ -4,8 +4,7 @@ from __future__ import annotations
 import pytest
 
 from sjtu_tpmshx.applications.gui.ui.window_config import (
-    FIELD_UNITS,
-    POSITIVE_FIELDS,
+    LINE_EDITS,
     COUNT_TOKEN_WHITELIST,
     parse_field_value,
 )
@@ -15,47 +14,36 @@ from sjtu_tpmshx.data_types.validator import format_unit_value
 def test_portable_validator_keeps_widget_names_in_the_gui():
     from sjtu_tpmshx.data_types import validator
 
-    widget_names = {'FIELD_UNITS', 'POSITIVE_FIELDS', 'COUNT_TOKEN_WHITELIST', 'parse_field_value'}
+    widget_names = {'LINE_EDITS', 'COUNT_TOKEN_WHITELIST', 'parse_field_value'}
     assert widget_names.isdisjoint(vars(validator))
 
 
 def test_field_units_covers_pipe_widgets():
     """All 2D + 3D pipe-BC widgets carry a length-m mapping."""
     for side in ('A', 'B'):
-        for slot in ('in_ctr', 'in_w', 'out_ctr', 'out_w'):
-            attr = f'le_pipe{side}_{slot}'
-            assert FIELD_UNITS[attr] == ('length', 'm'), attr
+        for end in ('in', 'out'):
+            for coordinate in ('ctr', 'w', 'z_ctr', 'z_w'):
+                attr = f'le_pipe{side}_{end}_{coordinate}'
+                assert parse_field_value(attr, 21., 'mm') == pytest.approx(.021), attr
 
 
 def test_field_units_lcell_and_t_are_mm():
-    assert FIELD_UNITS['le_Lcell'] == ('length', 'mm')
-    assert FIELD_UNITS['le_t'] == ('length', 'mm')
+    assert LINE_EDITS['le_Lcell'].unit == 'mm'
+    assert LINE_EDITS['le_t'].unit == 'mm'
 
 
-def test_field_units_counts_have_no_target_unit():
-    for attr in ('le_Nx', 'le_Ny', 'le_Nz'):
-        fam, target = FIELD_UNITS[attr]
-        assert fam == 'count'
-        assert target is None
+def test_grid_counts_are_dimensionless():
+    for axis in 'xyz':
+        spec = LINE_EDITS['le_N' + axis]
+        assert spec.family == 'count' and spec.unit == '1'
 
 
-def test_positive_fields_is_superset_of_field_units_intersect_positive():
-    """Every numeric-positive widget in FIELD_UNITS appears in
-    POSITIVE_FIELDS (counts + temps included)."""
-    expected_positive_overlap = {
-        'le_L', 'le_H', 'le_Lz', 'le_Lcell', 'le_t',
-        'le_uA', 'le_uB',
-        'le_TinA', 'le_TinB', 'le_PinA', 'le_PinB',
-        'le_Nx', 'le_Ny', 'le_Nz',
-    }
-    assert expected_positive_overlap.issubset(POSITIVE_FIELDS)
-
-
-def test_positive_fields_has_le_rho_s_and_le_ks():
-    """Non-FIELD_UNITS positives (no unit parsing, just positive
-    validation) survive in POSITIVE_FIELDS."""
-    assert 'le_rho_s' in POSITIVE_FIELDS
-    assert 'le_ks' in POSITIVE_FIELDS
+def test_editor_positive_checks_use_the_bound_quantity():
+    for name in ('le_L', 'le_H', 'le_Lz', 'le_Lcell', 'le_t', 'le_ks',
+                 'le_uA', 'le_uB', 'le_TinA', 'le_TinB', 'le_PinA', 'le_PinB',
+                 'le_mass_flowA', 'le_mass_flowB', 'le_Nx', 'le_Ny', 'le_Nz'):
+        assert LINE_EDITS[name].positive, name
+    assert not LINE_EDITS['le_pipeA_in_w'].positive
 
 
 def test_count_token_whitelist_known_tokens():
@@ -107,7 +95,7 @@ def test_parse_count_field_rejects_unknown_unit():
 
 
 def test_parse_unknown_field_returns_none():
-    """Field attr not in FIELD_UNITS → return None gracefully."""
+    """Field attr without a unit binding → return None gracefully."""
     assert parse_field_value('le_unknown', 5.0, 'mm') is None
 
 

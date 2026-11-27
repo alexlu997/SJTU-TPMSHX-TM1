@@ -19,24 +19,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from sjtu_tpmshx.applications.gui.ui.theme import get_theme
+
 DRAWER_WIDTH = 376
 DRAWER_WIDTH_COMPACT = 340
-
-_DEFAULT_TOKENS: dict[str, Any] = {
-    "sunken": "#EFEEEA",
-    "canvas": "#F8F7F4",
-    "panel": "#FCFBF9",
-    "popover": "#FFFFFF",
-    "hover": "#E3E2DD",
-    "seg_on": "#FFFFFF",
-    "border": "#D9D8D4",
-    "border_strong": "#C1BFBA",
-    "fg": "#181715",
-    "sub": "#474643",
-    "tert": "#686663",
-    "accent_fg": "#0B5161",
-    "accent_soft": "#E5F0F2",
-}
 
 _ICON_PATHS: dict[str, str] = {
     "x": '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
@@ -137,10 +123,11 @@ class DrawerTabStrip(QFrame):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self._tokens: dict[str, Any] = dict(_DEFAULT_TOKENS)
+        self._tokens: dict[str, Any] = dict(get_theme())
         if tokens is not None:
             self._tokens.update(tokens)
         self._labels: list[str] = []
+        self._badges: dict[int, int] = {}
         self._buttons: list[QPushButton] = []
         self._current_index = 0
 
@@ -155,8 +142,11 @@ class DrawerTabStrip(QFrame):
         """Replace the tab labels and set the active index."""
         while self._layout.count():
             item = self._layout.takeAt(0)
-            if item.widget() is not None:
-                item.widget().deleteLater()
+            w = item.widget()
+            if w is not None:
+                w.hide()
+                w.setParent(None)
+                w.deleteLater()
         self._labels = list(labels)
         self._buttons = []
         for idx, text in enumerate(self._labels):
@@ -184,6 +174,15 @@ class DrawerTabStrip(QFrame):
         if clamped != self._current_index:
             self._current_index = clamped
             self._refresh()
+
+    def set_tab_badge(self, index: int, count: int) -> None:
+        """Display or clear a warning count suffix on one tab."""
+        if index < 0 or index >= len(self._buttons):
+            return
+        self._badges[index] = max(0, int(count))
+        base = self._labels[index]
+        n = self._badges[index]
+        self._buttons[index].setText(f"{base} ⚠{n}" if n > 0 else base)
 
     def apply_theme(self, tokens: Mapping[str, Any]) -> None:
         """Apply Style P2 theme tokens to the tab strip."""
@@ -239,11 +238,12 @@ class BandHeader(QWidget):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self._tokens: dict[str, Any] = dict(_DEFAULT_TOKENS)
+        self._tokens: dict[str, Any] = dict(get_theme())
         if tokens is not None:
             self._tokens.update(tokens)
         self._collapsible = collapsible
         self._expanded = expanded
+        self._badge_count = 0
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -259,6 +259,7 @@ class BandHeader(QWidget):
         self._bar.setFixedHeight(31)
         if collapsible:
             self._bar.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         row = QHBoxLayout(self._bar)
         row.setContentsMargins(14 if collapsible else 16, 0, 12, 0)
@@ -282,6 +283,11 @@ class BandHeader(QWidget):
         if count is not None:
             self._count_label.setText(str(count))
         row.addWidget(self._count_label)
+
+        self._badge_label = QLabel()
+        _enable_tnum(self._badge_label)
+        self._badge_label.hide()
+        row.addWidget(self._badge_label)
 
         self._tag_chip: _TagChip | None = None
         if tag:
@@ -321,6 +327,21 @@ class BandHeader(QWidget):
             return
         super().mousePressEvent(event)
 
+    def keyPressEvent(self, event) -> None:
+        if self._collapsible and event.key() in (
+            Qt.Key.Key_Space,
+            Qt.Key.Key_Return,
+            Qt.Key.Key_Enter,
+        ):
+            self.clicked.emit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def set_title(self, title: str) -> None:
+        """Update the band header title text."""
+        self._title_label.setText(title)
+
     def set_expanded(self, expanded: bool) -> None:
         """Update the chevron direction for expanded or collapsed state."""
         self._expanded = expanded
@@ -333,6 +354,15 @@ class BandHeader(QWidget):
         else:
             self._count_label.setText(str(count))
             self._count_label.show()
+
+    def set_badge_count(self, count: int) -> None:
+        """Show or hide a validation warning badge (⚠ N) on the band header."""
+        self._badge_count = max(0, int(count))
+        if self._badge_count > 0:
+            self._badge_label.setText(f"⚠ {self._badge_count}")
+            self._badge_label.show()
+        else:
+            self._badge_label.hide()
 
     def set_right_widget(self, widget: QWidget | None) -> None:
         """Replace the optional right-side summary widget."""
@@ -357,10 +387,14 @@ class BandHeader(QWidget):
             f"QFrame#bandHeaderBar {{ background: {t['sunken']}; border: none; }}"
         )
         self._title_label.setStyleSheet(
-            f"color: {t['sub']}; font-size: 11.5px; font-weight: 600; background: transparent;"
+            f"color: {t['sub']}; font-size: 12px; font-weight: 600; background: transparent;"
         )
         self._count_label.setStyleSheet(
-            f"color: {t['tert']}; font-size: 11.5px; font-weight: 500; background: transparent;"
+            f"color: {t['tert']}; font-size: 12px; font-weight: 500; background: transparent;"
+        )
+        self._badge_label.setStyleSheet(
+            f"color: {t['warn']}; background: {t['warn_soft']}; border-radius: 5px; "
+            "padding: 1px 6px; font-size: 11px; font-weight: 600;"
         )
         if self._chevron is not None:
             icon_key = "chevd" if self._expanded else "chevr"
@@ -434,13 +468,20 @@ class CollapsibleBand(QWidget):
         """Replace the body content with a single widget."""
         while self._body_layout.count():
             item = self._body_layout.takeAt(0)
-            if item.widget() is not None:
-                item.widget().deleteLater()
+            w = item.widget()
+            if w is not None:
+                w.hide()
+                w.setParent(None)
+                w.deleteLater()
         self._body_layout.addWidget(widget)
 
     def is_expanded(self) -> bool:
         """Return True when the section body is visible."""
         return self._expanded
+
+    def set_title(self, title: str) -> None:
+        """Update the band header title text."""
+        self.header.set_title(title)
 
     def set_expanded(self, expanded: bool) -> None:
         """Expand or collapse the section body."""
@@ -454,6 +495,10 @@ class CollapsibleBand(QWidget):
     def toggle(self) -> None:
         """Toggle between expanded and collapsed states."""
         self.set_expanded(not self._expanded)
+
+    def set_badge_count(self, count: int) -> None:
+        """Forward a validation warning badge count to the band header."""
+        self.header.set_badge_count(count)
 
     def apply_theme(self, tokens: Mapping[str, Any]) -> None:
         """Apply Style P2 theme tokens to the band header."""
@@ -478,12 +523,13 @@ class InspectorDrawer(QFrame):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self._tokens: dict[str, Any] = dict(_DEFAULT_TOKENS)
+        self._tokens: dict[str, Any] = dict(get_theme())
         if tokens is not None:
             self._tokens.update(tokens)
         self._opened = opened
         self._compact = compact
         self._tab_titles: list[str] = []
+        self._tab_stack_map: list[int] = []
 
         self.setObjectName("inspectorDrawer")
         self.setFixedWidth(DRAWER_WIDTH_COMPACT if compact else DRAWER_WIDTH)
@@ -552,11 +598,34 @@ class InspectorDrawer(QFrame):
         for title, widget in tabs:
             self._tab_titles.append(title)
             self._stack.addWidget(self._wrap_scroll(widget))
+        self._tab_stack_map = list(range(len(self._tab_titles)))
         self.tab_strip.set_tabs(self._tab_titles, current_index=current_index)
         if self._tab_titles:
             idx = max(0, min(current_index, len(self._tab_titles) - 1))
             self._stack.setCurrentIndex(idx)
         self._refresh_scrollbars()
+
+    def set_strip_entries(
+        self,
+        entries: Sequence[tuple[str, int]],
+        active_strip_index: int = 0,
+    ) -> None:
+        """Display a subset/remapping of existing stack pages in the top tab strip."""
+        labels = [label for label, _ in entries]
+        self._tab_stack_map = [stack_idx for _, stack_idx in entries]
+        clamped = max(0, min(active_strip_index, len(labels) - 1)) if labels else 0
+        self.tab_strip.set_tabs(labels, current_index=clamped)
+        if self._tab_stack_map:
+            self._stack.setCurrentIndex(self._tab_stack_map[clamped])
+
+    def set_stack_index(self, stack_index: int) -> None:
+        """Select a stack page directly without altering the displayed strip labels."""
+        if 0 <= stack_index < self._stack.count():
+            self._stack.setCurrentIndex(stack_index)
+
+    def strip_index(self) -> int:
+        """Return the active index in the displayed top tab strip."""
+        return self.tab_strip.current_index()
 
     def add_tab(self, title: str, content: QWidget) -> int:
         """Append a tab to the drawer and return its index."""
@@ -573,20 +642,23 @@ class InspectorDrawer(QFrame):
         while self._stack.count():
             widget = self._stack.widget(0)
             self._stack.removeWidget(widget)
+            widget.hide()
+            widget.setParent(None)
             widget.deleteLater()
         self.tab_strip.set_tabs(())
 
     def current_index(self) -> int:
-        """Return the active tab index."""
+        """Return the active stack index."""
         return self._stack.currentIndex()
 
     def set_current_index(self, index: int) -> None:
-        """Select the active tab by index."""
+        """Select a stack page by index and synchronize the top tab strip."""
         if not self._tab_titles:
             return
-        clamped = max(0, min(index, len(self._tab_titles) - 1))
-        self.tab_strip.set_current_index(clamped)
+        clamped = max(0, min(index, self._stack.count() - 1))
         self._stack.setCurrentIndex(clamped)
+        if clamped in self._tab_stack_map:
+            self.tab_strip.set_current_index(self._tab_stack_map.index(clamped))
 
     def is_open(self) -> bool:
         """Return True when the drawer is open."""
@@ -624,9 +696,12 @@ class InspectorDrawer(QFrame):
         painter.drawRoundedRect(rect, 12.0, 12.0)
         painter.end()
 
-    def _on_tab_changed(self, index: int) -> None:
-        self._stack.setCurrentIndex(index)
-        self.tab_changed.emit(index)
+    def _on_tab_changed(self, strip_idx: int) -> None:
+        if 0 <= strip_idx < len(self._tab_stack_map):
+            self._stack.setCurrentIndex(self._tab_stack_map[strip_idx])
+        elif 0 <= strip_idx < self._stack.count():
+            self._stack.setCurrentIndex(strip_idx)
+        self.tab_changed.emit(strip_idx)
 
     def _on_close_clicked(self) -> None:
         self.close_requested.emit()

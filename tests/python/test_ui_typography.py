@@ -110,6 +110,9 @@ def test_chart_glyphs_mathtext_and_theme(theme_name):
     from matplotlib.figure import Figure
     from matplotlib.mathtext import MathTextParser
     from sjtu_tpmshx.applications.gui.ui.theme import apply_mpl_theme, get_theme, get_theme_name, set_theme
+    from sjtu_tpmshx.applications.gui.ui.typography import (
+        publication_export_fonts, screen_matplotlib_font_families,
+    )
 
     families = matplotlib_font_families()
     if not set(REQUESTED_FAMILIES) <= set(families):
@@ -119,14 +122,14 @@ def test_chart_glyphs_mathtext_and_theme(theme_name):
         with mpl.rc_context():
             set_theme(theme_name)
             apply_mpl_theme()
-            # Inspect the renderer's actual font selection for each laid-out glyph.
-            paths = font_manager.fontManager._find_fonts_by_props(font_manager.FontProperties())
-            font_map = {item.char: item.ft_object for item in
-                        _text_helpers.layout("温度Q123", font_manager.get_font(paths))}
-            assert {font_map[c].family_name for c in "温度"} == {"Microsoft YaHei"}
-            assert {font_map[c].family_name for c in "Q123"} == {"Times New Roman"}
-            parsed = MathTextParser("path").parse(r"$T_a + \mathbf{Q} + 123$")
-            assert {glyph[0].family_name for glyph in parsed.glyphs} == {"Times New Roman"}
+            # On-screen Matplotlib text uses the platform sans UI family, never Times New Roman.
+            screen_families = list(screen_matplotlib_font_families())
+            assert "Times New Roman" not in screen_families
+            assert list(mpl.rcParams["font.family"]) == screen_families
+            paths_screen = font_manager.fontManager._find_fonts_by_props(font_manager.FontProperties())
+            screen_map = {item.char: item.ft_object for item in
+                          _text_helpers.layout("Q123", font_manager.get_font(paths_screen))}
+            assert "Times New Roman" not in {screen_map[c].family_name for c in "Q123"}
 
             fig = Figure(figsize=(4, 3))
             FigureCanvasAgg(fig)
@@ -137,5 +140,21 @@ def test_chart_glyphs_mathtext_and_theme(theme_name):
             fig.canvas.draw()
             palette = get_theme()
             assert fig.get_facecolor() == mpl.colors.to_rgba(palette['fig_bg'])
+
+            # Export context switches text, math, and ticks to Times New Roman + CJK fallback.
+            with publication_export_fonts(fig):
+                paths = font_manager.fontManager._find_fonts_by_props(font_manager.FontProperties())
+                font_map = {item.char: item.ft_object for item in
+                            _text_helpers.layout("温度Q123", font_manager.get_font(paths))}
+                assert {font_map[c].family_name for c in "温度"} == {"Microsoft YaHei"}
+                assert {font_map[c].family_name for c in "Q123"} == {"Times New Roman"}
+                parsed = MathTextParser("path").parse(r"$T_a + \mathbf{Q} + 123$")
+                assert {glyph[0].family_name for glyph in parsed.glyphs} == {"Times New Roman"}
+                assert ax.title.get_fontfamily()[0] == "Times New Roman"
+                fig.canvas.draw()
+
+            # After export, on-screen sans families are restored.
+            assert list(mpl.rcParams["font.family"]) == screen_families
+            assert ax.title.get_fontfamily()[0] != "Times New Roman"
     finally:
         set_theme(previous_theme)

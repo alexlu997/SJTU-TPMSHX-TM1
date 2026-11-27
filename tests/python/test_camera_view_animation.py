@@ -302,6 +302,6 @@ def test_hidden_fit_waits_for_show_and_resize_preserves_manual_view(camera_panel
 def test_fit_toolbar_uses_current_orientation():
     from sjtu_tpmshx.applications.gui.ui.builders_canvas import canvas_zoom_reset
     panel = SimpleNamespace(fit_view=Mock(), _set_view=Mock())
-    canvas_zoom_reset(SimpleNamespace(_active_tab='3d', canvas_3d=panel))
+    canvas_zoom_reset(SimpleNamespace(workbench=SimpleNamespace(active_tab='3d'), canvas_3d=panel))
     panel.fit_view.assert_called_once_with()
     panel._set_view.assert_not_called()

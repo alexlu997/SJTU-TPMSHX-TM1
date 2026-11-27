@@ -1,12 +1,14 @@
 """Desktop user files live outside the read-only application package."""
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 import re
 
 from PySide6.QtCore import QIODevice, QSaveFile, QStandardPaths
 
+from sjtu_tpmshx.postprocess.result_display import COLORMAP_CHOICES, COLORMAP_QUANTITIES
 
 _APP_DIRECTORY = 'SJTU-TPMSHX-TM1'
 _LEGACY_PACKAGE_DIR = Path(__file__).resolve().parents[4] / 'sjtu_tpmshx'
@@ -14,6 +16,8 @@ _DATA_FILES = (
     '.last_session.json', '.last_session_B.json', '.last_session_C.json',
     '.user_presets.json', '.workspace', '.session_timeline.jsonl', '.first_run_done',
 )
+_CMAP_SETTINGS = tuple(f'cmap_{quantity}' for quantity in COLORMAP_QUANTITIES)
+_APPEARANCE_SETTINGS = ('theme', 'density', 'accent', 'reduced_motion', 'inspector', *_CMAP_SETTINGS)
 _LOG = logging.getLogger(__name__)
 
 
@@ -60,7 +64,29 @@ def _valid_appearance(name: str, value: str) -> bool:
         return value in ('dark', 'light')
     if name == 'density':
         return value in ('compact', 'cozy', 'comfortable')
-    return name == 'accent' and re.fullmatch(r'#[0-9a-fA-F]{6}', value) is not None
+    if name == 'accent':
+        return re.fullmatch(r'#[0-9a-fA-F]{6}', value) is not None
+    if name == 'reduced_motion':
+        return value in ('true', 'false')
+    if name == 'inspector':
+        try:
+            parsed = json.loads(value)
+        except (TypeError, ValueError):
+            return False
+        if not isinstance(parsed, dict):
+            return False
+        for page_key, entry in parsed.items():
+            if page_key not in ('run', 'result') or not isinstance(entry, dict):
+                return False
+            if not isinstance(entry.get('open'), bool):
+                return False
+            tab = entry.get('tab')
+            if not isinstance(tab, int) or isinstance(tab, bool) or tab < 0:
+                return False
+        return True
+    if name in _CMAP_SETTINGS:
+        return value in COLORMAP_CHOICES
+    return False
 
 
 def _appearance_dir() -> Path:
@@ -68,10 +94,10 @@ def _appearance_dir() -> Path:
 
 
 def load_appearance_settings() -> dict[str, str]:
-    """Read the same files used by the appearance menu before widget creation."""
+    """Read the appearance files before widget creation."""
     path = _appearance_dir()
     values = {}
-    for name in ('theme', 'density', 'accent'):
+    for name in _APPEARANCE_SETTINGS:
         try:
             value = (path / f'.{name}').read_text(encoding='utf-8').strip()
         except (OSError, UnicodeError):

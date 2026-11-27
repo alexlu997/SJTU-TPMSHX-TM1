@@ -4,33 +4,34 @@
 
 ## Load a case, run it and view results
 
-1. Start `sjtu_tpmshx.main`. Select a preset with Load at the top. The left Case Parameters rail has Geometry, Boundary, and Solver pages. Enter structure/dimension, fluid inlets/openings, then grid/solver settings.
-
-   Drag the divider to change rail width. Collapse it with the title control or `Ctrl+\`. Expand or select a group to restore parameters, values, scroll position, and width.
+1. Start `sjtu_tpmshx.main`. Select Load in the left navigation rail to choose a preset or file. Press `Ctrl+\` to expand the 232 px navigation rail for workspaces and recent runs. The right push inspector drawer shows Geometry, Boundary, and Solver tabs on the Case page. Toggle it with the header control or `Ctrl+]`; each page remembers its own open state and selected tab.
    For 3D, each inlet can prescribe velocity or total mass flow in kg/s.
    In mass-flow mode, velocity is read-only and shows its last resolved value.
    Auto-fill or the next compute resolves it from current inlet state,
    porosity, and actual openings. Geometry edits keep the prescribed kg/s.
    The 2D interface keeps velocity inputs. Imported optimization conditions
    independently prescribe each condition's total flows.
-2. Select Start Compute at the rail bottom, or press Ctrl+R. The status card below the canvas shows elapsed time. Expand Details for actual solver iterations and notices. Its separate Cancel control stays available when the rail is collapsed.
+   Port coordinates display in mm and inlet pressures display in kPa when unfocused, and show exact m / Pa values while editing; explicit units such as `21 mm` convert to `0.021 m`.
+   An inlet flow accepts `g/s` or `kg/s`. Solid conductivity accepts `W/(m·K)`.
+   Press Enter to convert an input to the field unit.
+2. Select Start Compute in the header, or press `Ctrl+R`. The status card below the canvas shows elapsed time. Expand Details for actual solver iterations and notices. Its separate Cancel control stays available when the inspector is closed.
 
 Cancellation waits for the current native computation step. 3D coarse-grid initialization also responds.
 There is no forced thread termination or fixed cancellation delay. The card does not predict remaining time.
 
    The main window shows neither live residual curves nor empty placeholders. Solvers still execute and record convergence/conservation checks. Terminal states distinguish completion, notices, nonconvergence, failure, and cancellation. Captured complete logs become available through Computation Log afterward. Nonconvergence or an unavailable 3D view is not styled as normal success.
-3. Open Field Results after computation. Select temperature, velocity, or pressure and fluid A/B. Temperature also supports the solid. Move the z-slice slider for 3D fields.
+3. Open Results (`Ctrl+2`) after computation. Select temperature, velocity, or pressure, choose Fluid A, Fluid B, Solid, or All, and adjust colormaps from Colormap. Move the z-slice slider for 3D fields.
 
-   Field/Volume changes display mode only. Case parameters determine computation dimension.
+   Field/3D (`Ctrl+4`) changes display mode only. Case parameters determine computation dimension. Press `Ctrl+5` to open Quick Design.
 
    The first 3D view prepares its modules while the interface remains responsive. Result display and optimization previews share this preparation.
    Compute controls stay locked until result display finishes. Closing waits for preparation to finish.
    Font setup, widget creation, and drawing can still cause a short pause on first use.
 
-   Below the field, inspect duty, both pressure drops, outlet temperatures, and convergence diagnostics. Summary collapses the readings. More → Diagnostics Details opens diagnostics. Focus or `F` hides parameters and the summary to enlarge the current canvas. Toggle again to restore previous expansion states.
+   The bottom readout strip shows duty, both pressure drops, outlet temperatures, and extrapolation notices. Summary toggles the strip. The Result drawer shows status, checks, click-sampled per-point three-phase readouts, and canvas actions. Open diagnostics from the header run-info badge, the Result drawer, or rail Settings → Diagnostics. Focus or `F` hides the inspector and bottom strip to enlarge the current canvas. Toggle again to restore previous states.
 
-   Editing the next configuration keeps current-result provenance and units. Displayable values do not show acceptance.
-4. Save stores configuration. Export stores results or the current image. 2D results use CSV. 3D results use CSV plus field NPZ. Phase/slice choices affect display and image export only.
+   Editing the next configuration keeps current-result provenance and units, and flags the bottom strip with an edited-inputs badge. Displayable values do not show acceptance.
+4. Select Save in the left rail to store configuration. Select Export to store results or the current image. 2D results use CSV. 3D results use CSV plus field NPZ. Phase/slice choices affect display and image export only.
 
    The 3D NPZ stores available complete XYZ temperatures. It also stores both sides' three velocity components and magnitudes in m/s, and display `P_fA/P_fB` in Pa. Other arrays are `L_mm/t_mm` in mm and `dx/dy/dz` in m. Previous A-side `vmag/P_kPa` keys stay. Display pressure uses the current result's reference.
 
@@ -54,7 +55,7 @@ Parameter-page changes, rail expansion, and computation-detail expansion use an 
 
 UI animation and preset 3D views use independent precise timers for high-refresh interaction. Slow frames advance by actual elapsed time without a backlog. Actual 3D frame rate also depends on rendering load. Rotation and view transitions can reduce volume sampling detail adaptively. Static quality returns after motion.
 
-This affects interactive display only. Computation fields and complete exports stay unchanged. Set `QT_REDUCED_MOTION=1` to disable these transitions and 3D view animations.
+This affects interactive display only. Computation fields and complete exports stay unchanged. Set the saved `reduced_motion` preference or `QT_REDUCED_MOTION=1` to disable these transitions and 3D view animations.
 
 After computation, the visible field is drawn first. Other plots are generated and cached on first display or export. Phase/slice changes update the visible plot. New results clear previous plot caches. High-resolution 3D volumes are likewise generated per field on demand.
 
@@ -62,9 +63,9 @@ Original fields, static quality, and shared color scales stay. Ordinary solve no
 
 Diagnostics Details reports preparation, solve, postprocessing, and display times. Successful total time includes background work and result display. Compare terminal and GUI speed with matched configuration, threads, and cache state. Separate native builds and property-table initialization from later runs. Daily execution does not compile the solver.
 
-More selects dark/light themes, effective after restart, and K/°C. The interface uses system sans-serif fonts: macOS system Latin/PingFang, Windows Segoe UI/Microsoft YaHei, and available Linux Noto Sans/system fallbacks. Body text and inputs use regular weight. Headings and primary actions use emphasis. Charts and exports keep Times New Roman for Latin text/numbers and Microsoft YaHei for Chinese. macOS can register matching installed Office fonts in the current process without copying or distributing them.
+More selects dark/light themes, effective after restart, and K/°C. The interface and on-screen charts use system sans-serif fonts: macOS system Latin/PingFang, Windows Segoe UI/Microsoft YaHei, and available Linux Noto Sans/system fallbacks. Body text and inputs use regular weight. Headings and primary actions use emphasis. Exported figures (PNG, SVG, and PDF) apply Times New Roman for Latin text, math, and ticks with Microsoft YaHei / PingFang Chinese fallback at export time, while keeping the color scales and layout consistent. macOS can register matching installed Office fonts in the current process without copying or distributing them.
 
-Missing chart fonts produce a notice and use available fonts. Interface system fonts are unaffected.
+Missing export fonts produce a notice and use available fonts. Interface and on-screen chart fonts are unaffected.
 
 <a id="settings"></a>
 
@@ -121,6 +122,8 @@ Experimental corrections have geometry, operating, and calibration limits. They 
 
 ## Quick Design
 
+Quick Design opens in the main window. You can change pages while it runs. Complete and partial results record the case IDs, both pressure-drop limits and the elapsed time for this job.
+
 Quick Design screens dimensions against fluid conditions, heat duty, and pressure-drop constraints using a prescribed-velocity approximation. Automatic Search / Fixed Cell map to `auto/fixed`. Crossflow / Counterflow map to `cross/counter`. Case tables use K, absolute kPa, kg/s, and kW. Pressure limits are fractions: enter `0.05` for 5%.
 
 Since 2026-11-25, the GUI and the CLI (`python -m sjtu_tpmshx.applications.design.cli`) use the same defaults: `cross` flow, `mean` properties, and a square face. Default CLI and GUI results change when you omit these options. On 2026-11-25, the CLI default changed from `prop_model` `const` to `mean` (arrangement stays `cross`). The GUI default changed from Counterflow (`counter`) to Crossflow (`cross`), and its property model stays `mean`. To get the previous CLI default result, pass `--prop-model const`. To get the previous GUI default result, select Counterflow (`逆流`). Both flow and property options stay available in both interfaces (`--arrangement counter` on the CLI, and `const` in the GUI). To set a fixed rectangular face on the CLI, pass a positive finite `--height` value in mm. To set a fixed rectangular face in the GUI, select the fixed-height option.
@@ -135,7 +138,7 @@ If candidates exist, Quick Design CLI saves a partial report to `--out`, then ra
 
 Optimization supports air A / water B and two-fluid pairs with a CO₂ or sCO₂ side. It searches continuous fields in the active dimension: L(x,y)/t(x,y) for 2D and L(x,y,z)/t(x,y,z) for 3D. The default objectives compare B-side heat-uptake improvement and equally weighted two-side relative pressure drop. Core-mass mode uses absolute per-condition limits instead. The heat metric stays `-Q_B`; the baseline must be positive. All conditions keep the same A/B fluid models. Pareto designs keep complete controls. The default mode supports Sobol, qLogNEHVI, and qLogNParEGO. Core-mass mode supports qLogNEI and Sobol. BO requires its separate locked environment.
 
-Optimization Design → Results switches between Pareto and size/wall fields. Select a Pareto design to inspect its continuous field. The geometry canvas stays independent. Optimization plots support separate copy/export.
+Optimization Design → Results switches between Pareto and size/wall fields. Select a Pareto design to preview its continuous field. Use Load Selected Design to apply it to the case. If the uniform baseline fails, Results shows the reason. Set the 2D total-flow depth in the study. Optimization plots support separate copy/export.
 
 The optimization page uses the full workbench width. Its configuration page shows common geometry, fluids, grid, objectives, variables, and solve count.
 Select Edit Common Conditions to open the existing parameter controls. Page buttons support keyboard navigation.
@@ -179,7 +182,7 @@ slice, new slice popups, and their images use these limits. Values outside
 the limits use endpoint colors. Display limits do not change field data.
 Both limits must be finite and Max must exceed Min.
 
-For 3D designs, the 3D Size / Wall Thickness Field tab shows the full XYZ parameter field. Rotate, zoom, select L/t, adjust opacity, or move XY/YZ/XZ slices. This samples the continuous design without another solve. It displays spatial cell size and wall thickness, not a CAD preview of the TPMS surface. Temperature, speed, pressure, size/wall, and sensitivity maps use `turbo`.
+For 3D designs, the 3D Size / Wall Thickness Field tab shows the full XYZ parameter field. Rotate, zoom, select L/t, adjust opacity, or move XY/YZ/XZ slices. This samples the continuous design without another solve. It displays spatial cell size and wall thickness, not a CAD preview of the TPMS surface. Temperature maps default to `coolwarm`, speed and pressure maps default to `viridis`, and design size/wall and sensitivity maps default to `turbo`; per-quantity colormap choices (`coolwarm`, `turbo`, `viridis`, `cividis`) persist with appearance settings.
 Speed uses each fluid's complete field range. Pressure shares the A/B range by default.
 Clear the pressure shared-scale checkbox to use each fluid's range. These ranges stay fixed between slices.
 With the temperature shared-scale checkbox selected, all three phases use the same complete field range, contour levels, and ticks.
@@ -190,7 +193,7 @@ The 3D volume uses the physical cell centres on both uniform and nonuniform grid
 Exterior half cells keep the nearest centre value. Each field's display data loads on first selection.
 3D slices snap to the nearest cell centre. The scene, popup, coordinate label, and exported image use that same layer.
 Historical display arrays stay unchanged in saved files. The current GUI reads the original temperature, velocity, and report pressure fields.
-The 2D, 3D, and slice popup views use the same colormaps. Each quantity keeps its units.
+The 2D, 3D, and slice popup views use the active per-quantity colormaps. Both 2D and 3D displays show absolute pressure fields in kPa, while pressure drops (ΔP), raw pressure arrays, and CSV/NPZ exports keep Pa (with the existing `P_kPa` key in kPa).
 After a solve, the selected field appears first. The volume loads when you first select 3D.
 Drag with the left mouse button anywhere on the geometry canvas to rotate it. Use the wheel to zoom.
 The thread control accepts Auto or an explicit limit on macOS and Windows.
@@ -258,6 +261,9 @@ Empty A-side pressure uses 101325 Pa, matching the compute page. Invalid nonempt
 ## Import configurations and sessions
 
 There are three input families: CLI configurations such as `air_2d.json`/`air_3d.json`, GUI sessions/presets, and Quick Design `DesignCase`. Their fields and units differ. They are not interchangeable. See [tool examples](tools.en.md#公开模块扩展示例) for a minimal DesignCase and extensions.
+
+GUI format 1 saves the case without a solid-density input. Loading an older GUI case discards `le_rho_s` or its flat-file key `rho_s`.
+Quick Design and core-mass optimization use their own density inputs.
 
 When the GUI imports `line_edits` JSON without `config_format` wrapping, only supplied fields change. The same rule applies to previous flat parameter files. Omitted temperature scale, resistance mode, grid, model parameters, continuous field, and optimization conditions keep current values. An explicit K/°C change converts omitted temperatures from their current physical values. It does not merely relabel unchanged text. Formal complete configurations, preset libraries, and startup sessions keep their own restoration rules.
 

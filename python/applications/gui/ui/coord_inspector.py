@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
+from sjtu_tpmshx.postprocess.result_display import RESULT_FIELD_SPECS
 
 from .theme import get_theme
 from .matplotlib_canvas import cell_index_mm
@@ -31,20 +32,39 @@ from .matplotlib_canvas import cell_index_mm
 #  Catalogue of cached fields the inspector can read
 # ────────────────────────────────────────────────────────────────────
 
-# (key in cached 2D fields, display label, unit, fmt)
-# `eps` / zone L,t come from `za`, handled specially in `_resolve_fields`.
+_PROBE_FORMATS = {
+    'temperature': '{:.2f}',
+    'speed': '{:.3f}',
+    'pressure': '{:.3f}',
+    'design': '{:.3f}',
+}
+
+
+def _spec_entry(key):
+    spec = RESULT_FIELD_SPECS[key]
+    fmt = '{:.2f}' if key == 'L_mm' else _PROBE_FORMATS[spec.quantity]
+    return (spec.key, spec.symbol, spec.display_unit, spec.display_scale, fmt)
+
+
+# (key in cached fields, display label, display unit, display scale, fmt)
+# Scalar fields read their unit and scale from RESULT_FIELD_SPECS; velocity
+# component readouts stay beside the speed magnitudes.
 _FIELD_TABLE = [
-    ('Ta',   'T_fA',  'K',   '{:.2f}'),
-    ('Tb',   'T_fB',  'K',   '{:.2f}'),
-    ('Ts',   'T_s',   'K',   '{:.2f}'),
-    ('ucA',  'u_A',   'm/s', '{:.4f}'),
-    ('vcA',  'v_A',   'm/s', '{:.4f}'),
-    ('wcA',  'w_A',   'm/s', '{:.4f}'),
-    ('ucB',  'u_B',   'm/s', '{:.4f}'),
-    ('vcB',  'v_B',   'm/s', '{:.4f}'),
-    ('wcB',  'w_B',   'm/s', '{:.4f}'),
-    ('P_fA', 'P_A',   'Pa',  '{:.0f}'),
-    ('P_fB', 'P_B',   'Pa',  '{:.0f}'),
+    _spec_entry('Ta'),
+    _spec_entry('Tb'),
+    _spec_entry('Ts'),
+    ('ucA',  'u_A',   'm/s', 1.0, '{:.4f}'),
+    ('vcA',  'v_A',   'm/s', 1.0, '{:.4f}'),
+    ('wcA',  'w_A',   'm/s', 1.0, '{:.4f}'),
+    _spec_entry('vmag_A'),
+    ('ucB',  'u_B',   'm/s', 1.0, '{:.4f}'),
+    ('vcB',  'v_B',   'm/s', 1.0, '{:.4f}'),
+    ('wcB',  'w_B',   'm/s', 1.0, '{:.4f}'),
+    _spec_entry('vmag_B'),
+    _spec_entry('P_fA'),
+    _spec_entry('P_fB'),
+    _spec_entry('L_mm'),
+    _spec_entry('t_mm'),
 ]
 
 
@@ -79,7 +99,7 @@ def _resolve_fields(window, x_mm, y_mm):
     temp_unit = getattr(window, '_temp_unit', 'K')
     want_C = (temp_unit == 'C')
 
-    for key, label, unit, fmt in _FIELD_TABLE:
+    for key, label, unit, scale, fmt in _FIELD_TABLE:
         field = r.get(key)
         if field is None:
             continue
@@ -92,6 +112,7 @@ def _resolve_fields(window, x_mm, y_mm):
                 v = float(arr[i, j, min(k, arr.shape[2] - 1)])
             else:
                 continue
+            v = v * scale
             # Temperature conversion for display consistency with
             # header K/°C toggle.
             disp_unit = unit
@@ -348,8 +369,9 @@ class CoordInspector(QDockWidget):
         txt = "\n".join(f"{lbl:<10s} {val:>12s}  {unit}"
                          for lbl, val, unit in self._last_rows)
         QApplication.clipboard().setText(txt)
-        self._window.statusBar().showMessage(
-            "Inspector readout copied to clipboard.", 3000)
+        self._window.dialogs.notify(
+            "已复制坐标探针读数到剪贴板。", kind="success", duration_ms=3000
+        )
 
 
 # ────────────────────────────────────────────────────────────────────

@@ -89,10 +89,10 @@ def test_explicit_batch_flow_overrides_stored_input_without_mutating_it():
 
 @pytest.fixture
 def mass_window(win):
-    win._load_named_preset('Shanghai (3D Gyroid)')
+    win.case_files.load_named_preset('Shanghai (3D Gyroid)')
     win._continuous_field_spec = None
     win.chk_zones.setChecked(False)
-    win._opt_conditions = None
+    win.optimization.conditions = None
     win.le_Nx.setText('8'); win.le_Ny.setText('6'); win.le_Nz.setText('3')
     win.combo_grid.setCurrentIndex(win.combo_grid.findData(False))
     win.combo_df_mode.setCurrentIndex(win.combo_df_mode.findData('cfd_smooth'))
@@ -104,14 +104,17 @@ def mass_window(win):
 def test_gui_mass_mode_autofill_save_and_single_condition_keep_target(mass_window, monkeypatch):
     from PySide6.QtWidgets import QMessageBox
     from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
-    from sjtu_tpmshx.applications.gui.ui import optimize_panel
+    from sjtu_tpmshx.applications.optimization.optimization_job import condition_inputs
     from sjtu_tpmshx.applications.gui.ui.mixins import fluid_input
 
     window = mass_window
     initial = config_from_window(window, strict=True)
     target = prepare_inlet_mass_capacities(initial)['A'] * initial.fluid_A.u_mps
-    window.le_mass_flowA.setText(format(target, '.17g'))
     window.combo_inlet_modeA.setCurrentIndex(1)
+    window.le_mass_flowA.setText('6 g/min')
+    window.le_mass_flowA.editingFinished.emit()
+    assert config_from_window(window, strict=True).fluid_A.mass_flow_kg_s == pytest.approx(.0001)
+    window.le_mass_flowA.setText(format(target, '.17g'))
     window.le_uA.setText('obsolete')
     cfg = config_from_window(window, strict=True)
     assert cfg.fluid_A.mass_flow_kg_s == target and cfg.fluid_B.mass_flow_kg_s is None
@@ -126,13 +129,13 @@ def test_gui_mass_mode_autofill_save_and_single_condition_keep_target(mass_windo
     window.auto_fill_fluid_a()
     assert calls[-1] == pytest.approx(initial.fluid_A.u_mps, rel=1e-14)
     assert float(window.le_uA.text()) == calls[-1]
-    preset = window._capture_current_preset('mass input')
-    window._validate_preset(preset, complete=True)
+    preset = window.case_files.capture_current_preset('mass input')
+    window.case_files.validate_preset(preset, complete=True)
     window.combo_inlet_modeA.setCurrentIndex(0)
-    window._apply_user_preset(preset, show_notice=False)
+    window.case_files.apply_user_preset(preset, show_notice=False)
     restored = config_from_window(window, strict=True)
     assert restored.fluid_A.mass_flow_kg_s == target
-    row = optimize_panel._condition_inputs(restored, None)[0]
+    row = condition_inputs(restored, None)[0]
     assert row[2] == pytest.approx(target, rel=1e-14)
     window.combo_dim.setCurrentIndex(0)
     assert config_from_window(window, strict=True).fluid_A.mass_flow_kg_s is None
@@ -140,11 +143,11 @@ def test_gui_mass_mode_autofill_save_and_single_condition_keep_target(mass_windo
 
 
 def test_imported_optimization_flows_override_window_mass_input(mass_window):
-    from sjtu_tpmshx.applications.gui.ui.optimize_panel import _condition_inputs
+    from sjtu_tpmshx.applications.optimization.optimization_job import condition_inputs
     from tests.python.optimization_support import condition
     cfg = _config()
     cfg.fluid_A = replace(cfg.fluid_A, mass_flow_kg_s=.02)
-    row = _condition_inputs(cfg, [condition()])[0]
+    row = condition_inputs(cfg, [condition()])[0]
     assert row[1].fluid_A.mass_flow_kg_s is None
     assert row[2:] == (.003, .015)
     assert cfg.fluid_A.mass_flow_kg_s == .02

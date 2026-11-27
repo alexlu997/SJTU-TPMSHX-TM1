@@ -11,7 +11,7 @@ from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.run_control.paused_run import PausedRun
 from tests.python.gui_worker_support import win as win, _configure, _wait_for
 from tests.python.gui_workbench_support import _result
-from sjtu_tpmshx.applications.gui.ui.mixins.run_controller import _run_compute
+from sjtu_tpmshx.applications.gui.ui.single_run import _run_compute
 
 
 @pytest.mark.parametrize('resume', [False, True])
@@ -57,22 +57,24 @@ def test_gui_worker_uses_recovery_and_maps_only_complete_results(tmp_path, monke
 
 
 def test_saved_pause_keeps_the_last_complete_gui_result(win, tmp_path, monkeypatch):
-    config = _configure(win, monkeypatch, '2d')
+    from sjtu_tpmshx.applications.execution import recovery
+
+    _configure(win, monkeypatch, '2d')
     accepted = _result('2d')
-    win.write_result(accepted)
+    win.results.publish(accepted)
     accepted = win.cache.get_result('2d')
     checkpoint = tmp_path / 'new' / 'checkpoint.h5'
-    win._active_run_directory = checkpoint.parent
     entered, release = threading.Event(), threading.Event()
 
-    def worker(cfg, token, progress_cb):
+    def worker(cfg, directory, *, control, pause_check, **kwargs):
         entered.set()
         assert release.wait(5)
-        assert token.pause_requested() and not token.cancelled
+        assert pause_check() and not control.cancel_check()
         print('checkpoint published')
         raise PausedRun(checkpoint)
 
-    assert win.compute.start('2d', worker, config)
+    monkeypatch.setattr(recovery, 'compute_run', worker)
+    win.single_run.submit()
     try:
         assert entered.wait(2)
         card = win._run_status_card
@@ -80,17 +82,17 @@ def test_saved_pause_keeps_the_last_complete_gui_result(win, tmp_path, monkeypat
         card.pause_button.click()
         assert card.state == 'pausing'
         assert not card.pause_button.isEnabled()
-        assert win.compute.is_running()
+        assert win.single_run.compute.is_running()
     finally:
         release.set()
-        _wait_for(win.compute.is_idle)
+        _wait_for(win.single_run.is_idle)
     assert card.state == 'paused'
     assert str(checkpoint) in card.note.text()
     assert card.pause_button.isHidden() and card.cancel_button.isHidden()
     assert win.cache.get_result('2d') is accepted
-    assert win._last_checkpoint_file == str(checkpoint)
+    assert win.single_run.checkpoint_file == str(checkpoint)
     assert not win._test_error_dialogs
-    assert win._run_provenance is None
+    assert win.single_run.provenance is None
     assert win.btn_compute.isEnabled()
 
 
@@ -99,12 +101,12 @@ def test_saved_pause_keeps_the_last_complete_gui_result(win, tmp_path, monkeypat
 def test_resume_uses_saved_inputs_and_provenance_without_changing_draft(
         win, tmp_path, monkeypatch, mode, from_gui):
     from sjtu_tpmshx.applications.execution import recovery
-    from sjtu_tpmshx.applications.gui.ui.mixins import run_controller
+    from sjtu_tpmshx.applications.gui.ui import single_run
 
     config = _configure(win, monkeypatch, '2d')
     config = replace(config, geometry=replace(config.geometry, Lz_m=.03 if mode == '3d' else None),
                      solver=replace(config.solver, Nx=4, Ny=6, Nz=2 if mode == '3d' else 1))
-    preset = win._capture_current_preset('Saved inputs')
+    preset = win.case_files.capture_current_preset('Saved inputs')
     preset['line_edits']['le_Nx'] = '4'
     provenance = dict(preset=preset, preset_source='Saved GUI inputs') if from_gui else None
     case = SimpleNamespace(case_id='saved-physical-input', config_snapshot=asdict(config),
@@ -123,7 +125,7 @@ def test_resume_uses_saved_inputs_and_provenance_without_changing_draft(
     win.run_control = replace(win.run_control, native_library=str(library))
     win.le_Nx.setText('99')
     win.le_uA.setText('7.77')
-    monkeypatch.setattr(win, '_render_compute_result', lambda: True)
+    monkeypatch.setattr(win.results, 'render', lambda mode: True)
     warnings = []
     monkeypatch.setattr(QMessageBox, 'warning', lambda *args: warnings.append(args[1:3]))
     entered, release = threading.Event(), threading.Event()
@@ -137,13 +139,13 @@ def test_resume_uses_saved_inputs_and_provenance_without_changing_draft(
         result.metadata['inlet_inputs'] = {'A': {'mass_flow_kg_s': .1, 'u_mps': .2}}
         return result
 
-    monkeypatch.setattr(run_controller, '_run_compute', worker)
-    win._resume_saved_run(checkpoint)
+    monkeypatch.setattr(single_run, '_run_compute', worker)
+    win.single_run.resume(checkpoint)
     try:
         assert entered.wait(2), warnings
         assert observed[0][0] == config
         kwargs = observed[0][1]
-        assert kwargs['control'].backend == 'cpp'
+        assert kwargs['control'].native_library == str(library)
         assert reads == [checkpoint]
         source, state, loaded_case = kwargs['resume_checkpoint']
         assert state is saved_state
@@ -151,11 +153,11 @@ def test_resume_uses_saved_inputs_and_provenance_without_changing_draft(
         assert kwargs['checkpoint_interval_s'] == 42
         assert kwargs['run_directory'].parent == tmp_path
         assert kwargs['run_directory'] != checkpoint.parent
-        assert win.compute.current_mode() == mode
+        assert win.single_run.compute.current_mode() == mode
         win.le_Nx.setText('123')
     finally:
         release.set()
-        _wait_for(win.compute.is_idle)
+        _wait_for(win.single_run.is_idle)
     result = win.cache.get_result(mode)
     saved = result.metadata['run_provenance']
     assert saved['mode'] == mode
@@ -163,11 +165,11 @@ def test_resume_uses_saved_inputs_and_provenance_without_changing_draft(
     assert saved['resumed_from'] == str(checkpoint)
     assert saved['preset'] == (preset if from_gui else None)
     assert win.le_Nx.text() == '123' and win.le_uA.text() == '7.77'
-    assert win._active_run_directory is None
+    assert win.single_run.active_directory is None
     if from_gui:
-        assert win._recent_runs[0]['preset']['line_edits']['le_Nx'] == '4'
+        assert win.history.recent_runs[0]['preset']['line_edits']['le_Nx'] == '4'
     else:
-        assert win._recent_runs[0]['preset'] is None
+        assert win.history.recent_runs[0]['preset'] is None
     action = next(action for action in win.btn_recent.menu().actions()
                   if action.text().strip().startswith('#1'))
     assert action.isEnabled() is from_gui
@@ -182,12 +184,12 @@ def test_new_gui_run_saves_native_state_and_frozen_input_provenance(
     from sjtu_tpmshx.applications.execution import recovery
 
     config = _configure(win, monkeypatch, mode)
-    preset = win._capture_current_preset('Run inputs')
+    preset = win.case_files.capture_current_preset('Run inputs')
     library = tmp_path / 'explicit-library'
     library.touch()
     win.run_control = replace(win.run_control, native_library=str(library))
     assert win.run_control.backend == 'cpp'
-    monkeypatch.setattr(win, '_render_compute_result', lambda: True)
+    monkeypatch.setattr(win.results, 'render', lambda mode: True)
     display, native, performance = _result(mode), object(), object()
     entered, release = threading.Event(), threading.Event()
     observed = []
@@ -204,27 +206,27 @@ def test_new_gui_run_saves_native_state_and_frozen_input_provenance(
 
     monkeypatch.setattr(recovery, 'compute_run', execute)
     monkeypatch.setattr(module_adapter, 'to_compute_result', convert)
-    win.run_calculation()
+    win.single_run.submit()
     try:
         assert entered.wait(2)
         actual, directory, kwargs = observed[0]
         assert actual == config
         assert kwargs['control'].backend == 'cpp'
-        assert directory.parent == win.sm.base_dir / 'runs'
+        assert directory.parent == win.case_files.store.base_dir / 'runs'
         assert kwargs['checkpoint_interval_s'] == 60
         assert kwargs['gui_provenance']['preset'] == preset
         assert kwargs['gui_provenance']['mode'] == mode
-        assert win._active_run_directory == directory
+        assert win.single_run.active_directory == directory
         assert str(directory) in win._run_status_card.note.text()
         assert not win._run_status_card.pause_button.isHidden()
         win.le_Nx.setText('123')
         assert kwargs['gui_provenance']['preset'] == preset
     finally:
         release.set()
-        _wait_for(win.compute.is_idle)
+        _wait_for(win.single_run.is_idle)
     assert win.cache.get_result(mode).metadata['run_provenance']['preset'] == preset
-    assert win._active_run_directory is None
-    assert win._pending_run_provenance is None
+    assert win.single_run.active_directory is None
+    assert win.single_run.provenance is None
     assert not win._test_error_dialogs
 
 
@@ -232,13 +234,13 @@ def test_new_gui_run_saves_native_state_and_frozen_input_provenance(
 def test_rejected_new_run_clears_pending_recovery_state(win, monkeypatch, mode):
     _configure(win, monkeypatch, mode)
     win.run_control = replace(win.run_control, backend='cpp')
-    monkeypatch.setattr(win.compute, 'start', lambda *args, **kwargs: False)
+    monkeypatch.setattr(win.single_run.compute, 'start', lambda *args, **kwargs: False)
     monkeypatch.setattr(QMessageBox, 'information', lambda *args: None)
-    win.run_calculation()
-    assert win._active_run_directory is None
-    assert win._pending_run_provenance is None
-    assert not (win.sm.base_dir / 'runs').exists()
-    assert win.compute.is_idle()
+    win.single_run.submit()
+    assert win.single_run.active_directory is None
+    assert win.single_run.provenance is None
+    assert not (win.case_files.store.base_dir / 'runs').exists()
+    assert win.single_run.is_idle()
 
 
 @pytest.mark.parametrize('mode', ['2d', '3d'])
@@ -247,7 +249,7 @@ def test_failed_new_run_keeps_accepted_result_and_exposes_saved_state(
     from sjtu_tpmshx.applications.execution import recovery
 
     _configure(win, monkeypatch, mode)
-    win.write_result(_result(mode))
+    win.results.publish(_result(mode))
     accepted = win.cache.get_result(mode)
     library = tmp_path / 'explicit-library'
     library.touch()
@@ -262,12 +264,12 @@ def test_failed_new_run_keeps_accepted_result_and_exposes_saved_state(
         raise OSError('test storage failure after a saved state')
 
     monkeypatch.setattr(recovery, 'compute_run', fail)
-    win.run_calculation()
-    _wait_for(win.compute.is_idle)
+    win.single_run.submit()
+    _wait_for(win.single_run.is_idle)
     assert len(checkpoints) == 1
     assert win.cache.get_result(mode) is accepted
     assert win._run_status_card.state == 'error'
-    assert win._last_checkpoint_file == str(checkpoints[0])
+    assert win.single_run.checkpoint_file == str(checkpoints[0])
     assert str(checkpoints[0]) in win._run_status_card.note.text()
-    assert win._active_run_directory is None
+    assert win.single_run.active_directory is None
     assert len(win._test_error_dialogs) == 1

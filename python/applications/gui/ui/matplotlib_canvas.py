@@ -6,7 +6,8 @@ import numpy as np
 from matplotlib.figure import Figure
 from matplotlib.ticker import LinearLocator, ScalarFormatter
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from .theme import FIELD_CMAP, get_theme
+from sjtu_tpmshx.postprocess.result_display import RESULT_FIELD_SPECS
+from .theme import get_theme, resolve_cmap
 from .vis3d_constants import field_color_limits
 
 
@@ -47,19 +48,19 @@ def style_colorbar(cb, theme):
     cb.outline.set_linewidth(.6)
 
 
-def style_field_axes(ax, cb, _t, main_title, subtitle):
+def style_field_axes(ax, cb, _t, main_title, subtitle, *, show_xlabel=True):
     """Shared temperature/pressure axes, colorbar and title formatting."""
-    style_colorbar(cb, _t)
+    if cb is not None:
+        style_colorbar(cb, _t)
     # Inline title
     ax.set_title(main_title, fontsize=13, fontweight="bold",
                  color=_t['ax_text'], loc='left', pad=6)
     ax.text(0.99, 1.02, subtitle, transform=ax.transAxes,
-            fontsize=9, color=_t['mpl_subtitle'], ha='right', va='bottom',
-            fontstyle='italic')
-    ax.set_xlabel("x [mm]", fontsize=10, color=_t['ax_text'])
+            fontsize=9, color=_t['mpl_subtitle'], ha='right', va='bottom')
+    ax.set_xlabel("x [mm]" if show_xlabel else "", fontsize=10, color=_t['ax_text'])
     ax.set_ylabel("y [mm]", fontsize=10, color=_t['ax_text'])
     ax.tick_params(labelsize=9, colors=_t['ax_text'], length=4, width=0.8)
-    ax.set_aspect('auto')
+    ax.set_aspect('equal', adjustable='box')
     ax.grid(True, alpha=0.12, linewidth=0.4, color=_t['ax_text'])
     for spine in ax.spines.values():
         spine.set_edgecolor(_t['ax_spine']); spine.set_linewidth(0.8)
@@ -107,8 +108,9 @@ class MatplotlibCanvas(FigureCanvas):
         inches = pixels * self.device_pixel_ratio / self.figure.dpi
         self.figure.set_size_inches(np.nextafter(inches, np.inf), forward=False)
 
-    def plot_pressure(self, P_fA, P_fB, N_x, N_y, L, H, mode="",
+    def plot_pressure(self, P_A_kPa, P_B_kPa, N_x, N_y, L, H, mode="",
                        dx_arr=None, dy_arr=None, shared=True):
+        """Plot Fluid A and Fluid B absolute pressure fields supplied in kPa."""
         _t = get_theme()
         from matplotlib.gridspec import GridSpec
 
@@ -127,20 +129,33 @@ class MatplotlibCanvas(FigureCanvas):
         axes_p = [self.fig.add_subplot(gs[0]), self.fig.add_subplot(gs[1])]
         self.axes = [axes_p]
 
+        spec_a, spec_b = RESULT_FIELD_SPECS['P_fA'], RESULT_FIELD_SPECS['P_fB']
         p_data = [
-            (P_fA, r"$P_A$  [Pa]", "Fluid A"),
-            (P_fB, r"$P_B$  [Pa]", "Fluid B"),
+            (P_A_kPa, spec_a, "流体 A"),
+            (P_B_kPa, spec_b, "流体 B"),
         ]
         _Lmm, _Hmm = L * 1000.0, H * 1000.0
-        limits = field_color_limits([P_fA, P_fB], shared)
-        for ax, (field, main_title, subtitle), (lo, hi) in zip(axes_p, p_data, limits):
+        limits = field_color_limits([P_A_kPa, P_B_kPa], shared)
+        last_cf = None
+        for idx_p, (ax, (field, spec, subtitle), (lo, hi)) in enumerate(zip(axes_p, p_data, limits)):
             ax.set_facecolor(_t['ax_bg'])
             _Xp, _Yp, _Fp = pad_field_to_edges(x, y, field, _Lmm, _Hmm)
-            cf = ax.contourf(_Xp, _Yp, _Fp, levels=np.linspace(lo, hi, 129), cmap=FIELD_CMAP, vmin=lo, vmax=hi)
+            cf = ax.contourf(_Xp, _Yp, _Fp, levels=np.linspace(lo, hi, 129),
+                             cmap=resolve_cmap(spec.key), vmin=lo, vmax=hi)
+            last_cf = cf
             ax.set_xlim(0, _Lmm); ax.set_ylim(0, _Hmm)
-            cb = self.fig.colorbar(cf, ax=ax, shrink=0.9, aspect=25,
-                                  format=ScalarFormatter(useOffset=False))
-            style_field_axes(ax, cb, _t, main_title, subtitle)
+            cb = None
+            if not shared:
+                cb = self.fig.colorbar(cf, ax=ax, shrink=0.9, aspect=25,
+                                       format=ScalarFormatter(useOffset=False))
+            style_field_axes(
+                ax, cb, _t, f"{spec.symbol_tex}  [{spec.display_unit}]", subtitle,
+                show_xlabel=(idx_p == len(axes_p) - 1),
+            )
+        if shared and last_cf is not None:
+            cb = self.fig.colorbar(last_cf, ax=axes_p, shrink=0.9, aspect=28,
+                                   format=ScalarFormatter(useOffset=False))
+            style_colorbar(cb, _t)
 
         # Scalar pressure drop lives in the result footer.
         _ = mode

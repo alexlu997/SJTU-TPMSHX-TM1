@@ -1,6 +1,7 @@
 """Real Qt pool/window regressions; only expensive numerical work is stubbed."""
 from __future__ import annotations
 
+from types import SimpleNamespace
 import threading
 import time
 
@@ -25,25 +26,29 @@ def test_2d_tout_displays_result_scalars_across_units_and_direction_drafts(win):
         fields={'Ta': np.arange(6.).reshape(2, 3) + 400.,
                 'Tb': np.arange(6.).reshape(2, 3) + 300.},
         diagnostics={'mode': '2d'})
-    win.write_result(result)
+    win.results.publish(result)
     assert (win.cache.get_result().T_out_A_K, win.cache.get_result().T_out_B_K) == (341.25, 312.75)
     for direction in range(4):
         win.combo_dirA.setCurrentIndex(direction)
         win.combo_dirB.setCurrentIndex(3-direction)
         win._update_tout(-1)
-        assert float(win._sb_labels['tout'].text().split(' / ')[0]) == 341.25
-        assert float(win._sb_labels['tout'].text().split(' / ')[1]) == 312.75
+        items = win.readout_strip.items()
+        assert float(items[3].value) == 341.25
+        assert float(items[4].value) == 312.75
     win._toggle_temp_unit()
-    assert '[°C]' in win._lbl_sidebar_tout_unit.text()
-    assert win._sb_labels['tout'].text() == '68.10 / 39.60'
+    items = win.readout_strip.items()
+    assert items[3].unit == '°C' and items[4].unit == '°C'
+    assert f'{items[3].value} / {items[4].value}' == '68.10 / 39.60'
     win._update_tout(0)
-    assert float(win._sb_labels['tout'].text().split(' / ')[0]) == pytest.approx(68.10)
-    assert float(win._sb_labels['tout'].text().split(' / ')[1]) == pytest.approx(39.60)
+    items = win.readout_strip.items()
+    assert float(items[3].value) == pytest.approx(68.10)
+    assert float(items[4].value) == pytest.approx(39.60)
     win._toggle_temp_unit()
-    assert '[K]' in win._lbl_sidebar_tout_unit.text()
-    assert win._sb_labels['tout'].text() == '341.25 / 312.75'
-    assert float(win._sb_labels['tout'].text().split(' / ')[0]) == 341.25
-    assert float(win._sb_labels['tout'].text().split(' / ')[1]) == 312.75
+    items = win.readout_strip.items()
+    assert items[3].unit == 'K' and items[4].unit == 'K'
+    assert f'{items[3].value} / {items[4].value}' == '341.25 / 312.75'
+    assert float(items[3].value) == 341.25
+    assert float(items[4].value) == 312.75
     assert win.cache.get_result('2d').Q_W == result.Q_W == 123.
 
 
@@ -69,10 +74,10 @@ def test_real_source_warnings_do_not_set_df_ui_flag(win, monkeypatch, mode, df_e
     assert any('[water Nu extrap]' in text for text in result.warnings)
     assert any('air_cp:' in text for text in result.warnings)
     assert result.extrap_reasons == df_reasons
-    win.write_result(result)
-    assert win._result_summary()['warnings'] == result.warnings
+    win.results.publish(result)
+    assert win.results.summary()['warnings'] == result.warnings
     assert win.cache.get_result().extrap_reasons == df_reasons
-    assert bool(win._result_summary()['extrap']) is df_extrap
+    assert bool(win.results.summary()['extrap']) is df_extrap
 
 
 def test_autofill_cache_and_draft_warnings_are_isolated_from_worker(win, monkeypatch):
@@ -105,9 +110,9 @@ def test_autofill_cache_and_draft_warnings_are_isolated_from_worker(win, monkeyp
 
     from tests.python.gui_worker_support import _stub_stages
     _stub_stages(monkeypatch, '2d', build)
-    monkeypatch.setattr(win, '_render_compute_result', lambda: True)
+    monkeypatch.setattr(win.results, 'render', lambda mode: True)
     try:
-        win.run_calculation()
+        win.single_run.submit()
         _wait_for(ready.is_set)
         assert current_warnings() is None
         win.combo_fluidB.setCurrentIndex(1)  # water, distinct from run's air Nu
@@ -116,15 +121,15 @@ def test_autofill_cache_and_draft_warnings_are_isolated_from_worker(win, monkeyp
         assert not win._test_error_dialogs
     finally:
         release.set()
-    _wait_for(win.compute.is_idle)
-    result = win.compute.last_result()
+    _wait_for(win.single_run.is_idle)
+    result = win.single_run.compute.last_result()
     assert any('[Nu extrap]' in text for text in result.warnings)
     assert not any('[water Nu extrap]' in text for text in result.warnings)
     assert result.extrap_reasons == []
     # The same warmed inputs in a second worker still own their notices.
-    win.run_calculation()
-    _wait_for(win.compute.is_idle)
-    assert win.compute.last_result().warnings == result.warnings
+    win.single_run.submit()
+    _wait_for(win.single_run.is_idle)
+    assert win.single_run.compute.last_result().warnings == result.warnings
 
 
 @pytest.mark.parametrize('dimensions', [(0,), (1, 0, 1)])
@@ -143,14 +148,14 @@ def test_real_window_config_preserves_explicit_pipeline_mode(win, monkeypatch, d
         return ComputeResult(Q_W=123, diagnostics={'mode': mode})
 
     _stub_compute_result(monkeypatch, run)
-    monkeypatch.setattr(win, '_render_compute_result', lambda: True)
+    monkeypatch.setattr(win.results, 'render', lambda mode: True)
     for dim in dimensions:
         win.combo_dim.setCurrentIndex(dim)
-        win.run_calculation()
-        _wait_for(win.compute.is_idle)
+        win.single_run.submit()
+        _wait_for(win.single_run.is_idle)
         mode = '3d' if dim else '2d'
-        assert win.compute.current_mode() == mode
-        assert win.compute.last_result().diagnostics['mode'] == mode
+        assert win.single_run.compute.current_mode() == mode
+        assert win.single_run.compute.last_result().diagnostics['mode'] == mode
     assert calls == [('3d' if dim else '2d', 5 if dim else 1) for dim in dimensions]
     assert win.le_Nz.text() == '5'
 
@@ -187,7 +192,9 @@ def test_real_window_zone_snapshot_is_independent(win, axis):
     win.zone_table.item(0, win.zone_table.columnCount() - 2).setText('8')
     assert cfg.zones.pareto_x_decision == pytest.approx([0.1, 0.2, 0.3])
     if axis == 2:
-        win._zone_grid['cells'][0]['L'] = 8
+        assert not hasattr(win, '_zone_grid')
+        assert cfg.zones.config is None
+        assert config_from_window(win).zones.grid['cells'][0]['L'] == 8
         assert cfg.zones.grid['cells'][0]['L'] == 6
     else:
         cfg.zones.config.compute_properties(5, 3, 400, 300)
@@ -211,10 +218,10 @@ def test_real_window_rejects_invalid_zone_input(win, monkeypatch, axis, invalid)
         win.zone_table.item(0, 0).setText('bad' if invalid == 'text' else '10')
     warnings, starts = [], []
     monkeypatch.setattr(QMessageBox, 'warning', lambda *args: warnings.append(args))
-    win.compute.started.connect(starts.append)
-    win.run_calculation()
+    win.single_run.compute.started.connect(starts.append)
+    win.single_run.submit()
     assert warnings and warnings[0][1] == 'Invalid Input'
-    assert not starts and win.compute.is_idle()
+    assert not starts and win.single_run.compute.is_idle()
 
 
 @pytest.mark.parametrize('dim', [0, 1])
@@ -226,17 +233,17 @@ def test_real_zoned_pipeline_error_never_publishes(win, monkeypatch, dim):
     # 2D water zones and 3D 1D zones are existing unsupported paths.
     win.combo_fluidB.setCurrentText('Water')
     published, errors, writes = [], [], []
-    win.compute.finished.connect(published.append)
-    win.compute.error.connect(lambda *args: errors.append(args))
-    monkeypatch.setattr(win, 'write_result', writes.append)
+    win.single_run.compute.finished.connect(published.append)
+    win.single_run.compute.error.connect(lambda *args: errors.append(args))
+    monkeypatch.setattr(win.results, 'publish', writes.append)
     monkeypatch.setattr('sjtu_tpmshx.applications.execution.recovery.run_case',
                         lambda *args, **kwargs: pytest.fail('invalid zones reached solver'))
     monkeypatch.setattr('sjtu_tpmshx.postprocess.api.evaluate',
                         lambda *args: pytest.fail('invalid zones reached postprocessing'))
-    win.run_calculation()
-    _wait_for(win.compute.is_idle)
+    win.single_run.submit()
+    _wait_for(win.single_run.is_idle)
     assert errors and not published and not writes
-    assert win.compute.last_result() is None
+    assert win.single_run.compute.last_result() is None
 
 
 @pytest.mark.parametrize('column,value', [(2, '100'), (3, '0'), (0, '-10'),
@@ -252,10 +259,10 @@ def test_real_window_rejects_invalid_grid_rectangle(win, monkeypatch, column, va
     win.zone_table.item(0, column).setText(value)
     warnings, starts = [], []
     monkeypatch.setattr(QMessageBox, 'warning', lambda *args: warnings.append(args))
-    win.compute.started.connect(starts.append)
-    win.run_calculation()
+    win.single_run.compute.started.connect(starts.append)
+    win.single_run.submit()
     assert warnings and 'cell 1' in warnings[0][2]
-    assert not starts and win.compute.is_idle()
+    assert not starts and win.single_run.compute.is_idle()
 
 
 @pytest.mark.parametrize('mode', ['2d', '3d'])
@@ -269,10 +276,10 @@ def test_worker_publishes_payload_on_gui_thread_without_reentry(win, monkeypatch
         diagnostics={'mode': mode}, metadata={'run': 'complete payload'})
     worker_seen, writes, cache_writes, rendered, payloads = [], [], [], [], []
     progress, iterations = [], []
-    win.compute.finished.connect(payloads.append)
+    win.single_run.compute.finished.connect(payloads.append)
     win.progress.valueChanged.connect(
         lambda p: progress.append((threading.get_ident(), p)))
-    win.compute.iteration.connect(lambda s: iterations.append((threading.get_ident(), s)))
+    win.single_run.compute.iteration.connect(lambda s: iterations.append((threading.get_ident(), s)))
 
     def run(config, *, control, progress_cb):
         progress_cb(37)
@@ -285,39 +292,39 @@ def test_worker_publishes_payload_on_gui_thread_without_reentry(win, monkeypatch
         return result
 
     _stub_compute_result(monkeypatch, run)
-    original_write = win.write_result
+    original_write = win.results.publish
     original_cache = win.cache.set_result
 
     def write(payload):
-        writes.append((threading.get_ident(), payload, win.compute.is_running()))
+        writes.append((threading.get_ident(), payload, win.single_run.compute.is_running()))
         original_write(payload)
 
     def cache_write(*args):
         cache_writes.append((threading.get_ident(), args[0], args[1] is None))
         original_cache(*args)
 
-    def render():
+    def render(mode):
         # Recreate nested event processing during an expensive render.
         def restart():
-            rendered.append((win.compute.start('2d', lambda *a, **k: None, {}),
-                             win._compute_running, win.btn_compute.isEnabled()))
+            rendered.append((win.single_run.compute.start('2d', lambda *a, **k: None, {}),
+                             not win.single_run.is_idle(), win.btn_compute.isEnabled()))
         QTimer.singleShot(0, restart)
         QApplication.processEvents()
         return True
 
-    monkeypatch.setattr(win, 'write_result', write)
+    monkeypatch.setattr(win.results, 'publish', write)
     monkeypatch.setattr(win.cache, 'set_result', cache_write)
-    monkeypatch.setattr(win, '_render_compute_result', render)
+    monkeypatch.setattr(win.results, 'render', render)
     try:
-        win.run_calculation()
+        win.single_run.submit()
         _wait_for(lambda: bool(iterations))
-        assert win._compute_progress == 37
-        assert win._iter_label_now == ('iter 1/2' if mode == '2d' else 'outer 1/2')
+        assert win.progress.value() == 37
+        assert win.single_run._iteration_label == ('iter 1/2' if mode == '2d' else 'outer 1/2')
         assert not writes and not cache_writes
         win.le_Nz.setText('99')  # UI edits cannot change the in-flight config.
     finally:
         release.set()
-    _wait_for(win.compute.is_idle)
+    _wait_for(win.single_run.is_idle)
 
     assert worker_seen[0][0] != gui_thread
     assert worker_seen[0][1] is cfg
@@ -326,71 +333,73 @@ def test_worker_publishes_payload_on_gui_thread_without_reentry(win, monkeypatch
     assert cache_writes == [(gui_thread, mode, False)]
     assert win.cache.get_result('3d' if mode == '2d' else '2d') is None
     assert payloads == [result] and payloads[0] is result
-    assert win.compute.last_result() is result
+    assert win.single_run.compute.last_result() is result
     assert (gui_thread, 37) in progress
     assert iterations[0][0] == gui_thread
     assert rendered == [(False, True, False)]
-    assert win.compute.current_mode() == mode
+    assert win.single_run.compute.current_mode() == mode
     cached = win.cache.get_result(mode)
     assert cached is not result
     assert cached.fields['Ta'] is result.fields['Ta']
     assert cached.Q_W == result.Q_W
-    assert not win._compute_running
+    assert win.single_run.is_idle()
     assert win.btn_compute.isEnabled()
-    assert win._compute_btn_handler == win.run_calculation
+    assert win.btn_compute.receivers('2clicked(bool)') == 1
 
 
 @pytest.mark.parametrize('mode', ['2d', '3d'])
 def test_display_timing_reaches_result_and_export_cache(win, monkeypatch, mode):
     _configure(win, monkeypatch, mode)
     clock = [0.0]
-    monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.mixins.run_controller.perf_counter',
+    monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.field_results.perf_counter',
                         lambda: clock[0])
     result = ComputeResult(
         Q_W=123.5, diagnostics={'mode': mode}, warnings=['retained warning'],
         metadata={'timings_s': {'prepare': 1.0, 'solve': 2.0, 'postprocess': 3.0}})
     _stub_compute_result(monkeypatch,
                         lambda config, **kwargs: result)
-    original_write = win.write_result
-    original_end = win._end_compute_ui
+    original_write = win.results.publish
+    original_end = win.single_run._finish
     original_finish = win._run_status_card.finish
     card_elapsed, provenance_elapsed = [], []
     # Worker time includes overhead beyond the 1+2+3-second phase timings.
-    monkeypatch.setattr(win.compute, 'last_elapsed', lambda: 20.0)
+    monkeypatch.setattr(win.single_run.compute, 'last_elapsed', lambda: 20.0)
 
     def write(payload):
         original_write(payload)
         clock[0] += 2.0
 
-    def render():
+    def render(mode):
         clock[0] += 3.0
         return True
 
-    def end(*, success):
+    def end(state, message):
         clock[0] += 100.0
-        win._compute_t0 -= 3600.0  # time spent waiting/reading is not compute work
-        original_end(success=success)
+        win.single_run._started_at -= 3600.0  # time spent waiting/reading is not compute work
+        original_end(state, message)
 
     def finish(state, elapsed, **kwargs):
         card_elapsed.append(elapsed)
         original_finish(state, elapsed, **kwargs)
 
-    monkeypatch.setattr(win, 'write_result', write)
-    monkeypatch.setattr(win, '_render_compute_result', render)
-    monkeypatch.setattr(win, '_end_compute_ui', end)
+    monkeypatch.setattr(win.results, 'publish', write)
+    monkeypatch.setattr(win.results, 'render', render)
+    monkeypatch.setattr(win.single_run, '_finish', end)
     monkeypatch.setattr(win._run_status_card, 'finish', finish)
-    monkeypatch.setattr(win, '_stamp_result_provenance', provenance_elapsed.append)
-    win.run_calculation()
-    _wait_for(win.compute.is_idle)
+    monkeypatch.setattr(win.history, 'stamp_result_provenance', provenance_elapsed.append)
+    win.single_run.submit()
+    _wait_for(win.single_run.is_idle)
 
     expected = {'prepare': 1.0, 'solve': 2.0, 'postprocess': 3.0, 'display': 5.0}
     assert result.metadata['timings_s'] == {key: value for key, value in expected.items() if key != 'display'}
     cached = win.cache.get_result(mode)
     assert cached.metadata['timings_s'] == expected
-    assert win._result_summary()['timings_s'] == expected
-    assert card_elapsed == provenance_elapsed == [25.0]
-    assert win._last_elapsed_s == 25.0
-    assert win._result_summary()['warnings'] == ['retained warning']
+    assert win.results.summary()['timings_s'] == expected
+    assert card_elapsed == [6.0]
+    assert provenance_elapsed == [25.0]
+    assert win._last_elapsed_s == 6.0
+    assert win._last_total_elapsed_s == 25.0
+    assert win.results.summary()['warnings'] == ['retained warning']
     assert result.Q_W == 123.5
 
 
@@ -399,9 +408,9 @@ def test_display_timing_reaches_result_and_export_cache(win, monkeypatch, mode):
 def test_terminal_paths_restore_ui(win, monkeypatch, mode, outcome):
     _configure(win, monkeypatch, mode)
     observed = []
-    win.compute.error.connect(lambda *args: observed.append('error'))
-    win.compute.cancelled.connect(lambda *args: observed.append('cancel'))
-    win.compute.finished.connect(lambda *args: observed.append('finished'))
+    win.single_run.compute.error.connect(lambda *args: observed.append('error'))
+    win.single_run.compute.cancelled.connect(lambda *args: observed.append('cancel'))
+    win.single_run.compute.finished.connect(lambda *args: observed.append('finished'))
 
     def run(config, *, control, progress_cb):
         if outcome == 'error':
@@ -411,25 +420,23 @@ def test_terminal_paths_restore_ui(win, monkeypatch, mode, outcome):
             raise CancelledError('cancel checkpoint')
         return ComputeResult(Q_W=123, diagnostics={'mode': mode})
 
-    def bad_render():
+    def bad_render(mode):
         raise RuntimeError('render failed')
 
     _stub_compute_result(monkeypatch, run)
     if outcome == 'cancel':
-        win.compute.started.connect(lambda _mode: win._on_cancel_compute())
+        win.single_run.compute.started.connect(lambda _mode: win.single_run.cancel())
     if outcome == 'render_error':
-        monkeypatch.setattr(win, '_render_compute_result', bad_render)
-    win.run_calculation()
-    _wait_for(win.compute.is_idle)
+        monkeypatch.setattr(win.results, 'render', bad_render)
+    win.single_run.submit()
+    _wait_for(win.single_run.is_idle)
 
     assert observed == ['finished' if outcome == 'render_error' else outcome]
-    assert not win._compute_running
+    assert win.single_run.is_idle()
     assert win.btn_compute.isEnabled()
-    assert win._compute_btn_handler == win.run_calculation
-    assert not win._btn_ticker_timer.isActive()
+    assert win.btn_compute.receivers('2clicked(bool)') == 1
+    assert not win.single_run._ticker.isActive()
     assert not win.progress.isVisible()
-    if mode == '3d':
-        assert not win._compute_3d_watchdog.isActive()
     if outcome == 'render_error':
         assert win.cache.has_results(mode), 'render failure destroyed valid data'
     assert bool(win._test_error_dialogs) == (outcome == 'error')
@@ -451,7 +458,7 @@ def test_close_requires_choice_when_session_save_fails(win, monkeypatch, failure
                 else QMessageBox.StandardButton.Cancel)
 
     with monkeypatch.context() as patch:
-        patch.setattr(win, '_save_session', save)
+        patch.setattr(win.case_files, 'save_session', save)
         patch.setattr(QMessageBox, 'warning', warning)
         patch.setattr(win.signals, 'disconnect_all', lambda: disconnected.append(True))
         win.le_Lcell.setText('6.5')
@@ -467,7 +474,7 @@ def test_close_requires_choice_when_session_save_fails(win, monkeypatch, failure
             assert win.le_Lcell.text() == '6.5'
     if not discard:
         assert win.close(), 'saving successfully must allow a later close'
-        assert win.sm.load_session() is not None
+        assert win.case_files.store.load_session() is not None
 
 
 def test_cancel_close_on_save_failure_keeps_live_compute(win, monkeypatch):
@@ -479,22 +486,22 @@ def test_cancel_close_on_save_failure_keeps_live_compute(win, monkeypatch):
         assert not cancel.is_set(), 'cancelled closing must not cancel the computation'
         return ComputeResult(Q_W=123)
 
-    monkeypatch.setattr(win, '_render_compute_result', lambda: True)
+    monkeypatch.setattr(win.results, 'render', lambda mode: True)
     try:
-        win.compute.start('2d', worker, ComputeConfig())
+        win.single_run.compute.start('2d', worker, ComputeConfig())
         _wait_for(entered.is_set)
         with monkeypatch.context() as patch:
-            patch.setattr(win, '_save_session', lambda: False)
+            patch.setattr(win.case_files, 'save_session', lambda: False)
             patch.setattr(QMessageBox, 'warning',
                           lambda *args: QMessageBox.StandardButton.Cancel)
             assert not win.close()
             assert win.isEnabled() and not getattr(win, '_close_pending', False)
-            assert win.compute.is_running()
+            assert win.single_run.compute.is_running()
     finally:
         release.set()
-    _wait_for(win.compute.is_idle)
+    _wait_for(win.single_run.is_idle)
     assert win.cache.get_result('2d').Q_W == 123
-    assert win.btn_compute.isEnabled() and not win._compute_running
+    assert win.btn_compute.isEnabled() and win.single_run.is_idle()
     assert win.close()
 
 
@@ -526,12 +533,12 @@ def test_close_waits_for_terminal_delivery_and_runnable_exit(win, monkeypatch, o
         return ComputeResult(Q_W=123)
 
     monkeypatch.setattr(_ComputeRunnable, 'run', held_run)
-    monkeypatch.setattr(win, 'write_result', writes.append)
-    monkeypatch.setattr(win, '_save_session', lambda: saves.append(True) or save_ok)
+    monkeypatch.setattr(win.results, 'publish', writes.append)
+    monkeypatch.setattr(win.case_files, 'save_session', lambda: saves.append(True) or save_ok)
     monkeypatch.setattr(QMessageBox, 'warning',
                         lambda *args: dialogs.append(args) or QMessageBox.StandardButton.Discard)
     win.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-    orch, cache = win.compute, win.cache
+    orch, cache = win.single_run.compute, win.cache
     try:
         orch.start('2d', worker, ComputeConfig())
         assert terminal_sent.wait(5)  # Deliberately do not drain Qt yet.
@@ -561,11 +568,11 @@ def test_workspace_switch_waits_for_worker_publication_and_exit(win, monkeypatch
     _configure(win, monkeypatch, mode)
     accepted, result = _result(mode), _result(mode)
     accepted.Q_W, result.Q_W = 123., 456.
-    win.write_result(accepted)
+    win.results.publish(accepted)
     cached = win.cache.get_result(mode)
     entered, release = threading.Event(), threading.Event()
     terminal_sent, exit_worker = threading.Event(), threading.Event()
-    original_run, original_save = _ComputeRunnable.run, win._save_session
+    original_run, original_save = _ComputeRunnable.run, win.case_files.save_session
     saves, notices = [], []
 
     def run(config, *, control, progress_cb):
@@ -584,41 +591,41 @@ def test_workspace_switch_waits_for_worker_publication_and_exit(win, monkeypatch
 
     _stub_compute_result(monkeypatch, run)
     monkeypatch.setattr(_ComputeRunnable, 'run', held_run)
-    monkeypatch.setattr(win, '_render_compute_result', lambda: True)
-    monkeypatch.setattr(win, '_save_session', save)
+    monkeypatch.setattr(win.results, 'render', lambda mode: True)
+    monkeypatch.setattr(win.case_files, 'save_session', save)
     monkeypatch.setattr(QMessageBox, 'information', lambda *args: notices.append(args[-1]))
     try:
-        win.run_calculation()
+        win.single_run.submit()
         assert entered.wait(5)
         win.le_Nx.setText('37')  # Ordinary draft edits remain available.
-        draft = win._capture_current_preset('Current draft')
-        win._workspace_menu.actions()[1].trigger()
-        assert win._active_workspace == 'A'
-        assert win._capture_current_preset('Current draft') == draft
+        draft = win.case_files.capture_current_preset('Current draft')
+        next(a for a in win.history.build_load_menu().actions() if '工作区 B' in a.text()).trigger()
+        assert win.case_files.active_workspace == 'A'
+        assert win.case_files.capture_current_preset('Current draft') == draft
         assert win.cache.get_result(mode) is cached
 
         release.set()
         assert terminal_sent.wait(5)  # Result is queued; Qt has not delivered it.
-        win._switch_workspace('B')  # The command-palette path uses this same method.
-        assert win._active_workspace == 'A'
+        win.case_files.switch_workspace('B')  # The command-palette path uses this same method.
+        assert win.case_files.active_workspace == 'A'
         assert win.cache.get_result(mode) is cached
 
-        _wait_for(lambda: not win.compute.is_running())
-        assert not win.compute.is_idle(), 'terminal delivery is not worker exit'
+        _wait_for(lambda: not win.single_run.compute.is_running())
+        assert not win.single_run.compute.is_idle(), 'terminal delivery is not worker exit'
         published = win.cache.get_result(mode)
         assert published.Q_W == 456.
-        win._workspace_menu.actions()[1].trigger()
-        assert win._active_workspace == 'A'
-        assert win._capture_current_preset('Current draft') == draft
+        next(a for a in win.history.build_load_menu().actions() if '工作区 B' in a.text()).trigger()
+        assert win.case_files.active_workspace == 'A'
+        assert win.case_files.capture_current_preset('Current draft') == draft
         assert win.cache.get_result(mode) is published
         assert not saves and len(notices) == 3
     finally:
         release.set()
         exit_worker.set()
-        _wait_for(win.compute.is_idle)
+        _wait_for(win.single_run.is_idle)
 
-    win._workspace_menu.actions()[1].trigger()
-    assert win._active_workspace == 'B'
+    next(a for a in win.history.build_load_menu().actions() if '工作区 B' in a.text()).trigger()
+    assert win.case_files.active_workspace == 'B'
     assert saves == [True]
     assert not win.cache.has_any_results()
     assert not win._test_error_dialogs
@@ -644,11 +651,14 @@ def test_close_cancels_live_pipeline_without_destroying_its_callbacks(win, monke
     _stub_compute_result(monkeypatch, run)
     win.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
     try:
-        win.run_calculation()
+        win.single_run.submit()
         assert entered.wait(5)
         assert not win.close()
-        assert isValid(win.compute) and win.compute.is_running()
+        assert isValid(win.single_run.compute) and win.single_run.compute.is_running()
         assert win._close_pending
+        assert not win.single_run._ticker.isActive()
+        win.single_run._ticker.timeout.emit()
+        assert '正在关闭' in win.dialogs.last_notice
     finally:
         release.set()
     _wait_for(lambda: not isValid(win))
@@ -660,14 +670,15 @@ def test_close_cancels_live_pipeline_without_destroying_its_callbacks(win, monke
 def test_auxiliary_task_close_keeps_thread_until_run_returns(win, monkeypatch, tmp_path,
                                                             kind, outcome):
     """A published result/error does not permit destruction of a running QThread."""
-    from sjtu_tpmshx.applications.gui.ui import optimize_panel, quick_design_panel
+    from sjtu_tpmshx.applications.gui.ui import optimize_panel
+    from sjtu_tpmshx.applications.gui.ui.optimize_job import OptimizationJob
+    from sjtu_tpmshx.applications.gui.ui.quick_design_job import QuickDesignJob
     from sjtu_tpmshx.applications.design.sizing import Design
     from sjtu_tpmshx.applications.gui.ui.background_tasks import has_active_tasks
 
     release, terminal_sent = threading.Event(), threading.Event()
     backend_called = threading.Event()
-    panel = optimize_panel if kind == 'optimize' else quick_design_panel
-    Worker = panel._make_worker_class()
+    Worker = OptimizationJob if kind == 'optimize' else QuickDesignJob
     original_run = Worker.run
 
     def held_run(worker):
@@ -676,7 +687,6 @@ def test_auxiliary_task_close_keeps_thread_until_run_returns(win, monkeypatch, t
         assert release.wait(10)
 
     monkeypatch.setattr(Worker, 'run', held_run)
-    monkeypatch.setattr(panel, '_make_worker_class', lambda: Worker)
     def fail_or_result(*args, **kwargs):
         if kind == 'optimize':
             assert isinstance(args[0][0][1], ComputeConfig)
@@ -691,22 +701,21 @@ def test_auxiliary_task_close_keeps_thread_until_run_returns(win, monkeypatch, t
     monkeypatch.setattr('sjtu_tpmshx.applications.optimization.multi_condition_optimizer.run_multi_condition_optimization',
                         fail_or_result)
     monkeypatch.setattr(optimize_panel, 'optimization_output_dir', lambda: tmp_path)
-    monkeypatch.setattr('sjtu_tpmshx.applications.design.cases.load_cases', lambda p: ['case'])
+    monkeypatch.setattr('sjtu_tpmshx.applications.design.cases.load_cases', lambda p: [SimpleNamespace(case='A', dPlim_h=.05, dPlim_c=.06)])
     monkeypatch.setattr('sjtu_tpmshx.applications.design.sizing.size_fixed_cell', fail_or_result)
     if kind == 'optimize':
-        owner, attr = win, '_opt_worker'
+        owner, attr = win.optimization, '_job'
         win.combo_dim.setCurrentIndex(0)
-        win._opt_conditions = [dict(condition_id='close-test',
+        win.optimization.conditions = [dict(condition_id='close-test',
             T_in_A_K=400., P_in_A_Pa=130000., mass_flow_A_kg_s=.003,
             T_in_B_K=295., P_in_B_Pa=120000., mass_flow_B_kg_s=.015)]
-        optimize_panel.run_optimize(win)
+        owner.start()
     else:
-        owner = quick_design_panel.build_quick_design_dialog(win)
-        win._qd_dialog = owner
+        owner = win.quick_design
         owner.le_qd_file.setText('not-read.xlsx')
         owner.combo_qd_mode.setCurrentIndex(owner.combo_qd_mode.findData('fixed'))
-        attr = '_qd_worker'
-        quick_design_panel.run_quick_design(owner)
+        attr = '_worker'
+        owner.submit()
     worker = getattr(owner, attr)
     win.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
     try:
@@ -724,8 +733,7 @@ def test_auxiliary_task_close_keeps_thread_until_run_returns(win, monkeypatch, t
     _wait_for(lambda: not isValid(win))
 
 
-def test_quick_design_escape_requests_cooperative_cancel(win, monkeypatch):
-    from sjtu_tpmshx.applications.gui.ui import quick_design_panel as panel
+def test_quick_design_page_keeps_its_job_across_navigation(win, monkeypatch):
     from sjtu_tpmshx.applications.design.sizing import Design
     entered, release = threading.Event(), threading.Event()
     def candidate(*args, control, **kwargs):
@@ -733,25 +741,27 @@ def test_quick_design_escape_requests_cooperative_cancel(win, monkeypatch):
         assert release.wait(10)
         control.check_cancelled()
         return Design(False)
-    monkeypatch.setattr('sjtu_tpmshx.applications.design.cases.load_cases', lambda p: ['case'])
+    monkeypatch.setattr('sjtu_tpmshx.applications.design.cases.load_cases', lambda p: [SimpleNamespace(case='A', dPlim_h=.05, dPlim_c=.06)])
     monkeypatch.setattr('sjtu_tpmshx.applications.design.sizing.size_fixed_cell', candidate)
-    dlg = panel.build_quick_design_dialog(win)
-    win._qd_dialog = dlg
-    dlg.le_qd_file.setText('unused.xlsx')
-    dlg.combo_qd_mode.setCurrentIndex(dlg.combo_qd_mode.findData('fixed'))
-    dlg.show()
-    panel.run_quick_design(dlg)
-    worker = dlg._qd_worker
+    page = win.quick_design
+    page.le_qd_file.setText('unused.xlsx')
+    page.combo_qd_mode.setCurrentIndex(page.combo_qd_mode.findData('fixed'))
+    win.workbench.show_quick_design()
+    page.submit()
     try:
-        assert entered.wait(5)
-        dlg.reject()  # Escape follows QDialog.reject, as well as the titlebar close.
-        assert dlg.isVisible() and not dlg.isEnabled()
-        assert worker.isInterruptionRequested()
+        _wait_for(entered.is_set)
+        win.workbench.switch_tab('layout')
+        assert win.page_stack.currentWidget() is win._workbench_canvas
+        assert not page.is_idle() and not page._worker.isInterruptionRequested()
+        win.btn_quick_design.click()
+        assert win.page_stack.currentWidget() is page
+        page._qd_cancel_btn.click()
+        assert page._worker.isInterruptionRequested()
     finally:
         release.set()
-    _wait_for(lambda: dlg._qd_worker is None)
-    assert not dlg.isVisible() and dlg.isEnabled()
-    assert '已取消' in dlg._qd_status.text()
+    _wait_for(page.is_idle)
+    assert win.page_stack.currentWidget() is page and page._qd_run_btn.isEnabled()
+    assert '已取消' in page._qd_status.text()
 
 
 @pytest.mark.parametrize('dimension,expected', [(0, (84, 24, 1)), (1, (92, 14, 10))])
@@ -759,9 +769,9 @@ def test_field_restore_uses_the_current_case_dimension_and_remains_undoable(win,
     from sjtu_tpmshx.applications.gui.ui.field_menu import _revert_field_to_default
     win.combo_dim.setCurrentIndex(dimension)
     win._temp_unit = 'C'
-    for attr in ('le_Nx', 'le_Ny', 'le_Nz', 'le_rho_s', 'le_pipeB_in_z_ctr', 'le_TinA'):
+    for attr in ('le_Nx', 'le_Ny', 'le_Nz', 'le_ks', 'le_pipeB_in_z_ctr', 'le_TinA'):
         getattr(win, attr).setText('100')
-    win._resync_undo_baseline()
+    win.case_files.resync_undo_baseline()
     win._undo_stack.clear()
     for axis in 'xyz':
         attr = 'le_N' + axis
@@ -773,7 +783,7 @@ def test_field_restore_uses_the_current_case_dimension_and_remains_undoable(win,
     assert win.le_TinA.text() == '100'
     win._undo_stack.redo()
     assert float(win.le_TinA.text()) == pytest.approx(148.9083382933427, rel=0, abs=1e-12)
-    for attr, expected_value in [('le_rho_s', 7900.), ('le_pipeB_in_z_ctr', .021)]:
+    for attr, expected_value in [('le_ks', 16.), ('le_pipeB_in_z_ctr', .021)]:
         _revert_field_to_default(win, getattr(win, attr), attr)
         assert float(getattr(win, attr).text()) == expected_value
 
@@ -781,7 +791,7 @@ def test_field_restore_uses_the_current_case_dimension_and_remains_undoable(win,
 @pytest.mark.parametrize('typed,expected', [('0.042 / 2', '0.021'), ('5 mm', '0.005')])
 def test_normalized_field_edit_records_undo_and_final_validation(win, typed, expected):
     win.le_L.setText('0.1')
-    win._resync_undo_baseline()
+    win.case_files.resync_undo_baseline()
     win._undo_stack.clear()
     win.le_L.setText(typed)
     win.le_L.editingFinished.emit()

@@ -78,13 +78,50 @@ def start_animation(widget, animation):
         _AnimationClock(widget.window(), animation)
 
 
+_reduced_motion_preference = False
+
+
+def set_reduced_motion(enabled: bool, *, persist: bool = False) -> bool:
+    """Set the reduced-motion preference and optionally save it with appearance settings.
+
+    When ``persist`` is True, write the setting before updating live state and
+    return False without changing the active preference if storage fails.
+    """
+    global _reduced_motion_preference
+    value = bool(enabled)
+    if persist:
+        from sjtu_tpmshx.applications.gui.controllers.user_storage import (
+            save_appearance_setting,
+        )
+        if not save_appearance_setting('reduced_motion', 'true' if value else 'false'):
+            return False
+    _reduced_motion_preference = value
+    return True
+
+
+def apply_saved_reduced_motion(saved: dict[str, str]) -> bool:
+    """Apply a saved reduced-motion preference loaded from appearance settings."""
+    value = saved.get('reduced_motion')
+    if value in ('true', 'false'):
+        set_reduced_motion(value == 'true')
+    return _reduced_motion_preference
+
+
+def is_reduced_motion() -> bool:
+    """Return True when the saved preference or QT_REDUCED_MOTION disables motion."""
+    return (
+        _reduced_motion_preference
+        or os.environ.get('QT_REDUCED_MOTION', '').lower() in ('1', 'true')
+    )
+
+
 def reveal(widget):
     """Fade a newly shown form into place without delaying its input state.
 
     Use only on ordinary Qt panels, never Matplotlib or native OpenGL views.
     The effect owns its animation: replacing it cancels an earlier reveal.
     """
-    if not widget.isVisible() or os.environ.get('QT_REDUCED_MOTION', '').lower() in ('1', 'true'):
+    if not widget.isVisible() or is_reduced_motion():
         return
     # A live full-panel blur exceeded the 90 Hz frame budget at DPR 2.
     # Opacity preserves sharp text and does not re-filter every pixel each frame.
@@ -111,6 +148,8 @@ def pulse_glow(widget, color=None, blur_peak=20, duration_ms=260):
     Replacing the effect also disposes of its animation, so a repeated pulse
     cannot later clear the new effect. No effect remains after completion.
     """
+    if is_reduced_motion():
+        return
     if color is None:
         from .theme import get_theme
         color = get_theme().get('accent_green', '#22C55E')
@@ -163,12 +202,12 @@ def toast(parent, text, kind="success", duration_ms=2200, copy_payload=None):
     from .theme import get_theme
     _tk = get_theme()
     _PALETTE = {
-        'success': (_tk.get('accent_green', '#22C55E'), '#064E3B', '✓'),
-        'info':    (_tk.get('accent_primary', '#3B82F6'), '#1E3A8A', '›'),
-        'warn':    (_tk.get('search_hl', '#F59E0B'), '#78350F', '!'),
-        'error':   (_tk.get('err', '#DC2626'), '#450A0A', '✕'),
+        'success': (_tk['ok'], '✓'),
+        'info':    (_tk['accent'], '›'),
+        'warn':    (_tk['warn'], '!'),
+        'error':   (_tk['err'], '✕'),
     }
-    fg_hint, _dark, glyph = _PALETTE.get(kind, _PALETTE['info'])
+    fg_hint, glyph = _PALETTE.get(kind, _PALETTE['info'])
     # Errors deserve more screen time.
     if kind == 'error' and duration_ms < 5000:
         duration_ms = 5000
@@ -197,6 +236,16 @@ def toast(parent, text, kind="success", duration_ms=2200, copy_payload=None):
     parent_w = parent.width(); parent_h = parent.height()
     x = parent_w - w - margin
     y_off = parent_h - h - margin - 40  # final rest pos
+
+    if is_reduced_motion() or not parent.isVisible():
+        pill.setGeometry(x, y_off, w, h)
+        if parent.isVisible():
+            pill.show()
+            pill.raise_()
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(max(0, duration_ms), pill, pill.deleteLater)
+        return pill
+
     y_start = y_off + 12  # short travel keeps the message easy to track
     pill.setGeometry(x, y_start, w, h)
     pill.show()

@@ -19,11 +19,11 @@ The main Compute button MUST stay in the fixed bottom bar of the left rail. Para
 - **THEN** the button shows Cancel with elapsed time during computation and returns to its initial state afterward
 
 ### Requirement: Empty-state preset shortcut
-The empty state MUST contain Load Example Case. It MUST call the existing `_load_named_preset('Shanghai (3D Gyroid)')`. The internal key keeps its historical spelling. `applications.gui.ui.fmt.preset_display` removes the brand name from visible text. The complete empty state, including text and button, MUST disappear after the first computation, as before.
+The empty state MUST contain Load Example Case. It MUST call `CaseFiles.load_named_preset('Shanghai (3D Gyroid)')`. The internal key keeps its historical spelling. `applications.gui.ui.fmt.preset_display` removes the brand name from visible text. The complete empty state, including text and button, MUST disappear after the first computation.
 
 #### Scenario: One-click runnable config
 - **WHEN** the user selects the empty-state preset button
-- **THEN** the example preset updates input fields and sets `_active_preset_name`
+- **THEN** the example preset updates input fields and sets `CaseFiles.active_preset_name`
 
 ### Requirement: Result summary
 The summary MUST show Q, ΔP_A, ΔP_B, and outlet temperatures from the current accepted result. Labels, units, and numerical hierarchy MUST be consistent. It MUST NOT depend on hidden former KPI chips or delta badges.
@@ -66,7 +66,7 @@ No visible UI string MUST contain the Shanghai brand name. Tab tooltips MUST use
 - **THEN** the action text is “恢复算例工况默认值” without “Shanghai”
 
 ### Requirement: Workbench state persists across sessions
-The `_save_session` payload MUST contain `ui_state` with `active_tab`, `left_collapsed`, and `result_view`. Result tabs store their family key before resolution. `left_collapsed` is Boolean. `result_view` is '2d' or '3d'. `_restore_session` MUST restore available state in this order: result_view, left rail collapse, then active_tab. If a gate blocks the saved tab, existing `_switch_tab` behavior falls back to layout. No new fallback logic is required. Missing or damaged keys MUST be skipped silently, consistent with existing session restoration.
+The `CaseFiles.save_session` payload MUST contain `ui_state` with `active_tab`, `left_collapsed`, and `result_view`. Result tabs store their family key before resolution. `left_collapsed` is Boolean. `result_view` is '2d' or '3d'. `CaseFiles.restore_session` MUST restore available state in this order: result_view, left rail collapse, then active_tab. If a gate blocks the saved tab, existing `Workbench.switch_tab` behavior falls back to layout. No new fallback logic is required. Missing or damaged keys MUST be skipped silently, consistent with existing session restoration.
 
 #### Scenario: Reopen lands on the saved tab
 - **WHEN** the user closes the application on Design Optimization and opens it again

@@ -2,57 +2,132 @@
 
 [中文](collaboration.zh-CN.md) | [English](collaboration.md)
 
-Codex and Claude use the same [project rules](../AGENTS.md),
+Codex, Claude, and Antigravity use the same [project rules](../AGENTS.md),
 [setup instructions](../README.en.md), and [architecture](architecture.md).
 Keep task decisions in a handoff record. A chat's private context is not a
-handoff record. Existing authorization and unresolved acceptance gates remain
-in force when the owner or tool changes.
+handoff record. Existing authorization and open acceptance conditions stay
+valid when the owner or tool changes.
 
 Use the [standing task authority](../AGENTS.md#1-task-scope-and-authority)
 for Git actions. Follow the user's limits for each task.
 For a broad goal, investigate and propose a direction with acceptance conditions.
 Get the user's direction before implementation. Then complete the agreed work,
-including retirement and required validation, without approval at each step.
+including retirement and necessary validation, without approval at each step.
 
 ## Start a task
 
 1. For a change task, name one owner, the write scope, a coordinator, and a reviewer if the task needs review.
    If the user names no other coordinator, the owner is the coordinator.
-   Use one worktree and branch per independent change task.
-   Reuse them for continued work on that task.
-   Read-only work does not need a new worktree. Keep one writer per file.
-   Run one heavy numerical job at a time on each machine.
-   Independent light tasks can run in parallel.
+   Use one worktree and branch for each independent change task.
+   Use them again for continued work on that task.
+   Read-only work does not need a new worktree. Keep one writer for each file.
+   For a heavy job, use the [heavy-job slot](#heavy-job-slot).
 2. The coordinator does a check of the primary checkout.
    Fast-forward a clean `main` to `origin/main`. Record the base commit.
    Keep local changes or diverged history for inspection before you select an integration action.
-3. Start the task branch from that commit. Use `codex/` for Codex branches
-   unless the user requests another name. Record the worktree and branch
-   in the [task status](#task-status) file.
+3. Start the task branch from that commit. Use a branch name that shows the agent,
+   for example `claude/<task>` or `neon/<task>`. The user or the coordinator can name another branch.
+   Record the worktree and branch in the [task status](#task-status) file.
 4. Select the interpreter through the task's ignored `.venv-path`. Shared
-   environments contain dependencies only and live outside task worktrees.
-   Share an environment only when its applicable lock files match. Run the
+   environments contain dependencies only and stay outside task worktrees.
+   Share an environment only when its applicable lock files match. Do the
    [environment checks](../AGENTS.md#3-work-setup-and-environment) before environment-dependent work.
-   Reuse passing results only as those rules permit.
-5. Import project source from the current worktree. Keep Matplotlib, XDG,
-   and native table caches in that worktree's ignored `.cache/`.
-   Record the actual native library and its source/build identity separately.
-   Do a check for references to a worktree scheduled for removal.
+   Use passing results again only while the interpreter, the lock, and the installed dependencies stay the same.
+   Repeat both checks after an environment failure.
+5. Import project source from the current worktree. In a source worktree, use `python -m sjtu_tpmshx.cli`.
+   Do not use the installed-only `tpmshx-run` command there.
+   For Matplotlib, Qt smoke, and pytest commands, set `MPLCONFIGDIR` and `XDG_CACHE_HOME` to ignored `.cache/` paths.
+   Keep native table caches in that worktree's ignored `.cache/`.
+   Record the actual native library and its source and build identity separately.
+   Do a check for references to a worktree that you will remove.
+
+### Worktree setup
+
+A new worktree has no `.venv-path` and no published native libraries.
+
+1. Set `.venv-path` to the accepted shared interpreter for the task lock.
+2. If the task changes native code, build and publish the new libraries before you use them as evidence.
+3. If the task does not change native code, use the matching libraries of the primary checkout.
+   Select them for each use as follows:
+   - For geometry, preparation, and result code, set `TPMSHX_GEOMETRY_LIBRARY`, `TPMSHX_PREPARATION_LIBRARY`,
+     and `TPMSHX_RESULT_LIBRARY`.
+   - For a source solve from the CLI or GUI, give `--native-library` and `--native-table-directory`.
+     In Python, set `native_library` and `native_table_directory` in `RunControl`.
+     `TPMSHX_NATIVE_SOLVER_LIBRARY` does not select the solver for a source solve.
+   - For the native tests that use `tests/python/native/shared_library.py` or read the variable directly,
+     set `TPMSHX_NATIVE_SOLVER_LIBRARY`.
+   - For `tests/python/native/test_cpp_quick_design.py`, set `TPMSHX_SOLVER_LIBRARY`.
+   - For independent result evaluation on Linux x86_64, set only `TPMSHX_RESULT_LIBRARY`.
+4. Do not add a symbolic link to the native library directory in the worktree.
+
+## Multi-agent work
+
+Use this section when a coordinator runs two or more workers, for example in an Orca run.
+
+1. The coordinator divides the work into tasks.
+   Give each worker one task, one worktree, one branch, and one write scope.
+   Write scopes do not overlap.
+2. Give each shared helper, manifest, or test support file one owner.
+   Transfer it only after that owner releases it.
+3. Run at most five active implementing writers on this machine.
+   Use fewer writers when tasks share files, depend on each other, or wait for review.
+   Reviewers and the coordinator are not in this count.
+4. The coordinator owns these items:
+   - The base commit, the write scopes, and the reviewer assignment.
+   - The heavy-job slot, the merge queue, and batch PRs.
+   - The repair after a `main` CI failure and the primary checkout update.
+
+   The coordinator does not edit files in the write scope of a worker.
+5. Give each worker a brief with these items:
+   - Goal, base commit, worktree, branch, and write scope.
+   - Dependencies, agreed limits, and user decisions.
+   - Applicable lock, native library paths, and checks.
+   - Delivery target (reviewed branch or own PR), stop conditions, and report format.
+6. A worker that must change a file outside its write scope asks the coordinator first.
+   A worker sends questions for the user, blockers, review requests, and results to the coordinator.
+7. In an authorized run, messages between a worker and its coordinator need no other approval.
+   Messages to other chats need user approval.
+
+### Heavy-job slot
+
+A heavy job is a native build, a full test run, or a heavy numerical run.
+Native builds include the `build`, `publish`, and `check-stages` commands of `build_native_dependencies.py`.
+Heavy numerical runs include solves, benchmarks, and byte comparison runs.
+Classify a test run by the work that it starts.
+A targeted pytest file that starts native solves or native subprocesses is a heavy job.
+Targeted pytest files that start no heavy work, `ruff`, `audit_import_graph`, and `check_docs.py` are light jobs.
+Light jobs can run in parallel.
+
+1. One coordinator approves the heavy-job slot for all runs on this machine.
+   The slot is held from the approval until the task withdraws the job before its start,
+   or until the job and its subprocesses have stopped.
+2. Before a heavy job, ask the coordinator for the slot. Start the job only after the approval.
+3. When you get the approval, set `Heavy job: approved` in your status file.
+4. When the job starts, set `Heavy job: yes`.
+5. When the job is complete or fails, set `Heavy job: no` after the computation and all its subprocesses have stopped.
+   Tell the coordinator the result: completed or failed.
+6. If you withdraw the job before it starts, set `Heavy job: no`. The slot is free at once. Tell the coordinator.
+7. If you cancel a running job, keep `Heavy job: yes` until the computation and all its subprocesses have stopped.
+   Then set `Heavy job: no`. Tell the coordinator.
+8. Before each approval, the coordinator reads the status files in `.cache/active-tasks/`.
+   The coordinator approves no job while another file shows `Heavy job: approved` or `Heavy job: yes`.
+9. After a restart, the coordinator finds the current slot holder and its process state.
 
 ## Task status
 
 A task status file shows the current work to other tasks, tools, and later sessions on this machine.
-It is a local file. Do not commit it. Do not copy its local paths into a PR.
+It is a local file. Do not commit it. Do not record task status in committed files.
+Do not copy its local paths into a PR.
 The task name is the branch name with each `/` replaced by `-`.
 A task without its own branch uses a short name that no other status file uses.
 
-1. Before you start a change task or a heavy numerical job, read each file in
+1. Before you start a change task or a heavy job, read each file in
    `.cache/active-tasks/` of the primary checkout.
    The first entry in `git worktree list --porcelain` identifies the primary checkout.
    Do not write files in the write scope of another task that has a status file.
-   Do not start a heavy numerical job while another task has one running.
+   Do not start a heavy job while another status file shows `Heavy job: approved` or `Heavy job: yes`.
 2. When a change task starts, create `.cache/active-tasks/<task>.md` in the primary checkout.
-   Also create it when a task without a status file starts a heavy numerical job.
+   Also create it when a task without a status file starts a heavy job.
    Only the task owner writes this file. Step 6 gives the only exception.
 3. Write these lines in the file:
 
@@ -61,334 +136,397 @@ A task without its own branch uses a short name that no other status file uses.
    Branch: <branch, or none>
    Owner: <person or tool>
    Write scope: <files or directories>
-   Heavy job: yes | no
+   Heavy job: approved | yes | no
    State: active | blocked: <reason>
    Next action: <step and its owner>
    ```
 
 4. Update the file when a heavy job starts or stops.
    Also update it when the task stops or continues, and when the owner or tool changes.
-5. At task closeout, make the handoff record current. Then remove the file.
-6. If a file names a worktree that does not exist, that task is closed.
-   The coordinator can remove that file. Tell the user about the removal.
+5. At task closeout, update the PR description or the handoff record. Then remove the file.
+   A batch worker removes its file after the coordinator accepts its branch.
+6. A missing worktree does not show that its task is closed.
+   If a file names a missing worktree, the coordinator examines the branch, the PR, the owner, and the evidence.
+   Then the coordinator tells the user the result. Remove the file only after user approval.
    If a file seems out of date for another reason, keep it and tell the user.
 
-The `State:` line gives the short state of the task. The `Next action:` line is the Next action field
-of the [handoff record](#handoff-record). Keep both lines current until task closeout.
+The status file is the only owner of the current writer, write scope, heavy job, state, and next action.
+Keep these lines current until task closeout.
 You do not need the storage measurement when you create, update, or remove a status file.
 Do not remove the status file of another task during a cache cleanup.
-If another machine must continue a task before its PR exists, use a designated issue for the shared handoff.
 
 ## Environment recovery
 
-Standing task authority includes recovery of the environment needed for an agreed task.
-It includes creation when the required environment is missing.
-Follow these steps before dependent project work resumes:
+Standing task authority includes recovery of the environment that an agreed task needs.
+It includes creation when the necessary environment is missing.
+Do these steps before dependent project work starts again:
 
 1. Explain the failure, affected tasks, planned changes, and recovery method.
    Record the applicable lock, original interpreter and pointers, and active consumers.
    Keep the old environment and its source revision available.
-   If no usable old environment exists, record that limit and preserve the original files.
+   If no usable old environment exists, record that limit and keep the original files.
 2. Use the applicable exact lock. Build a replacement at its final location outside task worktrees.
    An existing, compatible host Python can create the replacement.
    Record its absolute path and version. Use it only for environment creation.
    Use the replacement's absolute interpreter for installation and recovery checks.
    This is the explicit exception to the active `.venv-path` rule during recovery.
-   If a suitable interpreter or required access is unavailable, report the needed action.
+   If a suitable interpreter or necessary access is not available, report the needed action.
 3. Run the lock checker and `pip check` with the replacement interpreter.
    Run from the current repository root. Use worktree-local caches.
-   Complete relevant smoke checks and prewarm for the environment's purpose.
+   Complete the smoke checks and prewarm for the environment's purpose.
    BO and desktop build environments use their own locks and acceptance checks.
-4. Switch only the affected idle task's pointer after these checks pass.
+4. Switch only the pointer of the affected idle task after these checks pass.
    Keep active consumers on their original environment.
-   Do not modify or remove an environment in use.
-   Check the task through the new pointer. On failure, restore the original pointer
-   and retain the failure record. Resume project execution only with a qualified environment.
+   Do not change or remove an environment in use.
+   Do a check of the task through the new pointer.
+   If this check fails, restore the original pointer and keep the failure record.
+   Start project execution again only with an accepted environment.
 5. Record the replacement, results, changed pointers, and recovery paths.
-   Retain the previous environment until the switch is verified and its consumers are zero.
-   Follow the archive and removal checks before later removal.
+   Keep the previous environment until the switch passes its checks and its consumers are zero.
+   Do the archive and removal checks before a later removal.
 
 Recovery uses the current lock. A dependency version change needs a scoped PR
 that updates `pyproject.toml` and the applicable lock together.
-Validate its replacement environment before switching. Routine launchers still install no packages.
+Validate its replacement environment before the switch.
 
-## Complete code retirement
+Install only the dependencies of `engineering/requirements/base.txt`, not `requirements.txt`, in a shared base environment.
+Use the applicable separate lock for each other environment purpose.
+Do not install this project into a shared environment in editable mode.
+The lock checker ignores the pip version.
+Do not rebuild a shared environment while another project Python process uses it.
+A change to a shared environment affects each worktree that uses it.
+Routine launchers install no packages.
+Server launch scripts use their fixed, pre-installed interpreter. They do not install or upgrade packages.
 
-For a replacement or removal task, record the old code to retire before implementation.
-For a replacement, also record the new behavior.
-Before the PR exists, write this record in the [private local record](#handoff-record).
-Then put it in the PR description. Keep detailed local evidence in ignored `.cache/`.
-For other implementation tasks, trace the consumers that the change can reach before implementation.
+## Related-change record
+
+Before implementation, trace the consumers that the change can reach.
 Include only relevant configuration, saved files, tests, fixtures, exports, packaging, examples,
 GUI and CLI labels, documentation, comments, and docstrings.
 Record related changes in the PR description.
 A contract is a behavior, interface, default, unit, limit, command, or file format.
+A contract change needs a check of related current text, including Markdown, TXT, and other relevant text files.
 If the change alters no contract, write one sentence that says so. Do not list unchanged items.
 For a contract change, record the affected contracts, updates, checks, and open items.
 Name the check that covers a consumer. A check covers a consumer only when it compares
 that consumer with the changed contract. A test that only fixes a literal label does not cover a unit change.
 Give a reason for an unchanged consumer only when the reason is not obvious or no check covers it.
-Use one sentence for consumers that share a reason. Resolve required updates before delivery.
+Use one sentence for consumers that share a reason. Resolve necessary updates before delivery.
 The reviewer traces consumers from the requirement and diff, then compares them with this record.
 
-1. Trace public and internal callers, dynamic names, CLI/GUI entries, and external consumers.
-   Include configuration and saved-file readers, exports, packaging, tests, fixtures, and documentation.
-   Check actual use. A name such as `legacy` or `old`, a filename, or a search with no hits
-   is not sufficient evidence.
-2. Verify the replacement against the behavior that current consumers need.
-   Keep physical, data, platform, and compatibility requirements.
-   C++ numerical execution and Python application interfaces remain current product capabilities.
+## Complete code retirement
+
+For a replacement or removal task, record the old code to retire before implementation.
+For a replacement, also record the new behavior.
+Before the PR exists, keep this record in the task brief or in the messages with the coordinator.
+Then put it in the PR description. Keep detailed local evidence in ignored `.cache/`.
+
+1. Trace public and internal callers, dynamic names, CLI and GUI entries, and external consumers.
+   Include configuration, current saved-file readers, exports, packaging, tests, fixtures, and documentation.
+   Do a check of actual use. A name such as `legacy` or `old`, a filename, or a search with no hits
+   is not enough evidence.
+2. Do a check of the replacement against the behavior that current consumers need.
+   Keep physical, data, and platform requirements. Test current save and load together.
+   C++ numerical execution and Python application interfaces stay current product capabilities.
 3. In the same PR, move consumers and regression coverage to the replacement.
    Remove the replaced implementation and files used only by it.
    Update entry points, build lists, configuration, exports, and documentation together.
-   Preserve useful regression coverage. Use Git history for previous source code;
-   do not keep duplicate backup files in the working tree.
-4. Check remaining references and run the relevant consumer and regression checks.
-   For each retained item, record its consumer, reason, and exact removal condition.
-   Report implementation and retirement states separately if retirement is incomplete.
-   Complete the task only when its required retirement and validation pass.
+   Keep useful regression coverage. Use Git history for previous source code.
+   Do not keep duplicate backup files in the working tree.
+4. Do a check of remaining references. Run the relevant consumer and regression checks.
+   For each kept item, record its consumer, reason, and exact removal condition.
+   If retirement is incomplete, report implementation and retirement states separately.
+   Complete the task only when its necessary retirement and validation pass.
 
-During an implementation task, record confirmed defects outside its scope.
+During an implementation task, record each defect that you find outside its scope, with evidence.
 After delivery, fix them in separate PRs under the standing authority.
-Each PR covers a confirmed defect and its necessary consequences.
-Explicit read-only tasks remain read-only.
+Each PR covers one such defect and its necessary consequences.
+Explicit read-only tasks stay read-only.
 
 For exploratory code, record the question, success criteria, and adoption or retirement conditions in the existing task record.
 Keep it on the main branch only for a stated product, research, or independent-reference use.
 Record the consumer and the condition for another assessment.
 Keep necessary conclusions and uncommitted evidence before retirement.
-Historical result reading and current execution are separate contracts.
-Keep units, model and algorithm identity, metric definitions, and validity states readable.
-A reading requirement does not authorize removal of a supported resume or execution interface.
-Present evidence, options, and a recommendation before the user selects a product or algorithm change.
+Keep units, model and algorithm identity and version, metric definitions, and validity states readable in current results.
+A change to a reading need does not give authority to remove a supported resume or execution interface.
+Give evidence, options, and a recommendation before the user selects a product or algorithm change.
 
 ## Test scope
 
 Apply these rules when you add or change regression tests:
 
-1. Do not repeat `dtype` or option combinations after a validated conversion boundary.
+1. Add only the tests that the change needs.
+   A change needs a test for meaningful behavior that it adds or changes, or for a demonstrated failure that it fixes.
+   Use an existing check when it covers that behavior or failure. If no check covers it, add a minimal test.
+   Prefer a few mapping checks. Keep the combinations that separate independent failure conditions.
+   Do not add tests that repeat an existing check.
+   Update the existing tests that the change affects.
+2. Do not repeat `dtype` or option combinations after a validated conversion boundary.
    Test conversion at that boundary.
    Keep representative end-to-end cases.
-2. Write temporary JSON, NPZ, or HDF5 files only if the test reads them.
+3. Write temporary JSON, NPZ, or HDF5 files only if the test reads them.
    Put C ABI layout and pointer tests in `tests/cpp/*_c_smoke.c`.
    Do not copy public adapters into `ctypes` mirrors.
-3. Do not test offscreen pixel coordinates, fixed margin values, or internal mock call counts.
+4. Do not test offscreen pixel coordinates, fixed margin values, or internal mock call counts.
    Do not add `ModuleNotFoundError` tests for deleted symbols.
+   Do not add defensive tests. For example, do not test a state that the program under test cannot enter.
    Test state changes, physical requirements, resource cleanup, and documented contracts.
 
 ## Synchronize and review
 
-The owner does steps 1 to 7. The coordinator does step 8.
+The owner does steps 1 to 4. The coordinator sets the merge order for steps 5 to 8.
+If the user names no other coordinator, the owner is the coordinator.
 
-1. The owner completes the relevant checks. Commit only changes within the task scope.
-   Exclude local data, environments, and exploratory reports.
-2. Start one [independent review](#independent-review) of the specific head commit without a user reminder.
+1. Complete the relevant checks. Commit only changes in the task scope.
+   Do not commit local data, environments, or exploratory reports.
+2. Start the necessary [independent review](#independent-review) of the head commit without a user reminder.
    A PR that only corrects spelling, links, or formatting in documents needs no review.
    It must not change the meaning of a rule, command, or contract.
    `engineering/scripts/check_docs.py` must pass. State this reason in the PR.
-   The owner makes revisions.
-   Update the review result after each later commit.
-   Record who did the review. Do not describe an agent's own review as independent human approval.
-3. Push the task branch. Open or update the PR.
-   Put a concise handoff record in the PR description.
-   Before a PR exists, the [task status](#task-status) file shows the task state.
-   Use a designated issue only when another machine must continue the task before its PR exists.
-   Keep local absolute paths and detailed evidence in a private ignored record.
-4. If `main` advances, merge the current `origin/main` into the task branch.
-   Resolve conflicts. Repeat the affected checks and required CI.
-   Update the review result for the new head commit.
-   Keep branch history. Do not force-push or overwrite another owner's changes.
-5. Wait for required CI on the latest PR commit.
+   Make the revisions. Update the review result after each later commit.
+   Record who did the review. Do not describe an agent review as independent human approval.
+3. Push the task branch. Open or update the PR. Put the [delivery record](#handoff-record) in the PR description.
+   Do not put local absolute paths in the PR.
+   For [batch delivery](#batch-delivery), give the reviewed branch, the evidence, and the related-change record
+   to the coordinator. Open no PR. The coordinator then owns the batch PR description, CI, merge, and `main` CI.
+4. Wait for the necessary CI on the latest PR commit.
    Fix task-related failures under the standing authority.
    Repeat the affected checks after a fix. Update the review result.
-   An unresolved failure outside the write scope needs a recorded next action.
-6. Merge when the required review, tests, CI, and repository protection conditions pass.
+   An open failure outside the write scope needs a recorded next action.
+5. Wait for the merge turn from the coordinator.
+   The `main` CI cancels a run in progress when a new commit arrives,
+   and repository protection needs an up-to-date branch. For this reason, merge one PR at a time.
+   Start a merge only when no `main` CI run is in progress.
+6. Merge the current `origin/main` into the task branch. Resolve conflicts.
+   Keep branch history. Do not force-push or overwrite the changes of another owner.
+   Compare the task diff with the reviewed diff.
+   Skip the review round only if the merge is clean and the task patch is identical.
+   The related behavior and contracts must also stay the same.
+   Otherwise, get a narrow review of the affected paths.
+   Repeat the affected checks. Wait for the necessary PR CI.
+7. Merge with a merge commit when the necessary review, tests, CI, and repository protection conditions pass.
    Do not bypass repository protection.
-7. Confirm the remote merge commit. Wait for required CI on that `main` commit to finish.
-   If this CI fails, record the failure.
-   Continue the task-related repair under the same authority.
-8. After required CI passes, the coordinator fast-forwards the clean primary checkout to the accepted commit.
-   Update the handoff record with the final commit, CI result, and remaining acceptance conditions.
+8. Wait for the necessary CI on the resulting `main` commit.
+   Add the merge commit and the `main` CI result to the PR in a comment.
+   After CI passes, the coordinator fast-forwards the clean primary checkout to the accepted commit.
+   Then the next merge can start.
 
-The task's delivery record must show the final status of each required step.
+If the necessary `main` CI fails, keep the failure record.
+The coordinator runs a recoverable job again. If a code fix is necessary, its PR gets the next merge slot.
+Hold unrelated merges until the fix passes `main` CI.
+
 PR CI, merged-main CI, desktop acceptance, and experimental validation are separate results.
+
+### Batch delivery
+
+The coordinator can deliver two or more reviewed branches in one PR with one CI run.
+
+1. Start the batch branch from the current `origin/main`.
+2. Merge each reviewed branch with its own merge commit.
+3. Compare the first-parent diff of each merge commit with its reviewed diff.
+4. If a conflict fix changes reviewed lines, get a narrow review of those lines.
+5. Run the integration checks that the combined changes affect.
+6. Open one PR. Add a table with each branch, base, reviewed head, reviewer model, rounds, checks, and verdict.
+   Add the related-change record of each branch.
+7. Deliver the batch PR through steps 4 to 8 of the merge procedure.
 
 ### Independent review
 
-Use one reviewer who did not implement the change, with the same model and no inherited author chat history.
-In Codex, start the first reviewer with `spawn_agent` and `fork_turns="none"`.
-Check that the current host supports this call before relying on it.
-These rules require the owner to start the review; they do not create a file watcher or a technical gate.
+The owner gives the requirement, the base and head commits, and the evidence.
+In an Orca run, the coordinator starts the reviewer as a separate, read-only worker.
+The reviewer did not implement the change and has no inherited author chat history.
+These rules do not create a file watcher or a technical gate.
 The reviewer's read-only role is not operating-system isolation.
+
+Select the reviewer as follows:
+
+- Some changes need a reviewer of a different model. These are changes to physical meaning,
+  numerical results, units, file formats, public interfaces and the C ABI, platform behavior, or project rules.
+- For other work, use the independent reviewer with the shorter queue.
+  This reviewer can use the same model as the author in a fresh context.
+- Use two reviewers of different models for architecture plans and agent-rule changes.
+- When a reviewer of a different model is necessary, use this default pairing:
+  Neon reviews Astra, Astra reviews Neon, and Astra or Neon reviews Opus.
+  Astra is a Codex model. Neon is an Antigravity Gemini model. Opus is a Claude model.
+  If the default model is not available, record the reason.
+  Then use another independent model that differs from the author's model and covers the same scope.
 
 1. Give the reviewer the requirement, accepted constraints, worktree, base and head commits, applicable rules, and test evidence.
    Include the author's related-change record and relevant prior decisions.
    Keep the reviewed worktree unchanged until the reviewer returns.
 2. The reviewer first traces connected consumers from the requirement and diff.
-   Then compare those findings with the author's related-change record.
+   Then the reviewer compares those findings with the author's related-change record.
    Read relevant code and model documents, including dynamic entries and saved-file consumers.
-   Do not restrict the review to the author's file list.
-3. Check incomplete related changes, unnecessary code, repeated rules, extra abstractions, and incomplete retirement.
-   Check correctness separately, including physical requirements, data, current consumers, and evidence coverage.
+   Do not limit the review to the author's file list.
+3. Look for incomplete related changes, unnecessary code, repeated rules, extra abstractions, and incomplete retirement.
+   Do a separate check of correctness, including physical requirements, data, current consumers, and evidence coverage.
    Similar code is not enough evidence for sharing.
-   Keep required copies, physical validation, independent test oracles, and useful reference implementations.
+   Keep necessary copies, physical validation, independent test references, and useful reference implementations.
 4. For each blocking finding, give a stable identifier, location, reachable consumer or maintenance case, consequence, and minimum correction.
    State which existing evidence applies or what minimum check is missing.
-   No finding count is required. Style preferences and unsupported suspicions do not block delivery.
-   A historical issue first noticed here does not automatically affect this change.
-   Explain its direct relation to current delivery or existing acceptance requirements before treating it as a blocker.
-5. The owner fixes findings or supplies evidence for retaining the code.
-   The reviewer checks evidence that disputes a blocking finding.
-   Non-blocking advice needs a disposition, but does not by itself require another review.
-   The reviewer does not edit files or perform Git writes.
+   No finding count is necessary. Style preferences and unsupported suspicions do not block delivery.
+   A historical issue first found here does not automatically affect this change.
+   Explain its direct relation to current delivery or existing acceptance conditions before you make it a blocker.
+5. The owner fixes findings or gives evidence for the kept code.
+   The reviewer examines evidence that disputes a blocking finding.
+   Non-blocking advice needs a disposition. It does not cause another review round.
+   The reviewer does not edit files or write to Git.
    The owner runs necessary checks under the existing environment and resource rules.
-6. Reuse the same reviewer's independent context for rounds two and three.
-   Check revisions, new effects, and unresolved findings. Expand the scope when behavior or responsibilities change.
-   Do not restart the round count by splitting a PR or starting another reviewer.
-   After three rounds, report unresolved substantive issues with evidence and options to the user.
-   If later changes require substantive review after the limit, report that decision too.
-7. Update coverage for later commits, main synchronization, and conflict resolution.
-   Recheck affected parts rather than repeating the whole review without cause.
+   If evidence is in doubt, the owner runs a focused check again.
+6. Count the first substantive review and each substantive later review as one round.
+   Use the same reviewer for later rounds when it is available.
+   A change of reviewer or a PR split keeps the findings and the round count.
+   When two reviewers review the same commit range, their reports count as one round.
+   Each reviewer records its own conclusion.
+   If blocking findings stay open after round three, start round four without user approval.
+   In round four, review only the changes that fix those findings.
+   If any findings stay open after round four, report them to the user.
+   Give the open findings, the commit range, the evidence, the options, and the smallest correction.
+   Round five or a later round needs user approval for a named finding and commit range.
+7. Update coverage for later commits, `main` synchronization, and conflict resolution.
+   A clean synchronization with an identical task patch and no change to related behavior or contracts
+   needs only a diff comparison. It uses no round.
+   For other synchronizations, review the affected paths again.
+   Do not repeat the whole review without cause.
    Keep valid test evidence. Do not repeat heavy numerical runs without a specific need.
-   Missing review capability or required evidence leaves the review incomplete.
-   Do not label the author's own check as an independent review.
+   Missing review capability or necessary evidence leaves the review incomplete.
+   Do not call the author's own check an independent review.
 
-Rate each maintainability item as met, needs correction, insufficient evidence, or not applicable, with a short reason:
-
-- Complete related changes.
-- Necessary code and complete retirement.
-- Repeated rules and clear responsibilities.
-- Clear control flow and useful choices.
-
-Report correctness separately: no blocking finding, blocking finding, or incomplete check.
+Record the reviewed commit, the reviewer model, the rounds, the open findings, the evidence, and the conclusion.
+Report correctness as one of these results: no blocking finding, blocking finding, or incomplete check.
 No blocking finding is not proof that the code has no defects.
 The delivery conclusion is ready for subsequent checks, needs correction, needs a user decision, or review incomplete.
-Item ratings do not determine that conclusion automatically; specific blockers and required evidence do.
-No score or round limit waives existing physical, data, platform, or CI requirements.
+Specific blockers and necessary evidence set that conclusion.
+A round limit does not cancel physical, data, platform, or CI requirements.
 An implementation must not lower its own review requirements to pass.
-
-For the initial trial, aim for a two-to-five-minute first review of an ordinary task.
-Record time and uncovered scope when more work is necessary. Required numerical checks have a separate budget.
-Time limits never imply approval. Verify invocation without user reminders on three real code tasks.
-Use existing task records for useful findings, rejected findings, confirmed omissions, time, and rounds.
-Do not create changes to fill the sample. Three tasks show initial use, not a defect detection rate.
 
 ## Handoff record
 
-For a single-PR task, the PR description contains these items:
+Each record has one owner:
 
-- The change and its related changes.
+| Record | Contents |
+| --- | --- |
+| [Task status](#task-status) file | Current writer, write scope, heavy job, state, and next action |
+| PR description | Delivery record |
+| `.cache/<task>/HANDOFF.md` | Local evidence, local paths, and blockers |
+
+The PR description contains these items:
+
+- The change and its [related-change record](#related-change-record).
 - The checks and the tested commit.
-- The review result and the reviewed commit, or the reason for no review.
-- The PR CI and `main` CI results.
+- The review result, reviewer model, reviewed commit, and rounds, or the reason for no review.
+- The PR CI result.
 - The open acceptance conditions.
 
-Use all of the fields in the table when one of these conditions applies:
+After the merge, add the merge commit and the `main` CI result in a PR comment.
+
+Add all of the fields in the table to the PR description when one of these conditions applies:
 
 - The task spans more than one PR or session.
 - The task stops on a blocker.
 - The owner or tool changes.
 - The retirement is incomplete.
 
-Put the fields in the PR description.
-Before a PR exists, put them in the private local record.
-The `Next action:` line of the task status file is the Next action field there.
-Record completed work, failures, and pending approvals in the State field.
-Update the status file together with the record or the PR description until task closeout.
-Use a designated issue only when another machine must continue the task.
-Update the fields when ownership, scope, the reviewed commit, or the next action changes.
-
-| Field | Required information |
+| Field | Necessary information |
 | --- | --- |
 | Task | Goal, write scope, and authorization scope |
 | People or tools | Owner, reviewer, and coordinator |
 | Code | Base commit, branch, current commit, reviewed commit, and PR |
-| Related changes | Affected contracts and consumers; updates and covering checks; reasons for unchanged consumers that are not obvious or not checked; retirement scope and reasons for retained items |
-| Review | Reviewer and context method, commit coverage, findings and dispositions, rounds, time, and conclusion |
+| Related changes | Affected contracts and consumers; updates and covering checks; reasons for unchanged consumers when the reason is not obvious or no check covers them; retirement scope and reasons for kept items |
+| Review | Reviewer model and context method, commit coverage, findings and dispositions, rounds, and conclusion |
 | Runtime | Applicable lock, environment purpose, native build, and data revision |
 | Evidence | Check, tested commit, result, and local evidence record name |
-| State | Completed work, failures, unresolved gates, and pending approvals |
-| Next action | Concrete next step and its owner |
+| State | Completed work, failures, open gates, and pending approvals |
 
-The private local record adds the worktree, interpreter, native library,
-data-link targets, and evidence paths. Create it when the task has local evidence,
-uses all handoff fields, or needs a record before its PR exists.
+The private local record contains the worktree, interpreter, native library,
+data-link targets, evidence paths, blocked transfers, and unfinished retirement.
+Create it only when the task has local evidence or a blocker.
 Keep it at `.cache/<task>/HANDOFF.md` in the task worktree.
-Use the [task name](#task-status) for `<task>`. Keep original failure and not-started
-states. At handoff, the next owner reads the shared record and checks the local
-paths before running commands. Send messages to another chat only when the
-user authorizes that communication.
+Use the [task name](#task-status) for `<task>`. Keep the original failure and not-started states.
+Refer to private evidence by its record name in shared records.
+At handoff, the next owner reads the shared record and the status file.
+Then the next owner does a check of the local paths before commands.
+If another machine must continue a task before its PR exists, use a designated issue for the shared handoff.
 
 ## Archive and remove
 
-Before removing a worktree, identify its owner, active writers and processes,
+Before you remove a worktree, identify its owner, active writers and processes,
 uncommitted or unpushed content, runtime consumers, and ignored evidence.
-Preserve necessary commits and local material outside the removal set. Record
+Keep necessary commits and local material outside the removal set. Record
 the original paths, commits, locks, file membership, and link targets. Do not
-follow raw-data links while archiving a worktree.
+follow raw-data links while you archive a worktree.
 
-Compare archived files with their originals and restore/read representative
-reports and input/output files. Record existing missing or malformed material
-without changing its historical verdict. A same-disk archive is not an
-independent backup. An app's Git snapshot does not preserve ignored evidence.
+Compare the archived files with their originals. Restore a representative report,
+input file, and output file. Read each restored file. Record existing missing or
+malformed material without a change to its historical verdict. A same-disk archive
+is not an independent backup. An app's Git snapshot does not keep ignored evidence.
 
 Remove a worktree or environment only after these checks pass and its active
-consumers are zero. Use its managing app or the appropriate Git worktree
-operation. Close out branches last, after their needed commits have a recovery
-entry. Archive old screening results without restoring a retired solver or
-optimization chain. Current multi-condition BO remains a separate capability.
+consumers are zero. Use its managing app or the applicable Git worktree
+operation. Close out branches last, after their necessary commits have a recovery
+entry. Archive old screening results without a restore of a retired solver or
+optimization chain. Current multi-condition BO stays a separate capability.
 
 <a id="storage-retention"></a>
 
 ## Storage retention
 
-Use these rules before a task writes to or cleans TM1 caches, at task closeout,
+Use these rules before a task writes data to or cleans TM1 caches, at task closeout,
 and during an authorized storage cleanup.
 The `.cache/` name does not make research evidence disposable.
 The first entry in `git worktree list --porcelain` identifies the primary checkout.
 Resolve relative paths in `.agents/rules/tm1-local-data.md` from that checkout.
-If the machine has a cache limit, measure the combined allocation before writing to or cleaning TM1 caches.
-Include `.cache/` in the primary checkout and its linked worktrees. Include other TM1 caches covered by the limit.
+
+Routine tool caches need no measurement before a write.
+These caches are the `MPLCONFIGDIR` and `XDG_CACHE_HOME` paths, pytest caches, and status files.
+If the machine has a cache limit, measure the combined allocation before other data writes and before a cleanup.
+Include `.cache/` in the primary checkout and its linked worktrees. Include other TM1 caches that the limit covers.
 Count each hard-linked file once across those locations. Measure symbolic links without following them.
-At the end of the task or cleanup, list all cache locations that the limit now covers.
-Measure their combined allocation even if the task removed no files.
+Measure once at the closeout of each task that wrote to `.cache/` and at the end of each cleanup.
+For each of these measurements, first list all cache locations that the limit covers at that time.
+Then measure their combined allocation, even if no files were removed.
 
 1. Keep raw data, active paper and GCI evidence, selected designs, and key failure samples.
    Keep their inputs, methods, final fields, metrics, and validity limits.
    Keep all study parameters, seeds, scalar observations, constraints, and original verdicts.
    Do not turn stopped, rejected, or unstarted work into successful work during cleanup.
-2. Give retained intermediate fields and checkpoints a specific analysis or continuation use.
-   Completed software tests and performance studies do not require indefinite continuation storage.
+2. Give kept intermediate fields and checkpoints a specific analysis or continuation use.
+   Completed software tests and performance studies do not need indefinite continuation storage.
    Record which fields or checkpoints are removed and which recovery operations are no longer available.
-   Preserve unfinished work until its owner decides its status.
+   Keep unfinished work until its owner decides its status.
 3. Use the task's worktree for temporary output when you can select its location.
-   After verification, remove this task's temporary scripts, test outputs, build products, and rebuildable caches before handoff.
-   Keep files that another task, the application, or retained research still needs.
-   Keep research scripts needed to interpret or reproduce retained evidence.
+   After the checks pass, list this task's temporary scripts, test outputs, build products, and rebuildable caches.
+   Remove them before handoff. A bulk delete of these files uses an exact list that the user approved.
+   Keep files that another task, the application, or kept research still needs.
+   Keep research scripts necessary to interpret or reproduce kept evidence.
    Archive only the necessary files from that task. Never archive the whole `.cache/` or another task's archive recursively.
-   Use Git for committed source history. Compress large records without changing their contents.
-4. Keep one accepted environment per active role: base, BO, and minimal postprocessing.
+   Use Git for committed source history. Compress large records without a change to their contents.
+4. Keep one accepted environment for each active role: base, BO, and minimal postprocessing.
    Record consumers and removal conditions for packaging or historical environments.
    Retire a predecessor after replacement validation, pointer checks, and zero active consumers.
-   First preserve exact package versions, the source revision, locks, and unique local files.
-5. Share identical fixed snapshots when their filesystem attributes permit it.
-   Keep saved relative paths and use independent copies when hard links are unavailable.
+   First keep exact package versions, the source revision, locks, and unique local files.
+5. Share identical fixed snapshots when their filesystem attributes allow it.
+   Keep saved relative paths. Use independent copies when hard links are not available.
    Never link a mutable build output directly into saved evidence.
-   Replace shared files atomically; never overwrite their contents in place.
-   Check retained results and representative recovery paths before removing source material.
-6. Record retained material, its consumer, and its removal or review condition in the task handoff.
+   Replace shared files atomically. Never overwrite their contents in place.
+   Do a check of kept results and representative recovery paths before you remove source material.
+6. Record kept material, its consumer, and its removal or review condition in the task handoff.
    Report added, removed, and remaining directory allocation and the measured change in volume free space.
-   If the total still exceeds the machine limit, record the excess and the next action in the same handoff.
-   Automatic deletion is limited to named rebuildable caches and task-owned temporary files.
-   Research deletion requires an approved selection; age or directory name alone is not a selection rule.
+   If the total is still more than the machine limit, record the excess in the same handoff.
+   Also record the next action there.
+   Without user approval, delete only named rebuildable caches and this task's own temporary files.
+   Deletion of research material needs user approval, also for one file.
+   Any bulk delete, including rebuildable caches and task-owned temporary files, needs an exact list that the user approved.
+   Age or directory name alone is not a selection rule.
 
 ## Tool instruction entry points
 
+Codex, Claude, and Antigravity use the project rules in `AGENTS.md`.
 [Codex](https://learn.chatgpt.com/docs/agent-configuration/agents-md) reads
 `AGENTS.md`. [Claude Code](https://code.claude.com/docs/en/memory#agentsmd)
 versions with AGENTS support can read it directly when no project or ancestor
-`CLAUDE.md` overrides that choice. Check the loaded project instructions in the
+`CLAUDE.md` overrides that choice. Antigravity reads a local rule in `.agents/rules/`
+that points to `AGENTS.md`. Do a check of the loaded project instructions in the
 actual client at onboarding. If an existing Claude setup needs an entry point,
-use `@AGENTS.md` in `CLAUDE.md`; keep the rules in one file. Do not copy them into
-a second rule set. Client onboarding and a two-task collaboration trial require
-their own execution evidence.
+use `@AGENTS.md` in `CLAUDE.md`. Keep the rules in one file. Do not copy them into
+a second rule set.

@@ -60,6 +60,7 @@ class SessionManager(QObject):
             base_dir = user_data_dir()
         self._base = Path(base_dir)
         self._unrestored_files: set[Path] = set()
+        self.last_user_presets_error: Optional[str] = None
 
     # ------------------------------------------------------------------ paths
 
@@ -200,6 +201,7 @@ class SessionManager(QObject):
     def load_user_presets(self) -> List[Dict[str, Any]]:
         """Return list of saved presets (possibly empty)."""
         path = self.presets_path()
+        self.last_user_presets_error = None
         if not path.exists():
             return []
         try:
@@ -208,16 +210,19 @@ class SessionManager(QObject):
             presets = data.get('presets', []) if isinstance(data, dict) else None
             if not isinstance(presets, list) or any(not isinstance(p, dict) for p in presets):
                 self._preserve_unrestored(path)
+                self.last_user_presets_error = f"无效的预设文件结构：{path.name}"
                 return []
             self._unrestored_files.discard(path)
             return list(presets)
-        except (json.JSONDecodeError, UnicodeDecodeError):
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
             # Same quarantine rationale as load_session — a corrupt preset
             # library must not be silently clobbered by the next save.
             self._preserve_unrestored(path)
+            self.last_user_presets_error = f"预设文件解析失败：{exc}"
             return []
-        except OSError:
+        except OSError as exc:
             self._unrestored_files.add(path)
+            self.last_user_presets_error = f"无法读取预设文件：{exc}"
             return []
 
     def save_user_presets(self, presets: List[Dict[str, Any]]) -> bool:

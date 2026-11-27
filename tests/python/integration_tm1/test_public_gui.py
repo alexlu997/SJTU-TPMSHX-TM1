@@ -3,6 +3,7 @@ import csv
 import json
 from dataclasses import asdict
 from pathlib import Path
+from operator import attrgetter
 
 import numpy as np
 import pytest
@@ -13,18 +14,14 @@ from tests.python.gui_io_support import win as win
 from tests.python.gui_worker_support import _wait_for
 from tests.python.integration_tm1.integration_support import baseline_config, AIR_PUBLIC_METRICS
 from tests.python.cases_3d import small_air_config
-from sjtu_tpmshx.applications.gui.ui.window_config import CONFIG_FIELDS
+from sjtu_tpmshx.applications.gui.ui.window_config import LINE_EDITS
 from sjtu_tpmshx.data_types.compute_config import bc_to_dict
 
 
 def apply_config(window, config):
-    edits = {field.widget: str(getattr(getattr(config, field.section), field.name))
-             for field in CONFIG_FIELDS
-             if getattr(getattr(config, field.section), field.name) is not None}
+    edits = {widget: str(value) for widget, spec in LINE_EDITS.items()
+             if (value := attrgetter(spec.path)(config)) is not None}
     for side in ('A', 'B'):
-        flow = getattr(config, 'fluid_' + side).mass_flow_kg_s
-        if flow is not None:
-            edits['le_mass_flow' + side] = str(flow)
         port = getattr(config, 'bc_' + side)
         cross = config.geometry.H_dom_m if port.dir in (0, 1) else config.geometry.L_dom_m
         normalized = bc_to_dict(port, config.geometry.L_dom_m, config.geometry.H_dom_m, with_z=True)
@@ -34,7 +31,7 @@ def apply_config(window, config):
                                     ('z_w', config.geometry.Lz_m or .042)):
                 value = normalized.get(end + '_' + suffix)
                 edits[f'le_pipe{side}_{end}_{suffix}'] = str(default if value is None else value)
-    window._apply_user_preset(dict(
+    window.case_files.apply_user_preset(dict(
         temp_unit='K', line_edits=edits, sco2_nu_parameters=asdict(config.sco2_nu),
         combos={'combo_shape': 0, 'combo_dim': int(config.is_3d),
                 'combo_grid': int(config.flags.port_wall_refine),
@@ -46,7 +43,7 @@ def apply_config(window, config):
                 'combo_df_mode': window.combo_df_mode.findData(config.df_mode),
                 'combo_sco2_nu_mode': window.combo_sco2_nu_mode.findData(config.sco2_nu.mode),
                 'combo_dirA': config.bc_A.dir, 'combo_dirB': config.bc_B.dir},
-        checks={'chk_zones': False, **window._FIXED_SOLVER_CHECKS,
+        checks={'chk_zones': False, **window.case_files.FIXED_SOLVER_CHECKS,
                 'chk_allow_extrap': config.extrap.allow}))
     window.auto_fill_fluid_a()
     window.auto_fill_fluid_b()
@@ -58,8 +55,8 @@ def test_shanghai_uniform_inlet_is_explicit_and_preserved_by_preset(win):
     win.combo_dim.setCurrentIndex(0)
     cfg = config_from_window(win)
     assert cfg.bc_B.uniform_inlet_2d and cfg.bc_A.uniform_inlet_2d
-    preset = win._capture_current_preset('Shanghai uniform inlet')
-    win._apply_user_preset(preset)
+    preset = win.case_files.capture_current_preset('Shanghai uniform inlet')
+    win.case_files.apply_user_preset(preset)
     assert config_from_window(win).bc_B.uniform_inlet_2d
 
 
@@ -68,19 +65,19 @@ def test_shanghai_recommended_grid_and_manual_preset_roundtrip(win):
     from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
     for name, counts in (('Shanghai (2D Gyroid)', SHANGHAI_GRID_2D),
                          ('Shanghai (3D Gyroid)', SHANGHAI_GRID_3D)):
-        win._load_named_preset(name)
+        win.case_files.load_named_preset(name)
         cfg = config_from_window(win)
         assert (cfg.solver.Nx, cfg.solver.Ny, cfg.solver.Nz) == counts
         assert cfg.flags.port_wall_refine
     win.le_Nx.setText('100')
     win.compute_tpms()
     assert win.le_Nx.text() == '100'
-    saved = win._capture_current_preset('manual grid')
-    win._load_named_preset('Shanghai (2D Gyroid)')
-    win._apply_user_preset(saved)
+    saved = win.case_files.capture_current_preset('manual grid')
+    win.case_files.load_named_preset('Shanghai (2D Gyroid)')
+    win.case_files.apply_user_preset(saved)
     assert win.le_Nx.text() == '100' and win.combo_grid.currentData() is True
     saved['combos'].pop('combo_grid')
-    win._apply_user_preset(saved)
+    win.case_files.apply_user_preset(saved)
     assert win.combo_grid.currentData() is False  # files without port refinement keep their mesh
 
 
@@ -95,14 +92,14 @@ def test_saved_polygon_cannot_replace_the_current_compute_case(win, monkeypatch,
     before = asdict(config_from_window(win))
     def forbidden(*args, **kwargs):
         pytest.fail('polygon configuration reached grid preparation or numerical execution')
-    monkeypatch.setattr(win, '_preflight_grid', forbidden)
-    monkeypatch.setattr(win.compute, 'start', forbidden)
+    monkeypatch.setattr(win.single_run, 'preflight_grid', forbidden)
+    monkeypatch.setattr(win.single_run.compute, 'start', forbidden)
     with pytest.raises(ValueError) as error:
-        win._apply_user_preset({'combos': {'combo_shape': shape},
+        win.case_files.apply_user_preset({'combos': {'combo_shape': shape},
                                 'line_edits': {'le_L': '0.333'}})
     assert str(error.value) == DOMAIN_SHAPE_NOTICE
     assert asdict(config_from_window(win)) == before
-    assert win.compute.is_idle()
+    assert win.single_run.compute.is_idle()
 
 
 @pytest.mark.slow
@@ -125,36 +122,37 @@ def test_real_gui_compute_drafts_units_and_export(win, monkeypatch, tmp_path, di
     config = baseline_config() if dimension == 2 else small_air_config()
     apply_config(win, config)
     finished, started = [], []
-    win.compute.finished.connect(finished.append)
-    win.compute.started.connect(started.append)
+    win.single_run.compute.finished.connect(finished.append)
+    win.single_run.compute.started.connect(started.append)
     try:
-        win.run_calculation()
+        win.single_run.submit()
         assert started, errors
         # Edit a new draft while the actual accepted run is in its worker.
         win.combo_dim.setCurrentIndex(0 if dimension == 3 else 1)
         win.combo_dirA.setCurrentIndex(1)
         win.le_Nx.setText('99')
         win._toggle_temp_unit()
-        _wait_for(win.compute.is_idle, timeout=180)
+        _wait_for(win.single_run.is_idle, timeout=180)
     finally:
-        win.compute.finished.disconnect(finished.append)
-        win.compute.started.disconnect(started.append)
-        if not win.compute.is_idle():
-            win.compute.cancel()
-            _wait_for(win.compute.is_idle, timeout=30)
+        win.single_run.compute.finished.disconnect(finished.append)
+        win.single_run.compute.started.disconnect(started.append)
+        if not win.single_run.compute.is_idle():
+            win.single_run.compute.cancel()
+            _wait_for(win.single_run.is_idle, timeout=30)
     assert not errors
     assert len(finished) == 1
     result = finished[0]
-    assert win._result_summary()['warnings'] == result.warnings
+    assert win.results.summary()['warnings'] == result.warnings
     if result.warnings:
         assert win._run_status_card.state == ('warning' if result.converged else 'unconverged')
         assert '诊断' in win._run_status_card.note.text()
     unit = 'W/m' if dimension == 2 else 'W'
     assert result.metadata['source_result_id']
-    assert result.metadata['units']['Q'] == win._result_summary()['Q_unit'] == unit
-    assert win._sb_labels['q'].text().endswith(' ' + unit)
+    assert result.metadata['units']['Q'] == win.results.summary()['Q_unit'] == unit
+    items = win.readout_strip.items()
+    assert items[0].unit == unit
     assert (win.cache.get_result().T_out_A_K, win.cache.get_result().T_out_B_K) == (result.T_out_A_K, result.T_out_B_K)
-    assert float(win._sb_labels['tout'].text().split(' / ')[0]) == pytest.approx(result.T_out_A_K - 273.15, abs=.051)
+    assert float(items[3].value) == pytest.approx(result.T_out_A_K - 273.15, abs=.051)
     assert result.fields['dir_A'] == config.bc_A.dir
     assert result.fields['Ta'].shape[0] != 99
     np.testing.assert_allclose(
@@ -167,17 +165,17 @@ def test_real_gui_compute_drafts_units_and_export(win, monkeypatch, tmp_path, di
         rtol=1e-10, atol=1e-10)
     output = tmp_path / 'results.csv'
     monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *args: (str(output), 'CSV'))
-    win._export_results()
+    win.result_export.export_results()
     assert not errors
     with output.open(encoding='utf-8', newline='') as stream:
         rows = dict(list(csv.reader(stream))[1:])
     assert float(rows[f'Q [{unit}]']) == pytest.approx(result.Q_W, abs=.0001)
     assert json.loads(rows['metadata'])['metric_definitions']['Q']['definition_version'] == 'native_boundary_v1'
-    assert '主网格 A 侧' in win._diag_summary_text()
-    assert unit in win._diag_summary_text()
+    assert '主网格 A 侧' in win.results.diagnostic_text()
+    assert unit in win.results.diagnostic_text()
     win.show()
-    assert win._canvas_tab_availability()['temp']
-    win._switch_tab('temp')
+    assert win.workbench.canvas_tab_availability()['temp']
+    win.workbench.switch_tab('temp')
     from PySide6.QtWidgets import QApplication
     QApplication.processEvents()
     # Solver notices now live in the status card and the user-opened
@@ -195,18 +193,29 @@ def test_real_gui_compute_drafts_units_and_export(win, monkeypatch, tmp_path, di
         QTimer.singleShot(0, read_and_close)
         return original_dialog_exec(dialog)
     monkeypatch.setattr(QDialog, 'exec', inspect_diagnostics)
-    assert win.btn_parameter_diagnostics.isVisible()
-    win.btn_parameter_diagnostics.click()
+    from PySide6.QtWidgets import QLabel, QPushButton
+    assert win.btn_run_info.isVisible()
+    win.btn_run_info.click()
+    QApplication.processEvents()
+    pop = win._run_info_popover
+    pop_texts = [lbl.text() for lbl in pop.findChildren(QLabel)]
+    assert '维度' in pop_texts
+    assert f'{dimension}D' in pop_texts
+    diag_btn = next(
+        b for b in pop.findChildren(QPushButton)
+        if any(lbl.text() == '诊断详情…' for lbl in b.findChildren(QLabel))
+    )
+    diag_btn.click()
+    pop.close()
     assert len(diagnostic_views) == 1
     visible, title, diagnostic_text = diagnostic_views[0]
     assert visible and title == '诊断详情'
-    assert diagnostic_text == win._diag_summary_text()
+    assert diagnostic_text == win.results.diagnostic_text()
     assert all(f'⚠ {warning}' in diagnostic_text for warning in result.warnings)
-    assert win._active_tab == 'temp'
-    assert unit in win._sb_labels['q'].text()
-    assert win._result_heading.isVisible()
-    assert f'{dimension}D' in win._result_heading.text()
-    assert '[°C]' in win._lbl_sidebar_tout_unit.text()
+    assert win.workbench.active_tab == 'temp'
+    items = win.readout_strip.items()
+    assert items[0].unit == unit
+    assert items[3].unit == '°C' and items[4].unit == '°C'
     for width in (900, 1440):
         win.resize(width, 720 if width == 900 else 900)
         _wait_for(lambda: win._canvas_scroll.verticalScrollBar().maximum() == 0,

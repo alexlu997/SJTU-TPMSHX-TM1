@@ -25,36 +25,23 @@ def _cfg(nz=1, enthalpy=False):
     )
 
 
-
-
-
-
-
-
-
-
-
-
-
-
 @pytest.mark.parametrize('error_type', [CancelledError, InterruptedError, ValueError])
 @pytest.mark.parametrize('requested', [False, True])
-def test_ui_adapter_only_classifies_explicit_cancellation(monkeypatch, error_type, requested):
-    from sjtu_tpmshx.applications.gui.ui.mixins import run_controller
+def test_ui_adapter_only_classifies_explicit_cancellation(tmp_path, monkeypatch, error_type, requested):
+    from sjtu_tpmshx.applications.gui.ui.single_run import _run_compute
     token = CancelToken()
     failure = error_type('solver stopped')
 
-    def run(config, *, control, progress_cb):
+    def run(config, directory, **kwargs):
         if requested:
             token.cancel()
         raise failure
 
-    monkeypatch.setattr('sjtu_tpmshx.applications.result_adapter.compute_result', run)
+    monkeypatch.setattr('sjtu_tpmshx.applications.execution.recovery.compute_run', run)
     with pytest.raises(error_type) as caught:
-        run_controller._run_compute(_cfg(3), token, lambda *a: None, ui_hooks={})
+        _run_compute(_cfg(3), token, lambda *a: None, control=RunControl(), ui_hooks={},
+                     run_directory=tmp_path, checkpoint_interval_s=60.)
     assert caught.value is failure
-
-
 
 
 def test_cancel_during_finalize_does_not_return_result(monkeypatch):

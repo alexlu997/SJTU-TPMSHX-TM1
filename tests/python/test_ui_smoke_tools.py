@@ -17,7 +17,8 @@ class SmokeWindow(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.sm = SessionManager(parent=self)
+        self.store = SessionManager(parent=self)
+        self.workbench = SimpleNamespace()
         layout = QVBoxLayout(self)
         self._canvas_cards = {key: QWidget(self) for key in ('layout', 'pareto')}
         for name in ('layout', 'result', 'pareto'):
@@ -36,12 +37,12 @@ class SmokeWindow(QWidget):
         assert save_appearance_setting('theme', 'light')
 
     def select(self, key):
-        self._active_tab = key
+        self.workbench.active_tab = key
         for name, card in self._canvas_cards.items():
             card.setVisible(name == key)
 
     def closeEvent(self, event):
-        assert self.sm.save_session({'smoke': True})
+        assert self.store.save_session({'smoke': True})
         super().closeEvent(event)
 
 
@@ -60,7 +61,7 @@ def install(monkeypatch, tmp_path):
     def install(fault=lambda window: None):
         def create():
             window = SmokeWindow()
-            created_dirs.append(window.sm.base_dir)
+            created_dirs.append(window.store.base_dir)
             fault(window)
             return window
         monkeypatch.setitem(sys.modules, 'sjtu_tpmshx.applications.gui.ui.main_window', SimpleNamespace(Main_Menu=create))

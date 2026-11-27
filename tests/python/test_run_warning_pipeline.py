@@ -8,7 +8,7 @@ import pytest
 import importlib
 from sjtu_tpmshx.applications.result_adapter import compute_result
 from sjtu_tpmshx.physical_models.tpms_calc import compute
-from tests.python.test_pipeline_2d_smoke import _shanghai_like_cfg
+from tests.python.execution_tm1.test_pipeline_2d_smoke import _shanghai_like_cfg
 from tests.python.cases_3d import small_air_config
 from tests.python.gui_worker_support import win as win
 
@@ -55,9 +55,9 @@ def test_real_pipeline_warning_ownership_and_numerical_transparency(monkeypatch,
     assert any(row['low'] or row['high'] for row in local)
     assert main_nu_warnings(result)
     assert result.extrap_reasons == []  # both cases remain inside the D-F grid
-    win.write_result(result)
+    win.results.publish(result)
     assert win.cache.get_result().extrap_reasons == []
-    assert win._result_summary()['warnings'] == result.warnings
+    assert win.results.summary()['warnings'] == result.warnings
     assert len(result.warnings) == len(set(result.warnings))
 
     repeated = compute_result(cfg)

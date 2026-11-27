@@ -12,10 +12,10 @@ from tests.python.gui_io_support import win as win
 @pytest.fixture(autouse=True)
 def isolated_state(win, monkeypatch, tmp_path):
     from PySide6.QtWidgets import QMessageBox
-    monkeypatch.setattr(win, 'sm', SessionManager(base_dir=tmp_path, parent=win))
+    monkeypatch.setattr(win.case_files, 'store', SessionManager(base_dir=tmp_path, parent=win))
     for name in ('information', 'warning', 'critical'):
         monkeypatch.setattr(QMessageBox, name, lambda *args: QMessageBox.StandardButton.Cancel)
-    win._active_workspace = 'A'
+    win.case_files.active_workspace = 'A'
     win._temp_unit = 'K'
     win._sync_temp_unit_labels()
     win._apply_shanghai_defaults()
@@ -26,24 +26,24 @@ def isolated_state(win, monkeypatch, tmp_path):
 @pytest.mark.parametrize('route', ['named', 'recent', 'share', 'session'])
 def test_legacy_full_restore_never_inherits_previous_zones(win, monkeypatch, route):
     from PySide6.QtWidgets import QInputDialog
-    legacy = win._capture_current_preset('old named design')
+    legacy = win.case_files.capture_current_preset('old named design')
     del legacy['zone_inputs']
     legacy['checks']['chk_zones'] = True
-    current = win._capture_current_preset('current zones')
+    current = win.case_files.capture_current_preset('current zones')
     current['checks']['chk_zones'] = True
     current['zone_inputs']['rows'] = [['0', '0.5', '8', '0.3'], ['0.5', '1', '6', '0.3']]
-    win._apply_user_preset(current)
+    win.case_files.apply_user_preset(current)
     if route == 'named':
-        win._load_user_preset(legacy)
+        win.history.load_user_preset(legacy)
     elif route == 'recent':
-        win._load_recent_run({'preset': legacy, 'preset_source': 'old named design'})
+        win.history.load_recent_run({'preset': legacy, 'preset_source': 'old named design'})
     elif route == 'share':
         token = 'TPMSHX::' + base64.urlsafe_b64encode(zlib.compress(json.dumps(legacy).encode())).decode()
         monkeypatch.setattr(QInputDialog, 'getText', lambda *args, **kwargs: (token, True))
-        win._load_reproducible_link()
+        win.history.load_reproducible_link()
     else:
-        assert win.sm.save_session(legacy)
-        win._restore_session()
+        assert win.case_files.store.save_session(legacy)
+        win.case_files.restore_session()
     assert not win.chk_zones.isChecked()
     assert win.zone_table.rowCount() == 0
     assert win._pareto_x_decision is None
@@ -52,29 +52,29 @@ def test_legacy_full_restore_never_inherits_previous_zones(win, monkeypatch, rou
 @pytest.mark.parametrize('route', ['reset', 'builtin', 'workspace'])
 def test_default_restore_clears_optimization_conditions(win, route):
     from tests.python.optimization_support import condition
-    preset = win._capture_current_preset('A')
+    preset = win.case_files.capture_current_preset('A')
     preset['optimization_conditions'] = [condition()]
     from tests.python.test_mass_design import requirements
     preset['optimization_mass_requirements'] = requirements(('one',))
-    win._apply_user_preset(preset)
+    win.case_files.apply_user_preset(preset)
     if route == 'workspace':
-        win._switch_workspace('B')
+        win.case_files.switch_workspace('B')
     elif route == 'builtin':
-        win._load_named_preset('Shanghai (2D Gyroid)')
+        win.case_files.load_named_preset('Shanghai (2D Gyroid)')
     else:
         win._apply_shanghai_defaults()
-    assert win._opt_conditions is None and win._opt_mass_requirements is None
+    assert win.optimization.conditions is None and win.optimization.mass_requirements is None
 
 
 def test_valid_restore_refreshes_error_state_without_recording_history(win):
-    valid = win._capture_current_preset('valid')
+    valid = win.case_files.capture_current_preset('valid')
     win.le_L.setText('-1')
     win.le_L.editingFinished.emit()
     assert win.le_L.property('inpError') == 'true'
     history = list(win._field_history['le_L'])
-    win._load_user_preset(valid)
+    win.history.load_user_preset(valid)
     assert win.le_L.property('inpError') == 'false'
-    assert win._validate_inputs_preflight()
+    assert win.single_run.validate_inputs()
     assert list(win._field_history['le_L']) == history
 
 
@@ -119,7 +119,7 @@ def test_inlet_keeps_valid_temperature_format_and_value(win, unit, text, display
 
 
 @pytest.mark.parametrize('unit,zero,normal,switched', [
-    ('K', '(0)', '150 * 2', '26.850000000000023'),
+    ('K', '(0)', '150 * 2', '26.85'),
     ('C', '(-273.15)', '25 + 1.85', '300'),
 ])
 def test_unit_switch_keeps_rejected_temperature_expression_at_absolute_zero(win, unit, zero, normal, switched):
@@ -151,16 +151,16 @@ def test_save_config_preserves_file_for_rejected_switched_inlet(win, monkeypatch
     field.setText('0.05 K')
     field.editingFinished.emit()
     kelvin = win._temp_to_K(field)
-    assert win.save_config()
+    assert win.case_files.save_config()
     original = path.read_bytes()
 
     field.setText(zero)
     win._toggle_temp_unit()
     assert field.property('inpError') == 'true'
-    assert not win.save_config()
+    assert not win.case_files.save_config()
     assert 'Must be above 0 K' in errors[-1]
     assert path.read_bytes() == original
-    assert win._load_config_path(path)
+    assert win.case_files.load_config_path(path)
     assert win._temp_unit == unit
     assert win._temp_to_K(field) == kelvin > 0
 
@@ -172,29 +172,29 @@ def test_numeric_zero_in_saved_unit_preserves_active_design(win, tmp_path, side,
 
     if unit == 'C':
         win._toggle_temp_unit()
-    saved = win._capture_current_preset('invalid inlet')
+    saved = win.case_files.capture_current_preset('invalid inlet')
     saved['line_edits']['le_Tin' + side] = zero
     saved['line_edits']['le_L'] = '0.333'
     win._toggle_temp_unit()
-    before = win._capture_current_preset('active')
+    before = win.case_files.capture_current_preset('active')
     if route == 'config':
         path = tmp_path / 'invalid.json'
         path.write_text(json.dumps({'config_format': 1, 'preset': saved}))
-        assert not win._load_config_path(path)
+        assert not win.case_files.load_config_path(path)
     else:
-        assert win.sm.save_session(saved)
-        win._restore_session()
+        assert win.case_files.store.save_session(saved)
+        win.case_files.restore_session()
         QApplication.processEvents()
-    assert win._capture_current_preset('active') == before
+    assert win.case_files.capture_current_preset('active') == before
 
 
 @pytest.mark.parametrize('content', ['{"presets": {"old": 1}}', '{"presets": [null]}', '{broken'])
 def test_rejected_preset_library_is_preserved_before_next_save(win, content):
-    path = win.sm.presets_path()
+    path = win.case_files.store.presets_path()
     path.write_text(content)
-    assert win.sm.load_user_presets() == []
-    win._rebuild_recent_menu()
-    assert win.sm.save_user_presets([win._capture_current_preset('new')])
+    assert win.case_files.store.load_user_presets() == []
+    win.history.rebuild_recent_menu()
+    assert win.case_files.store.save_user_presets([win.case_files.capture_current_preset('new')])
     backups = list(path.parent.glob(path.name + '.corrupt-*'))
     assert len(backups) == 1
     assert backups[0].read_text() == content
@@ -202,16 +202,16 @@ def test_rejected_preset_library_is_preserved_before_next_save(win, content):
 
 def test_failed_preset_library_backup_blocks_gui_overwrite(win, monkeypatch):
     from PySide6.QtWidgets import QInputDialog
-    path = win.sm.presets_path()
+    path = win.case_files.store.presets_path()
     raw = b'{broken but recoverable'
     path.write_bytes(raw)
-    original = win.sm._quarantine_corrupt
-    monkeypatch.setattr(win.sm, '_quarantine_corrupt', lambda path: None)
+    original = win.case_files.store._quarantine_corrupt
+    monkeypatch.setattr(win.case_files.store, '_quarantine_corrupt', lambda path: None)
     monkeypatch.setattr(QInputDialog, 'getText', lambda *args, **kwargs: ('new', True))
-    win._save_current_as_preset()
+    win.case_files.save_current_as_preset()
     assert path.read_bytes() == raw
-    monkeypatch.setattr(win.sm, '_quarantine_corrupt', original)
-    win._save_current_as_preset()
+    monkeypatch.setattr(win.case_files.store, '_quarantine_corrupt', original)
+    win.case_files.save_current_as_preset()
     assert json.loads(path.read_text())['presets'][0]['name'] == 'new'
     assert [p.read_bytes() for p in path.parent.glob(path.name + '.corrupt-*')] == [raw]
 
@@ -224,10 +224,10 @@ def test_named_preset_rejects_invalid_draft_before_replacing_saved_entry(
     messages = []
     monkeypatch.setattr(QInputDialog, 'getText', lambda *a, **k: ('saved design', True))
     monkeypatch.setattr(QMessageBox, 'warning', lambda *a: messages.append(a[1:3]))
-    button, label = ((win.btn_save, '保存为预设…') if route == 'save_menu'
+    button, label = ((win.btn_save, '保存当前为预设…') if route == 'save_menu'
                      else (win.btn_recent, '保存当前为预设…'))
     next(a for a in button.menu().actions() if a.text() == label).trigger()
-    path = win.sm.presets_path()
+    path = win.case_files.store.presets_path()
     previous = path.read_bytes()
     win.le_L.setText(invalid)
     win.le_L.editingFinished.emit()
@@ -246,14 +246,14 @@ def test_named_preset_rejects_invalid_draft_before_replacing_saved_entry(
 def test_named_preset_commits_expression_and_replaces_valid_entry(win, monkeypatch, text):
     from PySide6.QtWidgets import QInputDialog
     monkeypatch.setattr(QInputDialog, 'getText', lambda *a, **k: ('saved design', True))
-    action = next(a for a in win.btn_save.menu().actions() if a.text() == '保存为预设…')
+    action = next(a for a in win.btn_save.menu().actions() if a.text() == '保存当前为预设…')
     action.trigger()
     win.le_L.setText(text)
-    action.trigger()
-    presets = json.loads(win.sm.presets_path().read_text())['presets']
+    next(a for a in win.btn_save.menu().actions() if a.text() == '保存当前为预设…').trigger()
+    presets = json.loads(win.case_files.store.presets_path().read_text())['presets']
     assert len(presets) == 1
     assert presets[0]['line_edits']['le_L'] == '0.2'
-    assert win.statusBar().currentMessage() == 'Saved preset: saved design.'
+    assert win.dialogs.last_notice == 'Saved preset: saved design.'
     win.le_L.setText('0.3')
     next(a for a in win.btn_recent.menu().actions() if '★ saved design' in a.text()).trigger()
     assert win.le_L.text() == '0.2'
@@ -262,21 +262,21 @@ def test_named_preset_commits_expression_and_replaces_valid_entry(win, monkeypat
 @pytest.mark.parametrize('text', ['200 mm', '1/5'])
 def test_session_save_commits_valid_expression_before_capture(win, text):
     win.le_L.setText(text)
-    assert win._save_session()
-    assert json.loads(win.sm.session_path().read_text())['line_edits']['le_L'] == '0.2'
+    assert win.case_files.save_session()
+    assert json.loads(win.case_files.store.session_path().read_text())['line_edits']['le_L'] == '0.2'
     win._apply_shanghai_defaults()
-    win._restore_session()
+    win.case_files.restore_session()
     assert win.le_L.text() == '0.2'
 
 
 def test_invalid_session_draft_does_not_replace_previous_file(win):
-    assert win._save_session()
-    original = win.sm.session_path().read_bytes()
+    assert win.case_files.save_session()
+    original = win.case_files.store.session_path().read_bytes()
     win.le_L.setText('not a number')
-    assert not win._save_session()
-    assert win.sm.session_path().read_bytes() == original
+    assert not win.case_files.save_session()
+    assert win.case_files.store.session_path().read_bytes() == original
     assert not win.close()  # The existing warning defaults to Cancel.
-    assert win.sm.session_path().read_bytes() == original
+    assert win.case_files.store.session_path().read_bytes() == original
 
 
 @pytest.mark.parametrize('route', ['unit', 'workspace', 'partial', 'builtin'])
@@ -297,11 +297,11 @@ def test_restore_checkpoint_drops_old_undo_and_redo(win, route):
         win.le_L.editingFinished.emit()
         win._undo_stack.undo()  # A redo command must not survive either.
         if route == 'workspace':
-            win._switch_workspace('B')
+            win.case_files.switch_workspace('B')
         elif route == 'partial':
-            win._apply_user_preset({'line_edits': {'le_L': '0.211'}}, partial=True)
+            win.case_files.apply_user_preset({'line_edits': {'le_L': '0.211'}}, partial=True)
         else:
-            win._load_named_preset('Shanghai (2D Gyroid)')
+            win.case_files.load_named_preset('Shanghai (2D Gyroid)')
         expected = win.le_L.text()
         assert win._undo_stack.count() == 0
         win._undo_stack.redo()
@@ -326,6 +326,9 @@ def test_unit_switch_discards_only_untyped_temperature_history(win):
     ('K', 'le_Nx', '20', '20'),
     ('K', 'le_L', '0.2', '0.2 m'),
     ('K', 'le_Lcell', '7', '7 mm'),
+    ('K', 'le_pipeB_out_z_w', '0.021', '0.021 m'),
+    ('K', 'le_mass_flowA', '0.02', '0.02 kg/s'),
+    ('K', 'le_ks', '16', '16 W/(m·K)'),
 ])
 def test_copy_menu_uses_display_units(win, unit, field, text, expected):
     from PySide6.QtCore import QPoint, QTimer
@@ -377,45 +380,50 @@ def test_field_menu_uses_current_theme_colors(win, monkeypatch, theme_name):
 
 @pytest.mark.parametrize('route', ['named', 'recent', 'scrub', 'session'])
 def test_restore_uses_its_own_source_name(win, route):
-    preset = win._capture_current_preset('Recent @ 12:00' if route != 'named' else 'custom source')
+    preset = win.case_files.capture_current_preset('Recent @ 12:00' if route != 'named' else 'custom source')
     entry = {'preset': preset, 'preset_source': 'custom source'}
     if route == 'named':
-        win._load_user_preset(preset)
+        win.history.load_user_preset(preset)
     elif route == 'recent':
-        win._load_recent_run(entry)
+        win.history.load_recent_run(entry)
     elif route == 'scrub':
-        win._recent_runs = [entry]
-        win._scrub_idx = -1
-        win._scrub_recent(1)
+        win.history.recent_runs.clear()
+        win.history.recent_runs.append(entry)
+        win.shortcuts._scrub_idx = -1
+        win.shortcuts.scrub_recent(1)
     else:
         preset['preset_source'] = 'custom source'
-        assert win.sm.save_session(preset)
-        win._restore_session()
-    assert win._active_preset_name == 'custom source'
+        assert win.case_files.store.save_session(preset)
+        win.case_files.restore_session()
+    assert win.case_files.active_preset_name == 'custom source'
 
 
 @pytest.mark.parametrize('field,text,expected', [
     ('le_L', '200 mm', '0.2'), ('le_L', '1/5', '0.2'),
-    # Match the existing four-significant-digit unit formatter; persistence
-    # must behave exactly like a normal editingFinished commit.
-    ('le_TinA', '25 C', '298.1'),
+    # Full-precision unit conversion; persistence must behave exactly like a
+    # normal editingFinished commit.
+    ('le_TinA', '25 C', '298.15'),
 ])
 def test_close_with_focused_expression_restores_complete_session(
         monkeypatch, tmp_path, field, text, expected):
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QApplication
     from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
+    from sjtu_tpmshx.applications.gui.ui.shell_dialogs import ShellDialogs
+    from sjtu_tpmshx.applications.gui.ui.ui_builders import reveal_parameter
     original = SessionManager.__init__
     monkeypatch.setattr(SessionManager, '__init__',
         lambda self, base_dir=None, parent=None: original(self, base_dir=tmp_path, parent=parent))
     monkeypatch.setattr(Main_Menu, '_schedule_tpms_geometry_prewarm', lambda self: None)
-    monkeypatch.setattr(Main_Menu, '_maybe_show_onboarding', lambda self: None)
+    monkeypatch.setattr(ShellDialogs, 'maybe_show_onboarding', lambda self: None)
     window = Main_Menu()
     window.show()
     window.activateWindow()
     QApplication.processEvents()
     window.le_H.setText('0.111')
     edit = getattr(window, field)
+    reveal_parameter(window, edit)
+    QApplication.processEvents()
     edit.setFocus()
     edit.selectAll()
     QTest.keyClicks(edit, text)
@@ -435,7 +443,7 @@ def test_close_with_focused_expression_restores_complete_session(
 def test_unreadable_library_is_preserved_before_replacement(win, monkeypatch):
     import builtins
     from pathlib import Path
-    path = win.sm.presets_path()
+    path = win.case_files.store.presets_path()
     original = b'{"presets": [{"name": "old design"}]}'
     path.write_bytes(original)
     real_open = builtins.open
@@ -445,13 +453,14 @@ def test_unreadable_library_is_preserved_before_replacement(win, monkeypatch):
         return real_open(file, mode, *args, **kwargs)
     with monkeypatch.context() as patch:
         patch.setattr(builtins, 'open', unreadable)
-        assert win.sm.load_user_presets() == []
-    assert win.sm.save_user_presets([win._capture_current_preset('new design')])
+        assert win.case_files.store.load_user_presets() == []
+    assert win.case_files.store.save_user_presets([win.case_files.capture_current_preset('new design')])
     assert [p.read_bytes() for p in path.parent.glob(path.name + '.corrupt-*')] == [original]
 
 
 def test_malformed_library_members_do_not_block_window_initialization(monkeypatch, tmp_path):
     from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
+    from sjtu_tpmshx.applications.gui.ui.shell_dialogs import ShellDialogs
     path = SessionManager(base_dir=tmp_path).presets_path()
     original = b'{"presets": [null]}'
     path.write_bytes(original)
@@ -459,7 +468,7 @@ def test_malformed_library_members_do_not_block_window_initialization(monkeypatc
     monkeypatch.setattr(SessionManager, '__init__',
         lambda self, base_dir=None, parent=None: init(self, base_dir=tmp_path, parent=parent))
     monkeypatch.setattr(Main_Menu, '_schedule_tpms_geometry_prewarm', lambda self: None)
-    monkeypatch.setattr(Main_Menu, '_maybe_show_onboarding', lambda self: None)
+    monkeypatch.setattr(ShellDialogs, 'maybe_show_onboarding', lambda self: None)
     window = Main_Menu()
     try:
         assert window.btn_recent.menu() is not None
@@ -472,31 +481,31 @@ def test_malformed_library_members_do_not_block_window_initialization(monkeypatc
 def test_mass_requirements_survive_session_and_reject_mismatched_conditions(win):
     from tests.python.optimization_support import condition
     from tests.python.test_mass_design import requirements
-    preset = win._capture_current_preset('mass design')
+    preset = win.case_files.capture_current_preset('mass design')
     preset.update(optimization_conditions=[condition()],
                   optimization_mass_requirements=requirements(('one',)),
                   optimization_bounds={'L': [7., 7.], 't': [.3, .6]})
-    win._apply_user_preset(preset)
-    assert win.sm.save_session(win._capture_current_preset('mass design'))
+    win.case_files.apply_user_preset(preset)
+    assert win.case_files.store.save_session(win.case_files.capture_current_preset('mass design'))
     win._apply_shanghai_defaults()
-    win._restore_session()
-    assert win._opt_mass_requirements == preset['optimization_mass_requirements']
-    assert win._opt_method.currentData() == 'qlognei'
-    assert win._capture_current_preset('bounds')['optimization_bounds'] == preset['optimization_bounds']
-    assert '27 个变量' in win._opt_field_layout.text()
-    before = win._capture_current_preset('before')
+    win.case_files.restore_session()
+    assert win.optimization.mass_requirements == preset['optimization_mass_requirements']
+    assert win.optimization.method.currentData() == 'qlognei'
+    assert win.case_files.capture_current_preset('bounds')['optimization_bounds'] == preset['optimization_bounds']
+    assert '27 个变量' in win.optimization.field_layout.text()
+    before = win.case_files.capture_current_preset('before')
     preset['optimization_mass_requirements']['conditions']['wrong-id'] = (
         preset['optimization_mass_requirements']['conditions'].pop('one'))
     with pytest.raises(ValueError, match='condition IDs'):
-        win._apply_user_preset(preset)
-    assert win._capture_current_preset('before') == before
+        win.case_files.apply_user_preset(preset)
+    assert win.case_files.capture_current_preset('before') == before
 
 
 @pytest.mark.parametrize('bounds', [None, {'L': [], 't': [.3, .6]},
     {'L': [7., 7.], 't': [.6, .3]}, {'L': [7., float('nan')], 't': [.3, .6]}])
 def test_invalid_optimization_bounds_do_not_change_inputs(win, bounds):
-    before = win._capture_current_preset('before')
+    before = win.case_files.capture_current_preset('before')
     damaged = dict(before, optimization_bounds=bounds)
     with pytest.raises(ValueError):
-        win._apply_user_preset(damaged)
-    assert win._capture_current_preset('before') == before
+        win.case_files.apply_user_preset(damaged)
+    assert win.case_files.capture_current_preset('before') == before

@@ -33,7 +33,7 @@ from typing import Optional
 import numpy as np
 import pyvista as pv
 from pyvistaqt import QtInteractor
-from PySide6.QtCore import Qt, QTimer, QVariantAnimation, QEasingCurve
+from PySide6.QtCore import Qt, QTimer, QVariantAnimation, QEasingCurve, Signal
 from PySide6.QtGui import QDoubleValidator, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QComboBox,
@@ -42,11 +42,12 @@ from PySide6.QtWidgets import (
 )
 
 
-from sjtu_tpmshx.applications.gui.ui.vis3d_constants import FIELD_ORDER, FIELD_META, validate_color_range_state
+from sjtu_tpmshx.postprocess.result_display import PANEL_FIELD_SPECS
+from sjtu_tpmshx.applications.gui.ui.vis3d_constants import FIELD_ORDER, validate_color_range_state
 from sjtu_tpmshx.applications.gui.ui.responsive import ResponsiveRow
 
 # ── Theme-aware QSS generators for 3D panel controls ──
-from sjtu_tpmshx.applications.gui.ui.theme import get_theme, get_theme_name, _build_styles
+from sjtu_tpmshx.applications.gui.ui.theme import get_theme, get_theme_name, _build_styles, resolve_cmap
 from sjtu_tpmshx.applications.gui.ui.typography import apply_vtk_font
 
 _CTRL_HEIGHT = 32
@@ -177,6 +178,8 @@ class ThreeDVisPanel(QWidget):
     on top of the volume. Each Apply also pops up a 2D matplotlib contour
     window for the chosen slice.
     """
+
+    field_changed = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -502,6 +505,7 @@ class ThreeDVisPanel(QWidget):
         self._flow_dir = '+x'                        # Fluid A arrow direction
         self._flow_dir_B = None                      # Fluid B arrow direction
         self._ports = {}
+        self._watermark_text: Optional[str] = None
         self._tween_animation: Optional[QVariantAnimation] = None
         self._tween_end_pose = None
         self._tween_previous_update_rate = None
@@ -549,6 +553,7 @@ class ThreeDVisPanel(QWidget):
         self._flow_dir = None if flow_dir is None else str(flow_dir or '+x')
         self._flow_dir_B = str(flow_dir_B) if flow_dir_B else None
         self._ports = {'A': ports_A, 'B': ports_B}
+        self._watermark_text = None
 
         candidate = {
             'Ta': Ta, 'Tb': Tb, 'Ts': Ts,
@@ -609,14 +614,14 @@ class ThreeDVisPanel(QWidget):
         self.combo_field.clear()
         for fkey in FIELD_ORDER:
             if fkey in self._arrays:
-                self.combo_field.addItem(FIELD_META[fkey]['label'], userData=fkey)
+                self.combo_field.addItem(PANEL_FIELD_SPECS[fkey].label, userData=fkey)
         # Restore previous field selection if still available, else first item.
         # 2026-05-20 UI sweep: two guards added —
         #   (a) only assign `self._field = prev_field` when `findData()` returns
         #       a real index (>=0); previously the assignment ran even after a
         #       findData miss, leaving `_field` stale relative to the combo.
         #   (b) fall back to "Ta" if `itemData(0)` returns None (empty combo),
-        #       otherwise downstream `FIELD_META[self._field]` lookups KeyError.
+        #       otherwise downstream `PANEL_FIELD_SPECS[self._field]` lookups KeyError.
         _picked = None
         if prev_field in self._arrays:
             idx = self.combo_field.findData(prev_field)
@@ -646,28 +651,53 @@ class ThreeDVisPanel(QWidget):
         self._update_coord_label()
         self._validate_coord_input()
         self._update_status()
+        sig = getattr(self, "field_changed", None)
+        if sig is not None:
+            sig.emit(self._field)
+
+    def available_fields(self) -> tuple[str, ...]:
+        """Return PANEL_FIELD_SPECS keys currently loaded on this 3D panel."""
+        return tuple(self._arrays.keys())
+
+    def active_field(self) -> str | None:
+        """Return the active PANEL_FIELD_SPECS key on this 3D panel, or None."""
+        return self._field
+
+    def select_field(self, field_key: str) -> bool:
+        """Select a 3D panel field by PANEL_FIELD_SPECS key; return True if available."""
+        if field_key not in self._arrays or field_key not in PANEL_FIELD_SPECS:
+            return False
+        idx = self.combo_field.findData(field_key)
+        if idx < 0:
+            return False
+        if self.combo_field.currentIndex() != idx:
+            self.combo_field.setCurrentIndex(idx)
+        elif self._field != field_key:
+            self._on_field_changed(idx)
+        return True
 
 
     def set_watermark(self, text):
-        """Place a warning watermark on the viewport (lower-left).
+        """Place a warning watermark on the viewport.
 
-        Called after set_fields when the run left the ConstDF-v1 training
-        window. Pass `None` to clear. Keeps copy compact so the 3D volume
+        Called after set_fields when the run extrapolated outside the recorded
+        model domain. Pass `None` to clear. Keeps copy compact so the 3D volume
         remains the primary visual, while the reader still can't miss the
         extrapolation flag in a screenshot or presentation slide.
         """
+        self._watermark_text = str(text) if text else None
         pl = self.plotter
         try:
             pl.remove_actor('_extrap_watermark', render=False)
         except Exception:
             pass
-        if not text:
+        if not self._watermark_text:
             pl.render()
             return
         t = get_theme()
         try:
             _wm = pl.add_text(
-                str(text).replace('⚠', 'Warning:'),
+                self._watermark_text.replace('⚠', 'Warning:'),
                 # upper_left, not lower_left: the lower-left corner already holds
                 # the XYZ orientation triad + the Qt status strip below, so the
                 # watermark there read as a cramped pile. Top-left is clear.
@@ -789,15 +819,14 @@ class ThreeDVisPanel(QWidget):
                           for edges, pos in zip(self._edges_mm, wpos))
             parts = [f"Cursor: ({wpos[0]:.1f}, {wpos[1]:.1f}, {wpos[2]:.1f}) mm",
                      f"Cell {index}"]
-            for fkey in ('Ta', 'Tb', 'Ts', 'vmag', 'vmag_B',
-                         'P_kPa', 'P_B_kPa'):
+            for fkey, spec in PANEL_FIELD_SPECS.items():
                 if fkey in self._arrays:
                     try:
                         val = float(self._arrays[fkey][index])
                     except Exception:
                         continue
-                    parts.append(f"{FIELD_META[fkey]['title']} = "
-                                 f"{val:{FIELD_META[fkey]['fmt'][1:]}}")
+                    parts.append(f"{spec.title_plain} = "
+                                 f"{val:{spec.fmt[1:]}}")
         except Exception:
             return
         hover_text = "   •   ".join(parts)
@@ -813,10 +842,10 @@ class ThreeDVisPanel(QWidget):
         # 2026-05-20 UI sweep: itemData(idx) can return None if the combo
         # is mid-rebuild (e.g. set_fields re-populating items) or stale
         # vs `_arrays`. Skip silently rather than poisoning `self._field`
-        # with None and crashing downstream `FIELD_META[None]` lookups.
+        # with None and crashing downstream `PANEL_FIELD_SPECS[None]` lookups.
         _new_field = self.combo_field.itemData(idx)
         if _new_field is None or _new_field not in self._arrays \
-                or _new_field not in FIELD_META:
+                or _new_field not in PANEL_FIELD_SPECS:
             return
         self._field = _new_field
         self._sync_clim_controls()
@@ -828,6 +857,9 @@ class ThreeDVisPanel(QWidget):
             self._add_slice_actor(self._slice_info['axis'],
                                   self._slice_info['coord_mm'], render=False)
         self.plotter.render()
+        sig = getattr(self, "field_changed", None)
+        if sig is not None:
+            sig.emit(self._field)
         self._update_status()
 
     def _on_plane_changed(self, idx):
@@ -875,7 +907,7 @@ class ThreeDVisPanel(QWidget):
 
         The shared elapsed-time clock advances a 300 ms timeline by real
         elapsed time; late frames skip ahead instead of extending the motion.
-        Reduced-motion envs (QT_REDUCED_MOTION=1) get an instant snap.
+        Reduced motion (saved preference or QT_REDUCED_MOTION=1) snaps immediately.
         """
         self._stop_camera_tween()
         pl = self.plotter
@@ -893,8 +925,8 @@ class ThreeDVisPanel(QWidget):
         self.fit_view(render=False)
         end = (tuple(cam.position), tuple(cam.focal_point), tuple(cam.up), cam.view_angle)
 
-        import os as _os
-        reduced = _os.environ.get('QT_REDUCED_MOTION', '').lower() in ('1', 'true')
+        from .microanim import is_reduced_motion
+        reduced = is_reduced_motion()
         if reduced or start == end or not self.isVisible():
             if self.isVisible():
                 pl.render()
@@ -1133,6 +1165,16 @@ class ThreeDVisPanel(QWidget):
         self.plotter.render()
         self._update_status()
 
+    def refresh_colormaps(self):
+        """Re-render active volume and slice actors with the current runtime colormap."""
+        if self._grid is None or self._field is None:
+            return
+        self._rebuild_volume(render=False)
+        if self._slice_info is not None:
+            self._add_slice_actor(self._slice_info['axis'],
+                                  self._slice_info['coord_mm'], render=False)
+        self.plotter.render()
+
     def _on_apply_slice(self):
         if self._grid is None:
             return
@@ -1177,15 +1219,15 @@ class ThreeDVisPanel(QWidget):
         self.btn_clear.setEnabled(False)
         self._update_status()
 
-    def _on_screenshot(self):
+    def _on_screenshot(self, *, file_filter: str = "PNG images (*.png)"):
         ts = datetime.now().strftime('%Y%m%d-%H%M%S')
         dflt = f"volume_{self._field}_{self._scale_mode}_{ts}.png"
         path, _ = QFileDialog.getSaveFileName(
-            self, "Save 3D view as PNG", dflt, "PNG images (*.png)")
+            self, "保存三维视图为 PNG", dflt, file_filter)
         if not path:
             return
         self.plotter.screenshot(path)
-        self.status.setText(f"Saved: {path}")
+        self.status.setText(f"已保存：{path}")
 
     # ─────────────────────────── rendering ────────────────────────────
 
@@ -1193,7 +1235,7 @@ class ThreeDVisPanel(QWidget):
         pl = self.plotter
         pl.clear()
         placeholder = pl.add_text(
-            "Set Dimensionality = 3D, configure L/H/Lz + inlet/outlet, then Compute.",
+            "请将维度设为 3D，配置几何与进出口参数后开始计算。",
             font_size=8, color=get_theme()['ax_text'], position='upper_edge',
             font='times',
         )
@@ -1352,9 +1394,9 @@ class ThreeDVisPanel(QWidget):
             pl.remove_scalar_bar(render=False)
         except Exception:
             pass
-        for fkey in list(FIELD_META.keys()):
+        for spec in PANEL_FIELD_SPECS.values():
             try:
-                pl.remove_scalar_bar(FIELD_META[fkey]['title'], render=False)
+                pl.remove_scalar_bar(spec.title_plain, render=False)
             except Exception:
                 pass
         # 2026-05-20 UI sweep: guard against `self._field` being a stale
@@ -1363,20 +1405,21 @@ class ThreeDVisPanel(QWidget):
         # ahead of `add_volume` so an exception below does not leave a
         # dangling reference to the just-removed actor.
         self._volume_actor = None
-        if self._field not in FIELD_META:
+        if self._field not in PANEL_FIELD_SPECS:
             if render:
                 pl.render()
             return
         self._grid_vol, self._vol_min_cell_mm = self._build_volume_grid()
         vol_grid = self._grid_vol
-        meta = FIELD_META[self._field]
+        spec = PANEL_FIELD_SPECS[self._field]
+        cmap = resolve_cmap(self._field)
         clim = self._clim_for(self._field)
         opacity_list = list(self._opacity_ramp())
         t = get_theme()
         try:
             self._volume_actor = pl.add_volume(
                 vol_grid, scalars=self._field,
-                cmap=meta['cmap'], clim=clim,
+                cmap=cmap, clim=clim,
                 opacity=opacity_list,
                 # Keep scalar colours independent of scene lighting.
                 shade=False,
@@ -1406,7 +1449,7 @@ class ThreeDVisPanel(QWidget):
             bar_x = 0.88 if win_w >= 800 else 0.85
             from .vis3d_constants import field_tick_format
             _sbar = pl.add_scalar_bar(
-                title=meta['title'],
+                title=spec.title_plain,
                 n_labels=5, vertical=True,
                 position_x=bar_x, position_y=0.25,
                 width=bar_width, height=0.50,
@@ -1421,7 +1464,7 @@ class ThreeDVisPanel(QWidget):
             # Keep the legend opaque when the volume is transparent.
             try:
                 import pyvista as _pv
-                _lut = _pv.LookupTable(cmap=meta['cmap'])
+                _lut = _pv.LookupTable(cmap=cmap)
                 _lut.scalar_range = clim
                 _sbar.SetLookupTable(_lut)
             except Exception:
@@ -1478,20 +1521,15 @@ class ThreeDVisPanel(QWidget):
         except Exception as e:
             self.status.setText(f"Slice failed: {e}")
             return
-        # 2026-05-20 UI sweep (Tier 19): mirror the FIELD_META guard
-        # already present in `_rebuild_volume` so a stale / unknown
-        # `_field` (combo mid-rebuild, external caller) does not
-        # KeyError mid-slice and leak a partially-built actor.
-        if self._field not in FIELD_META:
+        if self._field not in PANEL_FIELD_SPECS:
             try:
                 self.status.setText(
                     "Slice skipped: unknown field selection.")
             except Exception:
                 pass
             return
-        meta = FIELD_META[self._field]
         pl.add_mesh(
-            slc, scalars=self._field, cmap=meta['cmap'],
+            slc, scalars=self._field, cmap=resolve_cmap(self._field),
             clim=self._clim_for(self._field), lighting=False,
             show_edges=False, name=self._slice_actor_name,
             show_scalar_bar=False,     # volume owns the single scalar bar
@@ -1506,12 +1544,8 @@ class ThreeDVisPanel(QWidget):
         from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
         from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 
-        # 2026-05-20 UI sweep: guard against the field combo being empty or
-        # the user racing field selection between Apply-slice click and the
-        # popup spawn. Previously `self._arrays[key]` / `FIELD_META[key]`
-        # could KeyError or None-deref and crash the dialog mid-construction.
         key = self._field
-        if key is None or key not in self._arrays or key not in FIELD_META:
+        if key is None or key not in self._arrays or key not in PANEL_FIELD_SPECS:
             try:
                 self.status.setText(
                     "No valid field selected for slice popup.")
@@ -1537,7 +1571,7 @@ class ThreeDVisPanel(QWidget):
             lengths = self._L_mm[:2]
             h_lbl, v_lbl = 'X [mm]', 'Y [mm]'
 
-        meta = FIELD_META[key]
+        spec = PANEL_FIELD_SPECS[key]
         t = get_theme()
         dlg = QDialog(self)
         # WA_DeleteOnClose: destroy dialog widget when user closes it so the
@@ -1545,7 +1579,7 @@ class ThreeDVisPanel(QWidget):
         # because dlg.close() only hid the widget. Bug 9 (2026-04-29).
         dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         dlg.setWindowTitle(
-            f"Slice {axis.upper()}={coord_mm:.2f} mm  |  {meta['label']}")
+            f"Slice {axis.upper()}={coord_mm:.2f} mm  |  {spec.label}")
         dlg.setStyleSheet(f"QDialog {{ background: {t['bg']}; color: {t['fg']}; }}")
         # Size the figure to the slice's data aspect so an equal-aspect plot of
         # a wide-short domain fills the frame instead of leaving a big vertical
@@ -1567,11 +1601,11 @@ class ThreeDVisPanel(QWidget):
         if hi - lo < 1e-12:
             hi = lo + 1.
         im = ax.contourf(Hx, Vy, values, levels=np.linspace(lo, hi, 257),
-                         vmin=lo, vmax=hi, cmap=meta['cmap'], extend='both')
+                         vmin=lo, vmax=hi, cmap=resolve_cmap(key), extend='both')
         # fraction/pad keep the colorbar height matched to the (possibly short)
         # axes instead of the tall thin default bar.
         cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-        cbar.set_label(meta['title'], color=t['ax_text'])
+        cbar.set_label(spec.title_plain, color=t['ax_text'])
         cbar.ax.tick_params(colors=t['ax_text'])
         cbar.outline.set_edgecolor(t['ax_spine'])
         ax.set_xlabel(h_lbl, color=t['ax_text']); ax.set_ylabel(v_lbl, color=t['ax_text'])
@@ -1580,9 +1614,16 @@ class ThreeDVisPanel(QWidget):
             sp.set_edgecolor(t['ax_spine'])
         ax.set_aspect('equal')
         ax.set_title(
-            f"{meta['label']} — slice {axis.upper()} = {coord_mm:.2f} mm",
+            f"{spec.label} — slice {axis.upper()} = {coord_mm:.2f} mm",
             color=t['ax_text'])
-        fig.tight_layout()
+        wm = self._watermark_text
+        if wm:
+            fig.tight_layout(rect=[0.0, 0.04, 1.0, 1.0])
+            wm_line = ' | '.join(line.strip() for line in wm.splitlines() if line.strip())
+            fig.text(0.5, 0.005, wm_line, color=t['warn'],
+                     fontsize=8, ha='center', va='bottom', fontweight='bold', alpha=0.85)
+        else:
+            fig.tight_layout()
 
         lay = QVBoxLayout(dlg)
         toolbar = NavigationToolbar(canvas, dlg)
@@ -1634,15 +1675,20 @@ class ThreeDVisPanel(QWidget):
         ts = datetime.now().strftime('%Y%m%d-%H%M%S')
         dflt = f"slice_{key}_{axis}_{coord_mm:.2f}mm_{ts}.png"
         path, _ = QFileDialog.getSaveFileName(
-            self, "Save 2D slice", dflt,
-            "PNG (*.png);;PDF (*.pdf);;SVG (*.svg)")
+            self, "保存二维切片", dflt,
+            "PNG 图像 (*.png);;PDF 文档 (*.pdf);;SVG 矢量图 (*.svg)")
         if not path:
             return
         try:
-            fig.savefig(path, dpi=200, bbox_inches='tight')
-            self.status.setText(f"Saved slice: {path}")
+            from sjtu_tpmshx.applications.gui.ui.typography import publication_export_fonts
+
+            with publication_export_fonts(fig):
+                fig.savefig(path, dpi=200, bbox_inches='tight')
+            if fig.canvas is not None:
+                fig.canvas.draw_idle()
+            self.status.setText(f"已保存切片：{path}")
         except Exception as e:
-            QMessageBox.warning(self, "Save failed", str(e))
+            QMessageBox.warning(self, "保存失败", str(e))
 
     # ─────────────────────────── status helpers ───────────────────────
 
@@ -1659,17 +1705,13 @@ class ThreeDVisPanel(QWidget):
     def _update_status(self):
         if self._grid is None or self._field is None:
             return
-        # 2026-05-20 UI sweep (Tier 19): consistent FIELD_META guard
-        # across all render-status paths. Without this, a transient
-        # unknown `_field` (combo race / external set) crashed status
-        # rebuilds and left the status bar stuck on a stale message.
-        if self._field not in FIELD_META:
+        if self._field not in PANEL_FIELD_SPECS:
             return
         lo, hi = self._clim_for(self._field)
         Lx, Ly, Lz = self._L_mm
         color_range_label = {'global': 'Full', 'local': 'Slice', 'custom': 'Custom'}[self._scale_mode]
         parts = [
-            f"Field: {FIELD_META[self._field]['title']}",
+            f"Field: {PANEL_FIELD_SPECS[self._field].title_plain}",
             f"Range: {lo:.2f} – {hi:.2f}",
             f"Color Range: {color_range_label}",
             f"Domain: {Lx:.0f} × {Ly:.0f} × {Lz:.0f} mm",

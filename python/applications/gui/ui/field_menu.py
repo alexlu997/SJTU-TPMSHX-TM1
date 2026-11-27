@@ -9,7 +9,7 @@ from collections import deque
 
 from PySide6.QtWidgets import QApplication
 
-from .window_config import FIELD_UNITS
+from .window_config import LINE_EDITS
 
 
 def install_field_menus(window):
@@ -20,7 +20,7 @@ def install_field_menus(window):
     """
     window._field_history = {}
 
-    for attr in window._SESSION_LINE_EDITS:
+    for attr in window.case_files.SESSION_LINE_EDITS:
         le = getattr(window, attr, None)
         if le is None:
             continue
@@ -45,13 +45,14 @@ def _attach_context_menu(window, le, attr):
             f"QMenu::item:disabled{{color:{theme['sub_fg']};}}")
         menu.addSeparator()
 
-        act_revert = menu.addAction("恢复算例工况默认值")
+        act_revert = menu.addAction("恢复默认算例值")
         act_revert.triggered.connect(
             lambda: _revert_field_to_default(window, le, attr))
 
-        family, target = FIELD_UNITS.get(attr, ('', ''))
-        unit_txt = (('°C' if window._temp_unit == 'C' else 'K')
-                    if family == 'temp' else target or '')
+        spec = LINE_EDITS[attr]
+        unit_txt = spec.unit if spec.family != 'count' else ''
+        if spec.family == 'temp' and window._temp_unit == 'C':
+            unit_txt = '°C'
         unit_label = f" [{unit_txt}]" if unit_txt else ""
         act_expr = menu.addAction(f"Copy with unit{unit_label}")
         act_expr.triggered.connect(
@@ -102,12 +103,11 @@ def _attach_history_tracker(window, le, attr):
 
 def _revert_field_to_default(window, le, attr):
     """Look up the Shanghai preset default for this attr and write it back."""
-    from .mixins.session_presets import shanghai_field_defaults
+    from .case_files import shanghai_field_defaults
     defaults = shanghai_field_defaults(is_3d=window.combo_dim.currentIndex() == 1)
     val = defaults.get(attr)
     if val is None:
-        window.statusBar().showMessage(
-            f"No preset default for {attr}.", 3000)
+        window.dialogs.notify(f"{attr} 无默认算例值。", kind="info", duration_ms=3000)
         return
     if attr in ('le_TinA', 'le_TinB'):
         window._set_temp_K(le, val)
@@ -120,8 +120,7 @@ def _revert_field_to_default(window, le, attr):
         le.editingFinished.emit()
     except Exception:
         pass
-    window.statusBar().showMessage(
-        f"{attr} 已恢复算例工况默认值（{val}）。", 4000)
+    window.dialogs.notify(f"{attr} 已恢复默认算例值（{val}）。", kind="info", duration_ms=4000)
 
 
 def _copy_with_unit(le, unit_txt):

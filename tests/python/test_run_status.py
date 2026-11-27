@@ -12,6 +12,7 @@ from tests.python.gui_worker_support import (
 from sjtu_tpmshx.applications.gui.ui.responsive import ResponsiveRow
 from sjtu_tpmshx.applications.gui.ui.run_status import RunStatusCard
 from sjtu_tpmshx.applications.gui.ui.icons import icon
+from sjtu_tpmshx.applications.gui.ui.theme import get_theme
 
 
 @pytest.mark.parametrize('outcome', ['success', 'error', 'cancelled', 'warning', 'unconverged'])
@@ -25,7 +26,7 @@ def test_worker_lifecycle_keeps_cancel_logs_and_verdict(win, monkeypatch, tmp_pa
         action_icons.append((name, color))
         return icon(name, color)
 
-    monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.mixins.run_controller.icon', action_icon)
+    monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.single_run.icon', action_icon)
     released = threading.Event()
     callbacks_sent = threading.Event()
 
@@ -44,12 +45,12 @@ def test_worker_lifecycle_keeps_cancel_logs_and_verdict(win, monkeypatch, tmp_pa
 
     _stub_compute_result(monkeypatch, run)
     try:
-        win.run_calculation()
+        win.single_run.submit()
         _wait_for(callbacks_sent.is_set)
         _wait_for(lambda: card.iteration.text() == 'SIMPLE A · 2')
         assert card.state == 'running'
         assert not card.isHidden(), 'a new run must reveal the focused-view cancel control'
-        assert action_icons[-1] == ('square', 'white')
+        assert action_icons[-1] == ('square', get_theme()['primary_fg'])
         assert card.log_button.isHidden(), 'old logs must not appear during a fresh run'
         win.le_Nx.setText('77')  # Parameters remain an editable next-run draft.
         assert win.le_Nx.isEnabled()
@@ -57,19 +58,19 @@ def test_worker_lifecycle_keeps_cancel_logs_and_verdict(win, monkeypatch, tmp_pa
             card.cancel_button.click()
             assert card.state == 'cancelling'
             assert not card.cancel_button.isEnabled()
-            win._tick_btn()
+            win.single_run._ticker.timeout.emit()
             assert win.btn_compute.text() == '正在取消…'
     finally:
         released.set()
-    _wait_for(win.compute.is_idle)
+    _wait_for(win.single_run.is_idle)
     assert card.state == outcome
     assert card.cancel_button.isHidden()
     assert not card.log_button.isHidden()
-    assert 'captured solver log' in win._last_solve_log
+    assert 'captured solver log' in win.single_run.compute.last_log()
     assert card.iteration.text() == 'SIMPLE A · 2'
     assert win.le_Nx.text() == '77'
     assert win.btn_compute.isEnabled()
-    assert action_icons[-1] == ('play', 'white')
+    assert action_icons[-1] == ('play', get_theme()['primary_fg'])
     if outcome == 'error':
         assert 'controlled failure' in card.note.text()
     if outcome == 'unconverged':
@@ -83,9 +84,9 @@ def test_plot_publication_failure_is_not_a_success_card(win, monkeypatch, tmp_pa
     def broken_plot():
         raise RuntimeError('controlled rendering failure')
 
-    monkeypatch.setattr(win, '_finalize_plots', broken_plot)
-    win.run_calculation()
-    _wait_for(win.compute.is_idle)
+    monkeypatch.setattr(win.results, 'finalize_plots', broken_plot)
+    win.single_run.submit()
+    _wait_for(win.single_run.is_idle)
     assert win._run_status_card.state == 'error'
     assert '结果显示未完成' in win._run_status_card.note.text()
     assert win.btn_export.isEnabled(), 'solver result must remain exportable'
@@ -139,16 +140,16 @@ def test_3d_display_failure_preserves_result(win, monkeypatch, tmp_path, has_fie
     result = _result('3d') if has_fields else ComputeResult(diagnostics={'mode': '3d'})
     result.Q_W = 42
     _stub_compute_result(monkeypatch, lambda config, **kwargs: result)
-    win._vis3d_import_error = 'controlled missing view'
-    win.run_calculation()
-    _wait_for(win.compute.is_idle)
+    win.workbench.import_error = 'controlled missing view'
+    win.single_run.submit()
+    _wait_for(win.single_run.is_idle)
     if has_fields:
         assert win._run_status_card.state == 'success'
-        assert win._active_tab == 'temp'
-        win._switch_tab('3d')
-        assert win._3d_view_error
-        assert '三维视图不可用' in win.statusBar().currentMessage()
-        assert win._active_tab == 'temp'
+        assert win.workbench.active_tab == 'temp'
+        win.workbench.switch_tab('3d')
+        assert win.workbench.volume_error
+        assert '三维视图不可用' in win.dialogs.last_notice
+        assert win.workbench.active_tab == 'temp'
     else:
         assert win._run_status_card.state == 'error'
         assert '结果显示未完成' in win._run_status_card.note.text()

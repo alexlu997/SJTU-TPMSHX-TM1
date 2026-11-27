@@ -12,7 +12,7 @@ class ComputeResult:
     Headline scalars (``Q_W``, ``dP_*_Pa``, ``T_out_*_K``) match the
     numbers shown in the UI result panel.  The rich
     sub-dictionaries hold the arrays / coefficients / residuals so the
-    UI adapter (``Main_Menu.write_result``) and validation scripts can
+    UI adapter (``FieldResults.publish``) and validation scripts can
     pluck whatever they need without re-running the solver.
     """
 
