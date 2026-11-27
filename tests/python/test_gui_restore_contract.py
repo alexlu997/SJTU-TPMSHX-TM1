@@ -12,7 +12,9 @@ from tests.python.gui_io_support import win as win
 @pytest.fixture(autouse=True)
 def isolated_state(win, monkeypatch, tmp_path):
     from PySide6.QtWidgets import QMessageBox
+    from sjtu_tpmshx.applications.gui.controllers import user_storage
     monkeypatch.setattr(win.case_files, 'store', SessionManager(base_dir=tmp_path, parent=win))
+    monkeypatch.setattr(user_storage, '_appearance_dir', lambda: tmp_path)
     for name in ('information', 'warning', 'critical'):
         monkeypatch.setattr(QMessageBox, name, lambda *args: QMessageBox.StandardButton.Cancel)
     win.case_files.active_workspace = 'A'
