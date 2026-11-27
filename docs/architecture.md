@@ -85,7 +85,7 @@ Bindings in `python/cpp_interface/` obey these import limits.
 ## Python layer owners
 
 Python owns public APIs, configuration, immutable DTOs, file I/O, caches, warning formatting, and applications under [python/](../python/).
-Numerical code stays free of Qt.
+Numerical code stays free of Qt. Outside the GUI, only the offscreen GUI smoke tools in `python/development/runs/` import Qt.
 GUI code is in `python/applications/gui/ui/` (`Main_Menu` is in `main_window.py`) and `python/applications/gui/controllers/`. The launch entries are `python/applications/gui/main.py` and `python/desktop.py`.
 The window creates `SingleRun`, `OptimizationPage` and `QuickDesignPage`. Each owner starts and cancels its job and tracks worker exit. `Workbench` selects views. `FieldResults` publishes results, `ResultExport` writes data and figures, and `CaseFiles` reads and writes cases, presets and workspace sessions. The Qt-free `applications/optimization/optimization_job.py` decodes study inputs and conditions.
 
