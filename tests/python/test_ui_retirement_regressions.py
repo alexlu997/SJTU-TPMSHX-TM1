@@ -272,6 +272,28 @@ def test_real_port_reader_rejects_half_pair_and_ignores_2d_draft(win, side, end,
     assert widget.text() == ''
 
 
+@pytest.mark.parametrize(('invalid', 'valid'), [('A', 'B'), ('B', 'A')])
+def test_2d_layout_draws_only_the_valid_side_ports(win, invalid, valid):
+    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+
+    win.combo_dim.setCurrentIndex(0)
+    win.chk_zones.setChecked(False)
+    getattr(win, f'combo_dir{valid}').setCurrentIndex(0)
+    for end, center, width in [('in', '.014', '.008'), ('out', '.022', '.010')]:
+        getattr(win, f'le_pipe{valid}_{end}_ctr').setText(center)
+        getattr(win, f'le_pipe{valid}_{end}_w').setText(width)
+    getattr(win, f'le_pipe{invalid}_out_w').setText('invalid')
+
+    win._draw_layout()
+    ax = win.canvas_layout.axes[0][0]
+    labels = {text.get_text() for text in ax.texts if text.get_text()}
+    assert labels == {f'{valid} 入口', f'{valid} 出口'}
+    spans = [(patch.get_y(), patch.get_height()) for patch in ax.patches if patch.get_fill()]
+    np.testing.assert_allclose(spans, [(10., 8.), (17., 10.)])
+    with pytest.raises(ValueError, match=f'Pipe {invalid} out_w'):
+        config_from_window(win, strict=True)
+
+
 @pytest.mark.parametrize('side', ['A', 'B'])
 def test_3d_layout_omits_invalid_port_instead_of_drawing_full_face(win, side):
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
