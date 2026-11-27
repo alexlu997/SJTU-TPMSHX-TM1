@@ -1,0 +1,176 @@
+# Temporary macOS 15 diagnostic loop for test_public_gui segfault investigation.
+# Remove this workflow file before review.
+name: diag-macos-gui
+
+on:
+  push:
+    branches:
+      - alexlu997/neon/fix-macos-gui-segfault
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  diag-macos-15:
+    name: diag-macos-15 (test_public_gui 20x)
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      PYTHONHASHSEED: "0"
+      MPLCONFIGDIR: .cache/matplotlib
+      XDG_CACHE_HOME: .cache/xdg
+      QT_QPA_PLATFORM: offscreen
+      TPMSHX_DISABLE_3D_PANEL: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      TPMSHX_REQUIRE_NATIVE_DEPS_TESTS: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: |
+            engineering/requirements/base.txt
+            pyproject.toml
+      - name: Download verified native build from main run 45956119902
+        uses: actions/download-artifact@v8
+        with:
+          name: native-build-macos-15
+          path: .cache/ci-native-build
+          run-id: 45956119902
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create isolated CI environment
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/sjtu-ci-venv"
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'sjtu-ci-venv'
+          interpreter = root / 'bin/python'
+          Path('.venv-path').write_text(interpreter.as_posix() + '\n', encoding='utf-8')
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as output:
+              output.write(f'CI_PYTHON={interpreter.as_posix()}\n')
+          PY
+      - name: Install project
+        shell: bash
+        run: '"$CI_PYTHON" -m pip install --no-compile -r requirements.txt'
+      - name: Check exact dependency lock
+        shell: bash
+        run: '"$CI_PYTHON" -m sjtu_tpmshx.development.runs.tools.check_locked_environment engineering/requirements/base.txt --allow-extra sjtu-tpmshx'
+      - name: Check dependency compatibility
+        shell: bash
+        run: '"$CI_PYTHON" -m pip check'
+      - name: Restore native runtime files
+        shell: bash
+        run: |
+          "$CI_PYTHON" - <<'PY'
+          import os
+          from pathlib import Path
+          import shutil
+          import tarfile
+          with tarfile.open('.cache/ci-native-build/native-binaries.tar') as archive:
+              archive.extractall('.cache/native-deps/build', filter='data')
+          host = 'macos-arm64'
+          target = Path('sjtu_tpmshx/solvers/native/lib') / host
+          target.mkdir(parents=True, exist_ok=True)
+          for component in ('solver', 'geometry', 'preparation', 'result'):
+              name = 'libtpmshx_' + component + '_shared.dylib'
+              folder = component if component in ('preparation', 'result') else 'pilot'
+              shutil.copy2(Path('.cache/native-deps/build') / (folder + '-' + host) / name, target / name)
+          build = Path('.cache/native-deps/build') / ('pilot-' + host)
+          libraries = {
+              'TPMSHX_NATIVE_SOLVER_LIBRARY': build / 'libtpmshx_solver_shared.dylib',
+              'TPMSHX_GEOMETRY_LIBRARY': build / 'libtpmshx_geometry_shared.dylib',
+              'TPMSHX_PREPARATION_LIBRARY': build.with_name('preparation-' + host) / 'libtpmshx_preparation_shared.dylib',
+              'TPMSHX_RESULT_LIBRARY': build.with_name('result-' + host) / 'libtpmshx_result_shared.dylib',
+          }
+          for name, path in libraries.items():
+              if not path.is_file():
+                  raise FileNotFoundError(f'{name}: native library not built: {path}')
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as output:
+              for name, path in libraries.items():
+                  output.write(f'{name}={path.resolve().as_posix()}\n')
+          PY
+      - name: Run test_public_gui.py loop (20 runs) with faulthandler and crash capture
+        shell: bash
+        run: |
+          set +e
+          mkdir -p .cache/diag-macos-gui/crash-reports
+          "$CI_PYTHON" -c "import sys, platform, PySide6, h5py; print('py:', sys.version, 'mac:', platform.mac_ver(), 'PySide6:', PySide6.__version__, 'h5py:', h5py.__version__)"
+          pass=0
+          fail=0
+          segv=0
+          for i in $(seq 1 20); do
+            log=".cache/diag-macos-gui/run-$(printf '%02d' "$i").log"
+            echo "=== Run $i/20 ($(date -u +%H:%M:%SZ)) ==="
+            PYTHONFAULTHANDLER=1 "$CI_PYTHON" -X faulthandler -m pytest \
+              tests/python/integration_tm1/test_public_gui.py -q -ra \
+              --basetemp=".cache/diag-macos-gui/bt-$i" \
+              --timeout=600 --timeout-method=thread \
+              > "$log" 2>&1
+            rc=$?
+            echo "Run $i exit=$rc"
+            if [ "$rc" -eq 0 ]; then
+              pass=$((pass + 1))
+              tail -n 2 "$log"
+            else
+              fail=$((fail + 1))
+              if [ "$rc" -eq 139 ] || [ "$rc" -eq 134 ] || [ "$rc" -eq 138 ]; then
+                segv=$((segv + 1))
+                echo "--- FAULTHANDLER OUTPUT (run $i, exit=$rc) ---"
+                cat "$log"
+                sleep 3
+                cp -n "$HOME/Library/Logs/DiagnosticReports/"*.ips .cache/diag-macos-gui/crash-reports/ 2>/dev/null || true
+                cp -n /Library/Logs/DiagnosticReports/*.ips .cache/diag-macos-gui/crash-reports/ 2>/dev/null || true
+              else
+                tail -n 40 "$log"
+              fi
+            fi
+          done
+          echo "=== SUMMARY: total=20 pass=$pass fail=$fail crash=$segv ==="
+          ls -la .cache/diag-macos-gui/crash-reports/ || true
+          "$CI_PYTHON" - <<'PY'
+          import json
+          from pathlib import Path
+
+          reports = sorted(Path('.cache/diag-macos-gui/crash-reports').glob('*.ips'))
+          print(f'Found {len(reports)} .ips crash reports')
+          for report in reports[:3]:
+              print(f'\n=== NATIVE CRASH REPORT: {report.name} ===')
+              lines = report.read_text(encoding='utf-8', errors='replace').splitlines()
+              data = json.loads('\n'.join(lines[1:])) if len(lines) > 1 and lines[0].startswith('{') else json.loads('\n'.join(lines))
+              print('exception:', data.get('exception'))
+              print('termination:', data.get('termination'))
+              imgs = data.get('usedImages', [])
+              ft = data.get('faultingThread', 0)
+              threads = data.get('threads', [])
+              if 0 <= ft < len(threads):
+                  t = threads[ft]
+                  print(f'faultingThread={ft} triggered={t.get("triggered")} name={t.get("name")}')
+                  for idx, frame in enumerate(t.get('frames', [])[:35]):
+                      img_idx = frame.get('imageIndex')
+                      img_name = imgs[img_idx].get('name', '?') if isinstance(img_idx, int) and 0 <= img_idx < len(imgs) else '?'
+                      sym = frame.get('symbol') or hex(frame.get('imageOffset', 0))
+                      loc = frame.get('symbolLocation', '')
+                      print(f'  #{idx:02d} [{img_name}] {sym} +{loc}')
+          PY
+          if [ "$fail" -ne 0 ]; then
+            exit 1
+          fi
+      - name: Upload diagnostic logs and native crash reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: diag-macos-gui-${{ github.sha }}
+          path: |
+            .cache/diag-macos-gui/*.log
+            .cache/diag-macos-gui/crash-reports/
+          include-hidden-files: true
+          retention-days: 7
+          overwrite: true
