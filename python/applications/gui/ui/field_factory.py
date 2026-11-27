@@ -16,6 +16,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from sjtu_tpmshx.data_types.validator import EXACT_CONTEXT
+
 __all__ = [
     "FieldFactory",
     "UnitLineEdit",
@@ -46,9 +48,9 @@ def _format_decimal_exact(value: Decimal) -> str:
     """Format a finite Decimal without introducing premature 15-digit rounding."""
     if value == 0:
         return "0"
-    mag = abs(value)
+    mag = value.copy_abs()
     if mag >= Decimal("1e15") or mag < Decimal("1e-9"):
-        return format(value.normalize(), "g")
+        return format(value.normalize(EXACT_CONTEXT), "g")
     text = format(value, "f")
     if "." in text:
         text = text.rstrip("0").rstrip(".")

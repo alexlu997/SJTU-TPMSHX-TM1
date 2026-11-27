@@ -85,6 +85,7 @@ def test_valid_restore_refreshes_error_state_without_recording_history(win):
     ('K', '0 K'), ('C', '0 K'),
     ('K', '-273.15 degC'), ('C', '-273.15 degC'),
     ('C', '-0.001 K'), ('C', '(-273.15)'),
+    ('K', '1e-400'),  # Positive text, but the stored K float is 0.0.
 ])
 def test_inlet_keeps_rejected_temperature_on_refresh(win, unit, text):
     from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
@@ -105,6 +106,8 @@ def test_inlet_keeps_rejected_temperature_on_refresh(win, unit, text):
 @pytest.mark.parametrize('unit,text,display,kelvin', [
     ('K', '0.05 K', '0.05', 0.05), ('C', '0.05 K', '-273.1', 0.05),
     ('K', '300 K', '300', 300), ('C', '300 K', '26.85', 300),
+    # float() of the text gives -273.15, but the exact value is 1e-14 K.
+    ('C', '-273.14999999999999', '-273.14999999999999', 1e-14),
 ])
 def test_inlet_keeps_valid_temperature_format_and_value(win, unit, text, display, kelvin):
     from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
@@ -117,7 +120,7 @@ def test_inlet_keeps_valid_temperature_format_and_value(win, unit, text, display
     win._refresh_field_validation()
     assert field.property('inpError') == 'false'
     assert field.text() == display
-    assert config_from_window(win, strict=True).fluid_B.T_in_K == pytest.approx(kelvin)
+    assert config_from_window(win, strict=True).fluid_B.T_in_K == kelvin
 
 
 @pytest.mark.parametrize('unit,zero,normal,switched', [
@@ -168,7 +171,7 @@ def test_save_config_preserves_file_for_rejected_switched_inlet(win, monkeypatch
 
 
 @pytest.mark.parametrize('route', ['config', 'session'])
-@pytest.mark.parametrize('side,unit,zero', [('A', 'K', 0), ('B', 'C', -273.15)])
+@pytest.mark.parametrize('side,unit,zero', [('A', 'K', 0), ('B', 'C', -273.15), ('A', 'K', '1e-400')])
 def test_numeric_zero_in_saved_unit_preserves_active_design(win, tmp_path, side, unit, zero, route):
     from PySide6.QtWidgets import QApplication
 

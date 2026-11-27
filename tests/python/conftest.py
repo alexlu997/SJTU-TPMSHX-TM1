@@ -41,15 +41,17 @@ import sjtu_tpmshx  # noqa: F401 — verify the current checkout is importable
 #   3. The 'offscreen' platform is locked in BEFORE any test_*.py decides
 #      whether to call QApplication([]) — guarantees no GUI window pops.
 # Skipped silently when PySide6 is unavailable (rare; sentinel CI envs).
+_app = None
 try:
+    import gc as _gc
+    _gc.disable()
     from PySide6.QtWidgets import QApplication as _QApp
-    if _QApp.instance() is None:
-        # The argv list intentionally includes the offscreen flag so the
-        # platform plugin selection is unambiguous even if a sub-test
-        # fiddles with os.environ later in the session.
-        _QApp(['pytest', '-platform', 'offscreen'])
+    _app = _QApp.instance() or _QApp(['pytest', '-platform', 'offscreen'])
 except Exception:
-    pass
+    _gc.enable()
+if _app is not None:
+    from sjtu_tpmshx.applications.gui.controllers import main_thread_gc as _main_thread_gc
+    _main_thread_gc.install(_app)
 
 
 # ── fast-tier heavy marking (P3.1, 2026-07-20) ──────────────────────────────

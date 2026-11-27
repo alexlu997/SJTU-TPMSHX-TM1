@@ -11,10 +11,12 @@ collected the user's text from ``QLineEdit.text()``.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
+from decimal import Context, Decimal, InvalidOperation, MAX_EMAX, MAX_PREC, MIN_EMIN
 import math
 from numbers import Integral
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import Any, Dict, List, Literal, Optional, Tuple, cast
+
+import numpy as np
 
 from sjtu_tpmshx.model_configs.df_domain import TRAIN_L_NODES, TRAIN_T_NODES
 from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
@@ -348,10 +350,44 @@ _UNIT_CONDUCTIVITY_DEC = {
 }
 _CELSIUS_ZERO_DEC = Decimal(str(CELSIUS_ZERO_K))
 
+TempUnit = Literal['K', 'C']
+# Addition, subtraction and normalize() in this context do not round and do not overflow.
+EXACT_CONTEXT = Context(prec=MAX_PREC, Emax=MAX_EMAX, Emin=MIN_EMIN)
+
+
+def convert_temp_decimal(value: Decimal, from_unit: TempUnit, to_unit: TempUnit) -> Decimal:
+    """Convert a temperature between K and degrees Celsius without rounding."""
+    if from_unit == to_unit:
+        return value
+    if from_unit == 'C':
+        return EXACT_CONTEXT.add(value, _CELSIUS_ZERO_DEC)
+    return EXACT_CONTEXT.subtract(value, _CELSIUS_ZERO_DEC)
+
+
+def temp_text_to_kelvin(text: str, unit: TempUnit) -> Decimal:
+    """Read one inlet temperature text in the given unit and return kelvin."""
+    raw = str(text).strip()
+    # Compute and Save read this text with float(). Accept the same syntax, then convert the exact Decimal.
+    float(raw)
+    try:
+        # Decimal() rejects an exponent outside its range, for example 1e-9999999999999999999.
+        return convert_temp_decimal(Decimal(raw), unit, 'K')
+    except InvalidOperation as exc:
+        raise ValueError(f"could not convert string to float: {raw!r}") from exc
+
+
+def kelvin_to_display(kelvin, unit: TempUnit):
+    """Map result temperatures in K (float or ndarray) to the display unit.
+
+    Use one binary64 subtraction for fields, color limits, hover, probe and readout.
+    Compute color limits in K, then map them with this function.
+    """
+    return np.subtract(kelvin, CELSIUS_ZERO_K, dtype=np.float64) if unit == 'C' else kelvin
+
 
 def parse_unit_decimal(raw_text: str, unit_text: str,
                        family: str, target_unit: Optional[str] = None,
-                       temp_unit: str = 'K') -> Optional[Decimal]:
+                       temp_unit: TempUnit = 'K') -> Optional[Decimal]:
     """Convert ``raw_text [unit_text]`` to ``target_unit`` with exact Decimal factors."""
     try:
         dec = Decimal(str(raw_text).strip())
@@ -386,21 +422,20 @@ def parse_unit_decimal(raw_text: str, unit_text: str,
         den = src_div * dst_mul
         return num if den == 1 else num / den
     if family == 'temp':
-        want_K = (temp_unit == 'K')
         if u in ('k', 'kelvin'):
-            return dec if want_K else dec - _CELSIUS_ZERO_DEC
+            return convert_temp_decimal(dec, 'K', temp_unit)
         if u in ('c', '°c', 'celsius', 'degc'):
-            return dec + _CELSIUS_ZERO_DEC if want_K else dec
+            return convert_temp_decimal(dec, 'C', temp_unit)
         if u in ('f', '°f', 'fahrenheit', 'degf'):
             K = (dec - Decimal('32')) * Decimal('5') / Decimal('9') + _CELSIUS_ZERO_DEC
-            return K if want_K else K - _CELSIUS_ZERO_DEC
+            return convert_temp_decimal(K, 'K', temp_unit)
         return None
     raise ValueError(f"unknown family {family!r}")
 
 
 def parse_unit_value(value: float, unit_text: str,
                      family: str, target_unit: Optional[str] = None,
-                     temp_unit: str = 'K') -> Optional[float]:
+                     temp_unit: TempUnit = 'K') -> Optional[float]:
     """Convert ``value [unit_text]`` to ``target_unit`` for ``family``.
 
     Returns the converted scalar in ``target_unit``, or ``None`` if the

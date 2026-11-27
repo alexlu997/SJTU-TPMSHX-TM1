@@ -142,23 +142,27 @@ def test_volume_scale_honors_explicit_shared_scale_toggles(group, expected_cmap,
 
 
 @pytest.mark.parametrize('mode', ['2d', '3d'])
-@pytest.mark.parametrize('field,value,spec_key', [
-    ('temp', 300., 'Ta'),
-    ('vel', 1., 'vmag_A'),
-    ('pres', 100000., 'P_fA'),
+@pytest.mark.parametrize('field,value,spec_key,unit', [
+    ('temp', 300., 'Ta', 'K'),
+    ('vel', 1., 'vmag_A', 'K'),
+    ('pres', 100000., 'P_fA', 'K'),
+    # A strictly uniform float64 field in degrees Celsius must stay inside its color limits.
+    ('temp', 300.155, 'Ta', 'C'),
 ])
-def test_nearly_uniform_fields_still_render(win, mode, field, value, spec_key):
+def test_nearly_uniform_fields_still_render(win, mode, field, value, spec_key, unit):
     result = _result(mode)
     keys = {'temp': ('Ta', 'Tb', 'Ts'), 'vel': ('ucA', 'ucB', 'vmag_A', 'vmag_B'),
             'pres': ('P_fA', 'P_fB')}[field]
     for key in keys:
         result.fields[key][:] = value
-        result.fields[key].flat[0] = np.nextafter(value, np.inf)
+        if unit == 'K':
+            result.fields[key].flat[0] = np.nextafter(value, np.inf)
     if field == 'vel':
         for key in ('vcA', 'vcB', 'wcA', 'wcB'):
             if key in result.fields:
                 result.fields[key][:] = 0.
     win.results.publish(result)
+    win._temp_unit = unit
     win._field_phase = 0
     assert ensure_result_plot(win, field)
     contour = getattr(win, 'canvas_' + field).axes[0][0].collections[0]
@@ -167,6 +171,7 @@ def test_nearly_uniform_fields_still_render(win, mode, field, value, spec_key):
         assert len(contour.levels) == 257
     assert np.all(np.diff(contour.levels) > 0)
     assert contour.get_clim()[1] > contour.get_clim()[0]
+    assert any(len(path.vertices) for path in contour.get_paths())
 
 
 @pytest.mark.parametrize('mode', ['2d', '3d'])

@@ -96,6 +96,7 @@ Codex, Claude, and Antigravity use these rules. The [collaboration guide](docs/c
   user with evidence and options. Round five or a later round needs user approval for a named finding and commit
   range.
 - A documents-only PR for spelling, links, or formatting needs no review under the delivery workflow conditions.
+  A small test-only CI repair after review approval needs no new review round under the same workflow.
 - Do not deliver if the review or the necessary evidence is incomplete, or a blocking finding is open. Follow
   the [delivery workflow](docs/collaboration.md#synchronize-and-review). Merge one PR at a time. Do not force-push.
 - Wait for the necessary CI on the latest PR commit and on the resulting `main` commit. Report PR CI,
