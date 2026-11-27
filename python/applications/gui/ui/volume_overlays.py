@@ -24,9 +24,30 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QSizePol
 from .colormap_popover import CURATED_COLORMAPS
 from .symbols import MINUS, SYM
 from .theme import get_theme
+from .typography import FONT_FAMILIES, SCREEN_CHART_FAMILIES, matplotlib_font_families
+from .vis3d_constants import field_tick_format
 
 COLORBAR_WIDTH = 112
 COLORBAR_HEIGHT = 460
+
+
+def _font_families(*, export: bool) -> list[str]:
+    if export:
+        families = list(matplotlib_font_families())
+        if families:
+            return families
+    return list(dict.fromkeys((*SCREEN_CHART_FAMILIES, *FONT_FAMILIES)))
+
+
+def _make_font(pixel_size: int, *, export: bool, weight: QFont.Weight | None = None, tnum: bool = False) -> QFont:
+    font = QFont()
+    font.setFamilies(_font_families(export=export))
+    font.setPixelSize(pixel_size)
+    if weight is not None:
+        font.setWeight(weight)
+    if tnum:
+        font.setFeature(QFont.Tag("tnum"), 1)
+    return font
 
 
 def _enable_tnum(widget: QWidget) -> None:
@@ -59,22 +80,64 @@ def _format_unit(unit: str) -> str:
     return f"[{clean}]"
 
 
-def _auto_tick_formats(span: float) -> tuple[str, str]:
-    abs_span = abs(span)
-    if abs_span >= 50.0:
-        return ("{:.1f}", "{:g}")
-    if abs_span >= 5.0:
-        return ("{:.2f}", "{:.1f}")
-    if abs_span >= 0.05:
-        return ("{:.3f}", "{:.2f}")
-    return ("{:.4g}", "{:.3g}")
-
-
 def _fmt_iso(val: float, spec: str) -> str:
     text = spec.format(val)
-    if text in ("-0", "-0.0", "-0.00", "-0.000"):
+    if text.startswith("-") and set(text[1:]) <= {"0", "."}:
         text = text[1:]
     return text.replace("-", MINUS)
+
+
+def colorbar_ticks(
+    lo: float,
+    hi: float,
+    *,
+    end_fmt: str | None = None,
+    mid_fmt: str | None = None,
+) -> list[tuple[float, str, bool]]:
+    """Build distinct colorbar tick labels, collapsing uniform ranges to one value."""
+    span = hi - lo
+    if not (math.isfinite(lo) and math.isfinite(hi)) or span <= max(abs(lo), abs(hi), 1.0) * 2e-6:
+        fmt = end_fmt or "{:g}"
+        return [(lo, _fmt_iso(lo, fmt), True)]
+
+    raw_inner = MaxNLocator(nbins=6, steps=[1, 2, 2.5, 5, 10]).tick_values(lo, hi)
+    inner = [float(tick) for tick in raw_inner if lo + 0.09 * span < tick < hi - 0.09 * span]
+    values = [hi, *reversed(inner), lo]
+
+    if end_fmt is not None or mid_fmt is not None:
+        e_fmt = end_fmt or "{:g}"
+        m_fmt = mid_fmt or e_fmt
+        return [
+            (val, _fmt_iso(val, e_fmt if idx in (0, len(values) - 1) else m_fmt), idx in (0, len(values) - 1))
+            for idx, val in enumerate(values)
+        ]
+
+    if span >= 50.0:
+        end_digits, mid_digits = 1, 0
+    elif span >= 5.0:
+        end_digits, mid_digits = 2, 1
+    elif span >= 0.05:
+        end_digits, mid_digits = 3, 2
+    else:
+        parsed = int(field_tick_format((lo, hi)).split(".")[1][:-1])
+        end_digits = mid_digits = max(1, parsed)
+
+    while True:
+        e_fmt = f"{{:.{end_digits}f}}"
+        m_fmt = f"{{:.{mid_digits}f}}"
+        labels = [
+            _fmt_iso(val, e_fmt if idx in (0, len(values) - 1) else m_fmt)
+            for idx, val in enumerate(values)
+        ]
+        if len(set(labels)) == len(labels) or end_digits >= 8:
+            break
+        end_digits += 1
+        mid_digits = min(end_digits, mid_digits + 1)
+
+    return [
+        (val, label, idx in (0, len(values) - 1))
+        for idx, (val, label) in enumerate(zip(values, labels))
+    ]
 
 
 def _format_triangles(count: int) -> str:
@@ -218,6 +281,7 @@ class StudioColorbarCard(QFrame):
         self._colormap = colormap
         self._end_fmt = end_fmt
         self._mid_fmt = mid_fmt
+        self._export_mode = False
 
         self.setObjectName("studioColorbarCard")
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
@@ -230,6 +294,23 @@ class StudioColorbarCard(QFrame):
     def value_range(self) -> tuple[float, float]:
         """Return the displayed ``(vmin, vmax)`` range."""
         return (self._vmin, self._vmax)
+
+    def tick_labels(self) -> list[str]:
+        """Return the formatted tick strings currently displayed on the colorbar."""
+        return [
+            label
+            for _val, label, _is_end in colorbar_ticks(
+                self._vmin,
+                self._vmax,
+                end_fmt=self._end_fmt,
+                mid_fmt=self._mid_fmt,
+            )
+        ]
+
+    def set_export_mode(self, enabled: bool) -> None:
+        """Switch between on-screen sans-serif and publication export fonts."""
+        self._export_mode = bool(enabled)
+        self.update()
 
     def set_spec(
         self,
@@ -286,13 +367,12 @@ class StudioColorbarCard(QFrame):
         # Top-left ISO 80000-1 quantity symbol
         doc = QTextDocument()
         doc.setDocumentMargin(0)
-        sym_font = QFont("Helvetica Neue")
-        sym_font.setPixelSize(14)
-        sym_font.setWeight(QFont.Weight.DemiBold)
+        sym_font = _make_font(14, export=self._export_mode, weight=QFont.Weight.DemiBold)
         doc.setDefaultFont(sym_font)
+        family_css = ",".join(f"'{f}'" for f in _font_families(export=self._export_mode))
         doc.setHtml(
-            f'<div style="color:{t["fg"]}; font-size:14px; font-weight:600; '
-            f'white-space:nowrap;">{self._symbol_html}</div>'
+            f'<div style="color:{t["fg"]}; font-family:{family_css}; font-size:14px; '
+            f'font-weight:600; white-space:nowrap;">{self._symbol_html}</div>'
         )
         painter.save()
         sym_h = doc.size().height()
@@ -302,8 +382,7 @@ class StudioColorbarCard(QFrame):
 
         # Top-right upright unit
         if self._unit:
-            f_unit = QFont("Helvetica Neue")
-            f_unit.setPixelSize(11.5)
+            f_unit = _make_font(11, export=self._export_mode)
             painter.setFont(f_unit)
             painter.setPen(QColor(t["tert"]))
             painter.drawText(
@@ -336,41 +415,17 @@ class StudioColorbarCard(QFrame):
         # Endpoint and interior ticks
         lo, hi = self._vmin, self._vmax
         span = hi - lo
-        auto_end, auto_mid = _auto_tick_formats(span if span > 0 else 1.0)
-        end_fmt = self._end_fmt or auto_end
-        mid_fmt = self._mid_fmt or auto_mid
+        ticks = colorbar_ticks(lo, hi, end_fmt=self._end_fmt, mid_fmt=self._mid_fmt)
 
-        if span > 0.0 and math.isfinite(span):
-            raw_inner = MaxNLocator(nbins=6, steps=[1, 2, 2.5, 5, 10]).tick_values(lo, hi)
-            inner = [
-                tick for tick in raw_inner if lo + 0.09 * span < tick < hi - 0.09 * span
-            ]
-            ticks = (
-                [(hi, _fmt_iso(hi, end_fmt), True)]
-                + [(tick, _fmt_iso(tick, mid_fmt), False) for tick in reversed(inner)]
-                + [(lo, _fmt_iso(lo, end_fmt), True)]
-            )
-        else:
-            ticks = [
-                (hi, _fmt_iso(hi, end_fmt), True),
-                (lo, _fmt_iso(lo, end_fmt), True),
-            ]
-
-        f_end = QFont("Helvetica Neue")
-        f_end.setPixelSize(13)
-        f_end.setWeight(QFont.Weight.DemiBold)
-        f_end.setFeature(QFont.Tag("tnum"), 1)
-
-        f_mid = QFont("Helvetica Neue")
-        f_mid.setPixelSize(12)
-        f_mid.setFeature(QFont.Tag("tnum"), 1)
+        f_end = _make_font(13, export=self._export_mode, weight=QFont.Weight.DemiBold, tnum=True)
+        f_mid = _make_font(12, export=self._export_mode, tnum=True)
 
         tx0 = bx + bw + 6.0
-        for idx, (val, txt, is_end) in enumerate(ticks):
-            if span > 0.0 and math.isfinite(span):
-                frac_y = (hi - val) / span
+        for val, txt, is_end in ticks:
+            if len(ticks) == 1:
+                frac_y = 0.5
             else:
-                frac_y = 0.0 if idx == 0 else 1.0
+                frac_y = (hi - val) / span
             yy = by + frac_y * bh
             painter.setPen(
                 QPen(
@@ -456,13 +511,24 @@ class PortChip(QFrame):
     def apply_theme(self, tokens: Mapping[str, Any]) -> None:
         """Apply Style P2 theme tokens to the port chip."""
         self._tokens.update(tokens)
-        self._label.setStyleSheet(
-            f"color: {self._tokens['fg']}; font-size: 12px; font-weight: 600; "
-            "background: transparent;"
-        )
+        self._apply_label_style(export=getattr(self, "_export_mode", False))
         self._refresh_dot()
         self.adjustSize()
         self.update()
+
+    def set_export_mode(self, enabled: bool) -> None:
+        """Switch chip label typography between screen sans-serif and export fonts."""
+        self._export_mode = bool(enabled)
+        self._apply_label_style(export=self._export_mode)
+        self.adjustSize()
+        self.update()
+
+    def _apply_label_style(self, *, export: bool) -> None:
+        family_css = ",".join(f"'{f}'" for f in _font_families(export=export))
+        self._label.setStyleSheet(
+            f"color: {self._tokens['fg']}; font-family: {family_css}; "
+            "font-size: 12px; font-weight: 600; background: transparent;"
+        )
 
     def _refresh_dot(self) -> None:
         color_key = "inlet_a" if self._side == "A" else "inlet_b"
@@ -637,6 +703,12 @@ class PortChipOverlay(QWidget):
         self._tokens.update(tokens)
         for chip in self._chips.values():
             chip.apply_theme(self._tokens)
+        self._relayout()
+
+    def set_export_mode(self, enabled: bool) -> None:
+        """Switch all port chips between screen and export typography."""
+        for chip in self._chips.values():
+            chip.set_export_mode(enabled)
         self._relayout()
 
     def resizeEvent(self, event) -> None:

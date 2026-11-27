@@ -11,7 +11,6 @@ Provides ``ThreeDVisPanel(QWidget)`` hosting a ``pyvistaqt.QtInteractor`` with:
 """
 from __future__ import annotations
 
-from datetime import datetime
 from math import isfinite
 from typing import Any, Mapping, Optional
 
@@ -20,12 +19,17 @@ import pyvista as pv
 from pyvistaqt import QtInteractor
 from PySide6.QtCore import QEasingCurve, QPoint, Qt, QTimer, QVariantAnimation, Signal
 from PySide6.QtGui import QImage, QKeySequence, QPainter, QRegion, QShortcut
-from PySide6.QtWidgets import QFileDialog, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 from sjtu_tpmshx.applications.gui.ui.microanim import is_reduced_motion, start_animation
 from sjtu_tpmshx.applications.gui.ui.symbols import SYM, qsym
 from sjtu_tpmshx.applications.gui.ui.theme import get_theme, get_theme_name, resolve_cmap
-from sjtu_tpmshx.applications.gui.ui.typography import apply_vtk_font
+from sjtu_tpmshx.applications.gui.ui.typography import (
+    FONT_FAMILIES,
+    SCREEN_CHART_FAMILIES,
+    apply_vtk_font,
+    matplotlib_font_families,
+)
 from sjtu_tpmshx.applications.gui.ui.vis3d_constants import (
     FIELD_ORDER,
     field_color_limits,
@@ -93,6 +97,14 @@ def _hex_to_rgb01(hex_color: str) -> tuple[float, float, float]:
     return tuple(int(raw[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
 
 
+def _axis_decimals(centres: np.ndarray) -> int:
+    """Return the fewest decimals (>=1) that keep every cell centre label distinct."""
+    for digits in range(1, 6):
+        if len({f"{float(c):.{digits}f}" for c in centres}) == len(centres):
+            return digits
+    return 6
+
+
 class ThreeDVisPanel(QWidget):
     """Embedded PyVistaQt 3D viewport with studio rendering and Qt overlays."""
 
@@ -146,6 +158,7 @@ class ThreeDVisPanel(QWidget):
 
         self.status = QLabel(self._viewport_host)
         self.status.setObjectName("volumeHoverStatus")
+        self.status.setTextFormat(Qt.TextFormat.RichText)
         self.status.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.status.hide()
 
@@ -189,18 +202,21 @@ class ThreeDVisPanel(QWidget):
         self._custom_clim: dict[str, tuple[float, float]] = {}
         self._field: Optional[str] = None
         self._scale_mode: str = "global"
+        self._sync_temp_scale: bool = True
+        self._shared_pressure_scale: bool = True
         self._display_mode: str = "surface"
         self._slice_xyz_mm: tuple[float, float, float] = (0.0, 0.0, 0.0)
         self._volume_actor = None
+        self._data_actors: set[Any] = set()
         self._last_hover_text: str = ""
         self._base_status_text: str = ""
-        self._popup_dialogs: list = []
         self._opacity: float = opacity_default / 100.0
         self._flow_dir: Optional[str] = "+x"
         self._flow_dir_B: Optional[str] = None
         self._ports: dict[str, Any] = {}
         self._port_world_anchors: list[tuple[str, str, str, np.ndarray, np.ndarray]] = []
         self._watermark_text: Optional[str] = None
+        self._cleaned_up: bool = False
         self._tween_animation: Optional[QVariantAnimation] = None
         self._tween_end_pose = None
         self._tween_preset: str = "iso"
@@ -242,16 +258,24 @@ class ThreeDVisPanel(QWidget):
                 "ModifiedEvent", self._on_camera_modified
             )
 
-    def _apply_overlay_styles(self, tokens: Mapping[str, Any]) -> None:
+    def _apply_overlay_styles(self, tokens: Mapping[str, Any], *, export: bool = False) -> None:
+        families = (
+            list(matplotlib_font_families())
+            if export
+            else list(dict.fromkeys((*SCREEN_CHART_FAMILIES, *FONT_FAMILIES)))
+        )
+        family_css = ",".join(f"'{f}'" for f in families)
         self._watermark_label.setStyleSheet(
             f"QLabel#volumeWatermark {{ background: {tokens['popover']}; "
             f"color: {tokens['warn']}; border: 1px solid {tokens['border']}; "
-            f"border-radius: 7px; padding: 4px 10px; font-size: 11.5px; font-weight: 600; }}"
+            f"border-radius: 7px; padding: 4px 10px; font-family: {family_css}; "
+            "font-size: 11.5px; font-weight: 600; }"
         )
         self.status.setStyleSheet(
             f"QLabel#volumeHoverStatus {{ background: {tokens['popover']}; "
             f"color: {tokens['sub']}; border: 1px solid {tokens['border']}; "
-            f"border-radius: 7px; padding: 4px 10px; font-size: 11.5px; font-weight: 500; }}"
+            f"border-radius: 7px; padding: 4px 10px; font-family: {family_css}; "
+            "font-size: 11.5px; font-weight: 500; }"
         )
 
     # ─────────────────────────── public API ───────────────────────────
@@ -273,10 +297,11 @@ class ThreeDVisPanel(QWidget):
         if field_key == self._field and self._volume_actor is not None:
             return True
         self._field = field_key
-        self._rebuild_scene(render=True)
-        sig = getattr(self, "field_changed", None)
-        if sig is not None:
-            sig.emit(self._field)
+        try:
+            self._rebuild_scene(render=True)
+        except Exception:
+            return False
+        self.field_changed.emit(self._field)
         return True
 
     def display_mode(self) -> str:
@@ -288,8 +313,7 @@ class ThreeDVisPanel(QWidget):
         if mode not in DISPLAY_MODES:
             raise ValueError(f"Unsupported display mode {mode!r}; expected one of {DISPLAY_MODES}")
         self._display_mode = mode
-        if hasattr(self, "toolbar"):
-            self.toolbar.set_display_mode(mode)
+        self.toolbar.set_display_mode(mode)
         if self._grid is not None:
             self._rebuild_scene(render=True)
 
@@ -307,8 +331,7 @@ class ThreeDVisPanel(QWidget):
             self._snap_slice_coord("z", float(z_mm)),
         )
         self._slice_xyz_mm = snapped
-        if hasattr(self, "toolbar"):
-            self.toolbar.set_slice_position(*snapped)
+        self.toolbar.set_slice_position(*snapped)
         if self._display_mode == "slice":
             self._rebuild_scene(render=True)
 
@@ -319,10 +342,28 @@ class ThreeDVisPanel(QWidget):
     def set_opacity(self, value: float) -> None:
         """Set volume rendering opacity in ``[0.0, 1.0]`` and update the active volume."""
         self._opacity = max(0.0, min(1.0, float(value)))
-        if hasattr(self, "toolbar"):
-            self.toolbar.set_opacity(self._opacity)
+        self.toolbar.set_opacity(self._opacity)
         if self._grid is not None and self._display_mode == "volume":
             self._apply_opacity_now()
+
+    def set_scale_sharing(
+        self,
+        *,
+        sync_temp: Optional[bool] = None,
+        shared_pressure: Optional[bool] = None,
+    ) -> None:
+        """Update 3D temperature/pressure shared-scale settings and refresh if loaded."""
+        changed = False
+        if sync_temp is not None and bool(sync_temp) != self._sync_temp_scale:
+            self._sync_temp_scale = bool(sync_temp)
+            changed = True
+        if shared_pressure is not None and bool(shared_pressure) != self._shared_pressure_scale:
+            self._shared_pressure_scale = bool(shared_pressure)
+            changed = True
+        if changed and self._arrays:
+            self._global_clim = self._build_global_clim()
+            if self._grid is not None:
+                self._rebuild_scene(render=True)
 
     def set_fields(
         self,
@@ -356,8 +397,7 @@ class ThreeDVisPanel(QWidget):
         self._flow_dir_B = str(flow_dir_B) if flow_dir_B else None
         self._ports = {"A": ports_A, "B": ports_B}
         self._watermark_text = None
-        if hasattr(self, "_watermark_label"):
-            self._watermark_label.hide()
+        self._watermark_label.hide()
 
         candidate = {
             "Ta": Ta,
@@ -425,36 +465,35 @@ class ThreeDVisPanel(QWidget):
             self._snap_slice_coord("y", self._L_mm[1] * 0.5),
             self._snap_slice_coord("z", self._L_mm[2] * 0.5),
         )
-        if hasattr(self, "toolbar"):
-            self.toolbar.set_slice_bounds(
-                (0.0, self._L_mm[0]),
-                (0.0, self._L_mm[1]),
-                (0.0, self._L_mm[2]),
+        self.toolbar.set_slice_decimals(
+            (
+                _axis_decimals(self._cx_mm),
+                _axis_decimals(self._cy_mm),
+                _axis_decimals(self._cz_mm),
             )
-            self.toolbar.set_slice_position(*self._slice_xyz_mm)
-            self.toolbar.set_display_mode(self._display_mode)
-            self.toolbar.set_camera_preset("iso")
-            self.toolbar.show()
-        if hasattr(self, "colorbar"):
-            self.colorbar.show()
-        if hasattr(self, "port_overlay"):
-            self.port_overlay.show()
+        )
+        self.toolbar.set_slice_bounds(
+            (0.0, self._L_mm[0]),
+            (0.0, self._L_mm[1]),
+            (0.0, self._L_mm[2]),
+        )
+        self.toolbar.set_slice_position(*self._slice_xyz_mm)
+        self.toolbar.set_display_mode(self._display_mode)
+        self.toolbar.set_camera_preset("iso")
+        self.toolbar.show()
+        self.colorbar.show()
+        self.port_overlay.show()
 
         self._render_initial_scene()
         self._rebuild_scene(render=False)
         self.fit_view()
-        if hasattr(self, "_viewport_host"):
-            self._layout_overlays()
-            self._update_port_chips()
-        sig = getattr(self, "field_changed", None)
-        if sig is not None:
-            sig.emit(self._field)
+        self._layout_overlays()
+        self._update_port_chips()
+        self.field_changed.emit(self._field)
 
     def set_watermark(self, text: Optional[str]) -> None:
         """Show or clear an extrapolation warning watermark over the 3D viewport."""
         self._watermark_text = str(text).strip() if text else None
-        if not hasattr(self, "_watermark_label"):
-            return
         if not self._watermark_text:
             self._watermark_label.clear()
             self._watermark_label.hide()
@@ -507,104 +546,92 @@ class ThreeDVisPanel(QWidget):
         if tokens is not None:
             theme.update(tokens)
         self.plotter.set_background(theme["canvas"])
-        if hasattr(self, "toolbar"):
-            self.toolbar.apply_theme(theme)
-        if hasattr(self, "colorbar"):
-            self.colorbar.apply_theme(theme)
-        if hasattr(self, "port_overlay"):
-            self.port_overlay.apply_theme(theme)
-        if hasattr(self, "_watermark_label"):
-            self._apply_overlay_styles(theme)
+        self.toolbar.apply_theme(theme)
+        self.colorbar.apply_theme(theme)
+        self.port_overlay.apply_theme(theme)
+        self._apply_overlay_styles(theme)
         if self._grid is not None:
             self._render_initial_scene()
             self._rebuild_scene(render=True)
             self._layout_overlays()
             self._update_port_chips()
 
+    def _set_export_typography(self, enabled: bool) -> None:
+        """Switch axes triad and figure overlays between screen and export fonts."""
+        self._apply_axes_triad_font(export=enabled)
+        self.colorbar.set_export_mode(enabled)
+        self.port_overlay.set_export_mode(enabled)
+        self._apply_overlay_styles(get_theme(), export=enabled)
+
     def capture_image(self, *, scale: int = 1) -> QImage:
         """Capture VTK pixels and visible figure overlays into one owned QImage.
 
         Includes the VTK scene, ``PortChipOverlay``, ``StudioColorbarCard``,
         and any active extrapolation watermark. Excludes interactive toolbars.
+        Flushes a hidden viewport before reading pixels so background colormap
+        or field updates are reflected in the captured scene.
         """
-        raw = (
-            self.plotter.screenshot(return_img=True)
-            if scale == 1
-            else self.plotter.screenshot(return_img=True, scale=scale)
-        )
-        pixels = np.ascontiguousarray(raw)
-        channels = pixels.shape[2] if pixels.ndim == 3 else 3
-        image_format = (
-            QImage.Format.Format_RGBA8888 if channels == 4 else QImage.Format.Format_RGB888
-        )
-        image = QImage(
-            pixels.data,
-            pixels.shape[1],
-            pixels.shape[0],
-            pixels.strides[0],
-            image_format,
-        ).copy()
-
-        overlays = self._capture_overlays()
-        host = getattr(self, "_viewport_host", None)
-        if not overlays or host is None:
-            return image
-        vp_w, vp_h = host.width(), host.height()
-        if vp_w <= 0 or vp_h <= 0:
-            return image
-
-        self._layout_overlays()
-        self._update_port_chips()
-
-        canvas = image.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
-        sx = canvas.width() / float(vp_w)
-        sy = canvas.height() / float(vp_h)
-        painter = QPainter(canvas)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        for widget in overlays:
-            painter.save()
-            painter.scale(sx, sy)
-            painter.translate(widget.pos())
-            widget.render(
-                painter,
-                QPoint(0, 0),
-                QRegion(),
-                QWidget.RenderFlag.DrawChildren,
+        was_suppressed = bool(self.plotter.suppress_rendering)
+        self._set_export_typography(True)
+        try:
+            if was_suppressed:
+                self.plotter.suppress_rendering = False
+            self.plotter.render()
+            raw = (
+                self.plotter.screenshot(return_img=True)
+                if scale == 1
+                else self.plotter.screenshot(return_img=True, scale=scale)
             )
-            painter.restore()
-        painter.end()
-        return canvas.convertToFormat(image_format)
-
-    def save_screenshot(
-        self,
-        path: Optional[str] = None,
-        *,
-        scale: int = 1,
-        file_filter: str = "PNG 图像 (*.png)",
-    ) -> Optional[str]:
-        """Save the unified composited 3D capture to a PNG file."""
-        target = path
-        if target is None:
-            ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-            dflt = f"volume_{self._field}_{self._scale_mode}_{ts}.png"
-            target, _ = QFileDialog.getSaveFileName(
-                self, "保存三维视图为 PNG", dflt, file_filter
+            pixels = np.ascontiguousarray(raw)
+            channels = pixels.shape[2] if pixels.ndim == 3 else 3
+            image_format = (
+                QImage.Format.Format_RGBA8888 if channels == 4 else QImage.Format.Format_RGB888
             )
-            if not target:
-                return None
-        image = self.capture_image(scale=scale)
-        if image.isNull() or not image.save(target, "PNG"):
-            raise RuntimeError(f"无法将三维图像保存到 {target}")
-        if hasattr(self, "status"):
-            self.status.setText(f"已保存：{target}")
-        return target
+            image = QImage(
+                pixels.data,
+                pixels.shape[1],
+                pixels.shape[0],
+                pixels.strides[0],
+                image_format,
+            ).copy()
 
-    def _on_screenshot(self, *, file_filter: str = "PNG 图像 (*.png)") -> Optional[str]:
-        return self.save_screenshot(file_filter=file_filter)
+            overlays = self._capture_overlays()
+            host = self._viewport_host
+            vp_w, vp_h = host.width(), host.height()
+            if not overlays or vp_w <= 0 or vp_h <= 0:
+                return image
+
+            self._layout_overlays()
+            self._update_port_chips()
+
+            canvas = image.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+            sx = canvas.width() / float(vp_w)
+            sy = canvas.height() / float(vp_h)
+            painter = QPainter(canvas)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+            for widget in overlays:
+                painter.save()
+                painter.scale(sx, sy)
+                painter.translate(widget.pos())
+                widget.render(
+                    painter,
+                    QPoint(0, 0),
+                    QRegion(),
+                    QWidget.RenderFlag.DrawChildren,
+                )
+                painter.restore()
+            painter.end()
+            return canvas.convertToFormat(image_format)
+        finally:
+            self._set_export_typography(False)
+            if was_suppressed:
+                self.plotter.suppress_rendering = True
+            else:
+                self.plotter.render()
 
     def cleanup(self) -> None:
-        """Release VTK observers, GL context, and any open dialogs idempotently."""
+        """Release VTK observers and GL context idempotently."""
         if getattr(self, "_cleaned_up", False):
             return
         self._cleaned_up = True
@@ -630,29 +657,25 @@ class ThreeDVisPanel(QWidget):
 
     def _capture_overlays(self) -> list[QWidget]:
         """Return visible figure-annotation overlays for unified image export."""
-        overlays: list[QWidget] = []
-        for attr in ("port_overlay", "colorbar", "_watermark_label"):
-            widget = getattr(self, attr, None)
-            if widget is not None and not widget.isHidden():
-                overlays.append(widget)
-        return overlays
+        return [
+            widget
+            for widget in (self.port_overlay, self.colorbar, self._watermark_label)
+            if not widget.isHidden()
+        ]
 
     def _layout_overlays(self) -> None:
-        host = getattr(self, "_viewport_host", None)
-        if host is None:
-            return
-        w, h = host.width(), host.height()
+        w, h = self._viewport_host.width(), self._viewport_host.height()
         if w <= 0 or h <= 0:
             return
         obstacles = []
-        if hasattr(self, "colorbar") and not self.colorbar.isHidden():
+        if not self.colorbar.isHidden():
             cb_h = min(COLORBAR_HEIGHT, max(200, h - 110))
             self.colorbar.setFixedSize(COLORBAR_WIDTH, cb_h)
             cb_x = max(12, w - COLORBAR_WIDTH - 20)
             cb_y = max(12, (h - cb_h) // 2)
             self.colorbar.setGeometry(cb_x, cb_y, COLORBAR_WIDTH, cb_h)
             obstacles.append(self.colorbar.geometry().adjusted(-8, -8, 8, 8))
-        if hasattr(self, "toolbar") and not self.toolbar.isHidden():
+        if not self.toolbar.isHidden():
             self.toolbar.adjustSize()
             tb_sz = self.toolbar.sizeHint()
             tb_w = min(tb_sz.width(), max(120, w - 24))
@@ -661,13 +684,13 @@ class ThreeDVisPanel(QWidget):
             tb_y = max(12, h - tb_h - 14)
             self.toolbar.setGeometry(tb_x, tb_y, tb_w, tb_h)
             obstacles.append(self.toolbar.geometry().adjusted(-8, -8, 8, 8))
-        if hasattr(self, "_watermark_label") and not self._watermark_label.isHidden():
+        if not self._watermark_label.isHidden():
             self._watermark_label.adjustSize()
             wm_sz = self._watermark_label.sizeHint()
             wm_w = min(wm_sz.width(), max(120, w - COLORBAR_WIDTH - 48))
             self._watermark_label.setGeometry(14, 12, wm_w, wm_sz.height())
             obstacles.append(self._watermark_label.geometry().adjusted(-6, -6, 6, 6))
-        if hasattr(self, "status") and not self.status.isHidden():
+        if not self.status.isHidden():
             self.status.adjustSize()
             st_sz = self.status.sizeHint()
             st_w = min(st_sz.width(), max(120, w - COLORBAR_WIDTH - 48))
@@ -677,19 +700,14 @@ class ThreeDVisPanel(QWidget):
                 else self._watermark_label.geometry().bottom() + 6
             )
             self.status.setGeometry(14, st_y, st_w, st_sz.height())
-        if hasattr(self, "port_overlay"):
-            self.port_overlay.setGeometry(0, 0, w, h)
-            self.port_overlay.set_safe_margins(16, 16, 16, 16)
-            self.port_overlay.set_obstacles(obstacles)
-            self.port_overlay.raise_()
-        if hasattr(self, "colorbar"):
-            self.colorbar.raise_()
-        if hasattr(self, "_watermark_label"):
-            self._watermark_label.raise_()
-        if hasattr(self, "status"):
-            self.status.raise_()
-        if hasattr(self, "toolbar"):
-            self.toolbar.raise_()
+        self.port_overlay.setGeometry(0, 0, w, h)
+        self.port_overlay.set_safe_margins(16, 16, 16, 16)
+        self.port_overlay.set_obstacles(obstacles)
+        self.port_overlay.raise_()
+        self.colorbar.raise_()
+        self._watermark_label.raise_()
+        self.status.raise_()
+        self.toolbar.raise_()
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -703,13 +721,13 @@ class ThreeDVisPanel(QWidget):
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
-        if getattr(self, "_cleaned_up", False):
+        if self._cleaned_up:
             return
         self._render_gated = False
         self.plotter.suppress_rendering = False
         self.plotter.render_timer.start()
         self._layout_overlays()
-        if getattr(self, "_camera_fit_pending", False):
+        if self._camera_fit_pending:
             QTimer.singleShot(0, self, lambda: self._camera_fit_pending and self.fit_view())
         else:
             self.plotter.render()
@@ -718,23 +736,30 @@ class ThreeDVisPanel(QWidget):
     def hideEvent(self, event) -> None:
         super().hideEvent(event)
         self._stop_camera_tween(snap=True)
-        if not getattr(self, "_cleaned_up", False):
+        if not self._cleaned_up:
             self._pause_rendering()
 
     # ─────────────────────────── hover & camera observers ─────────────
+
+    def _clear_hover_status(self) -> None:
+        if self._last_hover_text:
+            if self._base_status_text:
+                self.status.setText(self._base_status_text)
+            self.status.hide()
+            self._last_hover_text = ""
 
     def _on_camera_modified(self, _obj, _event) -> None:
         if self._grid is not None and self._port_world_anchors:
             self._update_port_chips()
 
     def _on_mouse_move(self, obj, _event) -> None:
-        """Probe scalar values at cursor position on the active 3D geometry."""
+        """Probe scalar values at cursor position on the active 3D data geometry."""
         if self._grid is None:
             return
         import time as _t_hover
 
         now = _t_hover.monotonic()
-        if now - getattr(self, "_hover_last_t", 0.0) < 0.033:
+        if now - self._hover_last_t < 0.033:
             return
         self._hover_last_t = now
         from vtkmodules.vtkRenderingCore import vtkPropPicker
@@ -742,33 +767,35 @@ class ThreeDVisPanel(QWidget):
         x, y = obj.GetEventPosition()
         picker = vtkPropPicker()
         picker.Pick(x, y, 0, self.plotter.renderer)
-        if picker.GetActor() is None:
-            if self._last_hover_text:
-                if self._base_status_text:
-                    self.status.setText(self._base_status_text)
-                if hasattr(self.status, "hide"):
-                    self.status.hide()
-                self._last_hover_text = ""
+        prop = picker.GetViewProp()
+        if prop is None or prop not in self._data_actors:
+            self._clear_hover_status()
             return
         wpos = picker.GetPickPosition()
+        if any(
+            pos < edges[0] - 1e-6 or pos > edges[-1] + 1e-6
+            for edges, pos in zip(self._edges_mm, wpos)
+        ):
+            self._clear_hover_status()
+            return
         index = tuple(
             int(np.clip(np.searchsorted(edges, pos, side="right") - 1, 0, len(edges) - 2))
             for edges, pos in zip(self._edges_mm, wpos)
         )
         parts = [
-            f"Cursor: ({wpos[0]:.1f}, {wpos[1]:.1f}, {wpos[2]:.1f}) mm",
-            f"Cell {index}",
+            f"坐标 ({wpos[0]:.1f}, {wpos[1]:.1f}, {wpos[2]:.1f}) mm",
+            f"单元 {index}",
         ]
         for fkey, spec in PANEL_FIELD_SPECS.items():
             if fkey in self._arrays:
                 val = float(self._arrays[fkey][index])
-                parts.append(f"{spec.title_plain} = {val:{spec.fmt[1:]}}")
+                symbol = _FIELD_SYMBOL_HTML.get(fkey, spec.symbol_html)
+                parts.append(f"{symbol} = {val:{spec.fmt[1:]}} {spec.display_unit}")
         hover_text = "   •   ".join(parts)
         if hover_text != self._last_hover_text:
             self.status.setText(hover_text)
-            if hasattr(self.status, "show"):
-                self.status.show()
-                self._layout_overlays()
+            self.status.show()
+            self._layout_overlays()
             self._last_hover_text = hover_text
 
     # ─────────────────────────── toolbar callbacks ────────────────────
@@ -831,8 +858,7 @@ class ThreeDVisPanel(QWidget):
             if self.isVisible():
                 pl.render()
                 self._update_port_chips()
-            if hasattr(self, "toolbar"):
-                self.toolbar.set_camera_preset(preset)
+            self.toolbar.set_camera_preset(preset)
             return
 
         cam.position = start[0]
@@ -867,8 +893,7 @@ class ThreeDVisPanel(QWidget):
         def _finished() -> None:
             if self._tween_animation is animation:
                 self._stop_camera_tween()
-                if hasattr(self, "toolbar"):
-                    self.toolbar.set_camera_preset(preset)
+                self.toolbar.set_camera_preset(preset)
                 window = self.window().windowHandle()
                 if self.isVisible() and window is not None and window.isVisible():
                     pl.render()
@@ -880,7 +905,7 @@ class ThreeDVisPanel(QWidget):
 
     def fit_view(self, *, render: bool = True) -> None:
         """Frame the current orientation using the actual viewport aspect."""
-        if getattr(self, "_grid", None) is None:
+        if self._grid is None:
             return
         self._stop_camera_tween()
         if not self.isVisible():
@@ -895,8 +920,7 @@ class ThreeDVisPanel(QWidget):
 
     def _cancel_preset_for_interaction(self, _obj, _event) -> None:
         self._camera_fit_pending = False
-        if hasattr(self, "toolbar"):
-            self.toolbar.set_camera_preset(None)
+        self.toolbar.set_camera_preset(None)
         if self._tween_animation is not None:
             self._tween_previous_update_rate = None
             self._stop_camera_tween()
@@ -920,8 +944,7 @@ class ThreeDVisPanel(QWidget):
             cam = self.plotter.camera
             cam.position, cam.focal_point, cam.up = end[:3]
             cam.view_angle = end[3]
-            if hasattr(self, "toolbar"):
-                self.toolbar.set_camera_preset(self._tween_preset)
+            self.toolbar.set_camera_preset(self._tween_preset)
 
     # ─────────────────────────── opacity & color limits ───────────────
 
@@ -936,7 +959,7 @@ class ThreeDVisPanel(QWidget):
     def _apply_opacity_now(self) -> None:
         """Apply current ``self._opacity`` to the active volume actor and render once."""
         if (
-            getattr(self, "_display_mode", "volume") == "volume"
+            self._display_mode == "volume"
             and self._volume_actor is not None
             and self._field is not None
         ):
@@ -955,17 +978,19 @@ class ThreeDVisPanel(QWidget):
         self._rebuild_scene(render=True)
 
     def _build_global_clim(self) -> dict[str, tuple[float, float]]:
-        """Share related ranges unless a field stays below 40 percent of the span."""
+        """Compute global color limits honoring shared temperature and pressure toggles."""
         clim = dict(zip(self._arrays, field_color_limits(list(self._arrays.values()))))
-        groups = (("Ta", "Tb", "Ts"), ("P_kPa", "P_B_kPa"))
-        for group in groups:
+        shared_groups = []
+        if self._sync_temp_scale:
+            shared_groups.append(("Ta", "Tb", "Ts"))
+        if self._shared_pressure_scale:
+            shared_groups.append(("P_kPa", "P_B_kPa"))
+        for group in shared_groups:
             keys = [key for key in group if key in self._arrays]
             if len(keys) < 2:
                 continue
             lo = min(clim[key][0] for key in keys)
             hi = max(clim[key][1] for key in keys)
-            if any(clim[key][1] < lo + 0.4 * (hi - lo) for key in keys):
-                continue
             clim.update((key, (lo, hi)) for key in keys)
         return clim
 
@@ -976,7 +1001,7 @@ class ThreeDVisPanel(QWidget):
         if (
             self._scale_mode == "global"
             or fkey not in self._arrays
-            or getattr(self, "_display_mode", "surface") != "slice"
+            or self._display_mode != "slice"
         ):
             return self._global_clim.get(fkey, (0.0, 1.0))
         arr = self._arrays[fkey]
@@ -1071,8 +1096,23 @@ class ThreeDVisPanel(QWidget):
             name="_contact_shadow",
             render=False,
         )
-        if hasattr(shadow_actor, "SetUseBounds"):
-            shadow_actor.SetUseBounds(False)
+        shadow_actor.SetUseBounds(False)
+
+    def _apply_axes_triad_font(self, *, export: bool) -> None:
+        aw = getattr(self.plotter.renderer, "axes_widget", None)
+        if aw is None:
+            return
+        ax_actor = aw.GetOrientationMarker()
+        for getter in (
+            ax_actor.GetXAxisCaptionActor2D,
+            ax_actor.GetYAxisCaptionActor2D,
+            ax_actor.GetZAxisCaptionActor2D,
+        ):
+            tp = getter().GetCaptionTextProperty()
+            if export:
+                apply_vtk_font(tp)
+            else:
+                tp.SetFontFamilyToArial()
 
     def _configure_axes_triad(self) -> None:
         t = get_theme()
@@ -1107,7 +1147,7 @@ class ThreeDVisPanel(QWidget):
             ca.SetPosition(*px_off)
             ca.GetTextActor().SetTextScaleModeToNone()
             tp = ca.GetCaptionTextProperty()
-            apply_vtk_font(tp)
+            tp.SetFontFamilyToArial()
             tp.SetFontSize(13)
             tp.SetItalic(True)
             tp.SetBold(False)
@@ -1134,7 +1174,7 @@ class ThreeDVisPanel(QWidget):
         self._apply_isometric_pose()
 
     def _faint_port_sides(self) -> tuple[str, ...]:
-        if getattr(self, "_display_mode", "surface") != "slice":
+        if self._display_mode != "slice":
             return ()
         if self._field in ("Ta", "vmag", "P_kPa"):
             return ("B",)
@@ -1193,6 +1233,7 @@ class ThreeDVisPanel(QWidget):
                         color=color,
                         line_width=2.4,
                         opacity=op,
+                        pickable=False,
                         name=f"_port_{end}_{tag}",
                         show_scalar_bar=False,
                         render=False,
@@ -1218,6 +1259,7 @@ class ThreeDVisPanel(QWidget):
                     lighting=True,
                     ambient=0.35,
                     diffuse=0.70,
+                    pickable=False,
                     name=f"_flow_{end}_{tag}",
                     show_scalar_bar=False,
                     render=False,
@@ -1232,10 +1274,7 @@ class ThreeDVisPanel(QWidget):
             _add_pair(self._flow_dir_B, "B", t["inlet_b"])
 
     def _project_world_to_viewport(self, point_xyz: np.ndarray) -> Optional[tuple[float, float]]:
-        host = getattr(self, "_viewport_host", None)
-        if host is None:
-            return None
-        vp_w, vp_h = host.width(), host.height()
+        vp_w, vp_h = self._viewport_host.width(), self._viewport_host.height()
         if vp_w <= 0 or vp_h <= 0:
             return None
         ren_w, ren_h = self.plotter.window_size
@@ -1254,8 +1293,7 @@ class ThreeDVisPanel(QWidget):
         return (qt_x, qt_y)
 
     def _update_port_chips(self) -> None:
-        overlay = getattr(self, "port_overlay", None)
-        if overlay is None or self._grid is None:
+        if self._grid is None:
             return
         anchors: list[PortAnchor] = []
         for key, label, side, inner_xyz, outer_xyz in self._port_world_anchors:
@@ -1266,7 +1304,7 @@ class ThreeDVisPanel(QWidget):
             anchors.append(
                 PortAnchor(key=key, label=label, side=side, outer=outer_2d, inner=inner_2d)
             )
-        overlay.set_anchors(anchors)
+        self.port_overlay.set_anchors(anchors)
 
     def _build_volume_grid(self) -> tuple[pv.RectilinearGrid, float]:
         """Cache physical cell-centre display scalars for VTK interpolation."""
@@ -1292,6 +1330,7 @@ class ThreeDVisPanel(QWidget):
         for name in _DATA_ACTOR_NAMES:
             pl.remove_actor(name, render=False)
         self._volume_actor = None
+        self._data_actors.clear()
 
     def _box_edge_color(self) -> str:
         t = get_theme()
@@ -1315,7 +1354,7 @@ class ThreeDVisPanel(QWidget):
         self, vol_grid: pv.RectilinearGrid, cmap: str, clim: tuple[float, float]
     ) -> None:
         surf = self._build_surface_mesh(vol_grid)
-        self._volume_actor = self.plotter.add_mesh(
+        actor = self.plotter.add_mesh(
             surf,
             scalars=self._field,
             cmap=cmap,
@@ -1327,6 +1366,8 @@ class ThreeDVisPanel(QWidget):
             name="main_surface",
             render=False,
         )
+        self._volume_actor = actor
+        self._data_actors.add(actor)
         edge_op = 0.40 if get_theme_name() == "light" else 0.72
         self._add_domain_edges(edge_op, line_width=1.2)
 
@@ -1355,6 +1396,7 @@ class ThreeDVisPanel(QWidget):
                 name=f"slice_{axis_name}",
                 render=False,
             )
+            self._data_actors.add(actor)
             if first_actor is None:
                 first_actor = actor
             boundary = slc.extract_feature_edges(
@@ -1365,6 +1407,7 @@ class ThreeDVisPanel(QWidget):
                 color=edge_col,
                 opacity=edge_op,
                 line_width=1.2,
+                pickable=False,
                 show_scalar_bar=False,
                 name=f"slice_{axis_name}_edge",
                 render=False,
@@ -1380,6 +1423,7 @@ class ThreeDVisPanel(QWidget):
                 color=t["canvas"],
                 opacity=0.72,
                 line_width=1.1,
+                pickable=False,
                 show_scalar_bar=False,
                 name=f"_slice_cross_{axis_name}",
                 render=False,
@@ -1403,6 +1447,7 @@ class ThreeDVisPanel(QWidget):
             pv.Sphere(radius=probe_r, center=origin),
             color=t["accent"],
             lighting=False,
+            pickable=False,
             show_scalar_bar=False,
             name="_slice_probe",
             render=False,
@@ -1425,21 +1470,19 @@ class ThreeDVisPanel(QWidget):
         )
         actor.GetProperty().SetInterpolationTypeToLinear()
         vol_mapper = actor.GetMapper()
-        min_cell = float(getattr(self, "_vol_min_cell_mm", 0.0)) or min(
-            float(self._dx_mm.min()), float(self._dy_mm.min()), float(self._dz_mm.min())
-        )
         vol_mapper.SetAutoAdjustSampleDistances(True)
-        vol_mapper.SetSampleDistance(max(0.005, min_cell))
+        vol_mapper.SetSampleDistance(max(0.005, self._vol_min_cell_mm))
         self._volume_actor = actor
+        self._data_actors.add(actor)
         self._add_domain_edges(0.32 if get_theme_name() == "light" else 0.58, line_width=1.0)
 
     def _sync_colorbar(self, cmap: str, clim: tuple[float, float]) -> None:
-        colorbar = getattr(self, "colorbar", None)
-        if colorbar is None or self._field not in PANEL_FIELD_SPECS:
+        if self._field not in PANEL_FIELD_SPECS:
             return
         spec = PANEL_FIELD_SPECS[self._field]
         symbol_html = _FIELD_SYMBOL_HTML.get(self._field, spec.symbol_html)
-        colorbar.set_spec(symbol_html, spec.display_unit, clim[0], clim[1], colormap=cmap)
+        self.colorbar.set_spec(symbol_html, spec.display_unit, clim[0], clim[1], colormap=cmap)
+        self.colorbar.show()
 
     def _rebuild_scene(self, render: bool = True) -> None:
         """Rebuild the active simplified 3D actors and colorbar in one render batch."""
@@ -1454,25 +1497,25 @@ class ThreeDVisPanel(QWidget):
         self._grid_vol, self._vol_min_cell_mm = self._build_volume_grid()
         cmap = resolve_cmap(self._field)
         clim = self._clim_for(self._field)
-        mode = getattr(self, "_display_mode", "surface")
 
         try:
-            if mode == "surface":
+            if self._display_mode == "surface":
                 self._render_surface_actors(self._grid_vol, cmap, clim)
-            elif mode == "slice":
+            elif self._display_mode == "slice":
                 self._render_slice_actors(self._grid_vol, cmap, clim)
             else:
                 self._render_volume_actors(self._grid_vol, cmap, clim)
         except Exception as exc:
-            self._volume_actor = None
-            if hasattr(self, "status"):
-                self.status.setText(f"三维渲染失败：{exc}")
+            self._clear_data_actors()
+            self.colorbar.hide()
+            self.status.setText(f"三维渲染失败：{exc}")
+            self.status.show()
+            self._layout_overlays()
             if render:
                 self.plotter.render()
-            return
+            raise
 
-        if hasattr(self, "_ports"):
-            self._add_flow_glyph()
+        self._add_flow_glyph()
         self._sync_colorbar(cmap, clim)
         self._update_status()
         if render:
@@ -1494,21 +1537,21 @@ class ThreeDVisPanel(QWidget):
     def _update_status(self) -> None:
         if self._grid is None or self._field is None or self._field not in PANEL_FIELD_SPECS:
             return
+        spec = PANEL_FIELD_SPECS[self._field]
+        symbol = _FIELD_SYMBOL_HTML.get(self._field, spec.symbol_html)
         lo, hi = self._clim_for(self._field)
         Lx, Ly, Lz = self._L_mm
         parts = [
-            f"Field: {PANEL_FIELD_SPECS[self._field].title_plain}",
-            f"Range: {lo:.2f} – {hi:.2f}",
-            f"Domain: {Lx:.0f} × {Ly:.0f} × {Lz:.0f} mm",
+            f"场：{symbol}",
+            f"范围：{lo:.2f}–{hi:.2f} {spec.display_unit}",
+            f"计算域：{Lx:.0f} × {Ly:.0f} × {Lz:.0f} mm",
         ]
         if self._display_mode == "slice":
             sx, sy, sz = self._slice_xyz_mm
-            parts.append(f"Slice: ({sx:.1f}, {sy:.1f}, {sz:.1f}) mm")
+            parts.append(f"截面：({sx:.1f}, {sy:.1f}, {sz:.1f}) mm")
         text = "   •   ".join(parts)
         self._base_status_text = text
-        if hasattr(self, "status"):
-            self.status.setText(text)
-            self.status.setToolTip(text)
-            if hasattr(self.status, "hide"):
-                self.status.hide()
+        self.status.setText(text)
+        self.status.setToolTip(text)
+        self.status.hide()
         self._last_hover_text = ""

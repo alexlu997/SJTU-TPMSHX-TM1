@@ -30,7 +30,11 @@ class _CameraPanel(ThreeDVisPanel):
         self._tween_end_pose = None
         self._tween_preset = 'iso'
         self._tween_previous_update_rate = None
-        self._popup_dialogs = []
+        self._cleaned_up = False
+        self._camera_fit_pending = False
+        self._camera_observer_tag = None
+        self._interaction_observer_tag = None
+        self._hover_observer_tag = None
         self._render_gated = False
         self._grid = object()
         self._L_mm = (182., 42., 42.)

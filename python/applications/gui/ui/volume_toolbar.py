@@ -323,6 +323,7 @@ class VolumeToolbar(QFrame):
         self._geometry_mode = geometry_mode
         self._display_mode = display_mode
         self._slice_bounds_mm = slice_bounds_mm
+        self._slice_decimals: tuple[int, int, int] = (1, 1, 1)
         self._slice_xyz_mm = self._clamp_slice(slice_xyz_mm)
         self._opacity = self._clamp_opacity(opacity)
         self._detail_level = detail_level
@@ -466,6 +467,17 @@ class VolumeToolbar(QFrame):
         )
         self._slice_xyz_mm = self._clamp_slice(self._slice_xyz_mm)
         self._write_slice_edits()
+
+    def set_slice_decimals(self, decimals: tuple[int, int, int]) -> None:
+        """Set display decimal places for the ``x``, ``y``, ``z`` slice editors."""
+        self._slice_decimals = tuple(max(1, min(6, int(d))) for d in decimals)
+        for edit, dec in zip(self._slice_edits, self._slice_decimals):
+            edit.setValidator(QDoubleValidator(-1e6, 1e6, max(3, dec), edit))
+            edit.setFixedWidth(44 if dec <= 1 else (52 if dec == 2 else 60))
+        self._write_slice_edits()
+        self.updateGeometry()
+        self.adjustSize()
+        self.layout_changed.emit()
 
     def opacity(self) -> float:
         """Return the volume rendering opacity in ``[0.0, 1.0]``."""
@@ -626,13 +638,13 @@ class VolumeToolbar(QFrame):
             self._slice_axis_labels.append(lbl)
             lay.addWidget(lbl)
 
-            edit = QLineEdit(f"{self._slice_xyz_mm[idx]:.1f}")
+            edit = QLineEdit(f"{self._slice_xyz_mm[idx]:.{self._slice_decimals[idx]}f}")
             edit.setObjectName(f"sliceInput_{axis_key}")
             edit.setFixedWidth(44)
             edit.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             edit.setValidator(QDoubleValidator(-1e6, 1e6, 3, edit))
             _enable_tnum(edit)
-            edit.editingFinished.connect(self._on_slice_edited)
+            edit.editingFinished.connect(lambda axis_idx=idx: self._on_slice_axis_edited(axis_idx))
             self._slice_edits.append(edit)
             lay.addWidget(edit)
 
@@ -719,19 +731,23 @@ class VolumeToolbar(QFrame):
     def _on_camera_activated(self, preset: str) -> None:
         self.camera_preset_requested.emit(preset)
 
-    def _on_slice_edited(self) -> None:
-        parsed: list[float] = []
-        for idx, edit in enumerate(self._slice_edits):
-            try:
-                parsed.append(float(edit.text()))
-            except ValueError:
-                parsed.append(self._slice_xyz_mm[idx])
-        clamped = self._clamp_slice((parsed[0], parsed[1], parsed[2]))
-        changed = clamped != self._slice_xyz_mm
-        self._slice_xyz_mm = clamped
+    def _on_slice_axis_edited(self, axis_idx: int) -> None:
+        try:
+            value = float(self._slice_edits[axis_idx].text())
+        except ValueError:
+            self._write_slice_edits()
+            return
+        vals = list(self._slice_xyz_mm)
+        if self._slice_bounds_mm is not None:
+            lo, hi = self._slice_bounds_mm[axis_idx]
+            value = max(lo, min(hi, value))
+        vals[axis_idx] = value
+        updated = (vals[0], vals[1], vals[2])
+        changed = updated != self._slice_xyz_mm
+        self._slice_xyz_mm = updated
         self._write_slice_edits()
         if changed:
-            self.slice_position_changed.emit(*clamped)
+            self.slice_position_changed.emit(*updated)
 
     def _on_opacity_slider_changed(self, pct: int) -> None:
         self._opacity = self._clamp_opacity(pct / 100.0)
@@ -739,9 +755,9 @@ class VolumeToolbar(QFrame):
         self.opacity_changed.emit(self._opacity)
 
     def _write_slice_edits(self) -> None:
-        for edit, val in zip(self._slice_edits, self._slice_xyz_mm):
+        for edit, val, dec in zip(self._slice_edits, self._slice_xyz_mm, self._slice_decimals):
             edit.blockSignals(True)
-            edit.setText(f"{val:.1f}")
+            edit.setText(f"{val:.{dec}f}")
             edit.blockSignals(False)
 
     def _clamp_slice(

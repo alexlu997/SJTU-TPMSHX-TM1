@@ -15,7 +15,7 @@ def _render_panel(destination):
     from PIL import Image
     import pyvista as pv
     from PySide6.QtCore import QCoreApplication, QEvent, QEventLoop, QTimer
-    from PySide6.QtWidgets import QApplication, QFileDialog
+    from PySide6.QtWidgets import QApplication
 
     platform = 'cocoa' if sys.platform == 'darwin' else 'windows'
     app = QApplication(['render-check', '-platform', platform])
@@ -81,12 +81,30 @@ def _render_panel(destination):
         assert difference > 100
         report['changed_center_values'] = difference
 
-        # Unified capture composites VTK pixels with StudioColorbarCard and port chips.
+        # Unified capture composites VTK pixels with StudioColorbarCard and port chips
+        # through the formal ResultExport.export_figure() path.
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from sjtu_tpmshx.applications.gui.ui import result_export
+
         captured = panel.capture_image()
         export = output / 'application-export.png'
-        with patch.object(QFileDialog, 'getSaveFileName',
+        fake_window = SimpleNamespace(
+            canvas_temp=None, canvas_pres=None, canvas_vel=None, canvas_layout=None,
+            canvas_3d=panel,
+            cache=SimpleNamespace(get_drawn_tabs=lambda: set(), get_result=lambda _k: None),
+            workbench=SimpleNamespace(volume_ready=True, active_tab='3d'),
+            optimization=SimpleNamespace(
+                pareto_canvas=None, field_canvas=None, volume_panel=None,
+                pareto_ready=lambda: False, field_ready=lambda: False, volume_ready=lambda: False,
+            ),
+            dialogs=SimpleNamespace(notify=Mock()),
+        )
+        exporter = result_export.ResultExport(fake_window)
+        with patch.object(result_export.QInputDialog, 'getItem', return_value=('三维视图', True)), \
+             patch.object(result_export.QFileDialog, 'getSaveFileName',
                           return_value=(str(export), 'PNG 图像 (*.png)')):
-            panel._on_screenshot()
+            exporter.export_figure()
         with Image.open(export) as decoded:
             exported_arr = np.asarray(decoded)
         captured_ref = output / 'captured-ref.png'

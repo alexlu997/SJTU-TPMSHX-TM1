@@ -1421,6 +1421,7 @@ def test_optimization_volume_copy_and_export_require_current_render(
     from PIL import Image
     from PySide6.QtGui import QGuiApplication
     from sjtu_tpmshx.applications.gui.ui import result_export
+    from sjtu_tpmshx.applications.gui.ui.builders_canvas import refresh_field_controls
     from sjtu_tpmshx.applications.gui.ui.panel_vis_3d import ThreeDVisPanel
 
     win.cache.clear()
@@ -1433,14 +1434,22 @@ def test_optimization_volume_copy_and_export_require_current_render(
                        [[25, 70, 130, 64], [90, 40, 220, 255], [240, 210, 20, 255]]],
                       dtype=np.uint8)[:, :, :channels].copy()
     expected = pixels.copy()
+    plotter = Mock(suppress_rendering=True)
+    plotter.screenshot.return_value = pixels
     panel = SimpleNamespace(
-        _grid=object(), _field='L_mm', _volume_actor=object(), _scale_mode='global',
-        _display_mode='surface', plotter=Mock(), status=Mock(), grab=Mock(),
+        _grid=object(), _field='L_mm', _volume_actor=object(), _data_actors=set(),
+        _available_fields=('L_mm', 't_mm'), _arrays={'L_mm': object(), 't_mm': object()},
+        _scale_mode='global', _display_mode='surface', plotter=plotter, status=Mock(),
+        colorbar=Mock(), grab=Mock(), field_changed=Mock(),
+        _viewport_host=Mock(width=lambda: 0, height=lambda: 0),
+        _set_export_typography=Mock(), _layout_overlays=Mock(),
         _capture_overlays=lambda: [],
         color_range_state=lambda: {'mode': 'global', 'ranges': {}},
     )
-    panel.plotter.screenshot.return_value = pixels
     panel.capture_image = MethodType(ThreeDVisPanel.capture_image, panel)
+    panel.available_fields = MethodType(ThreeDVisPanel.available_fields, panel)
+    panel.active_field = MethodType(ThreeDVisPanel.active_field, panel)
+    panel.select_field = MethodType(ThreeDVisPanel.select_field, panel)
     monkeypatch.setattr(win.optimization, 'volume_panel', panel)
     monkeypatch.setattr(win.optimization, 'volume_data', {'new-design': True})
     monkeypatch.setattr(win.optimization, '_volume_ready', False)
@@ -1463,6 +1472,8 @@ def test_optimization_volume_copy_and_export_require_current_render(
         assert win.btn_export.isEnabled()
         win.result_export.copy_figure_clipboard()
         panel.grab.assert_not_called()
+        panel.plotter.render.assert_called_once_with()
+        assert panel.plotter.suppress_rendering is True
         panel.plotter.screenshot.assert_called_once_with(return_img=True)
         pixels[:] = 0
         image = clipboard.image()
@@ -1484,13 +1495,16 @@ def test_optimization_volume_copy_and_export_require_current_render(
         with Image.open(path) as saved:
             np.testing.assert_array_equal(np.asarray(saved)[:, :, :channels], expected)
 
-        # Main workbench 3D tab shares the exact same unified capture for Copy and Save.
+        # Background 3D export flushes the hidden plotter and restores suppress_rendering.
         monkeypatch.setattr(win, 'canvas_3d', panel)
         monkeypatch.setattr(win.workbench, 'volume_ready', True)
         monkeypatch.setattr(win.workbench, 'active_tab', '3d')
         panel.plotter.screenshot.reset_mock()
+        panel.plotter.render.reset_mock()
         clipboard.clear()
         win.result_export.copy_figure_clipboard()
+        panel.plotter.render.assert_called_once_with()
+        assert panel.plotter.suppress_rendering is True
         panel.plotter.screenshot.assert_called_once_with(return_img=True)
         assert (clipboard.image().width(), clipboard.image().height()) == (3, 2)
 
@@ -1514,8 +1528,7 @@ def test_optimization_volume_copy_and_export_require_current_render(
         win.result_export.export_figure()
         assert warning.call_args.args[1:] == ('导出失败', 'screenshot failed')
 
-        # Switching L/t clears _volume_actor if the next 3D render fails.
-        panel._arrays = {'L_mm': object(), 't_mm': object()}
+        # Switching L/t via the real shared header 壁厚 t button clears _volume_actor on failure.
         panel._clim_for = lambda field: (.3, .6)
         panel._build_volume_grid = lambda: (panel._grid, 1.)
         panel._clear_data_actors = MethodType(ThreeDVisPanel._clear_data_actors, panel)
@@ -1523,8 +1536,11 @@ def test_optimization_volume_copy_and_export_require_current_render(
         panel._sync_colorbar = Mock()
         panel._update_status = Mock()
         panel._rebuild_scene = MethodType(ThreeDVisPanel._rebuild_scene, panel)
-        ThreeDVisPanel.select_field(panel, 't_mm')
+        refresh_field_controls(win)
+        assert not win._3d_design_field_btn.isHidden() and not win._3d_wall_field_btn.isHidden()
+        win._3d_wall_field_btn.click()
         assert panel._field == 't_mm' and panel._volume_actor is None
+        panel.field_changed.emit.assert_not_called()
         assert win.optimization._volume_ready
         assert not win.optimization.volume_ready()
         win.result_export.refresh_export_button()

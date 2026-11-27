@@ -66,20 +66,35 @@ def test_hover_and_opacity_work_without_vtk_compatibility_aggregator(monkeypatch
 
     monkeypatch.setitem(sys.modules, 'vtk', None)
     picker = Mock()
-    picker.GetActor.return_value = None
+    picker.GetViewProp.return_value = None
     monkeypatch.setattr(rendering, 'vtkPropPicker', lambda: picker)
     plotter = Mock()
     actor = rendering.vtkVolume()
     panel = SimpleNamespace(
-        _grid=object(), _last_hover_text='', _base_status_text='',
+        _grid=object(), _last_hover_text='', _base_status_text='', _hover_last_t=0.0,
         plotter=plotter, status=Mock(), _display_mode='volume',
-        _volume_actor=actor, _field='Ta', _clim_for=lambda _: (300., 420.),
-        _opacity_ramp=lambda: (.2, .6), _rebuild_scene=Mock(),
+        _volume_actor=actor, _data_actors={actor}, _field='Ta', _clim_for=lambda _: (300., 420.),
+        _opacity_ramp=lambda: (.2, .6), _rebuild_scene=Mock(), _layout_overlays=Mock(),
+        _edges_mm=(np.array([0., 10.]), np.array([0., 10.]), np.array([0., 10.])),
+        _arrays={'Ta': np.full((1, 1, 1), 350.)},
     )
+    panel._clear_hover_status = MethodType(ThreeDVisPanel._clear_hover_status, panel)
     event = Mock()
     event.GetEventPosition.return_value = (4, 5)
     ThreeDVisPanel._on_mouse_move(panel, event, None)
     picker.Pick.assert_called_once_with(4, 5, 0, plotter.renderer)
+    panel.status.setText.assert_not_called()
+
+    # Volume hit (vtkVolume via GetViewProp) probes the cell; out-of-domain hit clears probe.
+    panel._hover_last_t = 0.0
+    picker.GetViewProp.return_value = actor
+    picker.GetPickPosition.return_value = (5.0, 5.0, 5.0)
+    ThreeDVisPanel._on_mouse_move(panel, event, None)
+    assert '单元 (0, 0, 0)' in panel.status.setText.call_args.args[0]
+    panel._hover_last_t = 0.0
+    picker.GetPickPosition.return_value = (-1.89, 5.0, 5.0)
+    ThreeDVisPanel._on_mouse_move(panel, event, None)
+    panel.status.hide.assert_called_once_with()
 
     ThreeDVisPanel._apply_opacity_now(panel)
     opacity = actor.GetProperty().GetScalarOpacity()
@@ -93,26 +108,31 @@ def test_hover_and_opacity_work_without_vtk_compatibility_aggregator(monkeypatch
 def test_hover_reads_original_cell_on_nonuniform_grid(monkeypatch, position, index):
     import vtkmodules.vtkRenderingCore as rendering
 
+    data_actor = object()
     picker = Mock()
+    picker.GetViewProp.return_value = data_actor
     picker.GetPickPosition.return_value = position
     monkeypatch.setattr(rendering, 'vtkPropPicker', lambda: picker)
     raw = np.arange(12.).reshape(2, 3, 2)
     panel = SimpleNamespace(
         _grid=object(), plotter=Mock(), status=Mock(), _last_hover_text='',
-        _base_status_text='', _layout_overlays=Mock(),
+        _base_status_text='', _hover_last_t=0.0, _layout_overlays=Mock(),
+        _data_actors={data_actor},
         _edges_mm=([0., 1., 10.], [0., 2., 7., 8.], [0., 3., 10.]),
         _arrays={'Ta': 300. + raw, 'vmag': 10. + raw,
                  'L_mm': 4. + raw * .1, 't_mm': .3 + raw * .01},
     )
+    panel._clear_hover_status = MethodType(ThreeDVisPanel._clear_hover_status, panel)
     event = Mock()
     event.GetEventPosition.return_value = (4, 5)
     ThreeDVisPanel._on_mouse_move(panel, event, None)
     text = panel.status.setText.call_args.args[0]
-    assert f'Cell {index}' in text
-    assert f'Ta (K) = {300. + raw[index]:.1f}' in text
-    assert f'speed A (m/s) = {10. + raw[index]:.2f}' in text
-    assert f'L (mm) = {4. + raw[index] * .1:.2f}' in text
-    assert f't (mm) = {.3 + raw[index] * .01:.3f}' in text
+    assert '坐标' in text and f'单元 {index}' in text
+    assert f'= {300. + raw[index]:.1f} K' in text
+    assert f'= {10. + raw[index]:.2f} m/s' in text
+    assert f'= {4. + raw[index] * .1:.2f} mm' in text
+    assert f'= {.3 + raw[index] * .01:.3f} mm' in text
+    assert 'Cursor' not in text and 'Cell' not in text and 'speed A' not in text
 
 
 def _bind_panel_methods(panel, names):
@@ -124,11 +144,17 @@ def _make_stub_panel():
     panel = SimpleNamespace(
         plotter=Mock(window_size=(1000, 800)),
         status=Mock(),
+        toolbar=Mock(),
+        port_overlay=Mock(),
+        _watermark_label=Mock(),
+        _viewport_host=Mock(width=lambda: 1000, height=lambda: 800),
+        field_changed=Mock(),
         colorbar=StudioColorbarCard(),
     )
     ThreeDVisPanel._init_state(panel, 30)
     panel.fit_view = Mock()
     panel._render_initial_scene = Mock()
+    panel._layout_overlays = Mock()
     panel._update_port_chips = Mock()
     _bind_panel_methods(
         panel,
@@ -168,7 +194,9 @@ def test_volume_fields_are_lazy_cached_and_reset_without_changing_values(graded)
         for axis, widths_m in zip((panel._grid.x, panel._grid.y, panel._grid.z), widths):
             centres = (np.cumsum(widths_m) - widths_m / 2) * 1000.
             np.testing.assert_allclose(axis, np.r_[0., centres, widths_m.sum() * 1000.])
-        previous_clim = ThreeDVisPanel._build_global_clim(SimpleNamespace(_arrays=fields))
+        previous_clim = ThreeDVisPanel._build_global_clim(
+            SimpleNamespace(_arrays=fields, _sync_temp_scale=True, _shared_pressure_scale=True)
+        )
         assert panel._global_clim == previous_clim
         assert panel.colorbar.colormap() == resolve_cmap('Ta')
         assert panel.colorbar.value_range() == pytest.approx(previous_clim['Ta'])
@@ -368,12 +396,33 @@ def test_unified_toolbar_omits_cutaway_and_toggles_conditional_groups():
         assert not bar._slice_group.isHidden()
         assert bar._opacity_group.isHidden()
 
+        # Editing one axis on a fine 0.04 mm grid keeps the other two axes unchanged.
+        bar.set_slice_decimals((2, 2, 2))
+        bar.set_slice_position(0.06, 0.06, 0.06)
+        emitted = []
+        bar.slice_position_changed.connect(lambda x, y, z: emitted.append((x, y, z)))
+        bar._slice_edits[0].setText('0.14')
+        bar._slice_edits[0].editingFinished.emit()
+        assert emitted == [(0.14, 0.06, 0.06)]
+        assert bar.slice_position() == (0.14, 0.06, 0.06)
+
         bar.set_display_mode('volume')
         assert bar._slice_group.isHidden()
         assert not bar._opacity_group.isHidden()
     finally:
         bar.close()
         bar.deleteLater()
+
+    # Narrow-span colorbar ticks stay distinct; uniform fields show one value.
+    narrow_cb = StudioColorbarCard(vmin=300.000, vmax=300.012)
+    uniform_cb = StudioColorbarCard(vmin=7.0, vmax=7.0 + 7e-6)
+    try:
+        narrow_labels = narrow_cb.tick_labels()
+        assert len(narrow_labels) >= 2 and len(set(narrow_labels)) == len(narrow_labels)
+        assert uniform_cb.tick_labels() == ['7']
+    finally:
+        narrow_cb.deleteLater()
+        uniform_cb.deleteLater()
 
 
 def test_port_chip_overlay_avoids_arrow_and_colorbar_obstacles():
@@ -461,3 +510,28 @@ def test_shared_header_colormap_refresh_updates_main_and_optimization_3d_panels(
 
     main_3d.refresh_colormaps.assert_called_once_with()
     opt_3d.refresh_colormaps.assert_called_once_with()
+
+    # Single-fluid phase checks reject missing Fluid B without falling back to A.
+    from sjtu_tpmshx.applications.gui.ui.builders_canvas import _resolve_3d_panel_field
+
+    assert _resolve_3d_panel_field({'Ta'}, 'temperature', 'B', exact_phase=True) is None
+    assert _resolve_3d_panel_field({'Ta'}, 'temperature', 'B', exact_phase=False) == 'Ta'
+
+    # Render failure on field switch returns False, does not emit field_changed, hides colorbar.
+    stub = _make_stub_panel()
+    try:
+        arr = np.arange(8., dtype=float).reshape(2, 2, 2) + 300.0
+        ThreeDVisPanel.set_fields(
+            stub, Ta=arr, Tb=arr + 10.0,
+            dx=np.array([0.001, 0.001]), dy=np.array([0.001, 0.001]), dz=np.array([0.001, 0.001]),
+        )
+        stub.field_changed.emit.reset_mock()
+        stub._render_surface_actors = Mock(side_effect=RuntimeError('gpu failure'))
+        assert not stub.select_field('Tb')
+        stub.field_changed.emit.assert_not_called()
+        assert stub._volume_actor is None
+        assert stub.colorbar.isHidden()
+        assert '三维渲染失败' in stub.status.setText.call_args.args[0]
+        stub.status.show.assert_called()
+    finally:
+        stub.colorbar.deleteLater()

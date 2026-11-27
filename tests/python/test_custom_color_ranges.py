@@ -23,7 +23,7 @@ def panel():
             root.setContentsMargins(0, 0, 0, 0)
             self._viewport_host = QWidget(self)
             root.addWidget(self._viewport_host, stretch=1)
-            self.plotter = Mock(window_size=(640, 480))
+            self.plotter = Mock(window_size=(640, 480), suppress_rendering=False)
             self.port_overlay = PortChipOverlay(parent=self._viewport_host)
             self.colorbar = StudioColorbarCard(parent=self._viewport_host)
             self._watermark_label = QLabel(self._viewport_host)
@@ -135,8 +135,14 @@ def test_custom_limits_and_watermark_reach_scene_colorbar_and_capture(panel, tmp
         )
         assert wm_changed
 
+        # Hidden-panel capture temporarily unsuppresses rendering to flush updates.
+        panel.plotter.suppress_rendering = True
+        panel.plotter.render.reset_mock()
+        hidden_captured = panel.capture_image()
+        panel.plotter.render.assert_called_once_with()
+        assert panel.plotter.suppress_rendering is True
         out_path = tmp_path / 'captured_3d.png'
-        panel.save_screenshot(str(out_path))
+        assert hidden_captured.save(str(out_path), 'PNG')
         assert out_path.stat().st_size > 1000
 
         panel.set_watermark(None)
