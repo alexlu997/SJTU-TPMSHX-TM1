@@ -1,7 +1,8 @@
 """Keep unknown changes and missing jobs inside the full CI gate."""
 import pytest
 
-from engineering.scripts.ci_scope import native_source, require_jobs, select_scope
+from engineering.scripts import ci_scope
+from engineering.scripts.ci_scope import require_jobs, select_scope
 
 
 @pytest.mark.parametrize('event,paths,expected', [
@@ -78,11 +79,29 @@ def test_rename_from_code_to_docs_still_requires_full_ci(tmp_path, event, monkey
     git('add', '.')
     git('commit', '-qm', 'Add source')
     base = git('rev-parse', 'HEAD')
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv('GITHUB_REPOSITORY_ID', '10')
+    origin = dict(head_branch='main', head_sha=base, repository_id=10, head_repository_id=10)
+    archives = [dict(expired=False, workflow_run=dict(origin, id=i)) for i in (2, 1)]
+    monkeypatch.setattr(ci_scope, 'records', lambda *args: archives)
+    hosts = {p: dict(image=p, python='3.13.17') for p in ci_scope.PLATFORMS}
+    matching = {p: dict(hosts[p], id=p) for p in hosts}
+    # During an image rollout, the most recent main build can match only one platform.
+    runs = {2: {**matching, 'windows-2022': dict(image='previous', python='3.13.17')}, 1: matching}
+    monkeypatch.setattr(ci_scope, 'qualified_pair', runs.__getitem__)
+    restored = []
+
+    def restore(platform, source, tools):
+        restored.append(source)
+        return True
+
+    monkeypatch.setattr(ci_scope, 'restore_native', restore)
+    assert ci_scope.restore_pair(ci_scope.native_candidates(base), hosts)
+    assert restored == list(matching.values())
     git('mv', 'solver/model.cpp', 'README.md')
     git('commit', '-qm', 'Move source')
     result = subprocess.check_output(
         [sys.executable, '-S', str(script), 'select', '--event', event,
          '--base', base, '--head', git('rev-parse', 'HEAD')], cwd=tmp_path, text=True)
     assert result.strip() == 'full'
-    monkeypatch.chdir(tmp_path)
-    assert native_source(base) == {}
+    assert ci_scope.native_candidates(base) == []

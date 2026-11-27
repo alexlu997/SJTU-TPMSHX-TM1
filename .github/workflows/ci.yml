@@ -21,7 +21,7 @@ jobs:
       actions: read
     outputs:
       tier: ${{ steps.scope.outputs.tier }}
-      source: ${{ steps.native.outputs.source }}
+      candidates: ${{ steps.native.outputs.candidates }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -50,17 +50,17 @@ jobs:
           python -m ruff check .
           python -m engineering.scripts.check_types --platform darwin
           python -m engineering.scripts.check_types --platform win32
-      - name: Find matching native artifacts from a successful main build
+      - name: Find main builds with matching native inputs
         id: native
         if: steps.scope.outputs.tier != 'docs'
         env:
           GH_TOKEN: ${{ github.token }}
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: python engineering/scripts/ci_scope.py native-source --base "$BASE_SHA"
+        run: python engineering/scripts/ci_scope.py native-candidates --base "$BASE_SHA"
 
-  native-runtime:
+  native-toolchains:
     needs: scope
-    if: needs.scope.outputs.source != ''
+    if: needs.scope.outputs.candidates != ''
     strategy:
       matrix:
         os: [macos-15, windows-2022]
@@ -68,44 +68,71 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-      actions: read
     outputs:
-      macos: ${{ steps.restore.outputs.macos }}
-      windows: ${{ steps.restore.outputs.windows }}
+      macos: ${{ steps.host.outputs.macos }}
+      windows: ${{ steps.host.outputs.windows }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
-      - name: Check the hosted image and download the archive by ID
+      - name: Identify the hosted image, Python, compilers, and SDK
+        id: host
+        run: python engineering/scripts/ci_scope.py native-toolchain --os ${{ matrix.os }}
+
+  native-runtime:
+    needs: [scope, native-toolchains]
+    if: needs.scope.outputs.candidates != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      reuse: ${{ steps.restore.outputs.reuse }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Select and verify one archive pair for both hosted toolchains
         id: restore
         env:
           GH_TOKEN: ${{ github.token }}
-          NATIVE_SOURCE: ${{ needs.scope.outputs.source }}
-        run: python engineering/scripts/ci_scope.py restore-native --os ${{ matrix.os }}
-      - name: Save the verified runtime for this run
-        if: steps.restore.outputs.macos == 'ready' || steps.restore.outputs.windows == 'ready'
+          NATIVE_CANDIDATES: ${{ needs.scope.outputs.candidates }}
+          MACOS_HOST: ${{ needs.native-toolchains.outputs.macos }}
+          WINDOWS_HOST: ${{ needs.native-toolchains.outputs.windows }}
+        run: python engineering/scripts/ci_scope.py restore-pair
+      - name: Save the verified macOS runtime
+        if: steps.restore.outputs.reuse == 'true'
         uses: actions/upload-artifact@v7
         with:
-          name: trusted-native-${{ matrix.os }}
-          path: .cache/ci-native-build/native-binaries.tar
+          name: trusted-native-macos-15
+          path: .cache/ci-native-build/macos-15/native-binaries.tar
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
+      - name: Save the verified Windows runtime
+        if: steps.restore.outputs.reuse == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: trusted-native-windows-2022
+          path: .cache/ci-native-build/windows-2022/native-binaries.tar
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
           overwrite: true
 
   native-macos:
-    needs: [scope, native-runtime]
-    if: &platform-required ${{ !cancelled() && needs.scope.result == 'success' && needs.scope.outputs.tier != 'docs' && needs.native-runtime.result != 'failure' }}
+    needs: [scope, native-toolchains, native-runtime]
+    if: &platform-required ${{ !cancelled() && needs.scope.result == 'success' && needs.scope.outputs.tier != 'docs' && !contains(needs.*.result, 'failure') }}
     name: native (macos-15)
     uses: ./.github/workflows/native.yml
     with:
       os: macos-15
       tier: ${{ needs.scope.outputs.tier }}
-      reuse: &use-pair ${{ needs.native-runtime.outputs.macos == 'ready' && needs.native-runtime.outputs.windows == 'ready' }}
+      reuse: &use-pair ${{ needs.native-runtime.outputs.reuse == 'true' }}
 
   native-windows:
-    needs: [scope, native-runtime]
+    needs: [scope, native-toolchains, native-runtime]
     if: *platform-required
     name: native (windows-2022)
     uses: ./.github/workflows/native.yml

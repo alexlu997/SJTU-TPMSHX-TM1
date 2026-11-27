@@ -100,11 +100,15 @@ def native_fingerprint(commit):
         recipe.extend([workflow.get('env'), workflow.get('defaults')])
         if filename == 'ci.yml':
             for name in ('native-macos', 'native-windows'):
-                caller = workflow['jobs'][name]
+                caller = workflow['jobs'].get(name)
+                if not caller or caller.get('uses') != './.github/workflows/native.yml':
+                    return None
                 recipe.append([caller['uses'], {k: v for k, v in caller['with'].items()
                                                 if k not in {'tier', 'reuse'}}])
         else:
-            build = workflow['jobs']['native-build']
+            build = workflow['jobs'].get('native-build')
+            if not build:
+                return None
             parallel = workflow['jobs'].get('native-qualification', build)
             scheduling = {'name', 'needs', 'if', 'timeout-minutes'}
             recipes = [{k: v for k, v in j.items() if k not in scheduling} for j in (build, parallel)]
@@ -170,18 +174,19 @@ def qualified_pair(run_id):
             return {}
         pair[platform] = dict(id=file['id'], digest=file['digest'], image=image, python=python,
                               attempt=producers[0]['run_attempt'])
-    print(f'Trusted main {run["head_sha"]}, run {run_id}, attempt {attempt}: {json.dumps(pair)}')
+    print(f'Qualified main {run["head_sha"]}, run {run_id}, attempt {attempt}: {json.dumps(pair)}')
     return pair
 
 
-def native_source(base):
-    """Find a pair of archives built by one successful push to main."""
+def native_candidates(base):
+    """Find main ancestors with the same source inputs and an available archive."""
     fingerprint = native_fingerprint('HEAD')
     print(f'Native source and recipe: {fingerprint}')
-    if not base.strip('0') or native_fingerprint(base) != fingerprint:
+    if not fingerprint or not base.strip('0') or native_fingerprint(base) != fingerprint:
         print('Native inputs changed or the base is unavailable. Build both platforms.')
-        return {}
+        return []
     repo_id = int(os.environ['GITHUB_REPOSITORY_ID'])
+    candidates = []
     # Start with existing artifacts, so documentation runs and old runs without files cost no lookup.
     for artifact in records('artifacts?name=native-build-macos-15', 'artifacts'):
         origin = artifact['workflow_run']
@@ -191,28 +196,15 @@ def native_source(base):
         sha = origin['head_sha']
         if subprocess.run(['git', 'merge-base', '--is-ancestor', sha, base]).returncode:
             continue
-        if native_fingerprint(sha) != fingerprint:
-            continue
-        run_id = origin['id']
-        try:
-            pair = qualified_pair(run_id)
-        except HTTPError as error:
-            if error.code not in {404, 410}:
-                raise
-            print(f'Main run {run_id} or its build evidence is no longer available.')
-            continue
-        if pair:
-            return pair
-    print('No complete, unexpired pair from a matching successful main build. Build both platforms.')
-    return {}
+        if native_fingerprint(sha) == fingerprint:
+            candidates.append(origin['id'])
+    if not candidates:
+        print('Matching main artifacts are missing or expired. Build both platforms.')
+    return candidates
 
 
-def matching_compiler_and_sdk(archive, platform):
+def hosted_toolchain(platform):
     host = 'macos-arm64' if platform == 'macos-15' else 'windows-x64'
-    with tarfile.open(archive) as runtime:
-        record = json.load(runtime.extractfile(f'coolprop-{host}/coolprop-build.json'))
-    compilers = {t['language']: t['compiler'] for t in record['toolchains']}
-    expected = [f'{compilers[lang]["id"]} {compilers[lang]["version"]}' for lang in ('C', 'CXX')]
     lock = tomllib.loads(Path('engineering/native_build/dependencies-lock.toml').read_text())
     generator = lock['cmake'][host]['generator']
     with tempfile.TemporaryDirectory() as directory:
@@ -228,22 +220,16 @@ def matching_compiler_and_sdk(archive, platform):
     if host == 'macos-arm64':
         sdk_path = subprocess.check_output(['xcrun', '--sdk', 'macosx', '--show-sdk-path'], text=True).strip()
         actual.append(json.loads((Path(sdk_path) / 'SDKSettings.json').read_text())['Version'])
-        sdk = [s['version'] for s in record['sdk']['sdk_settings']]
-    else:
-        sdk = record['sdk']['windows_target_platform_versions']
-    expected.extend(dict.fromkeys(sdk))
-    print(f'{host}, {generator}: current {actual}, archive {expected}')
-    return actual == expected
-
-
-def restore_native(platform, source):
     minor = f'{sys.version_info.major}.{sys.version_info.minor}'
-    host = f'{os.environ["RUNNER_OS"]}-{os.environ["RUNNER_ARCH"]}-py{minor}-{os.environ["ImageVersion"]}'
-    python = '.'.join(map(str, sys.version_info[:3]))
-    if (host, python) != (source['image'], source['python']):
-        print(f'Hosted toolchain changed ({host}, Python {python}). Build both platforms.')
-        return False
-    archive = Path('.cache/ci-native-build/native-binaries.tar')
+    image = f'{os.environ["RUNNER_OS"]}-{os.environ["RUNNER_ARCH"]}-py{minor}-{os.environ["ImageVersion"]}'
+    tools = dict(host=host, image=image, python='.'.join(map(str, sys.version_info[:3])),
+                 generator=generator, compiler_sdk=actual)
+    print(f'Hosted toolchain: {json.dumps(tools)}')
+    return tools
+
+
+def restore_native(platform, source, tools):
+    archive = Path('.cache/ci-native-build') / platform / 'native-binaries.tar'
     with tempfile.TemporaryFile() as download:
         try:
             with github(f'artifacts/{source["id"]}/zip') as response:
@@ -251,7 +237,7 @@ def restore_native(platform, source):
         except HTTPError as error:
             if error.code not in {404, 410}:
                 raise
-            print(f'Artifact {source["id"]} is missing or expired. Build both platforms.')
+            print(f'Artifact {source["id"]} is missing or expired.')
             return False
         download.seek(0)
         if 'sha256:' + hashlib.file_digest(download, 'sha256').hexdigest() != source['digest']:
@@ -260,11 +246,40 @@ def restore_native(platform, source):
             archive.parent.mkdir(parents=True, exist_ok=True)
             with archive.open('wb') as output:
                 shutil.copyfileobj(contents, output)
-    if not matching_compiler_and_sdk(archive, platform):
-        print('The compiler or SDK changed. Build both platforms.')
+    with tarfile.open(archive) as runtime:
+        record = json.load(runtime.extractfile(f'coolprop-{tools["host"]}/coolprop-build.json'))
+    compilers = {t['language']: t['compiler'] for t in record['toolchains']}
+    expected = [f'{compilers[lang]["id"]} {compilers[lang]["version"]}' for lang in ('C', 'CXX')]
+    sdk = record['sdk']
+    versions = ([s['version'] for s in sdk['sdk_settings']] if platform == 'macos-15'
+                else sdk['windows_target_platform_versions'])
+    expected.extend(dict.fromkeys(versions))
+    if expected != tools['compiler_sdk'] or sdk['cmake_cache']['CMAKE_GENERATOR'] != tools['generator']:
+        print(f'{platform}: archive compiler or SDK differs ({expected}, current {tools["compiler_sdk"]}).')
         return False
-    print(f'Validated {platform} artifact {source["id"]} ({source["digest"]}) on {host}, Python {python}.')
+    print(f'Validated {platform} artifact {source["id"]} ({source["digest"]}), {expected}.')
     return True
+
+
+def restore_pair(candidates, hosts):
+    for run_id in candidates:
+        try:
+            pair = qualified_pair(run_id)
+        except HTTPError as error:
+            if error.code not in {404, 410}:
+                raise
+            print(f'Main run {run_id} or its build evidence is no longer available.')
+            continue
+        if not pair:
+            continue
+        if any(pair[p][k] != hosts[p][k] for p in PLATFORMS for k in ('image', 'python')):
+            print(f'Main run {run_id} has a different hosted image or Python version.')
+            continue
+        if all(restore_native(p, pair[p], hosts[p]) for p in PLATFORMS):
+            print(f'Use both verified native archives from main run {run_id}.')
+            return True
+    print('No complete, unexpired main pair matches both toolchains. Build both platforms.')
+    return False
 
 
 def job_output(name, value):
@@ -279,10 +294,11 @@ def main():
     select.add_argument('--event', required=True)
     select.add_argument('--base', default='')
     select.add_argument('--head', default='')
-    source = commands.add_parser('native-source')
+    source = commands.add_parser('native-candidates')
     source.add_argument('--base', required=True)
-    restore = commands.add_parser('restore-native')
-    restore.add_argument('--os', choices=PLATFORMS, required=True)
+    host = commands.add_parser('native-toolchain')
+    host.add_argument('--os', choices=PLATFORMS, required=True)
+    commands.add_parser('restore-pair')
     gate = commands.add_parser('gate')
     gate.add_argument('--tier', required=True, choices=TIERS)
     gate.add_argument('--stage', required=True, choices=('summary', 'minimal'))
@@ -296,12 +312,16 @@ def main():
             if diff.returncode == 0:
                 paths = [path for path in diff.stdout.split('\0') if path]
         print(select_scope(args.event, paths))
-    elif args.action == 'native-source':
-        pair = native_source(args.base)
-        job_output('source', json.dumps(pair) if pair else '')
-    elif args.action == 'restore-native':
-        if restore_native(args.os, json.loads(os.environ['NATIVE_SOURCE'])[args.os]):
-            job_output(args.os.split('-')[0], 'ready')
+    elif args.action == 'native-candidates':
+        runs = native_candidates(args.base)
+        job_output('candidates', json.dumps(runs) if runs else '')
+    elif args.action == 'native-toolchain':
+        job_output(args.os.split('-')[0], json.dumps(hosted_toolchain(args.os)))
+    elif args.action == 'restore-pair':
+        hosts = {'macos-15': json.loads(os.environ['MACOS_HOST']),
+                 'windows-2022': json.loads(os.environ['WINDOWS_HOST'])}
+        if restore_pair(json.loads(os.environ['NATIVE_CANDIDATES']), hosts):
+            job_output('reuse', 'true')
     else:
         require_jobs(args.tier, json.loads(os.environ['NEEDS_JSON']), args.stage)
 
