@@ -1,4 +1,3 @@
-// CI measurement: this source change requires a new native build.
 #include "classical_amg.hpp"
 #if defined(__APPLE__) && defined(__clang__)
 // The locked macOS SciPy/PyAMG wheels contract these original sparse kernels.
