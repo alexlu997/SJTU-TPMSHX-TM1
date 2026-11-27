@@ -53,7 +53,7 @@ def test_success_replaces_previous_report_with_both_sheets(tmp_path):
         assert summary[1][summary[0].index('可行')] == '是'
         details = list(workbook['算例明细'].values)
         row = dict(zip(details[0], details[1]))
-        assert row['工况'] == 3
+        assert row['算例'] == 3
         assert row['换热量_kW'] == 1.25
         assert row['冷侧绝对压损_Pa'] == 200.
     finally:
