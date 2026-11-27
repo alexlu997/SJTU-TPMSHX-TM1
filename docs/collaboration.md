@@ -301,7 +301,7 @@ If the user names no other coordinator, the owner is the coordinator.
    An open failure outside the write scope needs a recorded next action.
    After review approval, a CI repair needs no new review round if all of these conditions are true:
    - It changes only existing test files under `tests/`. It does not change production code.
-   - The repair commits add and delete 10 lines or fewer in total. Add the `git diff --numstat` counts
+   - All repair commits after the approved head add and delete 10 lines or fewer in total. Add the `git diff --numstat` counts
      of each repair commit against its first parent. Do not count merges of `origin/main`.
    - It does not remove a check, weaken an assertion, change a tolerance or a contract value,
      or add `skip` or `xfail`.
