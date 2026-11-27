@@ -237,10 +237,11 @@ def toast(parent, text, kind="success", duration_ms=2200, copy_payload=None):
     x = parent_w - w - margin
     y_off = parent_h - h - margin - 40  # final rest pos
 
-    if is_reduced_motion():
+    if is_reduced_motion() or not parent.isVisible():
         pill.setGeometry(x, y_off, w, h)
-        pill.show()
-        pill.raise_()
+        if parent.isVisible():
+            pill.show()
+            pill.raise_()
         from PySide6.QtCore import QTimer
         QTimer.singleShot(max(0, duration_ms), pill, pill.deleteLater)
         return pill

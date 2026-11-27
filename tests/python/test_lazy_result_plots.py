@@ -71,10 +71,10 @@ def test_first_plot_lazy_switch_and_export_use_current_selection(win, monkeypatc
     # it and save this run's selected phase/slice, not a previous canvas.
     options = []
     def pick(parent, title, label, items, *args):
-        if title == 'Export Figure':
+        if title == '导出图像':
             options.extend(items)
             return '速度', True
-        return '150 (screen)', True
+        return '150（屏幕）', True
 
     path = tmp_path / 'velocity.png'
     monkeypatch.setattr(result_export.QInputDialog, 'getItem', pick)
@@ -156,7 +156,7 @@ def test_failed_visible_redraw_clears_old_plot_and_same_tab_retries(win, monkeyp
     assert not win.canvas_temp.fig.axes
     assert win.canvas_temp._hover_data is None
     assert 'temp' not in win.cache.get_drawn_tabs()
-    assert '场图显示失败' in win.statusBar().currentMessage()
+    assert '场图显示失败' in win.dialogs.last_notice
     win.workbench.switch_tab('temp')
     assert attempts == ['temp', 'temp']
     assert 'temp' in win.cache.get_drawn_tabs()

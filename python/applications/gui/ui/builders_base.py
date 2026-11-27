@@ -18,6 +18,11 @@ class MenuToolButton(QToolButton):
         self.setFixedHeight(36)
         self.setIconSize(QSize(18, 18))
         self.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+        self.apply_button_style(style)
+
+    def apply_button_style(self, style: str) -> None:
+        """Apply button styling while preserving right chevron padding and hiding Qt's indicator."""
+        self._menu_chevron = icon('chevron-down', get_theme()['sub_fg'])
         self.setStyleSheet(
             style.replace('QPushButton', 'QToolButton')
             + 'QToolButton{padding:3px 26px 3px 10px;}'

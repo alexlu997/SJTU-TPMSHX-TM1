@@ -136,8 +136,11 @@ class SingleRun(QObject):
         started = self._start(config, directory, provenance, checkpoint_interval=60.,
                               saved_provenance=provenance, grid_cells=grid_cells)
         if started and config.is_3d:
-            window.statusBar().showMessage(
-                f"Computing 3D ({label} = {grid_cells:,} cells, compressible dual-fluid SIMPLE)…")
+            window.dialogs.notify(
+                f"正在求解三维算例（{label} = {grid_cells:,} 网格）…",
+                kind="info",
+                duration_ms=4000,
+            )
 
     def resume(self, checkpoint_file=None):
         """Use the saved configuration and keep the current draft."""
@@ -181,7 +184,9 @@ class SingleRun(QObject):
         directory = path.parent.parent / ('run-' + uuid4().hex)
         if self._start(config, directory, provenance, checkpoint_interval=interval,
                        saved_provenance=source, resume_checkpoint=(path, saved, case)):
-            window.statusBar().showMessage(f'正在继续已保存算例，结果目录：{directory}')
+            window.dialogs.notify(
+                f'正在继续已保存算例，结果目录：{directory}', kind="info", duration_ms=5000
+            )
 
     def _start(self, config, directory, provenance, *, checkpoint_interval, saved_provenance,
                grid_cells=None, resume_checkpoint=None):
@@ -229,7 +234,6 @@ class SingleRun(QObject):
         window.btn_compute.setIcon(icon('square', get_theme()['primary_fg']))
         window.btn_compute.setEnabled(True)
         window._empty_state_label.hide()
-        window.statusBar().showMessage("Computing…")
         self._ticker.start()
         from sjtu_tpmshx.applications.gui.ui.builders_sidebar import refresh_header_status
         refresh_header_status(window)
@@ -259,12 +263,12 @@ class SingleRun(QObject):
             timeout = 1800
             if elapsed > timeout:
                 self.cancel()
-                window.statusBar().showMessage(
-                    f"3D compute exceeded {timeout}s budget — auto-cancelling at next checkpoint.", 8000)
+                window.dialogs.notify(
+                    f"三维求解超出 {timeout}s 预算，将在下一个检查点自动取消。",
+                    kind="warn",
+                    duration_ms=8000,
+                )
                 return
-            note = f" • {self._iteration_label}" if self._iteration_label else ''
-            window.statusBar().showMessage(
-                f"Computing 3D… {duration(elapsed)} elapsed ({self._grid_cells:,} cells){note} • solver running")
         suffix = f"  ·  {self._iteration_label}" if self._iteration_label else ''
         window.btn_compute.setText(f"取消  ·  {duration(elapsed)}{suffix}")
 
@@ -280,8 +284,9 @@ class SingleRun(QObject):
         self.window._run_status_card.request_cancel()
         self.window.btn_compute.setEnabled(False)
         self.window.btn_compute.setText("正在取消…")
-        self.window.statusBar().showMessage(
-            "Cancel requested — waiting for solver to finish current sweep…", 6000)
+        self.window.dialogs.notify(
+            "已请求取消 — 等待求解器完成当前计算步…", kind="info", duration_ms=5000
+        )
 
     @Slot()
     def pause(self):
@@ -289,7 +294,9 @@ class SingleRun(QObject):
             return
         self.compute.pause()
         self.window._run_status_card.request_pause()
-        self.window.statusBar().showMessage("正在等待完整迭代步，保存后暂停。")
+        self.window.dialogs.notify(
+            "正在等待完整迭代步，保存后暂停。", kind="info", duration_ms=5000
+        )
 
     def _begin_terminal(self):
         if self._state != 'running':
@@ -360,9 +367,9 @@ class SingleRun(QObject):
             return
         if self.compute.current_mode() == '3d':
             self.window.workbench.update_tab_visibility()
-            self.window.statusBar().showMessage("3D compute aborted (cancelled or timed-out).", 6000)
+            self.window.dialogs.notify("三维计算已取消或超时中止。", kind="warn", duration_ms=6000)
         else:
-            self.window.statusBar().showMessage("Cancelled.", TOAST_MS_SHORT)
+            self.window.dialogs.notify("已取消计算。", kind="info", duration_ms=TOAST_MS_SHORT)
 
     @Slot(str, str)
     def _paused(self, checkpoint_file, log_text):
@@ -371,19 +378,27 @@ class SingleRun(QObject):
         self.checkpoint_file = checkpoint_file
         self._finish('paused', f'可从载入菜单继续本次计算：{checkpoint_file}')
         if not self.window._close_pending:
-            self.window.statusBar().showMessage(f"已保存并暂停：{checkpoint_file}")
+            self.window.dialogs.notify(
+                f"已保存并暂停：{checkpoint_file}", kind="info", duration_ms=5000
+            )
 
     def _finish(self, state, message):
         try:
             if self.window._close_pending:
                 return
+            from sjtu_tpmshx.applications.gui.ui.field_results import recorded_elapsed_s
+
             window = self.window
             window.btn_compute.setEnabled(False)
             elapsed = perf_counter() - self._started_at
+            total_elapsed = None
+            solve_elapsed = None
             success = state == 'success'
             if success:
                 result = window.cache.get_result()
-                elapsed = self.compute.last_elapsed() + result.metadata['timings_s']['display']
+                total_elapsed = self.compute.last_elapsed() + result.metadata['timings_s']['display']
+                solve_elapsed = recorded_elapsed_s(result)
+                elapsed = solve_elapsed if isinstance(solve_elapsed, (int, float)) else total_elapsed
                 notices = set(result.warnings + result.extrap_reasons)
                 view_missing = self.compute.current_mode() == '3d' and window.workbench.volume_error
                 if not result.converged:
@@ -406,10 +421,14 @@ class SingleRun(QObject):
             window._run_status_card.finish(state, elapsed, log_available=bool(self.compute.last_log().strip()),
                                            message=message)
             if success:
-                from sjtu_tpmshx.applications.gui.ui.microanim import pulse_glow, toast
+                from sjtu_tpmshx.applications.gui.ui.microanim import pulse_glow
                 window.progress.setValue(100)
                 self._hide_progress.start(500)
-                toast(window, f"Compute done · {duration(elapsed)}", kind='success')
+                if isinstance(solve_elapsed, (int, float)):
+                    done_msg = f"计算完成 · 求解耗时 {duration(solve_elapsed)}"
+                else:
+                    done_msg = f"计算完成 · 端到端 {duration(elapsed)}"
+                window.dialogs.notify(done_msg, kind='success')
                 if window.workbench.active_tab == 'layout' and window.btn_tab_result.isEnabled():
                     pulse_glow(window.btn_tab_result, color=get_theme()['accent_primary'],
                                blur_peak=22, duration_ms=700)
@@ -443,10 +462,12 @@ class SingleRun(QObject):
                   if fluid.mass_flow_kg_s is None]
         if any(speed > HIGH_VELOCITY_NOTICE_MS for _, speed in speeds):
             values = ", ".join(f"u_{side}={speed:.1f}" for side, speed in speeds)
-            self.window.statusBar().showMessage(
+            self.window.dialogs.notify(
                 f"入口速度较高：{values} m/s。"
                 "请关注收敛与压降；适用范围以当前模型检查为准。",
-                15000)
+                kind="warn",
+                duration_ms=10000,
+            )
 
     def _preflight_3d(self, compute_cfg):
         """Confirm large grids from the captured total cell counts."""
@@ -578,11 +599,8 @@ class SingleRun(QObject):
                 report.warnings.append(warning.message)
 
         if not report.errors and not report.warnings:
-            # Still surface info in the status bar so the user knows the
-            # effective grid size even when everything passes.
             if report.info:
-                self.window.statusBar().showMessage(
-                    " · ".join(report.info[:2]), 6000)
+                self.window.dialogs.notify(" · ".join(report.info[:2]), kind="info", duration_ms=5000)
             return True
 
         import html as _h

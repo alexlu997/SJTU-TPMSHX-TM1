@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
 
@@ -25,15 +26,15 @@ class ResultExport:
         # Export accepted numerical data independently of renderer readiness.
         has_3d = res_3d is not None
         if res_2d is None and not has_3d:
-            QMessageBox.information(window, "No Results",
-                "Run Compute first to generate exportable results.")
+            QMessageBox.information(window, "暂无结果",
+                "请先运行计算以生成可导出的结果。")
             return
         # File dialogs process worker completion signals. Keep the accepted
         # object selected at click time even if another result is published.
         result = res_3d if res_3d is not None else res_2d
         path, _ = QFileDialog.getSaveFileName(
-            window, "Export Results", "results.csv",
-            "CSV (*.csv);;All Files (*)")
+            window, "导出计算结果", "results.csv",
+            "CSV 文件 (*.csv);;所有文件 (*)")
         if not path:
             return
         try:
@@ -115,26 +116,52 @@ class ResultExport:
                 if res_3d is not None:
                     import numpy as _np_exp
                     _np_exp.savez_compressed(stage / npz_path.name, **save_dict)
-            window.statusBar().showMessage(f"Exported: {path}", TOAST_MS_MED)
+            window.dialogs.notify(f"已导出：{path}", kind="success", duration_ms=TOAST_MS_MED)
         except Exception as e:
-            window.statusBar().showMessage(f"Export failed: {path}", TOAST_MS_MED)
-            QMessageBox.critical(window, "Export Error", str(e))
+            window.dialogs.notify(f"导出失败：{path}", kind="error", duration_ms=TOAST_MS_MED)
+            QMessageBox.critical(window, "导出失败", str(e))
 
-    def refresh_export_button(self):
+    def single_3d_ready(self) -> bool:
+        """Return True when the single-run 3D volume panel is rendered and capturable."""
         window = self.window
-        button = getattr(window, 'btn_export', None)
-        if button is not None:
-            button.setEnabled(window.cache.has_any_results()
-                              or bool(window.cache.get_drawn_tabs())
-                              or window.optimization.pareto_ready()
-                              or window.optimization.field_ready()
-                              or window.optimization.volume_ready())
+        panel = getattr(window, 'canvas_3d', None)
+        return bool(
+            window.workbench.volume_ready
+            and panel is not None
+            and getattr(panel, 'plotter', None) is not None
+        )
 
-    def copy_figure_clipboard(self):
-        """Copy the currently active canvas image to the system clipboard
-        (ui-batch4 ③) — one click from result plot to WeChat / PPT.
-        Matplotlib canvases use widget.grab(); VTK needs its own screenshot
-        because Qt grabs do not reliably capture the OpenGL surface."""
+    def available_figure_entries(self) -> list[tuple[str, str]]:
+        """Return ``(label, key)`` pairs for every currently exportable figure."""
+        window = self.window
+        all_items = [
+            ("温度", 'temp'),
+            ("压力", 'pres'),
+            ("速度", 'vel'),
+            ("三维视图", '3d'),
+            ("几何布局", 'layout'),
+            ("Pareto / 优化", 'pareto'),
+            ("优化尺寸/壁厚场", 'opt_field'),
+            ("优化三维场", 'opt_3d'),
+        ]
+        available = set(window.cache.get_drawn_tabs())
+        if self.single_3d_ready():
+            available.add('3d')
+        else:
+            available.discard('3d')
+        if window.optimization.pareto_ready():
+            available.add('pareto')
+        if window.optimization.field_ready():
+            available.add('opt_field')
+        if window.optimization.volume_ready():
+            available.add('opt_3d')
+        if (window.cache.get_result('2d') is not None
+                or window.cache.get_result('3d') is not None):
+            available.update(('temp', 'pres', 'vel'))
+        return [(name, key) for name, key in all_items if key in available]
+
+    def _active_copy_target(self) -> tuple[str, object, bool]:
+        """Resolve ``(tab_key, canvas_or_panel, is_ready)`` for the active workbench view."""
         window = self.window
         tab = window.workbench.active_tab
         if tab == '2d_view':
@@ -145,27 +172,81 @@ class ResultExport:
                 tab = 'opt_field'
             elif current is window.optimization.volume_host:
                 tab = 'opt_3d'
-        if tab in ('temp', 'pres', 'vel'):
+        canvas = {
+            'temp': getattr(window, 'canvas_temp', None),
+            'pres': getattr(window, 'canvas_pres', None),
+            'vel': getattr(window, 'canvas_vel', None),
+            '3d': getattr(window, 'canvas_3d', None),
+            'layout': getattr(window, 'canvas_layout', None),
+            'pareto': window.optimization.pareto_canvas,
+            'opt_field': window.optimization.field_canvas,
+            'opt_3d': window.optimization.volume_panel,
+        }.get(tab)
+        if tab == 'pareto':
+            ready = window.optimization.pareto_ready()
+        elif tab == 'opt_field':
+            ready = window.optimization.field_ready()
+        elif tab == 'opt_3d':
+            ready = window.optimization.volume_ready()
+        elif tab == '3d':
+            ready = self.single_3d_ready()
+        elif tab in ('temp', 'pres', 'vel'):
+            ready = (
+                tab in window.cache.get_drawn_tabs()
+                or window.cache.get_result('2d') is not None
+                or window.cache.get_result('3d') is not None
+            )
+        else:
+            ready = tab in window.cache.get_drawn_tabs()
+        return tab, canvas, bool(canvas is not None and ready)
+
+    def can_copy_current_figure(self) -> bool:
+        """Return True when the active workbench view has a capturable image."""
+        _, _, ready = self._active_copy_target()
+        return ready
+
+    def refresh_export_button(self):
+        window = self.window
+        has_results = window.cache.has_any_results()
+        has_figures = bool(self.available_figure_entries())
+        can_copy = self.can_copy_current_figure()
+        button = getattr(window, 'btn_export', None)
+        if button is not None:
+            button.setEnabled(has_results or has_figures)
+        act_results = getattr(window, '_act_export_results', None)
+        if act_results is not None:
+            act_results.setEnabled(has_results)
+        act_fig = getattr(window, '_act_export_figure', None)
+        if act_fig is not None:
+            act_fig.setEnabled(has_figures)
+        btn_drawer_fig = getattr(window, '_btn_drawer_export_figure', None)
+        if btn_drawer_fig is not None:
+            btn_drawer_fig.setEnabled(has_figures)
+        act_copy = getattr(window, '_act_copy_figure', None)
+        if act_copy is not None:
+            act_copy.setEnabled(can_copy)
+
+    def copy_figure_clipboard(self):
+        """Copy the currently active canvas image to the system clipboard
+        (ui-batch4 ③) — one click from result plot to WeChat / PPT.
+        Matplotlib canvases use widget.grab(); VTK needs its own screenshot
+        because Qt grabs do not reliably capture the OpenGL surface."""
+        window = self.window
+        tab, canvas, ready = self._active_copy_target()
+        if tab in ('temp', 'pres', 'vel') and ready:
             from sjtu_tpmshx.applications.gui.ui.plot_2d_results import ensure_result_plot
             if not ensure_result_plot(window, tab):
                 return
-        canvas = {'temp': getattr(window, 'canvas_temp', None),
-                  'pres': getattr(window, 'canvas_pres', None),
-                  'vel': getattr(window, 'canvas_vel', None),
-                  'layout': getattr(window, 'canvas_layout', None),
-                  'pareto': window.optimization.pareto_canvas,
-                  'opt_field': window.optimization.field_canvas,
-                  'opt_3d': window.optimization.volume_panel}.get(tab)
-        ready = (window.optimization.pareto_ready() if tab == 'pareto'
-                 else window.optimization.field_ready() if tab == 'opt_field'
-                 else window.optimization.volume_ready() if tab == 'opt_3d'
-                 else tab in window.cache.get_drawn_tabs())
+            ready = tab in window.cache.get_drawn_tabs()
         if canvas is None or not ready:
-            window.statusBar().showMessage("当前无可复制的图像 — 请先计算或预览。",
-                                         TOAST_MS_SHORT)
+            window.dialogs.notify(
+                "当前无可复制的图像 — 请先计算或预览。",
+                kind="warn",
+                duration_ms=TOAST_MS_SHORT,
+            )
             return
         from PySide6.QtGui import QGuiApplication
-        if tab == 'opt_3d':
+        if tab in ('3d', 'opt_3d'):
             import numpy as np
             from PySide6.QtGui import QImage
             try:
@@ -176,48 +257,48 @@ class ResultExport:
                 image = QImage(pixels.data, pixels.shape[1], pixels.shape[0],
                                pixels.strides[0], image_format).copy()
             except Exception as e:
-                QMessageBox.warning(window, "Copy failed", str(e))
+                QMessageBox.warning(window, "复制失败", str(e))
                 return
         else:
             image = canvas.grab().toImage()
         QGuiApplication.clipboard().setImage(image)
-        window.statusBar().showMessage(f"已复制 {tab} 图像到剪贴板。", TOAST_MS_SHORT)
+        window.dialogs.notify(
+            f"已复制 {tab} 图像到剪贴板。",
+            kind="success",
+            duration_ms=TOAST_MS_SHORT,
+        )
 
     def export_figure(self):
         """Export a 2D figure with DPI/metadata, or a native 3D PNG screenshot."""
         window = self.window
-        all_items = [("温度", 'temp'), ("压力", 'pres'),
-                     ("速度", 'vel'), ("几何布局", 'layout'),
-                     ("Pareto / 优化", 'pareto'), ("优化尺寸/壁厚场", 'opt_field'),
-                     ("优化三维场", 'opt_3d')]
-        tab_canvas = {'temp': window.canvas_temp, 'pres': window.canvas_pres,
-                      'vel': window.canvas_vel, 'layout': window.canvas_layout,
-                      'pareto': window.optimization.pareto_canvas, 'opt_field': window.optimization.field_canvas,
-                      'opt_3d': window.optimization.volume_panel}
-        drawn = window.cache.get_drawn_tabs()
-        available = set(drawn)
-        if window.optimization.pareto_ready():
-            available.add('pareto')
-        if window.optimization.field_ready():
-            available.add('opt_field')
-        if window.optimization.volume_ready():
-            available.add('opt_3d')
-        if (window.cache.get_result('2d') is not None
-                or window.cache.get_result('3d') is not None):
-            available.update(('temp', 'pres', 'vel'))
-        items = [name for name, key in all_items if key in available]
-        tab_keys = [key for name, key in all_items if key in available]
+        tab_canvas = {
+            'temp': window.canvas_temp,
+            'pres': window.canvas_pres,
+            'vel': window.canvas_vel,
+            '3d': getattr(window, 'canvas_3d', None),
+            'layout': window.canvas_layout,
+            'pareto': window.optimization.pareto_canvas,
+            'opt_field': window.optimization.field_canvas,
+            'opt_3d': window.optimization.volume_panel,
+        }
+        entries = self.available_figure_entries()
+        items = [name for name, _key in entries]
+        tab_keys = [key for _name, key in entries]
         if not items:
-            window.statusBar().showMessage("No figures to export yet.", TOAST_MS_SHORT)
+            window.dialogs.notify(
+                "当前没有可导出的图像。",
+                kind="warn",
+                duration_ms=TOAST_MS_SHORT,
+            )
             return
         choice, ok = QInputDialog.getItem(
-            window, "Export Figure", "Select figure to export:",
+            window, "导出图像", "选择要导出的图像：",
             items, 0, False)
         if not ok:
             return
         key = tab_keys[items.index(choice)]
         canvas = tab_canvas[key]
-        if key == 'opt_3d':
+        if key in ('3d', 'opt_3d'):
             try:
                 canvas._on_screenshot()
             except Exception as e:
@@ -225,18 +306,21 @@ class ResultExport:
             return
 
         # DPI picker — common research-paper presets.
-        dpi_items = ["150 (screen)", "300 (print)",
-                     "450 (publication)", "600 (poster)"]
+        dpi_items = ["150（屏幕）", "300（打印）",
+                     "450（论文）", "600（海报）"]
         dpi_choice, ok2 = QInputDialog.getItem(
-            window, "Resolution", "DPI:", dpi_items, 1, False)
+            window, "分辨率", "输出分辨率（DPI）：", dpi_items, 1, False)
         if not ok2:
             return
-        dpi = int(dpi_choice.split()[0])
+        m_dpi = re.match(r"\s*(\d+)", str(dpi_choice))
+        if m_dpi is None:
+            return
+        dpi = int(m_dpi.group(1))
 
         default = f"SJTU-TPMSHX_{key}_{dpi}dpi.png"
         path, _ = QFileDialog.getSaveFileName(
-            window, "Export Figure", default,
-            "PNG (*.png);;SVG (*.svg);;PDF (*.pdf);;All Files (*)")
+            window, "导出图像", default,
+            "PNG 图像 (*.png);;SVG 矢量图 (*.svg);;PDF 文档 (*.pdf);;所有文件 (*)")
         if not path:
             return
         try:
@@ -278,7 +362,10 @@ class ResultExport:
             with publication_export_fonts(canvas.fig):
                 canvas.fig.savefig(path, **save_kwargs)
             canvas.draw_idle()
-            window.statusBar().showMessage(
-                f"Exported {dpi} DPI → {path}", 6000)
+            window.dialogs.notify(
+                f"已导出 {dpi} DPI 图像：{path}",
+                kind="success",
+                duration_ms=6000,
+            )
         except Exception as e:
-            QMessageBox.warning(window, "Export failed", str(e))
+            QMessageBox.warning(window, "导出失败", str(e))

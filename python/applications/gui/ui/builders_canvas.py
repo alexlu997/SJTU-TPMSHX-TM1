@@ -56,18 +56,9 @@ _PHASE_CODE_FOR_VAL = {0: "A", 1: "B", 2: "solid"}
 
 def _available_3d_panel_fields(window) -> set[str]:
     panel = getattr(window, "canvas_3d", None)
-    arrays = getattr(panel, "_arrays", None) if panel is not None else None
-    if isinstance(arrays, dict) and arrays:
-        return set(arrays.keys())
-    result = window.cache.get_result("3d")
-    if result is None:
+    if panel is None:
         return set()
-    fields = result.fields or {}
-    return {
-        spec.panel_key
-        for spec in PANEL_FIELD_SPECS.values()
-        if fields.get(spec.key) is not None
-    }
+    return set(panel.available_fields())
 
 
 def _resolve_3d_panel_field(
@@ -90,7 +81,7 @@ def _select_3d_header_field(
     if panel is None:
         return False
     avail = _available_3d_panel_fields(window)
-    cur_spec = PANEL_FIELD_SPECS.get(getattr(panel, "_field", None))
+    cur_spec = PANEL_FIELD_SPECS.get(panel.active_field())
     target_qty = quantity or (cur_spec.quantity if cur_spec is not None else "temperature")
     target_phase = phase_code if phase_code is not None else (
         cur_spec.phase if cur_spec is not None else "A"
@@ -98,16 +89,7 @@ def _select_3d_header_field(
     target_key = _resolve_3d_panel_field(avail, target_qty, target_phase)
     if target_key is None:
         return False
-    if hasattr(panel, "select_field"):
-        ok = bool(panel.select_field(target_key))
-    else:
-        combo = getattr(panel, "combo_field", None)
-        idx = combo.findData(target_key) if combo is not None else -1
-        if idx >= 0:
-            combo.setCurrentIndex(idx)
-            ok = True
-        else:
-            ok = False
+    ok = bool(panel.select_field(target_key))
     refresh_field_controls(window)
     return ok
 
@@ -116,7 +98,7 @@ def _active_cmap_quantity(window) -> tuple[str, str]:
     tab = window.workbench.active_tab
     if tab == "3d":
         panel = getattr(window, "canvas_3d", None)
-        field_3d = getattr(panel, "_field", None) if panel is not None else None
+        field_3d = panel.active_field() if panel is not None else None
         spec = PANEL_FIELD_SPECS.get(field_3d)
         if spec is not None:
             return spec.quantity, _QTY_LABELS.get(spec.quantity, "温度")
@@ -160,7 +142,7 @@ def _open_colormap_popover(window) -> None:
                 )
                 return
             _apply_colormap_refresh(window)
-            window.statusBar().showMessage(f"已切换色阶：{cmap_name}", 3000)
+            window.dialogs.notify(f"已切换色阶：{cmap_name}", kind="info", duration_ms=3000)
 
         def _on_reset() -> None:
             q_key, _ = _active_cmap_quantity(window)
@@ -172,7 +154,7 @@ def _open_colormap_popover(window) -> None:
                 return
             pop.set_colormap(resolve_cmap(q_key))
             _apply_colormap_refresh(window)
-            window.statusBar().showMessage("已恢复默认色阶", 3000)
+            window.dialogs.notify("已恢复默认色阶", kind="info", duration_ms=3000)
 
         pop.colormap_selected.connect(_on_select)
         pop.sync_temp_scale_changed.connect(window.chk_sync_colorbar_T.setChecked)
@@ -299,7 +281,7 @@ def _build_canvas_toolbar(window, vlay, t, theme):
         design_btn = getattr(window, "_3d_design_field_btn", None)
         if window.workbench.active_tab == "3d":
             panel = getattr(window, "canvas_3d", None)
-            spec = PANEL_FIELD_SPECS.get(getattr(panel, "_field", None)) if panel is not None else None
+            spec = PANEL_FIELD_SPECS.get(panel.active_field()) if panel is not None else None
             cur_qty = spec.quantity if spec is not None else None
             for j, b in enumerate(window._2d_field_btns):
                 b.setStyleSheet(seg_on_qss if _QTY_KEYS[j] == cur_qty else seg_off_qss)
@@ -506,8 +488,13 @@ def _build_canvas_toolbar(window, vlay, t, theme):
     window._act_export_results = ex_menu.addAction(
         "导出完整结果 — CSV", window.result_export.export_results
     )
-    ex_menu.addAction("导出图像 — PNG / SVG / PDF", window.result_export.export_figure)
-    ex_menu.addAction("复制当前图像", window.result_export.copy_figure_clipboard)
+    window._act_export_figure = ex_menu.addAction(
+        "导出图像 — PNG / SVG / PDF", window.result_export.export_figure
+    )
+    window._act_copy_figure = ex_menu.addAction(
+        "复制当前图像", window.result_export.copy_figure_clipboard
+    )
+    ex_menu.aboutToShow.connect(window.result_export.refresh_export_button)
     btn_export.setMenu(ex_menu)
     window.btn_export = btn_export
 
@@ -550,7 +537,7 @@ def refresh_field_controls(window):
     if is_3d_tab:
         avail = _available_3d_panel_fields(window)
         panel = getattr(window, "canvas_3d", None)
-        cur_spec = PANEL_FIELD_SPECS.get(getattr(panel, "_field", None)) if panel is not None else None
+        cur_spec = PANEL_FIELD_SPECS.get(panel.active_field()) if panel is not None else None
         cur_qty = cur_spec.quantity if cur_spec is not None else None
         cur_phase = cur_spec.phase if cur_spec is not None else None
 

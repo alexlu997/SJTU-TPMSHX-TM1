@@ -459,6 +459,30 @@ def test_numeric_inputs_rule_a_left_aligned_with_unit_suffix(win):
     assert win.le_L.unit() == 'm'
     assert win.le_Nx.alignment() & _Qt.AlignmentFlag.AlignLeft
 
+    # B09: expressions and high-precision decimals edit in the displayed unit (kPa / mm)
+    # and convert once to canonical SI without premature 15-digit storage rounding.
+    orig_pin = win.le_PinA.text()
+    orig_ctr = win.le_pipeA_in_ctr.text()
+    try:
+        from PySide6.QtWidgets import QLineEdit
+        QLineEdit.setText(win.le_PinA, '100+2')
+        win.le_PinA.editingFinished.emit()
+        assert win.le_PinA.text() == '102000'
+        assert win.le_PinA.raw_display_text() == '102'
+
+        QLineEdit.setText(win.le_PinA, '101.123456789012345')
+        win.le_PinA.editingFinished.emit()
+        assert win.le_PinA.text() == '101123.456789012345'
+        assert win.le_PinA.formatted_display_text() == '101.123'
+
+        QLineEdit.setText(win.le_pipeA_in_ctr, '20+22')
+        win.le_pipeA_in_ctr.editingFinished.emit()
+        assert win.le_pipeA_in_ctr.text() == '0.042'
+        assert win.le_pipeA_in_ctr.raw_display_text() == '42'
+    finally:
+        win.le_PinA.setText(orig_pin)
+        win.le_pipeA_in_ctr.setText(orig_ctr)
+
 
 def test_dialog_theme_applies_first_and_changed_styles_only(monkeypatch):
     from unittest.mock import Mock
@@ -736,7 +760,7 @@ def test_field_menu_revert_is_debranded(win):
     win.le_L.setText('0.1')
     QTimer.singleShot(0, choose)
     win.le_L.contextMenuEvent(QContextMenuEvent(QContextMenuEvent.Reason.Mouse, QPoint(), QPoint()))
-    message = win.statusBar().currentMessage()
+    message = win.dialogs.last_notice
     assert '恢复默认算例值' in texts
     assert '已恢复默认算例值' in message
     assert not any('Shanghai' in text for text in [*texts, message])

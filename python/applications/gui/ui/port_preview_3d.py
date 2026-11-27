@@ -114,24 +114,19 @@ def draw_layout_rect_3d(window, ax, L, H, Lz):
         fA = window._fluid_config('A')
         _draw_fluid(fA, 'A')
     except Exception as _fa_err:
-        try:
-            window.statusBar().showMessage(
-                f"Layout: Fluid A skipped — {_fa_err}", 4000)
-        except Exception:
-            pass
+        if hasattr(window, 'dialogs'):
+            window.dialogs.notify(
+                f"Layout: Fluid A skipped — {_fa_err}", kind="warn", duration_ms=4000
+            )
 
     try:
         fB = window._fluid_config('B')
         _draw_fluid(fB, 'B')
     except Exception as _fb_err:
-        # Non-fatal: Fluid B may be deliberately unset (e.g., single-stream
-        # runs). Log to the status bar so the omission is visible but
-        # doesn't interrupt the rest of the layout render.
-        try:
-            window.statusBar().showMessage(
-                f"Layout: Fluid B skipped — {_fb_err}", 4000)
-        except Exception:
-            pass
+        if hasattr(window, 'dialogs'):
+            window.dialogs.notify(
+                f"Layout: Fluid B skipped — {_fb_err}", kind="warn", duration_ms=4000
+            )
 
     # Origin triad
     triad_len = max(Lmm, Hmm, Lzmm) * 0.06

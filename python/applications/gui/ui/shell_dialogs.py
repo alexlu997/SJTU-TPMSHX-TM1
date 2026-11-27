@@ -11,7 +11,6 @@ from PySide6.QtGui import QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
-    QDialogButtonBox,
     QHBoxLayout,
     QMessageBox,
     QPlainTextEdit,
@@ -53,6 +52,53 @@ class ShellDialogs:
 
     def __init__(self, window) -> None:
         self.window = window
+        self.last_notice: str = ""
+        self.last_notice_kind: str = ""
+        self._active_toast = None
+
+    def notify(
+        self,
+        message: str,
+        *,
+        kind: str = "info",
+        duration_ms: int | None = None,
+        copy_payload: str | None = None,
+    ) -> None:
+        """Display a visible floating toast notification and record the latest notice text."""
+        text = str(message or "").strip()
+        self.last_notice = text
+        self.last_notice_kind = kind if text else ""
+        if not text:
+            return
+        prev = self._active_toast
+        if prev is not None:
+            try:
+                prev.hide()
+                prev.deleteLater()
+            except RuntimeError:
+                pass
+            self._active_toast = None
+        if self.window is None:
+            return
+        from sjtu_tpmshx.applications.gui.ui.microanim import toast
+
+        ms = (
+            duration_ms
+            if duration_ms is not None
+            else (5000 if kind in ("warn", "error") else 3000)
+        )
+        self._active_toast = toast(
+            self.window,
+            text,
+            kind=kind,
+            duration_ms=ms,
+            copy_payload=copy_payload,
+        )
+
+    def clear_notice(self) -> None:
+        """Reset recorded notice text (used before fresh validation checks)."""
+        self.last_notice = ""
+        self.last_notice_kind = ""
 
     def show_overview(self) -> None:
         """Open the session-overview dashboard dialog."""
@@ -90,7 +136,7 @@ class ShellDialogs:
         btn_copy.clicked.connect(
             lambda: (
                 QApplication.clipboard().setText(text),
-                self.window.statusBar().showMessage("已复制计算日志到剪贴板。", 3000),
+                self.notify("已复制计算日志到剪贴板。", kind="success", duration_ms=3000),
             )
         )
         btn_close = QPushButton("关闭")
@@ -102,6 +148,17 @@ class ShellDialogs:
         btn_row.addWidget(btn_close)
         v.addLayout(btn_row)
         dlg.exec()
+
+    def run_info_directory_scope(self) -> str:
+        """Return the output-directory scope owned by the current RunInfoPopover trigger."""
+        window = self.window
+        in_qd = (
+            getattr(window, "page_stack", None) is not None
+            and window.page_stack.currentWidget() is window.quick_design
+        )
+        if not in_qd and window.workbench.active_tab == "layout" and not window.single_run.is_idle():
+            return "active_run"
+        return "accepted_result"
 
     def resolve_output_directory(self, *, scope: str = "auto") -> Path | None:
         """Return the task-scoped run, accepted-result, or optimization directory if present."""
@@ -324,32 +381,3 @@ class ShellDialogs:
         )
         if app.styleSheet() != stylesheet:
             app.setStyleSheet(stylesheet)
-
-    def show_status_log(self) -> None:
-        """Show the last 50 status-bar messages in a read-only dialog."""
-        dlg = QDialog(self.window)
-        dlg.setWindowTitle("状态记录")
-        dlg.resize(640, 380)
-        t = get_theme()
-        dlg.setStyleSheet(
-            f"QDialog{{background:{t['window']};}}"
-            f"QPlainTextEdit{{background:{t['panel']}; color:{t['fg']};"
-            f" border:1px solid {t['border']}; border-radius:6px;"
-            f" font-family:{t['mono_family']}; font-size:9pt;}}"
-            f"QPushButton{{background:transparent; color:{t['fg']};"
-            f" border:1px solid {t['border_strong']}; border-radius:6px;"
-            f" padding:5px 16px; font-weight:600;}}"
-            f"QPushButton:hover{{background:{t['hover']};}}"
-        )
-        lay = QVBoxLayout(dlg)
-        txt = QPlainTextEdit()
-        txt.setReadOnly(True)
-        lines = list(getattr(self.window, "_log_history", []))
-        txt.setPlainText("\n".join(lines) if lines else "（尚无状态记录）")
-        lay.addWidget(txt)
-        btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        btns.rejected.connect(dlg.reject)
-        btns.accepted.connect(dlg.accept)
-        btns.button(QDialogButtonBox.StandardButton.Close).clicked.connect(dlg.accept)
-        lay.addWidget(btns)
-        dlg.exec()

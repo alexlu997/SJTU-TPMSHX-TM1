@@ -253,7 +253,7 @@ def test_named_preset_commits_expression_and_replaces_valid_entry(win, monkeypat
     presets = json.loads(win.case_files.store.presets_path().read_text())['presets']
     assert len(presets) == 1
     assert presets[0]['line_edits']['le_L'] == '0.2'
-    assert win.statusBar().currentMessage() == 'Saved preset: saved design.'
+    assert win.dialogs.last_notice == 'Saved preset: saved design.'
     win.le_L.setText('0.3')
     next(a for a in win.btn_recent.menu().actions() if '★ saved design' in a.text()).trigger()
     assert win.le_L.text() == '0.2'

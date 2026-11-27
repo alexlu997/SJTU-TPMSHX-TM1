@@ -287,7 +287,7 @@ def test_3d_layout_omits_invalid_port_instead_of_drawing_full_face(win, side):
     assert sum(isinstance(artist, Poly3DCollection) for artist in ax.collections) == 2
     labels = [text.get_text() for text in ax.texts]
     assert f'Inlet_{side}' not in labels and f'Outlet_{side}' not in labels
-    assert f'Fluid {side} skipped' in win.statusBar().currentMessage()
+    assert f'Fluid {side} skipped' in win.dialogs.last_notice
 
 
 @pytest.fixture

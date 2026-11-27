@@ -82,17 +82,20 @@ class _RailScrim(QWidget):
 
 def _open_run_info_popover(window) -> None:
     """Open the floating RunInfoPopover below the header status pill."""
-    data = window.history.build_run_info_data()
+    scope = window.dialogs.run_info_directory_scope()
+    data = window.history.build_run_info_data(folder_scope=scope)
     pop = getattr(window, "_run_info_popover", None)
     if pop is None:
         pop = RunInfoPopover(data, parent=window)
+        pop._folder_scope = scope
         pop.log_requested.connect(window.dialogs.show_solve_log)
         pop.diagnostics_requested.connect(window.results.show_diag_dialog)
         pop.open_folder_requested.connect(
-            lambda: window.dialogs.open_output_folder(scope="accepted_result")
+            lambda: window.dialogs.open_output_folder(scope=pop._folder_scope)
         )
         window._run_info_popover = pop
     else:
+        pop._folder_scope = scope
         pop.apply_theme(get_theme())
         pop.set_data(data)
     pop.popup_below(window.btn_run_info)
@@ -239,13 +242,13 @@ def build_ui(window):
     btn_run.setFixedHeight(30)
     btn_run.setCursor(Qt.CursorShape.PointingHandCursor)
     btn_run.setStyleSheet(t.style("BTN_PRIMARY"))
-    btn_run.setToolTip("运行单点计算 (Ctrl+R)")
+    btn_run.setToolTip("开始算例计算 (Ctrl+R)")
     btn_run.clicked.connect(window.single_run.toggle)
     window.btn_compute = btn_run
     h_lay.addWidget(btn_run)
 
     window.btn_export.setFixedHeight(30)
-    window.btn_export.setStyleSheet(t.style("BTN_SECONDARY"))
+    window.btn_export.apply_button_style(t.style("BTN_SECONDARY"))
     window.btn_export.hide()
     h_lay.addWidget(window.btn_export)
 

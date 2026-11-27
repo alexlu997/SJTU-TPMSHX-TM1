@@ -76,11 +76,11 @@ class _MockLE:
         pass
 
 
-class _MockStatusBar:
+class _MockDialogs:
     def __init__(self):
         self.messages = []
 
-    def showMessage(self, msg, _timeout=0):
+    def notify(self, msg, **_kwargs):
         self.messages.append(msg)
 
 
@@ -90,10 +90,8 @@ class _MockWindow:
     def __init__(self, temp_unit='K'):
         self._temp_unit = temp_unit
         self._undo_last = {}
-        self._sb = _MockStatusBar()
-
-    def statusBar(self):
-        return self._sb
+        self.dialogs = _MockDialogs()
+        self._sb = self.dialogs
 
 
 def _bind_handler(win, le, attr):

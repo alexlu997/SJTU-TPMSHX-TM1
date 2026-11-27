@@ -655,6 +655,14 @@ class ThreeDVisPanel(QWidget):
         if sig is not None:
             sig.emit(self._field)
 
+    def available_fields(self) -> tuple[str, ...]:
+        """Return PANEL_FIELD_SPECS keys currently loaded on this 3D panel."""
+        return tuple(self._arrays.keys())
+
+    def active_field(self) -> str | None:
+        """Return the active PANEL_FIELD_SPECS key on this 3D panel, or None."""
+        return self._field
+
     def select_field(self, field_key: str) -> bool:
         """Select a 3D panel field by PANEL_FIELD_SPECS key; return True if available."""
         if field_key not in self._arrays or field_key not in PANEL_FIELD_SPECS:
@@ -1227,7 +1235,7 @@ class ThreeDVisPanel(QWidget):
         pl = self.plotter
         pl.clear()
         placeholder = pl.add_text(
-            "Set Dimensionality = 3D, configure L/H/Lz + inlet/outlet, then Compute.",
+            "请将维度设为 3D，配置几何与进出口参数后开始计算。",
             font_size=8, color=get_theme()['ax_text'], position='upper_edge',
             font='times',
         )
@@ -1667,15 +1675,20 @@ class ThreeDVisPanel(QWidget):
         ts = datetime.now().strftime('%Y%m%d-%H%M%S')
         dflt = f"slice_{key}_{axis}_{coord_mm:.2f}mm_{ts}.png"
         path, _ = QFileDialog.getSaveFileName(
-            self, "Save 2D slice", dflt,
-            "PNG (*.png);;PDF (*.pdf);;SVG (*.svg)")
+            self, "保存二维切片", dflt,
+            "PNG 图像 (*.png);;PDF 文档 (*.pdf);;SVG 矢量图 (*.svg)")
         if not path:
             return
         try:
-            fig.savefig(path, dpi=200, bbox_inches='tight')
-            self.status.setText(f"Saved slice: {path}")
+            from sjtu_tpmshx.applications.gui.ui.typography import publication_export_fonts
+
+            with publication_export_fonts(fig):
+                fig.savefig(path, dpi=200, bbox_inches='tight')
+            if fig.canvas is not None:
+                fig.canvas.draw_idle()
+            self.status.setText(f"已保存切片：{path}")
         except Exception as e:
-            QMessageBox.warning(self, "Save failed", str(e))
+            QMessageBox.warning(self, "保存失败", str(e))
 
     # ─────────────────────────── status helpers ───────────────────────
 

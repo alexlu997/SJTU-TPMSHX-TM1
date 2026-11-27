@@ -51,8 +51,8 @@ def ensure_result_plot(window, field):
         canvas.fig.clear()
         canvas._hover_data = None
         canvas.draw_idle()
-    if hasattr(window, 'statusBar'):
-        window.statusBar().showMessage(f"场图显示失败：{detail}", 8000)
+    if hasattr(window, 'dialogs'):
+        window.dialogs.notify(f"场图显示失败：{detail}", kind="error", duration_ms=8000)
     return False
 
 

@@ -395,8 +395,10 @@ def test_display_timing_reaches_result_and_export_cache(win, monkeypatch, mode):
     cached = win.cache.get_result(mode)
     assert cached.metadata['timings_s'] == expected
     assert win.results.summary()['timings_s'] == expected
-    assert card_elapsed == provenance_elapsed == [25.0]
-    assert win._last_elapsed_s == 25.0
+    assert card_elapsed == [6.0]
+    assert provenance_elapsed == [25.0]
+    assert win._last_elapsed_s == 6.0
+    assert win._last_total_elapsed_s == 25.0
     assert win.results.summary()['warnings'] == ['retained warning']
     assert result.Q_W == 123.5
 
@@ -656,7 +658,7 @@ def test_close_cancels_live_pipeline_without_destroying_its_callbacks(win, monke
         assert win._close_pending
         assert not win.single_run._ticker.isActive()
         win.single_run._ticker.timeout.emit()
-        assert '正在关闭' in win.statusBar().currentMessage()
+        assert '正在关闭' in win.dialogs.last_notice
     finally:
         release.set()
     _wait_for(lambda: not isValid(win))

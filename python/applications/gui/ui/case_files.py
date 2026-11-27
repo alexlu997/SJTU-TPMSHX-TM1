@@ -269,8 +269,6 @@ class CaseFiles:
         # Fluid signals are blocked above to preserve the preset's inputs.
         from sjtu_tpmshx.applications.gui.ui.builders_fluids import refresh_fluid_model_visibility
         refresh_fluid_model_visibility(window)
-        if hasattr(window, '_refresh_status_bar'):
-            window._refresh_status_bar()
         if notice and show_notice:
             QMessageBox.information(window, "工况设置已更新", notice)
         return notice
@@ -521,9 +519,7 @@ class CaseFiles:
             self.set_shanghai_grid(is_3d=False)
         self.active_preset_name = name
         self.resync_undo_baseline()
-        if hasattr(window, '_refresh_status_bar'):
-            window._refresh_status_bar()
-        window.statusBar().showMessage(f"Preset: {name}.", 5000)
+        window.dialogs.notify(f"已载入预设：{name}。", kind="info", duration_ms=5000)
 
     def save_current_as_preset(self):
         """Prompt for a name and persist the full current field state as a
@@ -552,8 +548,7 @@ class CaseFiles:
             QMessageBox.warning(window, "预设未保存", "无法写入用户预设，当前输入保持不变。请检查用户数据目录。")
             return
         window.history.rebuild_recent_menu()
-        window.statusBar().showMessage(
-            f"Saved preset: {name}.", 5000)
+        window.dialogs.notify(f"Saved preset: {name}.", kind="success", duration_ms=5000)
 
     SESSION_LINE_EDITS = tuple(LINE_EDITS)
 
@@ -613,8 +608,6 @@ class CaseFiles:
         window.history.rebuild_recent_menu()
         if hasattr(window, '_refresh_workbench_navigation'):
             window._refresh_workbench_navigation()
-        if hasattr(window, '_refresh_status_bar'):
-            window._refresh_status_bar()
         # Persist the choice so the next launch re-opens the same workspace.
         # Delegates to SessionManager (P2.3).
         # 2026-05-20 UI sweep (Tier 18): SessionManager.set_active_workspace
@@ -628,11 +621,13 @@ class CaseFiles:
         except Exception:
             _wrote = False
         if _wrote:
-            window.statusBar().showMessage(f"Workspace {new} loaded.", 4000)
+            window.dialogs.notify(f"已切换到工作区 {new}。", kind="info", duration_ms=4000)
         else:
-            window.statusBar().showMessage(
-                f"Workspace {new} loaded — but writing the active-workspace "
-                f"marker failed; next launch may default to 'A'.", 8000)
+            window.dialogs.notify(
+                f"已切换到工作区 {new}，但写入当前工作区标记失败；下次启动可能恢复为 A。",
+                kind="warn",
+                duration_ms=8000,
+            )
 
     def rebuild_workspace_menu(self):
         """Refresh the workspace choices shown from the More menu."""
@@ -719,7 +714,7 @@ class CaseFiles:
             self.validate_preset(payload)
         except (TypeError, ValueError) as error:
             backup = self.store.quarantine_session(ws)
-            message = f"{error}\n已保留当前工况。"
+            message = f"{error}\n已保留当前算例。"
             if backup is not None:
                 message += f"\n原会话已保存在：{backup}"
             elif self.store.session_path(ws).exists():
@@ -829,7 +824,7 @@ class CaseFiles:
         except Exception as e:
             QMessageBox.critical(window, "Save Error", str(e))
             return False
-        window.statusBar().showMessage(f"Saved configuration: {path}", TOAST_MS_MED)
+        window.dialogs.notify(f"已保存配置：{path}", kind="success", duration_ms=TOAST_MS_MED)
         return True
 
     def load_config(self):
@@ -880,8 +875,8 @@ class CaseFiles:
                        "flags 和分区；这些输入保持当前值，请核对后计算。")
             QMessageBox.warning(window, "旧配置不完整", message)
         else:
-            message = f"Loaded configuration: {path}"
-        window.statusBar().showMessage(message, TOAST_MS_MED)
+            message = f"已载入配置：{path}"
+        window.dialogs.notify(message, kind="info", duration_ms=TOAST_MS_MED)
         return True
 
     def legacy_config_preset(self, payload):

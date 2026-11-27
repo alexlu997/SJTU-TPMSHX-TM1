@@ -7,7 +7,7 @@ import math
 from time import perf_counter
 
 from sjtu_tpmshx.applications.gui.ui.fmt import qualification_reasons
-from sjtu_tpmshx.applications.gui.ui.ui_constants import TOAST_MS_MED, TOAST_MS_SHORT
+from sjtu_tpmshx.applications.gui.ui.ui_constants import TOAST_MS_SHORT
 
 
 def recorded_elapsed_s(result) -> float | None:
@@ -205,8 +205,7 @@ class FieldResults:
         window = self.window
         txt = self.diagnostic_text()
         if not txt:
-            window.statusBar().showMessage("暂无诊断数据 — 请先计算。",
-                                         TOAST_MS_SHORT)
+            window.dialogs.notify("暂无诊断数据 — 请先计算。", kind="info", duration_ms=TOAST_MS_SHORT)
             return
         from PySide6.QtWidgets import (QDialog, QVBoxLayout, QPlainTextEdit,
                                        QPushButton, QHBoxLayout)
@@ -228,7 +227,7 @@ class FieldResults:
         def _copy():
             from PySide6.QtGui import QGuiApplication
             QGuiApplication.clipboard().setText(self.diagnostic_text())
-            window.statusBar().showMessage("诊断摘要已复制。", TOAST_MS_SHORT)
+            window.dialogs.notify("诊断摘要已复制。", kind="success", duration_ms=TOAST_MS_SHORT)
         btn_copy.clicked.connect(_copy)
         btn_close = QPushButton("关闭")
         btn_close.clicked.connect(dlg.accept)
@@ -247,7 +246,9 @@ class FieldResults:
             window.workbench.update_tab_visibility()
             if success:
                 window.workbench.switch_tab(field, foreground=False)
-                window.statusBar().showMessage('场图已显示；首次选择三维时加载体视图。', 8000)
+                window.dialogs.notify(
+                    '场图已显示；首次选择三维时加载体视图。', kind='info', duration_ms=6000
+                )
             for key, dialog in window.workbench.detached_canvases.items():
                 if key in ('temp', 'pres', 'vel') and dialog.isVisible():
                     ensure_result_plot(window, key)
@@ -270,15 +271,16 @@ class FieldResults:
             _finalize_ok = False
             import traceback
             traceback.print_exc()
-            window.statusBar().showMessage(
-                f"Plot finalize failed: {_fe!r} — partial 2D results available.",
-                8000)
+            window.dialogs.notify(
+                f"二维场图绘制失败：{_fe!r} — 其余可用结果仍可查看与导出。",
+                kind="error",
+                duration_ms=8000,
+            )
         window.workbench.update_tab_visibility()
         window.workbench.switch_tab('temp', foreground=False)
         if _finalize_ok:
             from sjtu_tpmshx.applications.gui.ui.layout_drawer import refresh_last_2d_thumbnail
             refresh_last_2d_thumbnail(window)
-            window.statusBar().showMessage("Done.", TOAST_MS_MED)
         return _finalize_ok
 
     def present(self, result, *, mode, provenance, elapsed):
@@ -307,8 +309,8 @@ class FieldResults:
         except Exception as exc:
             import traceback
             traceback.print_exc()
-            stage = 'display' if published else 'publication'
-            window.statusBar().showMessage(f"Result {stage} failed: {exc}", 12000)
+            stage = '显示' if published else '发布'
+            window.dialogs.notify(f"结果{stage}失败：{exc}", kind="error", duration_ms=10000)
         if published:
             display_s = perf_counter() - started
             published_result = window.cache.get_result()
@@ -320,16 +322,14 @@ class FieldResults:
                         canvas.fig.clear()
                         canvas._hover_data = None
                         canvas.draw_idle()
-            direct_wall = published_result.diagnostics.get('wall_time_s')
-            if not (isinstance(direct_wall, (int, float)) and not isinstance(direct_wall, bool) and math.isfinite(direct_wall)):
-                direct_wall = (published_result.metadata.get('timings_s') or {}).get('total')
-            if isinstance(direct_wall, (int, float)) and not isinstance(direct_wall, bool) and math.isfinite(direct_wall):
-                solve_elapsed = float(direct_wall)
-            elif isinstance(elapsed, (int, float)) and math.isfinite(elapsed):
-                solve_elapsed = float(elapsed) + display_s
-            else:
-                solve_elapsed = recorded_elapsed_s(published_result)
+            solve_elapsed = recorded_elapsed_s(published_result)
+            total_elapsed = (
+                float(elapsed) + display_s
+                if isinstance(elapsed, (int, float)) and math.isfinite(elapsed)
+                else None
+            )
             window._last_elapsed_s = solve_elapsed
+            window._last_total_elapsed_s = total_elapsed
             self.refresh_summary()
             if window.single_run.is_idle() and hasattr(window, '_run_status_card'):
                 card = window._run_status_card
@@ -340,14 +340,13 @@ class FieldResults:
                 )
                 card.finish(
                     status_kind,
-                    solve_elapsed if isinstance(solve_elapsed, (int, float)) else 0.0,
+                    solve_elapsed if isinstance(solve_elapsed, (int, float)) else (total_elapsed or 0.0),
                     message='',
                     log_available=bool((window.single_run.compute.last_log() or '').strip()),
                 )
             window.workbench.update_tab_visibility()
-            window.btn_export.setEnabled(True)
-            window._refresh_status_bar()
-            window.history.stamp_result_provenance(solve_elapsed)
+            window.result_export.refresh_export_button()
+            window.history.stamp_result_provenance(total_elapsed)
             if success:
                 window.history.push_recent_run()
         return success

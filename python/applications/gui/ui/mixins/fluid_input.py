@@ -79,7 +79,11 @@ class FluidInputMixin:
             re_style = _re_styles['VAL_WARN']
             re_tag = f"  (> {re_hi:g}!)"
 
-        self.statusBar().showMessage(f"Fluid {fluid} filled.  Re={Re:.0f}{re_tag}  Nu={r['Nu']:.2f}  dP/L={r['dP_per_L']:.1f} Pa/m", TOAST_MS_MED)
+        self.dialogs.notify(
+            f"Fluid {fluid} filled.  Re={Re:.0f}{re_tag}  Nu={r['Nu']:.2f}  dP/L={r['dP_per_L']:.1f} Pa/m",
+            kind="info",
+            duration_ms=TOAST_MS_MED,
+        )
         if fluid == 'A':
             self._v_rhoA.setText(f"{r['rho']:.4f}")
             self._v_ReA.setText(f"{Re:.1f}{re_tag}")
@@ -138,9 +142,12 @@ class FluidInputMixin:
                     ul[attr] = txt
             except Exception:
                 continue
-        self.statusBar().showMessage(
-            f"Fluid {side} → {name}: applied u={defaults['u']:.3g} m/s · "
-            f"T={defaults['T']:.1f} K · P={defaults['P']:.0f} Pa.", 5000)
+        self.dialogs.notify(
+            f"流体 {side} → {name}：u={defaults['u']:.3g} m/s · "
+            f"T={defaults['T']:.1f} K · P={defaults['P']:.0f} Pa",
+            kind="info",
+            duration_ms=4000,
+        )
 
     def _wire_fluid_defaults(self):
         for side in ('A', 'B'):
@@ -238,8 +245,11 @@ class FluidInputMixin:
         from sjtu_tpmshx.applications.gui.ui.plot_2d_results import redraw_result_fields
         redraw_result_fields(self)
         refresh_last_2d_thumbnail(self)
-        self.statusBar().showMessage(
-            f"Temperature display switched to {self._temp_unit}.", 3000)
+        self.dialogs.notify(
+            f"温度显示单位已切换为 {'°C' if self._temp_unit == 'C' else 'K'}。",
+            kind="info",
+            duration_ms=3000,
+        )
 
     def _update_tout(self, t_idx: int):
         """Render this run's result scalars in the selected temperature unit."""

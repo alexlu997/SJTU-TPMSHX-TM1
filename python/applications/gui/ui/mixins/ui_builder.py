@@ -1,17 +1,10 @@
-"""Hide legacy desktop status bar and install undo stack and field help."""
+"""Install undo stack and field help for the desktop workbench."""
 
 from __future__ import annotations
 
 
 class UIBuilderMixin:
-    """Page/tab/canvas builders + status-bar / undo / help installers."""
-
-    def _install_status_bar_widgets(self):
-        """Hide the legacy QMainWindow status bar; Style P2 uses the readout strip."""
-        sb = self.statusBar()
-        sb.setSizeGripEnabled(False)
-        sb.setMaximumHeight(0)
-        sb.hide()
+    """Undo stack and rich field-help tooltip installers."""
 
     def _install_undo_stack(self):
         """Track every value change on a numeric input and push it onto a
@@ -97,19 +90,3 @@ class UIBuilderMixin:
                 le.setToolTip(html)
             except Exception:
                 pass
-
-    def _install_status_log(self):
-        """Capture every statusBar().showMessage into a rolling log without showing a bar."""
-        from collections import deque
-        from datetime import datetime
-        self._log_history = deque(maxlen=50)
-
-        def _on_msg(txt):
-            if not txt:
-                return
-            ts = datetime.now().strftime("%H:%M:%S")
-            self._log_history.append(f"[{ts}] {txt}")
-
-        self.statusBar().messageChanged.connect(_on_msg)
-        self.signals.adopt(self.statusBar().messageChanged, _on_msg,
-                            sender=self.statusBar())

@@ -101,7 +101,7 @@ class ShellShortcuts:
         window = self.window
         recents = list(window.history.recent_runs)
         if not recents:
-            window.statusBar().showMessage("暂无可浏览的最近运行记录。", 3000)
+            window.dialogs.notify("暂无可浏览的最近运行记录。", kind="info", duration_ms=3000)
             return
         idx = max(0, min(len(recents) - 1, self._scrub_idx + step))
         self._scrub_idx = idx
@@ -111,10 +111,11 @@ class ShellShortcuts:
                 entry.get("preset") or {},
                 source_name=entry.get("preset_source") or "",
             )
-            window.statusBar().showMessage(
+            window.dialogs.notify(
                 f"最近运行 #{idx + 1}/{len(recents)} — {entry.get('label', '?')}"
                 f"  ·  Q={entry.get('Q', '?')}",
-                4000,
+                kind="info",
+                duration_ms=4000,
             )
         except Exception:
             pass

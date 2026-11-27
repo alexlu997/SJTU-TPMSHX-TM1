@@ -97,14 +97,15 @@ class RunHistory:
         from sjtu_tpmshx.applications.gui.ui.builders_sidebar import result_metric_texts
 
         values = result_metric_texts(window)
-        now = datetime.datetime.now()
-        self._last_run_ts = now.strftime("%H:%M:%S")
+        recorded_ts = str(provenance.get("completed_at") or "").strip()
+        self._last_run_ts = recorded_ts
+        label_ts = recorded_ts or "—"
         snap = deepcopy(provenance["preset"])
         if snap is not None:
-            snap["name"] = f"Recent @ {self._last_run_ts}"
+            snap["name"] = f"Recent @ {recorded_ts}" if recorded_ts else "Recent"
         entry = {
-            "ts": now.isoformat(timespec="seconds"),
-            "label": self._last_run_ts,
+            "ts": recorded_ts,
+            "label": label_ts,
             "Q": values["Q"],
             "Q_unit": values["Q_unit"],
             "dP_A": values["dP_A"],
@@ -359,8 +360,8 @@ class RunHistory:
         except ValueError as exc:
             QMessageBox.warning(self.window, "加载预设失败", str(exc))
             return
-        self.window.statusBar().showMessage(
-            f"已载入预设：{preset.get('name', '?')}。", 5000
+        self.window.dialogs.notify(
+            f"已载入预设：{preset.get('name', '?')}。", kind="info", duration_ms=5000
         )
 
     def load_recent_run(self, entry) -> None:
@@ -377,8 +378,10 @@ class RunHistory:
                 entry.get("preset") or {},
                 source_name=entry.get("preset_source") or "",
             )
-            self.window.statusBar().showMessage(
-                f"已恢复运行记录：{entry.get('ts', '?')}。", 5000
+            self.window.dialogs.notify(
+                f"已恢复运行记录：{entry.get('label') or entry.get('ts') or '—'}。",
+                kind="info",
+                duration_ms=5000,
             )
         except Exception as exc:
             QMessageBox.warning(self.window, "加载最近运行失败", str(exc))
@@ -387,7 +390,9 @@ class RunHistory:
         """Clear the in-memory recent-runs ring buffer."""
         self.recent_runs.clear()
         self.rebuild_recent_menu()
-        self.window.statusBar().showMessage("已清除最近运行记录。", TOAST_MS_SHORT)
+        self.window.dialogs.notify(
+            "已清除最近运行记录。", kind="info", duration_ms=TOAST_MS_SHORT
+        )
 
     def show_full_timeline(self) -> None:
         """Display the persistent `.session_timeline.jsonl` run log."""
@@ -469,7 +474,9 @@ class RunHistory:
             except Exception:
                 pass
             dlg.accept()
-            self.window.statusBar().showMessage("已清空历史记录。", TOAST_MS_SHORT)
+            self.window.dialogs.notify(
+                "已清空历史记录。", kind="info", duration_ms=TOAST_MS_SHORT
+            )
 
         btn_clear.clicked.connect(_clear)
         btn_close.clicked.connect(dlg.accept)
@@ -486,8 +493,8 @@ class RunHistory:
         b64 = base64.urlsafe_b64encode(compressed).decode("ascii").rstrip("=")
         token = f"TPMSHX::{b64}"
         QApplication.clipboard().setText(token)
-        self.window.statusBar().showMessage(
-            f"已复制复现链接（{len(token)} 字符）。", 5000
+        self.window.dialogs.notify(
+            f"已复制复现链接（{len(token)} 字符）。", kind="success", duration_ms=5000
         )
 
     def load_reproducible_link(self) -> None:
@@ -507,12 +514,16 @@ class RunHistory:
             compressed = base64.urlsafe_b64decode(payload + pad)
             preset = json.loads(zlib.decompress(compressed))
             self.window.case_files.apply_user_preset(preset)
-            self.window.statusBar().showMessage("已加载复现链接，请点击“开始计算”。", 5000)
+            self.window.dialogs.notify(
+                "已加载复现链接，请点击“开始计算”。", kind="info", duration_ms=5000
+            )
         except Exception as exc:
             QMessageBox.warning(self.window, "加载失败", str(exc))
 
-    def stamp_result_provenance(self, elapsed: float | None) -> None:
+    def stamp_result_provenance(self, total_elapsed: float | None = None) -> None:
         """Describe the completed run's inputs and returned grid on result tooltips."""
+        from sjtu_tpmshx.applications.gui.ui.field_results import recorded_elapsed_s
+
         result = self.window.cache.get_result()
         provenance = result.metadata.get("run_provenance") if result is not None else None
         if provenance is None:
@@ -528,10 +539,17 @@ class RunHistory:
         commit = str(result_rev or provenance.get("commit") or "").strip()[:7]
         grid = "×".join(map(str, provenance.get("input_grid") or ()))
         actual_grid = "×".join(map(str, provenance.get("actual_grid") or ()))
-        dur = fmt_duration(elapsed) if isinstance(elapsed, (int, float)) else "—"
+        solve_s = recorded_elapsed_s(result)
+        solve_dur = fmt_duration(solve_s) if isinstance(solve_s, (int, float)) else "—"
+        extra_total = (
+            f"  ·  端到端 {fmt_duration(total_elapsed)}"
+            if isinstance(total_elapsed, (int, float))
+            else ""
+        )
         preset = preset_display(provenance.get("preset_source") or "")
         tip = (
-            f"Computed @ {recorded_ts or '—'}  ·  {dur}  ·  {str(provenance.get('mode') or '').upper()}"
+            f"Computed @ {recorded_ts or '—'}  ·  求解耗时 {solve_dur}{extra_total}"
+            f"  ·  {str(provenance.get('mode') or '').upper()}"
             f"  ·  input grid {grid or '—'}"
             f"  ·  actual result grid {actual_grid or '—'}  ·  preset: {preset}"
             + (f"  ·  commit: {commit}" if commit else "")
@@ -545,7 +563,7 @@ class RunHistory:
             if lbl is not None:
                 lbl.setToolTip(tip)
 
-    def build_run_info_data(self) -> RunInfoData:
+    def build_run_info_data(self, *, folder_scope: str | None = None) -> RunInfoData:
         """Assemble metadata strictly from the accepted result and its recorded provenance."""
         from sjtu_tpmshx.applications.gui.ui.builders_sidebar import evaluate_result_status
 
@@ -644,7 +662,7 @@ class RunHistory:
 
             elapsed = recorded_elapsed_s(result)
             if isinstance(elapsed, (int, float)):
-                info_rows.append(RunInfoRow("耗时", fmt_duration(elapsed)))
+                info_rows.append(RunInfoRow("求解耗时", fmt_duration(elapsed)))
 
             co2_meta = result.metadata.get("co2")
             if isinstance(co2_meta, dict):
@@ -705,7 +723,8 @@ class RunHistory:
 
         has_log = bool((window.single_run.compute.last_log() or "").strip())
         has_diag = result is not None
-        has_folder = window.dialogs.resolve_output_directory(scope="accepted_result") is not None
+        scope = folder_scope or window.dialogs.run_info_directory_scope()
+        has_folder = window.dialogs.resolve_output_directory(scope=scope) is not None
         return RunInfoData(
             info_rows=tuple(info_rows),
             status_kind=status_kind,
@@ -733,6 +752,6 @@ class RunHistory:
         lines.append("")
         lines.append("window.case_files.apply_user_preset(cfg)")
         QApplication.clipboard().setText("\n".join(lines))
-        self.window.statusBar().showMessage(
-            "已将当前输入参数复制为 Python 脚本。", 5000
+        self.window.dialogs.notify(
+            "已将当前输入参数复制为 Python 脚本。", kind="success", duration_ms=5000
         )

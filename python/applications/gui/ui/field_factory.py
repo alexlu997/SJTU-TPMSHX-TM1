@@ -1,7 +1,7 @@
 """Themed widget builders and Alignment Rule A input fields for the GUI."""
 from __future__ import annotations
 
-import math
+from decimal import Decimal, InvalidOperation
 import re
 from typing import Optional, Tuple
 
@@ -42,6 +42,19 @@ def default_factory() -> "FieldFactory":
     return _FACTORY
 
 
+def _format_decimal_exact(value: Decimal) -> str:
+    """Format a finite Decimal without introducing premature 15-digit rounding."""
+    if value == 0:
+        return "0"
+    mag = abs(value)
+    if mag >= Decimal("1e15") or mag < Decimal("1e-9"):
+        return format(value.normalize(), "g")
+    text = format(value, "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text or "0"
+
+
 def _si_to_display_full(si_text: str, scale: float) -> str:
     """Convert an SI text string to full-precision displayed-unit text."""
     if scale == 1.0:
@@ -50,34 +63,36 @@ def _si_to_display_full(si_text: str, scale: float) -> str:
     if not raw:
         return si_text
     try:
-        val = float(raw)
-    except ValueError:
+        dec = Decimal(raw)
+        scale_dec = Decimal(str(scale))
+    except (InvalidOperation, ValueError):
         return si_text
-    if not math.isfinite(val):
+    if not dec.is_finite() or not scale_dec.is_finite():
         return si_text
-    scaled = val * scale
-    if not math.isfinite(scaled):
+    scaled = dec * scale_dec
+    if not scaled.is_finite():
         return si_text
-    return format(scaled, ".15g")
+    return _format_decimal_exact(scaled)
 
 
 def _display_to_si(disp_text: str, scale: float) -> str:
-    """Convert a displayed-unit text string back to SI storage text."""
+    """Convert a displayed-unit text string back to canonical SI storage text."""
     if scale == 1.0:
         return disp_text
     raw = disp_text.strip()
     if not raw:
         return disp_text
     try:
-        val = float(raw)
-    except ValueError:
+        dec = Decimal(raw)
+        scale_dec = Decimal(str(scale))
+    except (InvalidOperation, ValueError):
         return disp_text
-    if not math.isfinite(val):
+    if not dec.is_finite() or not scale_dec.is_finite() or scale_dec == 0:
         return disp_text
-    si = val / scale
-    if not math.isfinite(si):
+    si = dec / scale_dec
+    if not si.is_finite():
         return disp_text
-    return format(si, ".15g")
+    return _format_decimal_exact(si)
 
 
 class UnitLineEdit(QLineEdit):
@@ -154,6 +169,18 @@ class UnitLineEdit(QLineEdit):
     def unit(self) -> str:
         """Return the active muted unit suffix text."""
         return self._unit
+
+    def display_unit(self) -> str:
+        """Return the unit shown and edited inside the field."""
+        return self._display_unit
+
+    def display_scale(self) -> float:
+        """Return the factor mapping canonical SI values into the displayed unit."""
+        return self._display_scale
+
+    def raw_display_text(self) -> str:
+        """Return the unscaled edit buffer text in the displayed unit."""
+        return super().text()
 
     def set_display_unit(self, display_unit: str, display_scale: float = 1.0) -> None:
         """Configure displayed/editable unit scaling (e.g. Pa -> kPa, m -> mm)."""

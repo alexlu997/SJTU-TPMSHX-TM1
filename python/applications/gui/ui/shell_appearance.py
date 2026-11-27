@@ -428,8 +428,10 @@ class ShellAppearance:
                 self.window, "设置未保存", "无法写入减少动态效果设置，请检查用户配置目录。"
             )
             return False
-        self.window.statusBar().showMessage(
-            "已开启减少动态效果" if enabled else "已恢复动态效果", 3000
+        self.window.dialogs.notify(
+            "已开启减少动态效果" if enabled else "已恢复动态效果",
+            kind="info",
+            duration_ms=3000,
         )
         return True
 
@@ -625,10 +627,17 @@ class ShellAppearance:
             btn_focus.setText("退出专注" if focused else "专注")
         card = getattr(window, "_run_status_card", None)
         if card is not None:
-            card.setVisible((not focused and self._page_uses_drawer()) or not window.single_run.is_idle())
+            show_card = not window.single_run.is_idle() or (
+                card.state in ("running", "cancelling", "error", "cancelled", "paused")
+                and not focused
+                and self._page_uses_drawer()
+            )
+            card.setVisible(show_card)
         update_result_sidebar_visibility(window)
-        window.statusBar().showMessage(
-            "专注当前画布 · 按 F 退出" if focused else "已恢复工作台布局", 3000
+        window.dialogs.notify(
+            "专注当前画布 · 按 F 退出" if focused else "已恢复工作台布局",
+            kind="info",
+            duration_ms=3000,
         )
 
     def sync_viewport_layout(self) -> None:

@@ -13,7 +13,6 @@ from sjtu_tpmshx.data_types.validator import format_unit_value
 from sjtu_tpmshx.model_configs.df_domain import TRAIN_L, TRAIN_T
 from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
 from sjtu_tpmshx.physical_models.tpms_calc import geometry as tpms_geometry, adaptive_grid
-from sjtu_tpmshx.applications.gui.ui.fmt import duration as _fmt_dur
 from sjtu_tpmshx.applications.gui.ui.window_config import LINE_EDITS, parse_field_value
 from sjtu_tpmshx.applications.gui.ui.case_files import CaseFiles
 from sjtu_tpmshx.applications.gui.ui.field_results import FieldResults
@@ -103,7 +102,6 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
         self._install_field_help()
         self._attach_field_validation()
         self._attach_stale_listeners()
-        self._install_status_log()
         self.history.rebuild_recent_menu()
         self._install_undo_stack()
         from PySide6.QtCore import QTimer as _QT
@@ -121,7 +119,6 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
             self.workbench.schedule_3d_preinit()
         self._schedule_tpms_geometry_prewarm()
         self._wire_fluid_defaults()
-        self._install_status_bar_widgets()
         self.dialogs.install_dialog_theme()
         from sjtu_tpmshx.applications.gui.ui.command_palette import install_command_palette
         install_command_palette(self)
@@ -185,7 +182,7 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
         # next to freshly-reset inputs.
         self.case_files.invalidate_results_for_preset_load()
         self._apply_shanghai_defaults()
-        self.statusBar().showMessage("已重置为默认算例参数。", TOAST_MS_MED)
+        self.dialogs.notify("已重置为默认算例参数。", kind="info", duration_ms=TOAST_MS_MED)
 
     # ─────────────────────────────────────────────────────────
     #  Shanghai presets + deferred 3D init
@@ -271,9 +268,6 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
         self.case_files.resync_undo_baseline()
         from sjtu_tpmshx.applications.gui.ui.builders_fluids import refresh_fluid_model_visibility
         refresh_fluid_model_visibility(self)
-        self.statusBar().showMessage(
-            "Loaded Shanghai Electric preset (3D, Gyroid L=7 t=0.6, 182×42×42 mm).",
-            5000)
 
     def _schedule_tpms_geometry_prewarm(self):
         """Warm the current TPMS geometry cache off the UI thread.
@@ -325,7 +319,6 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
     # ─────────────────────────────────────────────────────────
     def compute_tpms(self) -> bool:
         """Compute pure geometry (ε, A₀, D_h, K_ss) from TPMS inputs. Returns True on success."""
-        self.statusBar().showMessage("Computing TPMS geometry...")
         try:
             from sjtu_tpmshx.applications.gui.ui.window_config import fluid_types_from_window
             geometry_model = tpms_geometry
@@ -376,8 +369,11 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
         except ValueError:
             pass  # L or H not yet filled
 
-        self.statusBar().showMessage(
-            f"TPMS geometry: eps={r['epsilon']:.4f}  A_0={r['A_0']:.1f}  D_h={r['D_h']*1000:.3f}mm", 5000)
+        self.dialogs.notify(
+            f"TPMS 几何：ε={r['epsilon']:.4f}  A₀={r['A_0']:.1f}  D_h={r['D_h']*1000:.3f} mm",
+            kind="info",
+            duration_ms=5000,
+        )
         return True
 
 
@@ -398,34 +394,6 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
         'CO₂':   {'u': .3,    'T': 340.0, 'P': 8000000.0},
     }
 
-
-    #  Status bar — persistent context strip (IDE-style)
-    # ─────────────────────────────────────────────────────────
-
-    def _refresh_status_bar(self):
-        """Re-read Re / clock values and repaint the persistent status-bar
-        widgets. Safe to call before the widgets exist (early startup) —
-        silently no-ops."""
-        if not hasattr(self, '_sb_re'):
-            return
-        # Re values come from the `_v_ReA`/`_v_ReB` result labels when a
-        # compute has populated them. Fall back to "—" before first run.
-        try:
-            ra = self._v_ReA.text().strip() if hasattr(self, '_v_ReA') else '—'
-            rb = self._v_ReB.text().strip() if hasattr(self, '_v_ReB') else '—'
-            self._sb_re.setText(f"Re: A={ra or '—'} · B={rb or '—'}")
-        except Exception:
-            pass
-        try:
-            last = getattr(self, '_last_elapsed_s', None)
-            if last is None or not self.cache.has_any_results():
-                self._sb_clock.setText("⏱ —")
-            else:
-                mode = self.cache.get_result().diagnostics.get('mode', '2d')
-                self._sb_clock.setText(
-                    f"⏱ {_fmt_dur(last)} · {mode.upper()}")
-        except Exception:
-            pass
 
     def _redraw_temp_if_ready(self):
         """Re-render the temperature tab using stored compute results.
@@ -464,7 +432,7 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
                 for page in (self.single_run, self.optimization, self.quick_design):
                     page.cancel()
             self.setEnabled(False)
-            self.statusBar().showMessage("正在关闭 — 等待当前任务安全结束…")
+            self.dialogs.notify("正在关闭 — 等待当前任务安全结束…", kind="info", duration_ms=5000)
             if not hasattr(self, '_close_retry_timer'):
                 from PySide6.QtCore import QTimer
                 self._close_retry_timer = QTimer(self)
@@ -694,28 +662,47 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
             # getattr-guarded: test mocks borrow this handler without the
             # badge machinery.
             getattr(self, '_kick_badge_timer', lambda: None)()
-            txt = le.text().strip()
-            if not txt:
+            scale = le.display_scale() if hasattr(le, 'display_scale') else 1.0
+            raw_txt = (le.raw_display_text() if hasattr(le, 'raw_display_text') else le.text()).strip()
+            if not raw_txt:
                 return
 
             from sjtu_tpmshx.applications.gui.ui.expr_eval import is_expression, eval_expr
-            unit_match = num_unit.match(txt)
+            from sjtu_tpmshx.applications.gui.ui.field_factory import _display_to_si
+
+            unit_match = num_unit.match(raw_txt)
             value = None
+            expr_si_text = None
             if unit_match:
                 raw = float(unit_match[1])
                 # Read explicit temperature units in kelvin before display rounding.
                 value = parse_field_value(attr, raw, unit_match[2])
             if value is None:
                 unit_match = None
-                if is_expression(txt):
-                    value = eval_expr(txt)
+                if is_expression(raw_txt):
+                    expr_val = eval_expr(raw_txt)
+                    if expr_val is not None:
+                        if scale != 1.0:
+                            expr_si_text = _display_to_si(repr(expr_val), scale)
+                            try:
+                                value = float(expr_si_text)
+                            except ValueError:
+                                value = expr_val / scale
+                        else:
+                            value = expr_val
 
             temp_unit = getattr(self, '_temp_unit', 'K')
-            family = spec.family if unit_match else 'number'
+            family = spec.family if unit_match else ('count' if spec.family == 'count' else 'number')
             # Other fields validate the committed text, including rounded cell counts.
-            formatted = txt
+            si_txt = le.text().strip()
+            formatted = si_txt
             if value is not None and not is_temperature:
-                formatted = format_unit_value(value, family)
+                if unit_match or spec.family == 'count':
+                    formatted = format_unit_value(value, family)
+                elif expr_si_text is not None:
+                    formatted = expr_si_text
+                else:
+                    formatted = format_unit_value(value, family)
             reason = ""
             if spec.positive:
                 try:
@@ -743,11 +730,11 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
                 le.blockSignals(was)
                 if unit_match:
                     unit = '°C' if is_temperature and temp_unit == 'C' else spec.unit
-                    self.statusBar().showMessage(
+                    self.dialogs.notify(
                         f"Converted {unit_match[1]} {unit_match[2]} → {formatted} "
-                        f"({unit})", 4000)
+                        f"({unit})", kind="info", duration_ms=4000)
                 else:
-                    self.statusBar().showMessage(f"{attr}: {txt} → {formatted}", 3500)
+                    self.dialogs.notify(f"{attr}: {raw_txt} → {formatted}", kind="info", duration_ms=3500)
 
             current = le.property('inpError')
             new = 'true' if reason else 'false'
@@ -758,9 +745,9 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
             if reason:
                 le.setToolTip(f"⚠ {reason}"
                               + (f"\n{base_tip}" if base_tip else ""))
-                self.statusBar().showMessage(
+                self.dialogs.notify(
                     f"⚠  Invalid input: {le.objectName() or 'field'}"
-                    f" — {reason}", 4000)
+                    f" — {reason}", kind="warn", duration_ms=4000)
             else:
                 le.setToolTip(base_tip)
 

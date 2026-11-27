@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
 
 from .fmt import duration as fmt_duration
-from .fmt import qualification_reasons
+from .fmt import qualification_reasons, warning_strip_summary
 from .inspector_drawer import CollapsibleBand
 from .readout_strip import ReadoutItem, ReadoutNotice
 from .symbols import SYM
@@ -285,15 +285,39 @@ def build_result_drawer_content(window) -> QWidget:
     _, window._sb_labels["closure"] = _build_kv_row(ck_body, "能量闭合", theme=theme)
     _, window._sb_labels["envelope"] = _build_kv_row(ck_body, "压缩性包络", theme=theme)
     _, window._sb_labels["extrap"] = _build_kv_row(ck_body, "适用范围", theme=theme)
-    _, window._sb_labels["design"] = _build_kv_row(ck_body, "设计资格", theme=theme)
+    design_row = QWidget()
+    design_row.setStyleSheet("background: transparent;")
+    design_col = QVBoxLayout(design_row)
+    design_col.setContentsMargins(16, 6, 16, 6)
+    design_col.setSpacing(2)
+    design_head = QHBoxLayout()
+    design_head.setContentsMargins(0, 0, 0, 0)
+    design_head.setSpacing(8)
+    design_key = QLabel("设计资格")
+    design_key.setStyleSheet(
+        f"color: {theme['sub']}; font-size: 9.5pt; font-weight: 400; "
+        "background: transparent; border: none;"
+    )
+    design_val = QLabel("—")
+    design_val.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+    design_val.setStyleSheet(
+        f"color: {theme['fg']}; font-family: {theme['mono_family']}; "
+        "font-size: 9.5pt; font-weight: 600; background: transparent; border: none;"
+    )
+    design_head.addWidget(design_key)
+    design_head.addStretch(1)
+    design_head.addWidget(design_val)
+    design_col.addLayout(design_head)
     design_reason = QLabel()
     design_reason.setWordWrap(True)
     design_reason.setStyleSheet(
         f"color: {theme['warn']}; font-size: 11px; font-weight: 400; "
-        "background: transparent; padding: 0 2px 4px 2px;"
+        "background: transparent; padding: 0px;"
     )
     design_reason.hide()
-    ck_body.addWidget(design_reason)
+    design_col.addWidget(design_reason)
+    ck_body.addWidget(design_row)
+    window._sb_labels["design"] = design_val
     window._sb_labels["design_reason"] = design_reason
     vlay.addWidget(check_band)
 
@@ -325,12 +349,13 @@ def build_result_drawer_content(window) -> QWidget:
             toggle()
 
     _build_action_row(cv_body, "坐标探针  (Ctrl+I)", _toggle_probe, theme=theme)
-    _build_action_row(
+    window._btn_drawer_export_figure = _build_action_row(
         cv_body,
         "导出图像 — PNG / SVG / PDF",
         window.result_export.export_figure,
         theme=theme,
     )
+    window._btn_drawer_export_figure.setEnabled(False)
     window._btn_drawer_export_results = _build_action_row(
         cv_body,
         "导出完整结果 — CSV",
@@ -404,9 +429,17 @@ def _compare_config_snapshots(window, saved_cfg: dict) -> bool:
     if not _values_equal(cur_cfg.get("sco2_nu"), saved_cfg.get("sco2_nu")):
         return True
 
-    for section in ("geometry", "solver", "flags", "bc_A", "bc_B", "zones"):
+    for section in ("geometry", "solver", "bc_A", "bc_B", "zones"):
         if not _values_equal(cur_cfg.get(section), saved_cfg.get(section)):
             return True
+
+    cur_flags = dict(cur_cfg.get("flags") or {})
+    sav_flags = dict(saved_cfg.get("flags") or {})
+    # Display temperature unit does not affect physical computation (inputs are stored in K).
+    cur_flags.pop("temp_unit", None)
+    sav_flags.pop("temp_unit", None)
+    if not _values_equal(cur_flags, sav_flags):
+        return True
 
     for side in ("fluid_A", "fluid_B"):
         cf = dict(cur_cfg.get(side) or {})
@@ -611,7 +644,7 @@ def refresh_result_sidebar(window) -> None:
                 reason_lbl.setText(specific[0])
                 reason_lbl.setStyleSheet(
                     f"color: {theme['warn']}; font-size: 11px; font-weight: 400; "
-                    "background: transparent; padding: 0 2px 4px 2px;"
+                    "background: transparent; padding: 0px;"
                 )
                 reason_lbl.show()
             else:
@@ -663,15 +696,16 @@ def refresh_result_sidebar(window) -> None:
                 notice = ReadoutNotice("未收敛", "结果仅供参考，请核查诊断", kind="err")
             elif extrap_list:
                 first_reason = str(extrap_list[0]).split("（")[0].strip()
-                if len(first_reason) > 36:
-                    first_reason = first_reason[:35] + "…"
-                if len(extrap_list) > 1:
-                    first_reason = f"{first_reason}（共 {len(extrap_list)} 项）"
+                if not any("\u4e00" <= ch <= "\u9fff" for ch in first_reason):
+                    first_reason = warning_strip_summary(d)
+                else:
+                    if len(first_reason) > 36:
+                        first_reason = first_reason[:35] + "…"
+                    if len(extrap_list) > 1:
+                        first_reason = f"{first_reason}（共 {len(extrap_list)} 项）"
                 notice = ReadoutNotice("外推提示", first_reason, kind="warn")
             elif status_kind == "warn":
-                warn_list = d.get("warnings") or []
-                detail = str(warn_list[0])[:36] if warn_list else "请核查诊断详情"
-                notice = ReadoutNotice("运行提示", detail, kind="warn")
+                notice = ReadoutNotice("运行提示", warning_strip_summary(d), kind="warn")
         strip.set_items(items)
         strip.set_notice(notice)
         strip.set_stale(is_result_stale(window))
