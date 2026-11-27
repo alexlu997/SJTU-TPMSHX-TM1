@@ -73,6 +73,7 @@ The [Python layer owners](#python-layer-owners) table gives the responsibilities
 
 Bindings in `python/cpp_interface/` obey these import limits.
 `python -m sjtu_tpmshx.development.runs.tools.audit_import_graph --fail-on-violations` checks them.
+The same audit rejects import cycles between the modules of the `ui` owner and of the `solvers` owner.
 
 - A binding can import `run_control`, `model_configs`, and `data_types` modules, but not the modules of the stage data types.
 - The stage data types are `CaseData`, `ModelRef`, `FieldResult`, `MetricSpec`, `MetricValue`, and `PerformanceResult`.

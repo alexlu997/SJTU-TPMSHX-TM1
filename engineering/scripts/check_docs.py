@@ -7,6 +7,10 @@ from urllib.parse import unquote, urlsplit
 _LINK = re.compile(r'!?\[([^\]\n]*)\]\((<[^>\n]+>|[^\s)]+)(?:\s+"[^"]*")?\)')
 _FENCE = re.compile(r'^\s*(`{3,}|~{3,})')
 _INLINE_CODE = re.compile(r'(?P<ticks>`+).*?(?P=ticks)')
+# The public hazard index: at most 15 rows and no local absolute paths.
+HAZARDS, HAZARD_ROWS = 'docs/agent-hazards.md', 15
+# An absolute path: '~/', a drive letter, or a '/' that does not follow a word, a dot, ':' or '/' (URL).
+_LOCAL_PATH = re.compile(r'(?<![\w.:/~])(?:~|[A-Za-z]:)?[/\\][\w.-]+[/\\]')
 
 
 def prose(text):
@@ -63,6 +67,13 @@ def check(root, paths):
             if not (location.with_suffix('.py').is_file() or (location / '__main__.py').is_file()):
                 failures.append(f'{name}: missing module command {module}')
             commands += 1
+    if HAZARDS in paths:
+        text = (root / HAZARDS).read_text(encoding='utf-8')
+        rows = len(re.findall(r'^\s*\|\s*H\d+\s*\|', text, re.MULTILINE))
+        if rows > HAZARD_ROWS:
+            failures.append(f'{HAZARDS}: {rows} rows; the limit is {HAZARD_ROWS}')
+        failures.extend(f'{HAZARDS}:{number}: local absolute path'
+                        for number, line in enumerate(text.splitlines(), 1) if _LOCAL_PATH.search(line))
     if failures:
         raise ValueError('\n'.join(failures))
     return links, commands

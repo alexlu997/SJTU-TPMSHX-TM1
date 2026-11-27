@@ -3,6 +3,7 @@ import pytest
 
 from engineering.scripts import ci_scope
 from engineering.scripts.ci_scope import require_jobs, select_scope
+from engineering.scripts.pre_push_check import CONSUMERS, select
 
 
 @pytest.mark.parametrize('event,paths,expected', [
@@ -26,6 +27,34 @@ from engineering.scripts.ci_scope import require_jobs, select_scope
 ])
 def test_scope_keeps_conservative_boundaries(event, paths, expected):
     assert select_scope(event, paths) == expected
+
+
+IO_NODES = list(CONSUMERS[0][1])
+CLOSE_NODE = ('tests/python/test_workbench_navigation.py::'
+              'test_window_close_cleans_both_volume_plotters_and_their_popups')
+
+
+@pytest.mark.parametrize('paths,deleted,expected', [
+    (['python/applications/gui/ui/optimize_panel.py'], [], ([], IO_NODES, [], [])),
+    # workbench.py owns close_views(), which releases both volume plotters.
+    (['python/applications/gui/ui/workbench.py'], [], ([], [CLOSE_NODE], [], [])),
+    # A rename gives the old name. The old name still selects its consumers.
+    (['python/applications/gui/ui/main_window.py'], ['python/applications/gui/ui/main_window.py'],
+     ([], [CLOSE_NODE], [], [])),
+    # Mapped nodes stay required when their file also changed.
+    (['python/applications/gui/ui/panel_vis_3d.py', 'tests/python/test_io_actions.py'], [],
+     (['tests/python/test_io_actions.py'], IO_NODES + [CLOSE_NODE], [], [])),
+    # A removed shard list still needs the CI coverage check.
+    (['tests/python/native/test_cpp_quick_design.py', 'tests/python/integration_tm1/test_public_gui.py',
+      'tests/python/_ci_shard0.txt', 'tests/python/native/_ci_suite.txt', 'tests/python/test_removed.py',
+      'docs/architecture.md'],
+     ['tests/python/test_removed.py', 'tests/python/_ci_shard0.txt'],
+     ([], [], ['tests/python/native/test_cpp_quick_design.py', 'tests/python/integration_tm1/test_public_gui.py'],
+      ['tests/python/_ci_shard0.txt', 'tests/python/native/_ci_suite.txt'])),
+])
+def test_pre_push_selects_light_consumers_and_defers_heavy_and_ci_items(paths, deleted, expected):
+    files, nodes, heavy, ci = select(paths, lambda path: path not in deleted)
+    assert (files, nodes, [path for path, _ in heavy], [path for path, _ in ci]) == expected
 
 
 @pytest.mark.parametrize('tier', ['docs', 'application', 'full'])

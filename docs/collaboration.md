@@ -83,12 +83,18 @@ Use this section when a coordinator runs two or more workers, for example in an 
 5. Give each worker a brief with these items:
    - Goal, base commit, worktree, branch, and write scope.
    - Dependencies, agreed limits, and user decisions.
+     For each dependency on another task, give the upstream task, its owner, the accepted upstream merge commit,
+     and the downstream test nodes that depend on it.
+   - The rows of the [hazard index](agent-hazards.md) that match the write scope.
    - Applicable lock, native library paths, and checks.
    - Delivery target (reviewed branch or own PR), stop conditions, and report format.
 6. A worker that must change a file outside its write scope asks the coordinator first.
    A worker sends questions for the user, blockers, review requests, and results to the coordinator.
 7. In an authorized run, messages between a worker and its coordinator need no other approval.
    Messages to other chats need user approval.
+8. For a dependency on another task, only the acceptance steps of the dependent downstream nodes wait.
+   Independent work continues. A downstream branch delivers after it includes the upstream merge commit
+   and the dependent nodes pass.
 
 ### Heavy-job slot
 
@@ -97,7 +103,8 @@ Native builds include the `build`, `publish`, and `check-stages` commands of `bu
 Heavy numerical runs include solves, benchmarks, and byte comparison runs.
 Classify a test run by the work that it starts.
 A targeted pytest file that starts native solves or native subprocesses is a heavy job.
-Targeted pytest files that start no heavy work, `ruff`, `audit_import_graph`, and `check_docs.py` are light jobs.
+Targeted pytest files that start no heavy work, `ruff`, `audit_import_graph`, `check_docs.py`,
+and the [light pre-push check](#light-pre-push-check) are light jobs.
 Light jobs can run in parallel.
 
 1. One coordinator approves the heavy-job slot for all runs on this machine.
@@ -281,10 +288,14 @@ If the user names no other coordinator, the owner is the coordinator.
 
 1. Complete the relevant checks. Commit only changes in the task scope.
    Do not commit local data, environments, or exploratory reports.
-   Before a push, select the native libraries as specified in [worktree setup](#worktree-setup).
+   Select the native libraries as specified in [worktree setup](#worktree-setup).
+   Run the [light pre-push check](#light-pre-push-check) on the clean, committed task tree.
+   It must pass before the review and before the first push.
    For each changed module, use a text search or the import graph to find its direct importers.
    Run every test file under `tests/python` that imports the changed module.
    Run the tests for the other importers, the targeted tests, and `tests/python/architecture/test_three_module_imports.py`.
+   Run these tests also when the check did not select them or recorded them as pending heavy.
+   If such a test starts heavy work, use the [heavy-job slot](#heavy-job-slot). Record these tests and their results.
 2. Start the necessary [independent review](#independent-review) of the head commit without a user reminder.
    A PR that only corrects spelling, links, or formatting in documents needs no review.
    It must not change the meaning of a rule, command, or contract.
@@ -307,6 +318,7 @@ If the user names no other coordinator, the owner is the coordinator.
      or add `skip` or `xfail`.
    - The coordinator does a check of the diff against these conditions. The PR records the result of that check,
      the counted lines, the approved head, the repaired head, and the failed check.
+   - The [light pre-push check](#light-pre-push-check) passes on the repaired head.
    - All necessary PR CI passes on the repaired head.
    For a batch PR, the approved head is the batch head that the coordinator compared in batch delivery step 3.
    Other repairs need a normal review round.
@@ -333,6 +345,45 @@ The coordinator runs a recoverable job again. If a code fix is necessary, its PR
 Hold unrelated merges until the fix passes `main` CI.
 
 PR CI, merged-main CI, desktop acceptance, and experimental validation are separate results.
+
+### Light pre-push check
+
+`engineering/scripts/pre_push_check.py` selects light checks from the changed paths.
+The selection base is the merge base of `origin/main` and `HEAD`. Use `--base` for another base ref.
+`--head` must name the clean, checked-out commit.
+
+1. Commit all changes. The check stops if the worktree has uncommitted or untracked files.
+2. From the repository root, run `"$(head -n 1 .venv-path)" -m engineering.scripts.pre_push_check`.
+3. Read the run record in `.cache/pre-push/<head>.txt`.
+   Put its summary line in the review request and in the PR description.
+
+The check runs `check_docs.py` for each diff. For a diff that is not in the `docs` tier, it also runs these items:
+
+- The lock check, `pip check`, `ruff` on the changed Python files, and `check_types` for `darwin` and `win32`.
+- `audit_import_graph --fail-on-violations`. It includes the import cycle check.
+- The verified-light nodes of the changed test files and of the mapped consumers, with `-m "not slow and not heavy"`.
+  The verified-light list in the check names these files and nodes.
+
+The run record gives a result for each required node: passed, failed, skipped, not collected,
+pending heavy, or CI pending. A skip is not a pass. The check sets `TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1` as CI does.
+Thus a missing native library or caller is a failure.
+Pending heavy nodes are not on the verified-light list, or they have the `slow` or `heavy` marker.
+Run them as step 1 tells, or let the PR CI close them.
+A failed lock check or `pip check` stops the other checks and gives a failed record.
+A CI pending item names the CI job that closes it. The PR CI of the same head closes it before merge.
+The record also lists the changed modules that have no mapped consumer. Trace their importers as step 1 tells.
+"Light check passed" and "all required checks passed" are different statements.
+
+Add a consumer node or a verified-light file to the check only after you examine its call chain.
+The chain must start no native solve and no long-running subprocess. A short Git metadata query is permitted.
+The check prints the rows of the [hazard index](agent-hazards.md) that match the changed paths.
+
+The Git hook `engineering/hooks/pre-push` accepts a complete, passing run record for the pushed commit
+and the same selection base. It examines the push destination: it checks each branch update.
+If no such record exists, the hook runs the check when the worktree is clean and at the pushed commit.
+Otherwise it stops the push. The hook ignores tags and branch deletions.
+The coordinator sets `git config core.hooksPath engineering/hooks` one time. Linked worktrees share this setting.
+Do not use `git push --no-verify` without coordinator approval. Record the reason in the PR.
 
 ### Batch delivery
 
@@ -369,10 +420,13 @@ Select the reviewer as follows:
   Then use another independent model that differs from the author's model and covers the same scope.
 
 1. Give the reviewer the requirement, accepted constraints, worktree, base and head commits, applicable rules, and test evidence.
-   Include the author's related-change record and relevant prior decisions.
+   Include the author's related-change record, the summary of the light pre-push check, and relevant prior decisions.
    Keep the reviewed worktree unchanged until the reviewer returns.
 2. The reviewer first traces connected consumers from the requirement and diff.
    Then the reviewer compares those findings with the author's related-change record.
+   The reviewer makes sure that the pre-push run record is for the reviewed head commit.
+   It must have no failed, skipped, or not collected required node.
+   If the record misses a consumer, the author adds the evidence for that consumer.
    Read relevant code and model documents, including dynamic entries and saved-file consumers.
    Do not limit the review to the author's file list.
 3. Look for incomplete related changes, unnecessary code, repeated rules, extra abstractions, and incomplete retirement.
@@ -431,7 +485,7 @@ Each record has one owner:
 The PR description contains these items:
 
 - The change and its [related-change record](#related-change-record).
-- The checks and the tested commit.
+- The checks and the tested commit, including the summary of the light pre-push check.
 - The review result, reviewer model, reviewed commit, and rounds, or the reason for no review.
 - The PR CI result.
 - The open acceptance conditions.

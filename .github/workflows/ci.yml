@@ -41,15 +41,16 @@ jobs:
         if: steps.scope.outputs.tier != 'docs'
         with:
           python-version: '3.13'
-      # Run lint and type checks once here, not in the pytest shards.
+      # Run lint, type, and import checks once here, not in the pytest shards.
       # check_types needs setuptools to build the package tree and NumPy for array types.
-      - name: Lint and type contracts
+      - name: Lint, type, and import contracts
         if: steps.scope.outputs.tier != 'docs'
         run: |
           python -m pip install --disable-pip-version-check -c engineering/requirements/base.txt ruff mypy numpy setuptools PyYAML
           python -m ruff check .
           python -m engineering.scripts.check_types --platform darwin
           python -m engineering.scripts.check_types --platform win32
+          python -m sjtu_tpmshx.development.runs.tools.audit_import_graph --fail-on-violations
       - name: Find main builds with matching native inputs
         id: native
         if: steps.scope.outputs.tier != 'docs'
