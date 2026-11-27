@@ -364,3 +364,32 @@ def test_cancel_token_class_basic():
     assert not tok.is_set()
     tok.cancel()
     assert tok.is_set()
+
+
+def test_main_thread_gc_refcount_re_enables_after_matching_releases():
+    import gc
+    from sjtu_tpmshx.applications.gui.controllers import main_thread_gc
+
+    _make_app()
+    assert gc.isenabled()
+    acquired = 0
+    try:
+        main_thread_gc.acquire()
+        acquired += 1
+        assert not gc.isenabled()
+        assert main_thread_gc._timer is not None and main_thread_gc._timer.isActive()
+        main_thread_gc.acquire()
+        acquired += 1
+        assert not gc.isenabled()
+        main_thread_gc.release()
+        acquired -= 1
+        assert not gc.isenabled()
+        assert main_thread_gc._timer is not None and main_thread_gc._timer.isActive()
+        main_thread_gc.release()
+        acquired -= 1
+        assert gc.isenabled()
+        assert main_thread_gc._timer is None
+    finally:
+        while acquired:
+            main_thread_gc.release()
+            acquired -= 1

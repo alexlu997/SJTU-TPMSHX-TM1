@@ -5,6 +5,8 @@ from importlib import import_module
 
 from PySide6.QtCore import QThread, QTimer, Qt, Signal, Slot
 
+from sjtu_tpmshx.applications.gui.controllers import main_thread_gc
+
 
 class ViewImports(QThread):
     prepared = Signal()
@@ -15,6 +17,10 @@ class ViewImports(QThread):
         self.workbench = workbench
         self.error = None
         self.finished.connect(self._deliver, Qt.ConnectionType.QueuedConnection)
+
+    def start(self, priority=QThread.Priority.InheritPriority):
+        main_thread_gc.acquire()
+        super().start(priority)
 
     def run(self):
         try:
@@ -35,6 +41,7 @@ class ViewImports(QThread):
             self.prepared.emit()
         finally:
             workbench.import_worker = None
+            main_thread_gc.release()
             self.settled.emit()
             self.deleteLater()
 

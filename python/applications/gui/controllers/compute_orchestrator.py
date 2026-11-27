@@ -24,6 +24,7 @@ from collections import deque
 from typing import Callable, Optional
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Qt, Signal, Slot
+from sjtu_tpmshx.applications.gui.controllers import main_thread_gc
 from sjtu_tpmshx.run_control.cancellation import CancelledError as _CancelledError
 from sjtu_tpmshx.run_control.paused_run import PausedRun
 from sjtu_tpmshx.run_control.logutil import capture_output
@@ -290,6 +291,7 @@ class ComputeOrchestrator(QObject):
 
         runnable = _ComputeRunnable(self, worker_fn, cfg, self._cancel_token)
         self.started.emit(mode)
+        main_thread_gc.acquire()
         self._pool.start(runnable)
         return True
 
@@ -327,6 +329,7 @@ class ComputeOrchestrator(QObject):
             self.finished.emit(result)
         finally:
             self._is_running = False
+            main_thread_gc.release()
 
     @Slot(str, str)
     def _on_worker_error(self, message: str, log: str):
@@ -335,6 +338,7 @@ class ComputeOrchestrator(QObject):
             self.error.emit(message, log)
         finally:
             self._is_running = False
+            main_thread_gc.release()
 
     @Slot(str, float)
     def _on_worker_cancelled(self, log: str, elapsed: float):
@@ -344,6 +348,7 @@ class ComputeOrchestrator(QObject):
             self.cancelled.emit(log)
         finally:
             self._is_running = False
+            main_thread_gc.release()
 
     @Slot(str, str, float)
     def _on_worker_paused(self, checkpoint_file: str, log: str, elapsed: float):
@@ -353,3 +358,4 @@ class ComputeOrchestrator(QObject):
             self.paused.emit(checkpoint_file, log)
         finally:
             self._is_running = False
+            main_thread_gc.release()

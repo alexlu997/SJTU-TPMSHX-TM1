@@ -5,8 +5,9 @@ from dataclasses import replace
 import sys
 from time import perf_counter
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QThread, Qt, Signal, Slot
 
+from sjtu_tpmshx.applications.gui.controllers import main_thread_gc
 from sjtu_tpmshx.run_control.cancellation import CancelledError
 
 
@@ -21,6 +22,15 @@ class QuickDesignJob(QThread):
         self.control = control
         # The desktop bundle has no loky subprocess entry point.
         self.n_jobs = 1 if getattr(sys, 'frozen', False) else -1
+        self.finished.connect(self._release_gc, Qt.ConnectionType.QueuedConnection)
+
+    def start(self, priority=QThread.Priority.InheritPriority):
+        main_thread_gc.acquire()
+        super().start(priority)
+
+    @Slot()
+    def _release_gc(self):
+        main_thread_gc.release()
 
     def run(self):
         started = perf_counter()
