@@ -318,6 +318,7 @@ If the user names no other coordinator, the owner is the coordinator.
      or add `skip` or `xfail`.
    - The coordinator does a check of the diff against these conditions. The PR records the result of that check,
      the counted lines, the approved head, the repaired head, and the failed check.
+   - The [light pre-push check](#light-pre-push-check) passes on the repaired head.
    - All necessary PR CI passes on the repaired head.
    For a batch PR, the approved head is the batch head that the coordinator compared in batch delivery step 3.
    Other repairs need a normal review round.
