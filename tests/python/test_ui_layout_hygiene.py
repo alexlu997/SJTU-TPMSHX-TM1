@@ -454,6 +454,8 @@ def test_no_raw_hex_outside_theme():
 def test_numeric_inputs_rule_a_left_aligned_with_unit_suffix(win):
     from PySide6.QtCore import Qt as _Qt
     from sjtu_tpmshx.applications.gui.ui.field_factory import UnitLineEdit
+    orig_dim = win.combo_dim.currentIndex()
+    win.combo_dim.setCurrentIndex(0)
     assert isinstance(win.le_L, UnitLineEdit)
     assert win.le_L.alignment() & _Qt.AlignmentFlag.AlignLeft
     assert win.le_L.unit() == 'm'
@@ -523,6 +525,7 @@ def test_numeric_inputs_rule_a_left_aligned_with_unit_suffix(win):
         win.le_pipeA_in_ctr.setText(orig_ctr)
         win.le_TinA.setText(orig_tin)
         win.le_uA.setText(orig_ua)
+        win.combo_dim.setCurrentIndex(orig_dim)
 
 
 def test_dialog_theme_applies_first_and_changed_styles_only(monkeypatch):
