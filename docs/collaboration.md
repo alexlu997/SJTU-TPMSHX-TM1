@@ -348,7 +348,8 @@ The check runs `check_docs.py` for each diff. For a diff that is not in the `doc
 - The changed test files and the mapped consumer nodes, with `-m "not slow and not heavy"`.
 
 The run record gives a result for each required node: passed, failed, skipped, not collected,
-pending heavy, or CI pending. A skip without a skip marker, for example for a missing native library, is not a pass.
+pending heavy, or CI pending. The check sets `TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1` as CI does.
+Thus a missing native library or caller is a failure, not a skip. The record gives the reason for each other skip.
 Pending heavy nodes start native solves. Run them with the heavy-job slot, or let the PR CI close them.
 A CI pending item names the CI job that closes it. The PR CI of the same head closes it before merge.
 The record also lists the changed modules that have no mapped consumer. Trace their importers as step 1 tells.

@@ -119,8 +119,9 @@ class Run:
     def __init__(self, python):
         self.python = python
         self.commands = []
+        # As in CI, a missing native library or caller fails the test and does not skip it.
         self.env = dict(os.environ, MPLCONFIGDIR=str(ROOT / '.cache/matplotlib'),
-                        XDG_CACHE_HOME=str(ROOT / '.cache/xdg'))
+                        XDG_CACHE_HOME=str(ROOT / '.cache/xdg'), TPMSHX_REQUIRE_NATIVE_DEPS_TESTS='1')
 
     def __call__(self, *args, label=None):
         start = time.monotonic()
@@ -155,8 +156,7 @@ def run_tests(run, files, nodes):
         elif record['outcome'] == 'failed':
             results[node] = ('failed', record['when'])
         elif record['outcome'] == 'skipped' and results.get(node, ('',))[0] != 'failed':
-            results[node] = (('CI pending', f'skip marker, closed by the other platform job: {record["reason"]}')
-                             if record['marker'] else ('skipped', record['reason']))
+            results[node] = ('skipped', record['reason'])
         elif node not in results:
             results[node] = ('passed', '')
     for target in targets:
@@ -206,7 +206,7 @@ def check(base_ref):
     for result, _ in results.values():
         counts[result] = counts.get(result, 0) + 1
     passed = (all(ok for ok, _, _ in run.commands)
-              and not {'failed', 'skipped', 'not collected'} & set(counts))
+              and not {'failed', 'not collected'} & set(counts))
     seconds = round(time.monotonic() - start)
     summary = (f'Pre-push light check: {"pass" if passed else "FAIL"} at {head[:12]} '
                f'(selection base {base[:12]}, tier {tier}); '
@@ -298,8 +298,7 @@ def pytest_collectreport(report):
 def pytest_runtest_logreport(report):
     if EVENTS in os.environ and (report.when == 'call' or not report.passed):
         reason = report.longrepr[2] if report.skipped and isinstance(report.longrepr, tuple) else ''
-        _event(kind='report', node=report.nodeid, when=report.when, outcome=report.outcome, reason=reason,
-               marker=bool({'skip', 'skipif'} & set(report.keywords)))
+        _event(kind='report', node=report.nodeid, when=report.when, outcome=report.outcome, reason=reason)
 
 
 if __name__ == '__main__':
