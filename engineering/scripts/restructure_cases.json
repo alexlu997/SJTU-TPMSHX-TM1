@@ -2,22 +2,24 @@
   "stages": {
     "air-2d": {"example": "air_2d.json"},
     "air-3d": {"example": "air_3d.json"},
-    "water-2d": {"example": "air_2d.json", "profile": "air-water", "field": "zoned", "topology": "Diamond"},
-    "water-3d": {"example": "air_3d.json", "profile": "air-water", "field": "continuous", "topology": "Diamond"},
-    "co2-2d": {"example": "air_2d.json", "profile": "co2-water", "field": "continuous", "topology": "Gyroid"},
-    "co2-3d": {"example": "air_3d.json", "profile": "co2-water", "topology": "Diamond"},
-    "sco2-2d": {"example": "air_2d.json", "profile": "sco2-water", "topology": "Gyroid"},
-    "sco2-3d": {"example": "air_3d.json", "profile": "sco2-water", "topology": "Gyroid"}
+    "zoned-air-2d": {"example": "air_2d.json", "fluids": ["air", "cold-air"], "field": "zoned", "topology": "Diamond"},
+    "water-2d": {"example": "air_2d.json", "fluids": ["air", "water"], "topology": "Diamond"},
+    "water-3d": {"example": "air_3d.json", "fluids": ["air", "water"], "field": "continuous", "topology": "Diamond"},
+    "co2-2d": {"example": "air_2d.json", "fluids": ["co2", "water"], "field": "continuous", "topology": "Gyroid"},
+    "co2-3d": {"example": "air_3d.json", "fluids": ["co2", "water"], "topology": "Diamond"},
+    "sco2-2d": {"example": "air_2d.json", "fluids": ["sco2", "water"], "topology": "Gyroid"},
+    "sco2-3d": {"example": "air_3d.json", "fluids": ["sco2", "water"], "topology": "Gyroid"}
   },
-  "profiles": {
-    "air-water": {"type": "air", "u_mps": 12.0, "T_in_K": 500.0, "P_in_Pa": 200000.0},
-    "co2-water": {"type": "co2", "u_mps": 0.35, "T_in_K": 350.0, "P_in_Pa": 8000000.0},
-    "sco2-water": {"type": "sco2", "u_mps": 0.2, "T_in_K": 500.0, "P_in_Pa": 12000000.0}
+  "fluids": {
+    "air": {"type": "air", "u_mps": 12.0, "T_in_K": 500.0, "P_in_Pa": 200000.0},
+    "cold-air": {"type": "air", "u_mps": 10.0, "T_in_K": 300.0, "P_in_Pa": 200000.0},
+    "water": {"type": "water", "u_mps": 0.3, "T_in_K": 300.0, "P_in_Pa": 2000000.0},
+    "co2": {"type": "co2", "u_mps": 0.35, "T_in_K": 350.0, "P_in_Pa": 8000000.0},
+    "sco2": {"type": "sco2", "u_mps": 0.2, "T_in_K": 500.0, "P_in_Pa": 12000000.0}
   },
-  "water": {"type": "water", "u_mps": 0.3, "T_in_K": 300.0, "P_in_Pa": 2000000.0},
   "small_grid": {"Nx": 8, "Ny": 6, "max_outer_ltne": 100, "max_iter_simple": 5000},
   "fields": {
-    "zoned": {"enabled": true, "axis": "grid", "grid": {"cells": [
+    "zoned": {"enabled": true, "axis": "grid", "grid": {"tpms_type": "Diamond", "k_s": 16.0, "cells": [
       {"x0": 0.0, "x1": 0.5, "y0": 0.0, "y1": 1.0, "L": 6.0, "t": 0.4},
       {"x0": 0.5, "x1": 1.0, "y0": 0.0, "y1": 1.0, "L": 7.0, "t": 0.5}
     ]}},

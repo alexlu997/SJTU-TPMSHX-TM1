@@ -4,7 +4,8 @@
     python -m engineering.scripts.restructure_reference compare OLD_DIR NEW_DIR
     python -m engineering.scripts.restructure_reference handoff NEW_DIR LINUX_NATIVE_DIR MAC_2D_H5 MAC_3D_H5
 
-Use the BO lock for a full run and the postprocess lock on Linux x86_64.
+Activate the BO environment for a full run so that Torch can find its Ninja executable.
+Use the postprocess lock on Linux x86_64.
 NATIVE_DIR contains the published images and build records. Set TM1_PACKAGE after a package rename.
 """
 import argparse
@@ -138,8 +139,9 @@ def runtime(directory, components, locks):
 
 def configuration(spec, row):
     data = read(ROOT / 'examples/three_module' / row['example'])
-    if 'profile' in row:
-        data.update(fluid_A=spec['profiles'][row['profile']], fluid_B=spec['water'], extrap={'allow': True})
+    if 'fluids' in row:
+        hot, cold = (spec['fluids'][name] for name in row['fluids'])
+        data.update(fluid_A=hot, fluid_B=cold, extrap={'allow': True})
         data['geometry'].update(tpms=row['topology'], L_dom_m=.06, H_dom_m=.03, Lz_m=.03, t_wall_mm=.6)
         data['solver'].update(spec['small_grid'])
     if 'field' in row:
@@ -181,11 +183,12 @@ def pause_resume(case, control, folder, uninterrupted):
 
 
 def proposal(spec, control, folder):
+    os.environ.setdefault('TORCH_EXTENSIONS_DIR', str(ROOT / '.cache/torch-extensions'))
     import torch
     torch.set_num_threads(1)
     settings = spec['bo']
     cfg = module('data_types.compute_config').ComputeConfig.from_dict(
-        dict(settings['config'], fluid_A=spec['profiles']['air-water'], fluid_B=spec['water']))
+        dict(settings['config'], fluid_A=spec['fluids']['air'], fluid_B=spec['fluids']['water']))
     record = module('applications.optimization.multi_condition_optimizer').run_multi_condition_optimization(
         [('air-water', cfg, *settings['mass_flows_kg_s'])], output_dir=folder / 'bo', workers=1,
         control=control, **without(settings, 'config', 'mass_flows_kg_s'))
