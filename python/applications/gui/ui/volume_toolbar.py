@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from .symbols import SYM
+from .theme import get_theme
 
 GEOMETRY_MODES: tuple[str, ...] = ("simple", "lattice")
 DISPLAY_MODES: tuple[str, ...] = ("surface", "slice", "volume")
@@ -49,21 +50,6 @@ _CAMERA_OPTIONS: tuple[tuple[str, str], ...] = (
     ("yz", SYM["yz"]),
     ("iso", "等轴"),
 )
-
-_DEFAULT_TOKENS: dict[str, Any] = {
-    "sunken": "#EFEEEA",
-    "canvas": "#F8F7F4",
-    "popover": "#FFFFFF",
-    "hover": "#E3E2DD",
-    "seg_on": "#FFFFFF",
-    "border": "#D9D8D4",
-    "border_strong": "#C1BFBA",
-    "inp_border": "#807F79",
-    "fg": "#181715",
-    "sub": "#474643",
-    "tert": "#686663",
-    "accent": "#0E6275",
-}
 
 
 def _enable_tnum(widget: QWidget) -> None:
@@ -300,6 +286,7 @@ class VolumeToolbar(QFrame):
     detail_level_changed = Signal(str)
     phase_changed = Signal(str)
     camera_preset_requested = Signal(str)
+    layout_changed = Signal()
 
     def __init__(
         self,
@@ -329,7 +316,7 @@ class VolumeToolbar(QFrame):
         if camera_preset is not None:
             self._validate_choice(camera_preset, CAMERA_PRESETS, "camera_preset")
 
-        self._tokens: dict[str, Any] = dict(_DEFAULT_TOKENS)
+        self._tokens: dict[str, Any] = dict(get_theme())
         if tokens is not None:
             self._tokens.update(tokens)
 
@@ -709,6 +696,7 @@ class VolumeToolbar(QFrame):
 
         self.updateGeometry()
         self.adjustSize()
+        self.layout_changed.emit()
 
     def _on_geometry_activated(self, mode: str) -> None:
         self._geometry_mode = mode

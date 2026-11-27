@@ -1,4 +1,4 @@
-"""Check the actual 3D panel and PNG export in a separate Qt process."""
+"""Check the actual 3D panel and unified overlay PNG export in a separate Qt process."""
 from pathlib import Path
 import os
 import subprocess
@@ -33,10 +33,11 @@ def _render_panel(destination):
         panel.show()
         print('3D panel shown', flush=True)
         x, y, z = np.indices((8, 6, 4), dtype=float)
-        panel.set_fields(Ta=300 + x + 2*y + 3*z, Ts=340 - 2*x + y - z,
+        panel.set_fields(Ta=300 + x + 2 * y + 3 * z, Ts=340 - 2 * x + y - z,
                          dx=np.full(8, .001), dy=np.full(6, .001), dz=np.full(4, .001))
+        assert panel.display_mode() == 'surface'
         assert panel._volume_actor is not None
-        print('Volume ready', flush=True)
+        print('Outer-surface 3D scene ready', flush=True)
         context = {'qt_platform': platform,
                    'render_window': panel.plotter.ren_win.GetClassName(),
                    'capabilities': panel.plotter.ren_win.ReportCapabilities()}
@@ -57,35 +58,43 @@ def _render_panel(destination):
             print(f'Screenshot scale {scale}', flush=True)
             path = output / f'volume-{scale}.png'
             pixels = panel.plotter.screenshot(str(path), return_img=True, scale=scale)
-            assert pixels.shape == (height*scale, width*scale, 3)
+            assert pixels.shape == (height * scale, width * scale, 3)
             assert pixels.dtype == np.uint8
             with Image.open(path) as decoded:
                 np.testing.assert_array_equal(np.asarray(decoded), pixels)
-            # A nonblank image alone can pass when the framebuffer contains noise.
             assert np.max(np.abs(pixels[:10, :10].astype(float) - background)) <= 2
-            center = pixels[height*scale//4:3*height*scale//4,
-                            width*scale//4:3*width*scale//4]
+            center = pixels[height * scale // 4:3 * height * scale // 4,
+                            width * scale // 4:3 * width * scale // 4]
             assert float(center.std()) > 5
             assert np.max(np.abs(center.astype(float) - background)) > 20
             report['images'][str(scale)] = {'shape': list(pixels.shape),
-                                           'decoded_pixels_match': True}
+                                            'decoded_pixels_match': True}
             if scale == 1:
                 first = pixels
-        panel.combo_field.setCurrentIndex(panel.combo_field.findData('Ts'))
-        assert panel._field == 'Ts'
+        assert panel.set_field('Ts')
+        assert panel.field() == 'Ts'
         QTimer.singleShot(100, loop.quit)
         loop.exec()
         changed = panel.plotter.screenshot(str(output / 'solid.png'), return_img=True)
-        center = np.s_[height//4:3*height//4, width//4:3*width//4]
+        center = np.s_[height // 4:3 * height // 4, width // 4:3 * width // 4]
         difference = int(np.count_nonzero(first[center] != changed[center]))
         assert difference > 100
         report['changed_center_values'] = difference
+
+        # Unified capture composites VTK pixels with StudioColorbarCard and port chips.
+        captured = panel.capture_image()
         export = output / 'application-export.png'
         with patch.object(QFileDialog, 'getSaveFileName',
                           return_value=(str(export), 'PNG images (*.png)')):
             panel._on_screenshot()
         with Image.open(export) as decoded:
-            np.testing.assert_array_equal(np.asarray(decoded), changed)
+            exported_arr = np.asarray(decoded)
+        captured_ref = output / 'captured-ref.png'
+        assert captured.save(str(captured_ref), 'PNG')
+        with Image.open(captured_ref) as decoded_ref:
+            np.testing.assert_array_equal(exported_arr, np.asarray(decoded_ref))
+        assert exported_arr.shape == changed.shape
+        assert int(np.count_nonzero(exported_arr != changed)) > 100
         report['application_export_pixels_match'] = True
     finally:
         print('Close 3D panel', flush=True)

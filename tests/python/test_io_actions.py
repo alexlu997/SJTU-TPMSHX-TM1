@@ -1417,6 +1417,7 @@ def test_optimization_volume_copy_and_export_require_current_render(
         win, monkeypatch, tmp_path, channels):
     from types import MethodType, SimpleNamespace
     from unittest.mock import Mock
+    from PIL import Image
     from PySide6.QtGui import QGuiApplication
     from sjtu_tpmshx.applications.gui.ui import result_export
     from sjtu_tpmshx.applications.gui.ui.panel_vis_3d import ThreeDVisPanel
@@ -1431,11 +1432,14 @@ def test_optimization_volume_copy_and_export_require_current_render(
                        [[25, 70, 130, 64], [90, 40, 220, 255], [240, 210, 20, 255]]],
                       dtype=np.uint8)[:, :, :channels].copy()
     expected = pixels.copy()
-    panel = SimpleNamespace(_grid=object(), _field='L_mm', _volume_actor=object(), _scale_mode='global',
-                            plotter=Mock(), status=Mock(), grab=Mock(), _sync_clim_controls=Mock(),
-                            color_range_state=lambda: {'mode': 'global', 'ranges': {}})
+    panel = SimpleNamespace(
+        _grid=object(), _field='L_mm', _volume_actor=object(), _scale_mode='global',
+        _display_mode='surface', plotter=Mock(), status=Mock(), grab=Mock(),
+        _capture_overlays=lambda: [],
+        color_range_state=lambda: {'mode': 'global', 'ranges': {}},
+    )
     panel.plotter.screenshot.return_value = pixels
-    panel._on_screenshot = MethodType(ThreeDVisPanel._on_screenshot, panel)
+    panel.capture_image = MethodType(ThreeDVisPanel.capture_image, panel)
     monkeypatch.setattr(win.optimization, 'volume_panel', panel)
     monkeypatch.setattr(win.optimization, 'volume_data', {'new-design': True})
     monkeypatch.setattr(win.optimization, '_volume_ready', False)
@@ -1465,6 +1469,8 @@ def test_optimization_volume_copy_and_export_require_current_render(
         for y in range(2):
             for x in range(3):
                 assert image.pixelColor(x, y).getRgb()[:channels] == tuple(expected[y, x])
+
+        pixels[:] = expected
         panel.plotter.screenshot.reset_mock()
         path = tmp_path / 'optimization-volume.png'
         save_dialog = Mock(return_value=(str(path), 'PNG images (*.png)'))
@@ -1473,27 +1479,52 @@ def test_optimization_volume_copy_and_export_require_current_render(
         picker.assert_called_once()
         assert picker.call_args.args[3] == ['优化三维场']
         assert save_dialog.call_args.args[3] == 'PNG images (*.png)'
-        panel.plotter.screenshot.assert_called_once_with(str(path))
+        panel.plotter.screenshot.assert_called_once_with(return_img=True)
+        with Image.open(path) as saved:
+            np.testing.assert_array_equal(np.asarray(saved)[:, :, :channels], expected)
+
+        # Main workbench 3D tab shares the exact same unified capture for Copy and Save.
+        monkeypatch.setattr(win, 'canvas_3d', panel)
+        monkeypatch.setattr(win.workbench, 'volume_ready', True)
+        monkeypatch.setattr(win.workbench, 'active_tab', '3d')
+        panel.plotter.screenshot.reset_mock()
+        clipboard.clear()
+        win.result_export.copy_figure_clipboard()
+        panel.plotter.screenshot.assert_called_once_with(return_img=True)
+        assert (clipboard.image().width(), clipboard.image().height()) == (3, 2)
+
+        main_path = tmp_path / 'main-3d.png'
+        monkeypatch.setattr(result_export.QFileDialog, 'getSaveFileName',
+                            lambda *a: (str(main_path), 'PNG images (*.png)'))
+        main_picker = Mock(return_value=('三维视图', True))
+        monkeypatch.setattr(result_export.QInputDialog, 'getItem', main_picker)
+        win.result_export.export_figure()
+        assert '三维视图' in main_picker.call_args.args[3]
+        with Image.open(main_path) as saved_main:
+            np.testing.assert_array_equal(np.asarray(saved_main)[:, :, :channels], expected)
+
+        monkeypatch.setattr(win.workbench, 'active_tab', 'pareto')
+        monkeypatch.setattr(win.workbench, 'volume_ready', False)
+        monkeypatch.setattr(result_export.QInputDialog, 'getItem', picker)
+        monkeypatch.setattr(result_export.QFileDialog, 'getSaveFileName', save_dialog)
         panel.plotter.screenshot.side_effect = RuntimeError('screenshot failed')
         warning = Mock()
         monkeypatch.setattr(result_export.QMessageBox, 'warning', warning)
         win.result_export.export_figure()
         assert warning.call_args.args[1:] == ('Export failed', 'screenshot failed')
 
-        # The real L/t callback clears its actor if the next VTK volume fails,
-        # even though the study's initial set_fields call already succeeded.
-        panel.combo_field = SimpleNamespace(itemData=lambda index: 't_mm')
+        # Switching L/t clears _volume_actor if the next 3D render fails.
         panel._arrays = {'L_mm': object(), 't_mm': object()}
-        panel._slice_info = None
         panel._clim_for = lambda field: (.3, .6)
-        panel._opacity_ramp = lambda: (.2, .5)
         panel._build_volume_grid = lambda: (panel._grid, 1.)
+        panel._clear_data_actors = MethodType(ThreeDVisPanel._clear_data_actors, panel)
+        panel._render_surface_actors = Mock(side_effect=RuntimeError('field switch failed'))
+        panel._sync_colorbar = Mock()
         panel._update_status = Mock()
-        panel._rebuild_volume = MethodType(ThreeDVisPanel._rebuild_volume, panel)
-        panel.plotter.add_volume.side_effect = RuntimeError('field switch failed')
-        ThreeDVisPanel._on_field_changed(panel, 1)
+        panel._rebuild_scene = MethodType(ThreeDVisPanel._rebuild_scene, panel)
+        ThreeDVisPanel.set_field(panel, 't_mm')
         assert panel._field == 't_mm' and panel._volume_actor is None
-        assert win.optimization._volume_ready  # This flag describes the earlier successful load.
+        assert win.optimization._volume_ready
         assert not win.optimization.volume_ready()
         win.result_export.refresh_export_button()
         assert not win.btn_export.isEnabled()

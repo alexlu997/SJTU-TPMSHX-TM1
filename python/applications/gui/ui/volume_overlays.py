@@ -23,24 +23,10 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QSizePol
 
 from .colormap_popover import CURATED_COLORMAPS
 from .symbols import MINUS, SYM
+from .theme import get_theme
 
 COLORBAR_WIDTH = 112
 COLORBAR_HEIGHT = 460
-
-_DEFAULT_TOKENS: dict[str, Any] = {
-    "sunken": "#EFEEEA",
-    "popover": "#FFFFFF",
-    "border": "#D9D8D4",
-    "border_strong": "#C1BFBA",
-    "fg": "#181715",
-    "sub": "#474643",
-    "tert": "#686663",
-    "accent": "#0E6275",
-    "accent_fg": "#0B5161",
-    "ok": "#176B3E",
-    "inlet_a": "#C85A17",
-    "inlet_b": "#1B5E9E",
-}
 
 
 def _enable_tnum(widget: QWidget) -> None:
@@ -221,7 +207,7 @@ class StudioColorbarCard(QFrame):
     ) -> None:
         super().__init__(parent)
         self._validate_colormap(colormap)
-        self._tokens: dict[str, Any] = dict(_DEFAULT_TOKENS)
+        self._tokens: dict[str, Any] = dict(get_theme())
         if tokens is not None:
             self._tokens.update(tokens)
 
@@ -434,7 +420,7 @@ class PortChip(QFrame):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self._tokens: dict[str, Any] = dict(_DEFAULT_TOKENS)
+        self._tokens: dict[str, Any] = dict(get_theme())
         if tokens is not None:
             self._tokens.update(tokens)
         self._side = side
@@ -540,24 +526,23 @@ def place_port_chip(
     if abs(dx) >= abs(dy):
         primary = left_rect if dx < 0.0 else right_rect
         perp = (above_rect, below_rect) if dy <= 0.0 else (below_rect, above_rect)
-        # Also test slightly shifted perpendicular options when near a right-edge colorbar.
-        shifted_above = QRect(
-            min(safe.right() - tw + 1, int(round(ox - tw * 0.35))),
-            int(round(oy - th - gap - 4)),
-            tw,
-            th,
-        )
-        shifted_below = QRect(
-            min(safe.right() - tw + 1, int(round(ox - tw * 0.35))),
-            int(round(oy + gap + 4)),
-            tw,
-            th,
-        )
-        candidates = (primary, perp[0], perp[1], shifted_above, shifted_below)
+        # Right-aligned or left-aligned perpendicular placements keep chips clear
+        # of a right-edge colorbar or left-edge toolbar without touching the arrow.
+        edge_x = int(round(ox - tw)) if dx >= 0.0 else int(round(ox))
+        aligned_above = QRect(edge_x, int(round(oy - th - gap)), tw, th)
+        aligned_below = QRect(edge_x, int(round(oy + gap)), tw, th)
+        candidates: list[QRect] = [primary, perp[0], perp[1], aligned_above, aligned_below]
     else:
         primary = above_rect if dy < 0.0 else below_rect
         perp = (right_rect, left_rect) if dx >= 0.0 else (left_rect, right_rect)
-        candidates = (primary, perp[0], perp[1])
+        candidates = [primary, perp[0], perp[1]]
+
+    # Add obstacle-cleared nudges beside any obstacle blocking the primary/perpendicular slots.
+    for obs in obstacles:
+        for base in (above_rect, below_rect):
+            if _overlap_area(base, obs) > 0:
+                candidates.append(QRect(obs.left() - tw - 8, base.top(), tw, th))
+                candidates.append(QRect(obs.right() + 9, base.top(), tw, th))
 
     def _clamped(rect: QRect) -> QRect:
         x = max(safe.left(), min(safe.right() - tw + 1, rect.left()))
@@ -600,7 +585,7 @@ class PortChipOverlay(QWidget):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self._tokens: dict[str, Any] = dict(_DEFAULT_TOKENS)
+        self._tokens: dict[str, Any] = dict(get_theme())
         if tokens is not None:
             self._tokens.update(tokens)
         self._anchors: list[PortAnchor] = []
@@ -695,7 +680,7 @@ class LatticeProgressCard(QFrame):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self._tokens: dict[str, Any] = dict(_DEFAULT_TOKENS)
+        self._tokens: dict[str, Any] = dict(get_theme())
         if tokens is not None:
             self._tokens.update(tokens)
         self._progress = max(0.0, min(1.0, float(progress)))
@@ -822,7 +807,7 @@ class LatticeDomainCard(QFrame):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self._tokens: dict[str, Any] = dict(_DEFAULT_TOKENS)
+        self._tokens: dict[str, Any] = dict(get_theme())
         if tokens is not None:
             self._tokens.update(tokens)
         self._cached = cached

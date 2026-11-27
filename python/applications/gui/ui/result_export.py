@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 
 from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
 
@@ -130,11 +131,19 @@ class ResultExport:
                               or window.optimization.field_ready()
                               or window.optimization.volume_ready())
 
+    @staticmethod
+    def _volume_panel_ready(window, key: str) -> bool:
+        if key == '3d':
+            panel = getattr(window, 'canvas_3d', None)
+            return (window.workbench.volume_ready
+                    and panel is not None
+                    and panel._volume_actor is not None)
+        if key == 'opt_3d':
+            return window.optimization.volume_ready()
+        return False
+
     def copy_figure_clipboard(self):
-        """Copy the currently active canvas image to the system clipboard
-        (ui-batch4 ③) — one click from result plot to WeChat / PPT.
-        Matplotlib canvases use widget.grab(); VTK needs its own screenshot
-        because Qt grabs do not reliably capture the OpenGL surface."""
+        """Copy the active canvas image (with 3D overlays) to the clipboard."""
         window = self.window
         tab = window.workbench.active_tab
         if tab == '2d_view':
@@ -153,28 +162,22 @@ class ResultExport:
                   'pres': getattr(window, 'canvas_pres', None),
                   'vel': getattr(window, 'canvas_vel', None),
                   'layout': getattr(window, 'canvas_layout', None),
+                  '3d': getattr(window, 'canvas_3d', None),
                   'pareto': window.optimization.pareto_canvas,
                   'opt_field': window.optimization.field_canvas,
                   'opt_3d': window.optimization.volume_panel}.get(tab)
         ready = (window.optimization.pareto_ready() if tab == 'pareto'
                  else window.optimization.field_ready() if tab == 'opt_field'
-                 else window.optimization.volume_ready() if tab == 'opt_3d'
+                 else self._volume_panel_ready(window, tab) if tab in ('3d', 'opt_3d')
                  else tab in window.cache.get_drawn_tabs())
         if canvas is None or not ready:
             window.statusBar().showMessage("当前无可复制的图像 — 请先计算或预览。",
                                          TOAST_MS_SHORT)
             return
         from PySide6.QtGui import QGuiApplication
-        if tab == 'opt_3d':
-            import numpy as np
-            from PySide6.QtGui import QImage
+        if tab in ('3d', 'opt_3d'):
             try:
-                pixels = np.ascontiguousarray(canvas.plotter.screenshot(return_img=True))
-                image_format = (QImage.Format.Format_RGBA8888 if pixels.shape[2] == 4
-                                else QImage.Format.Format_RGB888)
-                # Own the pixels after this local NumPy buffer is released.
-                image = QImage(pixels.data, pixels.shape[1], pixels.shape[0],
-                               pixels.strides[0], image_format).copy()
+                image = canvas.capture_image()
             except Exception as e:
                 QMessageBox.warning(window, "Copy failed", str(e))
                 return
@@ -184,23 +187,27 @@ class ResultExport:
         window.statusBar().showMessage(f"已复制 {tab} 图像到剪贴板。", TOAST_MS_SHORT)
 
     def export_figure(self):
-        """Export a 2D figure with DPI/metadata, or a native 3D PNG screenshot."""
+        """Export a 2D figure with DPI/metadata, or a composited 3D PNG."""
         window = self.window
         all_items = [("温度", 'temp'), ("压力", 'pres'),
-                     ("速度", 'vel'), ("几何布局", 'layout'),
+                     ("速度", 'vel'), ("三维视图", '3d'), ("几何布局", 'layout'),
                      ("Pareto / 优化", 'pareto'), ("优化尺寸/壁厚场", 'opt_field'),
                      ("优化三维场", 'opt_3d')]
         tab_canvas = {'temp': window.canvas_temp, 'pres': window.canvas_pres,
-                      'vel': window.canvas_vel, 'layout': window.canvas_layout,
-                      'pareto': window.optimization.pareto_canvas, 'opt_field': window.optimization.field_canvas,
+                      'vel': window.canvas_vel, '3d': getattr(window, 'canvas_3d', None),
+                      'layout': window.canvas_layout,
+                      'pareto': window.optimization.pareto_canvas,
+                      'opt_field': window.optimization.field_canvas,
                       'opt_3d': window.optimization.volume_panel}
         drawn = window.cache.get_drawn_tabs()
-        available = set(drawn)
+        available = set(drawn) - {'3d'}
+        if self._volume_panel_ready(window, '3d'):
+            available.add('3d')
         if window.optimization.pareto_ready():
             available.add('pareto')
         if window.optimization.field_ready():
             available.add('opt_field')
-        if window.optimization.volume_ready():
+        if self._volume_panel_ready(window, 'opt_3d'):
             available.add('opt_3d')
         if (window.cache.get_result('2d') is not None
                 or window.cache.get_result('3d') is not None):
@@ -217,11 +224,21 @@ class ResultExport:
             return
         key = tab_keys[items.index(choice)]
         canvas = tab_canvas[key]
-        if key == 'opt_3d':
+        if key in ('3d', 'opt_3d'):
+            ts = datetime.now().strftime('%Y%m%d-%H%M%S')
+            default = f"volume_{canvas._field}_{canvas._scale_mode}_{ts}.png"
+            path, _ = QFileDialog.getSaveFileName(
+                window, "Save 3D view as PNG", default, "PNG images (*.png)")
+            if not path:
+                return
             try:
-                canvas._on_screenshot()
+                image = canvas.capture_image()
+                if image.isNull() or not image.save(path, "PNG"):
+                    raise RuntimeError(f"Could not save 3D image to {path}")
             except Exception as e:
                 QMessageBox.warning(window, "Export failed", str(e))
+                return
+            window.statusBar().showMessage(f"Saved: {path}", TOAST_MS_MED)
             return
 
         # DPI picker — common research-paper presets.
