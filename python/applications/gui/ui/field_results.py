@@ -37,9 +37,7 @@ def recorded_elapsed_s(result) -> float | None:
                 and not isinstance(timings.get(k), bool)
                 and math.isfinite(timings.get(k))
             ]
-            if phases and len(phases) == sum(
-                1 for k in ("prepare", "solve", "postprocess") if k in timings
-            ):
+            if len(phases) == 3:
                 return sum(phases)
     return None
 
@@ -338,11 +336,18 @@ class FieldResults:
                     else ('warning' if (published_result.warnings or published_result.extrap_reasons)
                           else 'success')
                 )
+                if isinstance(solve_elapsed, (int, float)):
+                    card_elapsed, card_label = solve_elapsed, '求解耗时'
+                elif isinstance(total_elapsed, (int, float)):
+                    card_elapsed, card_label = total_elapsed, '端到端'
+                else:
+                    card_elapsed, card_label = None, ''
                 card.finish(
                     status_kind,
-                    solve_elapsed if isinstance(solve_elapsed, (int, float)) else (total_elapsed or 0.0),
+                    card_elapsed,
                     message='',
                     log_available=bool((window.single_run.compute.last_log() or '').strip()),
+                    elapsed_label=card_label,
                 )
             window.workbench.update_tab_visibility()
             window.result_export.refresh_export_button()

@@ -95,6 +95,11 @@ def _display_to_si(disp_text: str, scale: float) -> str:
     return _format_decimal_exact(si)
 
 
+def _scale_numeric_to_si_text(value: float, scale: float) -> str:
+    """Format a finite evaluated display-unit float into canonical SI text."""
+    return _format_decimal_exact(Decimal(repr(value)) / Decimal(str(scale)))
+
+
 class UnitLineEdit(QLineEdit):
     """Line edit with an Alignment Rule A muted unit suffix painted inside the field.
 

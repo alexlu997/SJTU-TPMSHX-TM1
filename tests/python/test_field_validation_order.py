@@ -41,6 +41,12 @@ class _MockLE:
     def text(self):
         return self._text
 
+    def raw_display_text(self):
+        return self._text
+
+    def display_scale(self):
+        return 1.0
+
     def setText(self, v):
         self.set_text_calls.append(v)
         self._text = v
@@ -115,8 +121,8 @@ def test_parse_then_validate_clears_inperror_on_5mm_length():
     assert le.text() == "0.005"
     # validator saw the converted (positive) value → no error
     assert le.property('inpError') == 'false'
-    # status bar got the conversion message
-    assert any('Converted' in m for m in win._sb.messages)
+    # notification received the conversion message
+    assert any('已换算' in m for m in win._sb.messages)
 
 
 @pytest.mark.parametrize('field,text,stored', [

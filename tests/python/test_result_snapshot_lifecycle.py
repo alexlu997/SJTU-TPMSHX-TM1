@@ -147,7 +147,7 @@ def test_new_publication_replaces_snapshot_even_if_renderer_raises(
     unit = 'W' if new_mode == '3d' else 'W/m'
     items = win.readout_strip.items()
     assert f'{items[0].value} {items[0].unit}' == f'{accepted.Q_W:.{2 if new_mode == "3d" else 1}f} {unit}'
-    assert 'preset: accepted-333' in win.readout_strip.toolTip()
+    assert '预设：accepted-333' in win.readout_strip.toolTip()
     assert 'accepted-111' not in win.readout_strip.toolTip()
     assert f'{items[3].value} / {items[4].value}' == '683.00 / 633.00'
     assert win.btn_export.isEnabled()

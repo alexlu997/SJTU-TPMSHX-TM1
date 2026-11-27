@@ -73,6 +73,21 @@ def _history_status(entry) -> tuple[str, str]:
     return label, "\n".join(details)
 
 
+_UNSET = object()
+
+
+def _format_time_of_day(ts: str) -> str:
+    """Format an ISO completion timestamp to HH:MM:SS while preserving time-only strings."""
+    raw = str(ts or "").strip()
+    if not raw:
+        return ""
+    if "T" in raw:
+        return raw.split("T", 1)[1][:8]
+    if " " in raw:
+        return raw.split(" ", 1)[1][:8]
+    return raw
+
+
 class RunHistory:
     """Owner of recent runs, load/save menus, timeline, links, and run info."""
 
@@ -98,14 +113,14 @@ class RunHistory:
 
         values = result_metric_texts(window)
         recorded_ts = str(provenance.get("completed_at") or "").strip()
-        self._last_run_ts = recorded_ts
-        label_ts = recorded_ts or "—"
+        time_label = _format_time_of_day(recorded_ts)
+        self._last_run_ts = time_label
         snap = deepcopy(provenance["preset"])
         if snap is not None:
-            snap["name"] = f"Recent @ {recorded_ts}" if recorded_ts else "Recent"
+            snap["name"] = f"Recent @ {time_label}" if time_label else "Recent"
         entry = {
             "ts": recorded_ts,
-            "label": label_ts,
+            "label": time_label or "—",
             "Q": values["Q"],
             "Q_unit": values["Q_unit"],
             "dP_A": values["dP_A"],
@@ -530,7 +545,7 @@ class RunHistory:
             return
         recorded_ts = str(provenance.get("completed_at") or "").strip()
         if recorded_ts:
-            self._last_run_ts = recorded_ts
+            self._last_run_ts = _format_time_of_day(recorded_ts)
         result_rev = (
             (result.metadata.get("provenance") or {}).get("revision")
             if isinstance(result.metadata.get("provenance"), dict)
@@ -540,20 +555,23 @@ class RunHistory:
         grid = "×".join(map(str, provenance.get("input_grid") or ()))
         actual_grid = "×".join(map(str, provenance.get("actual_grid") or ()))
         solve_s = recorded_elapsed_s(result)
-        solve_dur = fmt_duration(solve_s) if isinstance(solve_s, (int, float)) else "—"
-        extra_total = (
-            f"  ·  端到端 {fmt_duration(total_elapsed)}"
-            if isinstance(total_elapsed, (int, float))
-            else ""
-        )
+        parts = [f"完成时间 {recorded_ts.replace('T', ' ') if recorded_ts else '—'}"]
+        if isinstance(solve_s, (int, float)):
+            parts.append(f"求解耗时 {fmt_duration(solve_s)}")
+        if isinstance(total_elapsed, (int, float)):
+            parts.append(f"端到端 {fmt_duration(total_elapsed)}")
         preset = preset_display(provenance.get("preset_source") or "")
-        tip = (
-            f"Computed @ {recorded_ts or '—'}  ·  求解耗时 {solve_dur}{extra_total}"
-            f"  ·  {str(provenance.get('mode') or '').upper()}"
-            f"  ·  input grid {grid or '—'}"
-            f"  ·  actual result grid {actual_grid or '—'}  ·  preset: {preset}"
-            + (f"  ·  commit: {commit}" if commit else "")
+        parts.extend(
+            (
+                str(provenance.get("mode") or "").upper(),
+                f"输入网格 {grid or '—'}",
+                f"实际网格 {actual_grid or '—'}",
+                f"预设：{preset}",
+            )
         )
+        if commit:
+            parts.append(f"版本：{commit}")
+        tip = "  ·  ".join(parts)
         self._last_provenance_tip = tip
         strip = getattr(self.window, "readout_strip", None)
         if strip is not None:
@@ -563,7 +581,7 @@ class RunHistory:
             if lbl is not None:
                 lbl.setToolTip(tip)
 
-    def build_run_info_data(self, *, folder_scope: str | None = None) -> RunInfoData:
+    def build_run_info_data(self, *, folder_path=_UNSET) -> RunInfoData:
         """Assemble metadata strictly from the accepted result and its recorded provenance."""
         from sjtu_tpmshx.applications.gui.ui.builders_sidebar import evaluate_result_status
 
@@ -657,7 +675,7 @@ class RunHistory:
                     info_rows.append(RunInfoRow("网格", grid_val))
                 completed_at = str(provenance.get("completed_at") or "").strip()
                 if completed_at:
-                    info_rows.append(RunInfoRow("完成时间", completed_at))
+                    info_rows.append(RunInfoRow("完成时间", completed_at.replace("T", " ")))
             from sjtu_tpmshx.applications.gui.ui.field_results import recorded_elapsed_s
 
             elapsed = recorded_elapsed_s(result)
@@ -723,8 +741,13 @@ class RunHistory:
 
         has_log = bool((window.single_run.compute.last_log() or "").strip())
         has_diag = result is not None
-        scope = folder_scope or window.dialogs.run_info_directory_scope()
-        has_folder = window.dialogs.resolve_output_directory(scope=scope) is not None
+        if folder_path is _UNSET:
+            resolved_folder = window.dialogs.resolve_output_directory(
+                scope=window.dialogs.run_info_directory_scope()
+            )
+        else:
+            resolved_folder = folder_path
+        has_folder = resolved_folder is not None
         return RunInfoData(
             info_rows=tuple(info_rows),
             status_kind=status_kind,

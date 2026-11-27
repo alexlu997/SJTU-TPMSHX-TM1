@@ -1219,15 +1219,15 @@ class ThreeDVisPanel(QWidget):
         self.btn_clear.setEnabled(False)
         self._update_status()
 
-    def _on_screenshot(self):
+    def _on_screenshot(self, *, file_filter: str = "PNG images (*.png)"):
         ts = datetime.now().strftime('%Y%m%d-%H%M%S')
         dflt = f"volume_{self._field}_{self._scale_mode}_{ts}.png"
         path, _ = QFileDialog.getSaveFileName(
-            self, "Save 3D view as PNG", dflt, "PNG images (*.png)")
+            self, "保存三维视图为 PNG", dflt, file_filter)
         if not path:
             return
         self.plotter.screenshot(path)
-        self.status.setText(f"Saved: {path}")
+        self.status.setText(f"已保存：{path}")
 
     # ─────────────────────────── rendering ────────────────────────────
 

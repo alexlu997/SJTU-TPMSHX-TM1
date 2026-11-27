@@ -136,8 +136,12 @@ class RunStatusCard(QFrame):
         self._set_title_color()
         self.show()
 
-    def set_elapsed(self, seconds):
-        self.elapsed.setText(f"已用时 {duration(max(0., seconds))}")
+    def set_elapsed(self, seconds, *, label="已用时"):
+        if seconds is None:
+            self.elapsed.setText("")
+            return
+        prefix = f"{label} " if label else ""
+        self.elapsed.setText(f"{prefix}{duration(max(0., seconds))}")
 
     def set_iteration(self, label):
         self.iteration.setText(str(label) if label else "等待求解器迭代信息")
@@ -155,12 +159,12 @@ class RunStatusCard(QFrame):
         self.pause_button.setEnabled(False)
         self.note.setText("完成当前迭代步并保存后暂停。")
 
-    def finish(self, state, elapsed, *, log_available=False, message=""):
+    def finish(self, state, elapsed, *, log_available=False, message="", elapsed_label="已用时"):
         self.state = state
         self.title.setText({"success": "计算完成", "warning": "完成 · 有提示",
                             "unconverged": "完成 · 未收敛", "error": "计算未完成",
                             "cancelled": "已取消", "paused": "已保存 · 已暂停"}[state])
-        self.set_elapsed(elapsed)
+        self.set_elapsed(elapsed, label=elapsed_label)
         self.cancel_button.hide()
         self.pause_button.hide()
         self.log_button.setVisible(log_available)

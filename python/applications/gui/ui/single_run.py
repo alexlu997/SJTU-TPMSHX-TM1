@@ -325,7 +325,7 @@ class SingleRun(QObject):
                 from sjtu_tpmshx.run_control.provenance import SOURCE_ROOT, repository_revision
 
                 self.provenance.setdefault(
-                    'completed_at', datetime.datetime.now().strftime('%H:%M:%S')
+                    'completed_at', datetime.datetime.now().isoformat(timespec='seconds')
                 )
                 result_rev = (
                     (result.metadata.get('provenance') or {}).get('revision')
@@ -391,6 +391,7 @@ class SingleRun(QObject):
             window = self.window
             window.btn_compute.setEnabled(False)
             elapsed = perf_counter() - self._started_at
+            elapsed_label = '端到端'
             total_elapsed = None
             solve_elapsed = None
             success = state == 'success'
@@ -398,7 +399,12 @@ class SingleRun(QObject):
                 result = window.cache.get_result()
                 total_elapsed = self.compute.last_elapsed() + result.metadata['timings_s']['display']
                 solve_elapsed = recorded_elapsed_s(result)
-                elapsed = solve_elapsed if isinstance(solve_elapsed, (int, float)) else total_elapsed
+                if isinstance(solve_elapsed, (int, float)):
+                    elapsed, elapsed_label = solve_elapsed, '求解耗时'
+                elif isinstance(total_elapsed, (int, float)):
+                    elapsed, elapsed_label = total_elapsed, '端到端'
+                else:
+                    elapsed, elapsed_label = None, ''
                 notices = set(result.warnings + result.extrap_reasons)
                 view_missing = self.compute.current_mode() == '3d' and window.workbench.volume_error
                 if not result.converged:
@@ -418,8 +424,13 @@ class SingleRun(QObject):
                         message += f' 可从载入菜单继续已保存的状态：{checkpoint}'
             if not success and window.cache.has_any_results():
                 message += ' 已保留最近完成的计算结果，摘要与导出仍对应该结果。'
-            window._run_status_card.finish(state, elapsed, log_available=bool(self.compute.last_log().strip()),
-                                           message=message)
+            window._run_status_card.finish(
+                state,
+                elapsed,
+                log_available=bool(self.compute.last_log().strip()),
+                message=message,
+                elapsed_label=elapsed_label,
+            )
             if success:
                 from sjtu_tpmshx.applications.gui.ui.microanim import pulse_glow
                 window.progress.setValue(100)

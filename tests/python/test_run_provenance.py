@@ -241,10 +241,10 @@ def test_running_edits_recent_restore_and_consecutive_dimensions(run_window, mon
         provenance = result.metadata['run_provenance']
         assert provenance['preset'] == expected
         tip_fields = win.readout_strip.toolTip().split('  ·  ')
-        assert f'preset: start-{dim}' in tip_fields
+        assert f'预设：start-{dim}' in tip_fields
         input_grid = '24×18×5' if dim else '24×18'
-        assert f'input grid {input_grid}' in tip_fields
-        assert 'actual result grid ' + '×'.join(map(str, sizes)) in tip_fields
+        assert f'输入网格 {input_grid}' in tip_fields
+        assert '实际网格 ' + '×'.join(map(str, sizes)) in tip_fields
         assert win.single_run.provenance is None
         win.single_run.compute.finished.emit(result)  # duplicate terminal delivery is ignored
         assert len(win.history.recent_runs) == dim + 1

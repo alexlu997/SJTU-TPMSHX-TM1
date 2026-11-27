@@ -475,10 +475,24 @@ def test_numeric_inputs_rule_a_left_aligned_with_unit_suffix(win):
         assert win.le_PinA.text() == '101123.456789012345'
         assert win.le_PinA.formatted_display_text() == '101.123'
 
+        QLineEdit.setText(win.le_PinA, '101.123456789012345 kPa')
+        win.le_PinA.editingFinished.emit()
+        assert win.le_PinA.text() == '101123.456789012345'
+        assert win.le_PinA.formatted_display_text() == '101.123'
+
         QLineEdit.setText(win.le_pipeA_in_ctr, '20+22')
         win.le_pipeA_in_ctr.editingFinished.emit()
         assert win.le_pipeA_in_ctr.text() == '0.042'
         assert win.le_pipeA_in_ctr.raw_display_text() == '42'
+
+        QLineEdit.setText(win.le_pipeA_in_ctr, '41.23456789')
+        win.le_pipeA_in_ctr.editingFinished.emit()
+        assert win.le_pipeA_in_ctr.text() == '0.04123456789'
+
+        QLineEdit.setText(win.le_pipeA_in_ctr, '41.23456789 mm')
+        win.le_pipeA_in_ctr.editingFinished.emit()
+        assert win.le_pipeA_in_ctr.text() == '0.04123456789'
+        assert win.le_pipeA_in_ctr.formatted_display_text() == '41.2346'
     finally:
         win.le_PinA.setText(orig_pin)
         win.le_pipeA_in_ctr.setText(orig_ctr)

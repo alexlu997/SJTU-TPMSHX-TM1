@@ -83,19 +83,21 @@ class _RailScrim(QWidget):
 def _open_run_info_popover(window) -> None:
     """Open the floating RunInfoPopover below the header status pill."""
     scope = window.dialogs.run_info_directory_scope()
-    data = window.history.build_run_info_data(folder_scope=scope)
+    folder = window.dialogs.resolve_output_directory(scope=scope)
+    data = window.history.build_run_info_data(folder_path=folder)
     pop = getattr(window, "_run_info_popover", None)
     if pop is None:
         pop = RunInfoPopover(data, parent=window)
-        pop._folder_scope = scope
+        pop._folder_path = folder
         pop.log_requested.connect(window.dialogs.show_solve_log)
         pop.diagnostics_requested.connect(window.results.show_diag_dialog)
         pop.open_folder_requested.connect(
-            lambda: window.dialogs.open_output_folder(scope=pop._folder_scope)
+            lambda: pop._folder_path is not None
+            and window.dialogs.open_output_folder(pop._folder_path)
         )
         window._run_info_popover = pop
     else:
-        pop._folder_scope = scope
+        pop._folder_path = folder
         pop.apply_theme(get_theme())
         pop.set_data(data)
     pop.popup_below(window.btn_run_info)

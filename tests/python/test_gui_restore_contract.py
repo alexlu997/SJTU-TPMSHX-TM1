@@ -400,9 +400,9 @@ def test_restore_uses_its_own_source_name(win, route):
 
 @pytest.mark.parametrize('field,text,expected', [
     ('le_L', '200 mm', '0.2'), ('le_L', '1/5', '0.2'),
-    # Match the existing four-significant-digit unit formatter; persistence
-    # must behave exactly like a normal editingFinished commit.
-    ('le_TinA', '25 C', '298.1'),
+    # Full-precision unit conversion; persistence must behave exactly like a
+    # normal editingFinished commit.
+    ('le_TinA', '25 C', '298.15'),
 ])
 def test_close_with_focused_expression_restores_complete_session(
         monkeypatch, tmp_path, field, text, expected):

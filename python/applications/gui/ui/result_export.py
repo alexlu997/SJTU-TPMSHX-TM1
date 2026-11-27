@@ -298,7 +298,13 @@ class ResultExport:
             return
         key = tab_keys[items.index(choice)]
         canvas = tab_canvas[key]
-        if key in ('3d', 'opt_3d'):
+        if key == '3d':
+            try:
+                canvas._on_screenshot(file_filter="PNG 图像 (*.png)")
+            except Exception as e:
+                QMessageBox.warning(window, "导出失败", str(e))
+            return
+        if key == 'opt_3d':
             try:
                 canvas._on_screenshot()
             except Exception as e:

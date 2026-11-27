@@ -662,47 +662,54 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
             # getattr-guarded: test mocks borrow this handler without the
             # badge machinery.
             getattr(self, '_kick_badge_timer', lambda: None)()
-            scale = le.display_scale() if hasattr(le, 'display_scale') else 1.0
-            raw_txt = (le.raw_display_text() if hasattr(le, 'raw_display_text') else le.text()).strip()
+            scale = le.display_scale()
+            raw_txt = le.raw_display_text().strip()
             if not raw_txt:
                 return
 
+            from decimal import Decimal
             from sjtu_tpmshx.applications.gui.ui.expr_eval import is_expression, eval_expr
-            from sjtu_tpmshx.applications.gui.ui.field_factory import _display_to_si
+            from sjtu_tpmshx.applications.gui.ui.field_factory import (
+                _format_decimal_exact,
+                _scale_numeric_to_si_text,
+            )
 
             unit_match = num_unit.match(raw_txt)
             value = None
-            expr_si_text = None
+            parsed_text = None
             if unit_match:
-                raw = float(unit_match[1])
-                # Read explicit temperature units in kelvin before display rounding.
+                raw_num_str = unit_match[1]
+                raw = float(raw_num_str)
+                # Read explicit temperature units in kelvin before display formatting.
                 value = parse_field_value(attr, raw, unit_match[2])
+                if value is not None and not is_temperature:
+                    if spec.family == 'count':
+                        parsed_text = format_unit_value(value, 'count')
+                    else:
+                        factor = parse_field_value(attr, 1.0, unit_match[2])
+                        if factor is not None and len(str(factor)) <= 8:
+                            parsed_text = _format_decimal_exact(
+                                Decimal(raw_num_str) * Decimal(str(factor))
+                            )
+                        else:
+                            parsed_text = _format_decimal_exact(Decimal(repr(value)))
             if value is None:
                 unit_match = None
                 if is_expression(raw_txt):
                     expr_val = eval_expr(raw_txt)
                     if expr_val is not None:
-                        if scale != 1.0:
-                            expr_si_text = _display_to_si(repr(expr_val), scale)
-                            try:
-                                value = float(expr_si_text)
-                            except ValueError:
-                                value = expr_val / scale
-                        else:
-                            value = expr_val
+                        value = expr_val / scale
+                        if not is_temperature:
+                            if spec.family == 'count':
+                                parsed_text = format_unit_value(value, 'count')
+                            elif math.isfinite(value):
+                                parsed_text = _scale_numeric_to_si_text(expr_val, scale)
+                            else:
+                                parsed_text = repr(value)
 
             temp_unit = getattr(self, '_temp_unit', 'K')
-            family = spec.family if unit_match else ('count' if spec.family == 'count' else 'number')
             # Other fields validate the committed text, including rounded cell counts.
-            si_txt = le.text().strip()
-            formatted = si_txt
-            if value is not None and not is_temperature:
-                if unit_match or spec.family == 'count':
-                    formatted = format_unit_value(value, family)
-                elif expr_si_text is not None:
-                    formatted = expr_si_text
-                else:
-                    formatted = format_unit_value(value, family)
+            formatted = parsed_text if parsed_text is not None else le.text().strip()
             reason = ""
             if spec.positive:
                 try:
@@ -722,17 +729,33 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
 
             if value is not None:
                 if is_temperature:
-                    if unit_match and temp_unit == 'C':
-                        value = parse_field_value(attr, raw, unit_match[2], temp_unit='C')
-                    formatted = format_unit_value(value, family)
+                    if unit_match:
+                        if temp_unit == 'C':
+                            value = parse_field_value(attr, raw, unit_match[2], temp_unit='C')
+                        # Exact offset for Celsius <-> Kelvin preserves full decimal precision.
+                        unit_norm = unit_match[2].strip().lower().replace('°', '')
+                        if unit_norm in ('c', 'celsius', 'degc') and temp_unit == 'K':
+                            formatted = _format_decimal_exact(
+                                Decimal(raw_num_str) + Decimal(str(CELSIUS_ZERO_K))
+                            )
+                        elif unit_norm in ('k', 'kelvin') and temp_unit == 'C':
+                            formatted = _format_decimal_exact(
+                                Decimal(raw_num_str) - Decimal(str(CELSIUS_ZERO_K))
+                            )
+                        else:
+                            formatted = _format_decimal_exact(Decimal(repr(value)))
+                    else:
+                        formatted = _format_decimal_exact(Decimal(repr(value)))
                 was = le.blockSignals(True)
                 le.setText(formatted)
                 le.blockSignals(was)
                 if unit_match:
                     unit = '°C' if is_temperature and temp_unit == 'C' else spec.unit
                     self.dialogs.notify(
-                        f"Converted {unit_match[1]} {unit_match[2]} → {formatted} "
-                        f"({unit})", kind="info", duration_ms=4000)
+                        f"已换算 {unit_match[1]} {unit_match[2]} → {formatted}（{unit}）",
+                        kind="info",
+                        duration_ms=4000,
+                    )
                 else:
                     self.dialogs.notify(f"{attr}: {raw_txt} → {formatted}", kind="info", duration_ms=3500)
 

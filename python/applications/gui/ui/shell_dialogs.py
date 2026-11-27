@@ -53,7 +53,6 @@ class ShellDialogs:
     def __init__(self, window) -> None:
         self.window = window
         self.last_notice: str = ""
-        self.last_notice_kind: str = ""
         self._active_toast = None
 
     def notify(
@@ -67,7 +66,6 @@ class ShellDialogs:
         """Display a visible floating toast notification and record the latest notice text."""
         text = str(message or "").strip()
         self.last_notice = text
-        self.last_notice_kind = kind if text else ""
         if not text:
             return
         prev = self._active_toast
@@ -94,11 +92,6 @@ class ShellDialogs:
             duration_ms=ms,
             copy_payload=copy_payload,
         )
-
-    def clear_notice(self) -> None:
-        """Reset recorded notice text (used before fresh validation checks)."""
-        self.last_notice = ""
-        self.last_notice_kind = ""
 
     def show_overview(self) -> None:
         """Open the session-overview dashboard dialog."""
