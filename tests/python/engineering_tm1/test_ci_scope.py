@@ -41,9 +41,9 @@ CLOSE_NODE = ('tests/python/test_workbench_navigation.py::'
     # A rename gives the old name. The old name still selects its consumers.
     (['python/applications/gui/ui/main_window.py'], ['python/applications/gui/ui/main_window.py'],
      ([], [CLOSE_NODE], [], [])),
-    # A changed test file is a target, so its mapped nodes are not repeated.
+    # Mapped nodes stay required when their file also changed.
     (['python/applications/gui/ui/panel_vis_3d.py', 'tests/python/test_io_actions.py'], [],
-     (['tests/python/test_io_actions.py'], [CLOSE_NODE], [], [])),
+     (['tests/python/test_io_actions.py'], IO_NODES + [CLOSE_NODE], [], [])),
     # A removed shard list still needs the CI coverage check.
     (['tests/python/native/test_cpp_quick_design.py', 'tests/python/integration_tm1/test_public_gui.py',
       'tests/python/_ci_shard0.txt', 'tests/python/native/_ci_suite.txt', 'tests/python/test_removed.py',

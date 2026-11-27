@@ -91,7 +91,7 @@ def matches(node, prefix):
 
 
 def select(paths, exists):
-    """Return the pytest targets, the pending-heavy items, and the CI-pending items."""
+    """Return the changed test files, the mapped consumer nodes, the pending-heavy items, and the CI-pending items."""
     files, nodes, heavy, ci = [], [], [], []
     for path in paths:
         if re.fullmatch(SHARD_LISTS, path):
@@ -105,8 +105,7 @@ def select(paths, exists):
             files.append(path)
     for patterns, consumers in CONSUMERS:
         if any(fnmatch(path, pattern) for path in paths for pattern in patterns):
-            nodes.extend(node for node in consumers
-                         if node not in nodes and node.split('::')[0] not in files)
+            nodes.extend(node for node in consumers if node not in nodes)
     return files, nodes, heavy, ci
 
 
@@ -142,6 +141,8 @@ class Run:
         # As in CI, a missing native library or caller fails the test and does not skip it.
         self.env = dict(os.environ, MPLCONFIGDIR=str(ROOT / '.cache/matplotlib'),
                         XDG_CACHE_HOME=str(ROOT / '.cache/xdg'), TPMSHX_REQUIRE_NATIVE_DEPS_TESTS='1')
+        # Local pytest options must not change the required selection.
+        self.env.pop('PYTEST_ADDOPTS', None)
 
     def __call__(self, *args, accept=(0,)):
         start = time.monotonic()
@@ -152,7 +153,8 @@ class Run:
 
 def run_tests(run, files, nodes):
     """Run the verified-light nodes of the targets once. Return one result for each node."""
-    targets = files + nodes
+    # A mapped node in a changed test file runs once, with its file, and stays a required ID.
+    targets = files + [node for node in nodes if node.split('::')[0] not in files]
     with tempfile.TemporaryDirectory(prefix='tm1-pre-push-') as directory:
         events = Path(directory) / 'events.jsonl'
         run.env[EVENTS] = str(events)
@@ -165,6 +167,8 @@ def run_tests(run, files, nodes):
     results = {}
     for record in records:
         node, kind = record['node'], record['kind']
+        if kind == 'collected':
+            continue
         if kind == 'deselected':
             results[node] = ('pending heavy', record['reason'])
         elif kind == 'error':
@@ -175,7 +179,10 @@ def run_tests(run, files, nodes):
             results[node] = ('skipped', public(record['reason']))
         elif node not in results:
             results[node] = ('passed', '')
-    for target in targets:
+    for record in records:
+        if record['kind'] == 'collected' and record['node'] not in results:
+            results[record['node']] = ('not collected', 'collected, but no result')
+    for target in files + nodes:
         if not any(matches(node, target) for node in results):
             results[target] = ('not collected', 'no test matches this node ID')
     return results
@@ -246,7 +253,7 @@ def check(base_ref, head_ref='HEAD'):
     ]
     RECORDS.mkdir(parents=True, exist_ok=True)
     # Write a complete record in one file replacement.
-    partial = RECORDS / f'{head}.txt.partial'
+    partial = RECORDS / f'{head}.{os.getpid()}.partial'
     partial.write_text('\n'.join(lines) + '\n', encoding='utf-8')
     os.replace(partial, RECORDS / f'{head}.txt')
     rows = hazard_rows(paths)
@@ -333,6 +340,11 @@ def pytest_deselected(items):
             if marks & {'slow', 'heavy'}:
                 _event(kind='deselected', node=item.nodeid,
                        reason='slow marker (real solve)' if 'slow' in marks else 'heavy manifest')
+
+
+def pytest_itemcollected(item):
+    if EVENTS in os.environ:
+        _event(kind='collected', node=item.nodeid)
 
 
 def pytest_collectreport(report):
