@@ -209,7 +209,8 @@ def test_bundle_requires_and_collects_four_prebuilt_libraries(desktop_spec_prefi
     from pyvista import _vtk as pyvista_vtk
     from pyvistaqt import _vtk as pyvistaqt_vtk
     direct = {name for path in Path(pyvista.__file__).parent.rglob('*.py')
-              for name in re.findall(r"(?:_VTK_ROOT\}\.|_import_from\(')(vtk\w+)", path.read_text(encoding='utf-8'))}
+              for name in re.findall(r'''(?:_VTK_ROOT\}\.|_import_from\(['"]|['"]vtkmodules\.)(vtk\w+)''',
+                                     path.read_text(encoding='utf-8'))}
     assert {'vtkRenderingContextOpenGL2', 'vtkRenderingMatplotlib', 'vtkPythonContext2D'} <= direct
     requested = {*pyvista_vtk._CORE_MODULES, *pyvista_vtk._PLOTTING_MODULES, *pyvista_vtk._OPENGL_MODULES,
                  *direct, *pyvistaqt_vtk._FALLBACK_MODULES.values()}
