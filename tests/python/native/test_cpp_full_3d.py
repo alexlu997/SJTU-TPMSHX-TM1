@@ -669,7 +669,7 @@ def test_public_applicability_keeps_original_inlet_and_last_local_sources(native
     prepared = (prepare_case(configuration(outer=2), case_id='ranges-2d')
                 if dimension == 2 else case('air-air', 2))
     if real_co2:
-        from tests.python.test_co2_model import co2_config
+        from tests.python.preprocess.test_co2_model import co2_config
         config = co2_config(1 if dimension == 2 else 3)
         prepared = prepare_case(replace(config, solver=replace(config.solver, max_outer_ltne=2)), case_id='co2-ranges')
     summaries = []
@@ -1490,7 +1490,7 @@ def test_co2_pt_state_continues_after_process_exit(native_path, tmp_path, dimens
     from sjtu_tpmshx.file_io.solver_checkpoint_io import load_solver_checkpoint
     from sjtu_tpmshx.solvers import full_2d, full_3d
     from tests.python.native import test_cpp_full_2d_run as planar
-    from tests.python.test_co2_model import co2_config
+    from tests.python.preprocess.test_co2_model import co2_config
 
     config = co2_config(1 if dimension == 2 else 2, side=side)
     config = replace(config, solver=replace(config.solver, Nx=4, Ny=3,
