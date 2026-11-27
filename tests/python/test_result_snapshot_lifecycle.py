@@ -28,7 +28,8 @@ def snapshot_window(win, monkeypatch):
     monkeypatch.setattr(win, 'canvas_3d', SimpleNamespace(
         cleanup=lambda: None, color_range_state=lambda: {},
         set_scale_sharing=lambda **kw: None,
-        set_fields=lambda **kwargs: None, set_watermark=lambda text: None))
+        set_fields=lambda **kwargs: None, set_lattice_geometry=lambda *args: None,
+        set_watermark=lambda text: None))
     win._temp_unit = 'K'
     win._field_phase = 0
     return win

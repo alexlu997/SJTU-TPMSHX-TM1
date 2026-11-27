@@ -182,6 +182,22 @@ Camera presets (`xy`, `xz`, `yz`, `等轴`) obey the shared reduced-motion prefe
 Floating Qt overlays show the ISO 80000-1 colorbar card and camera-projected port chips (`A 入口/出口`, `B 入口/出口`).
 Copy and Save PNG in Export use one composited capture of the 3D scene and its visible overlays.
 
+Geometry (`几何`) selects Simplified (`简化`) or Lattice (`晶格`).
+Lattice draws the closed TPMS phase domain of the active field from the level-set equation.
+It uses the recorded topology, cell size *L*, wall thickness *t* and level-set offset *δ*.
+The phase selector (`相`) selects fluid A (*φ* < *δ* − *C*), fluid B (*φ* > *δ* + *C*) or the solid wall (|*φ* − *δ*| ≤ *C*).
+The design fields *L* and *t* use the solid wall.
+Detail (`细节` `低` / `中` / `高`) sets 4.5, 8 or 12 samples for each cell length. The default is `中`.
+A worker thread builds the mesh. The previous scene stays on the screen during the build.
+A progress card shows the domain and the stage, for example `流体 A 域 · 壁面 2/5`.
+Click `取消` on the card to stop the build and keep the current scene.
+After the build, a domain card shows the phase rule, the triangle count and `已缓存` if the cache keeps the mesh.
+The cache holds a maximum of 512 MB, or 256 MB on a computer with 8 GiB of memory or less.
+Graded *L* disables `晶格` with a tooltip, because the phase rule for graded *L* is not defined.
+The optimization preview shows only the simplified geometry. A new result opens in simplified geometry.
+CO₂ results also show the lattice. Run information gives the CO₂ CFD table as the source of the geometry parameters.
+Exported images do not include the progress card or the domain card.
+
 In a 3D view, the Colormap (`色阶`) popover shows the row `范围` (`全场` / `截面` / `自定义`). The Min/Max inputs show only for `自定义`. They use the displayed unit. `恢复默认色阶` also sets the range to `全场`.
 Saved per-field 3D color ranges persist with the workspace session and apply to the 3D scene,
 colorbar card, and exported PNG images without changing field data.

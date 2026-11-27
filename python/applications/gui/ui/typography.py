@@ -125,11 +125,16 @@ def matplotlib_font_families() -> tuple[str, ...]:
 
 
 def apply_vtk_font(text_property) -> None:
-    """VTK's current Latin chart labels use the actual Times New Roman file."""
+    """Set the Times New Roman file for VTK Latin labels.
+
+    VTK ignores SetItalic for a font file. An italic property thus gets the italic file.
+    """
     from matplotlib import font_manager
 
     text_property.SetFontFamilyToTimes()
     if "Times New Roman" in matplotlib_font_families():
+        style = "italic" if text_property.GetItalic() else "normal"
         text_property.SetFontFamily(4)  # VTK_FONT_FILE
         text_property.SetFontFile(font_manager.findfont(
-            "Times New Roman", fallback_to_default=False))
+            font_manager.FontProperties(family="Times New Roman", style=style),
+            fallback_to_default=False))

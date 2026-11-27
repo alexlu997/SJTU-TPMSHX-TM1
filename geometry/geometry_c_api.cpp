@@ -241,6 +241,19 @@ extern "C" int TPMSHX_GEOMETRY_CALL tpmshx_geometry_phi_grid_v1(
     });
 }
 
+extern "C" int TPMSHX_GEOMETRY_CALL tpmshx_geometry_signed_wall_grid_v1(
+    uint32_t code, double cell_mm, const double box_mm[3], const size_t shape[3],
+    const double* walls_mm, size_t wall_count, const double* delta, size_t delta_count,
+    double* phi, double* lower, double* upper, size_t count, char* error, size_t capacity) {
+    return boundary(error, capacity, [&] {
+        require_buffer(box_mm, 3);
+        for (const auto buffer : {phi, lower, upper}) require_buffer(buffer, count);
+        g::signed_wall_grid(topology(code), cell_mm, {box_mm[0], box_mm[1], box_mm[2]},
+            input_shape(shape), input(walls_mm, wall_count), input(delta, delta_count),
+            {phi, count}, {lower, count}, {upper, count});
+    });
+}
+
 extern "C" int TPMSHX_GEOMETRY_CALL tpmshx_geometry_threshold_batch_v1(
     uint32_t code, const double* ratios, size_t count,
     double* result, size_t result_count, char* error, size_t capacity) {

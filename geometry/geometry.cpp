@@ -1,4 +1,5 @@
 #include "tpmshx/geometry.hpp"
+#include "tpmshx/asym_geometry.hpp"
 #include "tpmshx/model_coefficients.hpp"
 #include <algorithm>
 #include <cmath>
@@ -12,6 +13,30 @@
 namespace tpmshx::geometry {
 namespace {
 namespace data = model_coefficients;
+constexpr double two_pi = 2.0 * 3.141592653589793238462643383279502884;
+
+struct Phase { double sine, cosine; };
+using PhaseAxis = std::vector<Phase>;
+
+PhaseAxis phase_axis(std::size_t n, double start, double stop) {
+    const double step = n > 1 ? (stop - start) / static_cast<double>(n - 1) : 0.;
+    PhaseAxis axis(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        const double angle = i == n - 1 ? stop : static_cast<double>(i) * step + start;
+        axis[i] = {std::sin(angle), std::cos(angle)};
+    }
+    return axis;
+}
+
+void sample_phi(Topology topology, const PhaseAxis& x, const PhaseAxis& y, const PhaseAxis& z,
+                double* phi) {
+    for (const auto& [sx, cx] : x)
+        for (const auto& [sy, cy] : y)
+            for (const auto& [sz, cz] : z)
+                *phi++ = topology == Topology::diamond
+                    ? sx*sy*sz + sx*cy*cz + cx*sy*cz + cx*cy*sz
+                    : sx*cy + sy*cz + sz*cx;
+}
 
 std::size_t topology_row(Topology topology) {
     switch (topology) {
@@ -82,24 +107,53 @@ Calibration calibration(Topology topology) {
 std::vector<double> phi_grid(Topology topology, std::size_t n) {
     topology_row(topology);
     const auto count = voxel_count({n, n, n});
-    constexpr double pi = 3.141592653589793238462643383279502884;
-    const double h = 2.0 * pi / static_cast<double>(n);
-    const double start = h / 2.0, stop = 2.0 * pi - h / 2.0;
-    const double step = n > 1 ? (stop - start) / static_cast<double>(n - 1) : 0.;
-    std::vector<double> s(n), c(n);
-    for (std::size_t i = 0; i < n; ++i) {
-        const double x = n > 1 && i == n - 1 ? stop : static_cast<double>(i) * step + start;
-        s[i] = std::sin(x);
-        c[i] = std::cos(x);
-    }
+    const double h = two_pi / static_cast<double>(n);
+    const auto axis = phase_axis(n, h / 2.0, two_pi - h / 2.0);
     std::vector<double> phi(count);
-    for (std::size_t i = 0; i < n; ++i)
-        for (std::size_t j = 0; j < n; ++j)
-            for (std::size_t k = 0; k < n; ++k)
-                phi[(i * n + j) * n + k] = topology == Topology::diamond
-                    ? s[i]*s[j]*s[k] + s[i]*c[j]*c[k] + c[i]*s[j]*c[k] + c[i]*c[j]*s[k]
-                    : s[i]*c[j] + s[j]*c[k] + s[k]*c[i];
+    sample_phi(topology, axis, axis, axis, phi.data());
     return phi;
+}
+
+void signed_wall_grid(Topology topology, double cell_mm, const std::array<double, 3>& box_mm,
+                      const Shape& shape, ArrayView<const double> walls_mm,
+                      ArrayView<const double> delta, ArrayView<double> phi,
+                      ArrayView<double> lower, ArrayView<double> upper) {
+    const auto model = calibration(topology);
+    const auto count = voxel_count(shape);
+    for (const auto output : {phi, lower, upper})
+        if (!output.data || output.size != count)
+            throw std::invalid_argument("signed-wall output must have one value per sample");
+    for (const auto field : {walls_mm, delta}) {
+        check_view(field);
+        if (field.size != 1 && field.size != count)
+            throw std::invalid_argument("t and delta must each be scalar or have one value per sample");
+    }
+    if (!std::isfinite(cell_mm) || cell_mm <= 0.)
+        throw std::invalid_argument("L_mm must be finite and positive");
+    for (std::size_t i = 0; i < walls_mm.size; ++i)
+        if (!(walls_mm[i] > 0. && 2. * walls_mm[i] < cell_mm))
+            throw std::invalid_argument("wall thickness must satisfy 0 < 2*t < L");
+    for (std::size_t i = 0; i < delta.size; ++i)
+        if (!std::isfinite(delta[i])) throw std::invalid_argument("delta must be finite");
+
+    std::array<PhaseAxis, 3> axes;
+    for (std::size_t axis = 0; axis < axes.size(); ++axis) {
+        if (shape[axis] < 2)
+            throw std::invalid_argument("each box axis needs at least two samples");
+        const double stop = two_pi * (box_mm[axis] / cell_mm);
+        if (!(box_mm[axis] > 0.) || !std::isfinite(stop))
+            throw std::invalid_argument("box lengths must be positive with finite phase angles");
+        axes[axis] = phase_axis(shape[axis], 0., stop);
+    }
+    sample_phi(topology, axes[0], axes[1], axes[2], phi.data);
+    const double first_C = level_set_threshold(model.level_set, walls_mm[0] / cell_mm);
+    for (std::size_t i = 0; i < count; ++i) {
+        const double C = walls_mm.size == 1 ? first_C
+            : level_set_threshold(model.level_set, walls_mm[i] / cell_mm);
+        const auto levels = asym::double_levels(C, delta[delta.size == 1 ? 0 : i]);
+        lower[i] = levels.lower;
+        upper[i] = levels.upper;
+    }
 }
 
 double level_set_threshold(const Coefficients& coefficients, double wall_over_cell) {
