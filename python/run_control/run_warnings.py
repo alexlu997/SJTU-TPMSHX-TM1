@@ -106,16 +106,20 @@ def range_observations(records, *, last=False):
 
 
 def warning_messages(records):
-    """Keep ComputeResult/UI/export on their existing list-of-strings contract."""
+    """Return the warning texts as a list of strings (the ComputeResult/UI/export contract).
+
+    A list, not a generator: Quick Design results store it and cross the loky process boundary.
+    """
+    messages = []
     for key, value in records.items():
         if not isinstance(value, RangeRecord):
-            yield value
+            messages.append(value)
             continue
         if not (value.low or value.high or value.nonfinite):
             continue
         shape, (side, stage, layout) = key[-2:]
         sample = 'scalar' if not shape else f'array{shape}'
-        yield (
+        messages.append(
             f'{value.label}: {value.quantity} source range {value.bounds} {value.unit}; '
             f'view={key[0]}, side={side}, stage={stage}, layout={layout}, sample={sample}; '
             f'finite extrema across observations: min={value.minimum}, max={value.maximum} '
@@ -126,6 +130,7 @@ def warning_messages(records):
             f'peak nonfinite in one snapshot={value.nonfinite}/{value.size} '
             '(not classified inside range).'
         )
+    return messages
 
 
 def current_warnings():

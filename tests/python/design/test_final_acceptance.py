@@ -1,6 +1,7 @@
 """Final sizing evidence, not the search's candidate, controls recommendation."""
 from dataclasses import replace
 import math
+import pickle
 
 import pytest
 
@@ -140,6 +141,8 @@ def test_final_water_failure_retains_failed_case_and_continues_cases(monkeypatch
     monkeypatch.setattr(sizing, 'tpms_geometry', lambda *a, **kw: {'epsilon': .7})
     monkeypatch.setattr(sizing, 'dP_fracs', lambda *a, **kw: (.01, .01))
     design = sizing.size_fixed_cell(cases, 'Diamond', 6., .4)
+    # A parallel search returns each design from a loky worker process.
+    design = pickle.loads(pickle.dumps(design))
     assert not design.feasible and calls == [1, 2]
     assert 'case 1: water-state-invalid@final' in design.reason
     failed, good_row = detail_rows([design])
