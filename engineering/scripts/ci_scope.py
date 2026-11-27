@@ -135,6 +135,45 @@ def records(resource, key):
         page += 1
 
 
+def qualified_pair(run_id):
+    with github(f'runs/{run_id}') as response:
+        run = json.load(response)
+    if (run['path'] != '.github/workflows/ci.yml' or run['event'] != 'push'
+            or run['conclusion'] != 'success' or run['status'] != 'completed'):
+        return {}
+    attempt = run['run_attempt']
+    files = list(records(f'runs/{run_id}/artifacts', 'artifacts'))
+    jobs = list(records(f'runs/{run_id}/jobs?filter=all', 'jobs'))
+    pair = {}
+    for platform in PLATFORMS:
+        matching = [f for f in files if not f['expired'] and f['name'] == f'native-build-{platform}']
+        if len(matching) != 1:
+            return {}
+        file = matching[0]
+        # A successful retry can keep a build from an earlier attempt.
+        producers = [j for j in jobs if platform in j['labels'] and j['conclusion'] == 'success'
+                     and j['started_at'] <= file['created_at'] <= j['completed_at']
+                     and any(s['name'] == 'Pack native runtime files with executable permissions'
+                             and s['conclusion'] == 'success' for s in j['steps'])]
+        if len(producers) != 1:
+            return {}
+        with github(f'jobs/{producers[0]["id"]}/logs') as response:
+            log = response.read().decode('utf-8').splitlines()
+        # The producer records the actual runner OS, architecture, and image in its exact cache key.
+        image = next((m[1] for line in log if (m := re.search(
+            r'Z   key: coolprop-(\S+)-[a-f0-9]{64}-[a-f0-9]{64}$', line))), None)
+        python = next((m[1] for line in log if (m := re.search(
+            r'Successfully set up CPython \(([\d.]+)\)', line))), None)
+        url = f'{run["html_url"]}/artifacts/{file["id"]}'
+        if not (image and python and file['digest']
+                and any(line.endswith('Artifact download URL: ' + url) for line in log)):
+            return {}
+        pair[platform] = dict(id=file['id'], digest=file['digest'], image=image, python=python,
+                              attempt=producers[0]['run_attempt'])
+    print(f'Trusted main {run["head_sha"]}, run {run_id}, attempt {attempt}: {json.dumps(pair)}')
+    return pair
+
+
 def native_source(base):
     """Find a pair of archives built by one successful push to main."""
     fingerprint = native_fingerprint('HEAD')
@@ -155,42 +194,14 @@ def native_source(base):
         if native_fingerprint(sha) != fingerprint:
             continue
         run_id = origin['id']
-        with github(f'runs/{run_id}') as response:
-            run = json.load(response)
-        if (run['path'] != '.github/workflows/ci.yml' or run['event'] != 'push'
-                or run['conclusion'] != 'success' or run['status'] != 'completed'):
+        try:
+            pair = qualified_pair(run_id)
+        except HTTPError as error:
+            if error.code not in {404, 410}:
+                raise
+            print(f'Main run {run_id} or its build evidence is no longer available.')
             continue
-        attempt = run['run_attempt']
-        files = list(records(f'runs/{run_id}/artifacts', 'artifacts'))
-        jobs = list(records(f'runs/{run_id}/attempts/{attempt}/jobs', 'jobs'))
-        pair = {}
-        for platform in PLATFORMS:
-            matching = [f for f in files if not f['expired'] and f['name'] == f'native-build-{platform}']
-            producers = [j for j in jobs if platform in j['labels'] and j['conclusion'] == 'success'
-                         and any(s['name'] == 'Pack native runtime files with executable permissions'
-                                 and s['conclusion'] == 'success' for s in j['steps'])]
-            if len(matching) != 1 or len(producers) != 1:
-                break
-            file = matching[0]
-            try:
-                with github(f'jobs/{producers[0]["id"]}/logs') as response:
-                    log = response.read().decode('utf-8').splitlines()
-            except HTTPError as error:
-                if error.code not in {404, 410}:
-                    raise
-                break
-            # The producer records the actual runner OS, architecture, and image in its exact cache key.
-            image = next((m[1] for line in log if (m := re.search(
-                r'Z   key: coolprop-(\S+)-[a-f0-9]{64}-[a-f0-9]{64}$', line))), None)
-            python = next((m[1] for line in log if (m := re.search(
-                r'Successfully set up CPython \(([\d.]+)\)', line))), None)
-            url = f'{run["html_url"]}/artifacts/{file["id"]}'
-            if not (image and python and file['digest']
-                    and any(line.endswith('Artifact download URL: ' + url) for line in log)):
-                break
-            pair[platform] = dict(id=file['id'], digest=file['digest'], image=image, python=python)
-        if len(pair) == len(PLATFORMS):
-            print(f'Trusted main {sha}, run {run_id}, attempt {attempt}: {json.dumps(pair)}')
+        if pair:
             return pair
     print('No complete, unexpired pair from a matching successful main build. Build both platforms.')
     return {}
@@ -215,7 +226,8 @@ def matching_compiler_and_sdk(archive, platform):
         subprocess.run(['cmake', '-S', root, '-B', root / 'build', '-G', generator, *arch], check=True)
         actual = (root / 'build/toolchain').read_text().splitlines()
     if host == 'macos-arm64':
-        actual.append(subprocess.check_output(['xcrun', '--sdk', 'macosx', '--show-sdk-version'], text=True).strip())
+        sdk_path = subprocess.check_output(['xcrun', '--sdk', 'macosx', '--show-sdk-path'], text=True).strip()
+        actual.append(json.loads((Path(sdk_path) / 'SDKSettings.json').read_text())['Version'])
         sdk = [s['version'] for s in record['sdk']['sdk_settings']]
     else:
         sdk = record['sdk']['windows_target_platform_versions']
@@ -225,7 +237,8 @@ def matching_compiler_and_sdk(archive, platform):
 
 
 def restore_native(platform, source):
-    host = f'{os.environ["RUNNER_OS"]}-{os.environ["RUNNER_ARCH"]}-py3.13-{os.environ["ImageVersion"]}'
+    minor = f'{sys.version_info.major}.{sys.version_info.minor}'
+    host = f'{os.environ["RUNNER_OS"]}-{os.environ["RUNNER_ARCH"]}-py{minor}-{os.environ["ImageVersion"]}'
     python = '.'.join(map(str, sys.version_info[:3]))
     if (host, python) != (source['image'], source['python']):
         print(f'Hosted toolchain changed ({host}, Python {python}). Build both platforms.')

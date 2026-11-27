@@ -1,7 +1,7 @@
 """Keep unknown changes and missing jobs inside the full CI gate."""
 import pytest
 
-from engineering.scripts.ci_scope import require_jobs, select_scope
+from engineering.scripts.ci_scope import native_source, require_jobs, select_scope
 
 
 @pytest.mark.parametrize('event,paths,expected', [
@@ -56,25 +56,33 @@ def test_gate_rejects_unknown_tier():
 
 
 @pytest.mark.parametrize('event', ['pull_request', 'push'])
-def test_rename_from_code_to_docs_still_requires_full_ci(tmp_path, event):
+def test_rename_from_code_to_docs_still_requires_full_ci(tmp_path, event, monkeypatch):
     from pathlib import Path
+    import shutil
     import subprocess
     import sys
 
-    script = Path(__file__).resolve().parents[3] / 'engineering' / 'scripts' / 'ci_scope.py'
+    root = Path(__file__).resolve().parents[3]
+    script = root / 'engineering' / 'scripts' / 'ci_scope.py'
     def git(*args):
         return subprocess.check_output(['git', '-c', 'user.name=CI Test',
                                        '-c', 'user.email=ci@example.invalid',
                                        *args], cwd=tmp_path, text=True).strip()
 
     git('init', '-q')
-    (tmp_path / 'model.py').write_text('unchanged content\n', encoding='utf-8')
+    shutil.copytree(root / '.github/workflows', tmp_path / '.github/workflows')
+    (tmp_path / 'solver').mkdir()
+    (tmp_path / 'solver/model.cpp').write_text('unchanged content\n', encoding='utf-8')
+    for path in ('docs/native-stages.md', 'docs/native-stages.zh-CN.md'):
+        assert select_scope(event, [path]) == 'full'
     git('add', '.')
     git('commit', '-qm', 'Add source')
     base = git('rev-parse', 'HEAD')
-    git('mv', 'model.py', 'README.md')
+    git('mv', 'solver/model.cpp', 'README.md')
     git('commit', '-qm', 'Move source')
     result = subprocess.check_output(
         [sys.executable, '-S', str(script), 'select', '--event', event,
          '--base', base, '--head', git('rev-parse', 'HEAD')], cwd=tmp_path, text=True)
     assert result.strip() == 'full'
+    monkeypatch.chdir(tmp_path)
+    assert native_source(base) == {}
