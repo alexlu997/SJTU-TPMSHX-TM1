@@ -66,10 +66,14 @@ _FIELD_WIDTH_DESKTOP = 196
 _FIELD_WIDTH_COMPACT = 176
 
 _FLUID_LABELS: dict[str, str] = {
-    "air": "Air",
-    "water": "Water",
+    "air": "空气",
+    "water": "水",
     "sco2": "sCO₂",
     "co2": "CO₂",
+    "空气": "空气",
+    "水": "水",
+    "sCO₂": "sCO₂",
+    "CO₂": "CO₂",
 }
 
 _PHASE_LABELS: dict[str, str] = {
@@ -212,6 +216,8 @@ class OptimizationPage(QWidget):
         self.last_output_dir = None
         self.selected_index = None
         self._plot_indices: list[int] = []
+        self._id_to_pos: dict[int, int] = {}
+        self._plotted_count: int = 0
         self._pick_id = None
         self.volume_panel = None
         self.volume_data = None
@@ -220,6 +226,8 @@ class OptimizationPage(QWidget):
         self._volume_ranges: dict[str, Any] = {}
         self._job = None
         self._launching = False
+        self._awaiting_first_update = False
+        self._action_notice: ReadoutNotice | None = None
         self._stop_requested = self._pause_requested = False
         self._live_update = None
         self._last_drawn = -1
@@ -257,6 +265,13 @@ class OptimizationPage(QWidget):
     def attach_to_shell(self) -> None:
         """Connect OptimizationPage to the Style P2 Main_Menu shell."""
         self._shell_attached = True
+        toolbar = getattr(self._form, "_field_toolbar", None)
+        if toolbar is not None:
+            self._result_pill.setParent(toolbar)
+            toolbar.layout().insertWidget(0, self._result_pill)
+            self._result_pill.setVisible(False)
+            if self._pill_bar is not None:
+                self._pill_bar.hide()
         btn_export = getattr(self._form, "btn_export", None)
         if btn_export is not None and btn_export.menu() is not None:
             menu = btn_export.menu()
@@ -264,6 +279,17 @@ class OptimizationPage(QWidget):
             self._act_export_pareto = act
             menu.aboutToShow.connect(self._sync_export_menu_action)
         self._notify_shell()
+
+    def _report_notice(self, title: str, detail: str, *, kind: str = "err") -> None:
+        """Surface an optimization error or notice visibly in the shell bar and toast."""
+        full = f"{title}：{detail}" if detail else title
+        self.status.setText(full)
+        self._opt_status_badge.setToolTip(full)
+        self._action_notice = ReadoutNotice(title, detail, kind=kind)
+        if self._shell_attached:
+            toast_kind = "error" if kind == "err" else ("warn" if kind == "warn" else "success")
+            self._form.dialogs.notify(full, kind=toast_kind)
+            self._notify_shell()
 
     def _sync_export_menu_action(self) -> None:
         act = getattr(self, "_act_export_pareto", None)
@@ -288,9 +314,15 @@ class OptimizationPage(QWidget):
 
     def readout_spec(self) -> tuple[list[ReadoutItem], ReadoutNotice | None]:
         """Return bottom ReadoutStrip cells for the current optimization state."""
-        rep = self.report
-        if not isinstance(rep, dict):
+        if self._awaiting_first_update or self._launching:
             return [], None
+
+        if not self.is_idle() and self._live_update is not None:
+            rep = self._live_update[0]["report"]
+        else:
+            rep = self.report
+        if not isinstance(rep, dict):
+            return [], self._action_notice
 
         n_eval = rep.get("n_evaluated")
         budget = rep.get("design_budget")
@@ -384,13 +416,14 @@ class OptimizationPage(QWidget):
         elif not self.is_idle():
             items.append(ReadoutItem("剩余时间", self.kpi_eta.text()))
 
-        notice = None
-        if rep.get("status") == "cancelled":
-            notice = ReadoutNotice("已取消", "保留已完成样本", kind="warn")
-        elif rep.get("status") == "paused":
-            notice = ReadoutNotice("已暂停", "已保存检查点，可继续任务", kind="warn")
-        elif rep.get("status") == "failed":
-            notice = ReadoutNotice("运行中止", str(rep.get("reason") or "详见状态记录"), kind="err")
+        notice = self._action_notice
+        if notice is None:
+            if rep.get("status") == "cancelled":
+                notice = ReadoutNotice("已取消", "保留已完成样本", kind="warn")
+            elif rep.get("status") == "paused":
+                notice = ReadoutNotice("已暂停", "已保存检查点，可继续任务", kind="warn")
+            elif rep.get("status") == "failed":
+                notice = ReadoutNotice("运行中止", str(rep.get("reason") or "详见状态记录"), kind="err")
         return items, notice
 
     def set_compact(self, compact: bool) -> None:
@@ -634,7 +667,7 @@ class OptimizationPage(QWidget):
 
         zone_grid, zone_card = collapsible_section(
             p1v,
-            "单点计算分区（不参与优化搜索）",
+            "算例计算分区（不参与优化搜索）",
             form.theme.style("T_NEUTRAL"),
             form.theme.style("F_NEUTRAL"),
             expanded=False,
@@ -726,15 +759,17 @@ class OptimizationPage(QWidget):
         p3v.setContentsMargins(0, 0, 0, 0)
         p3v.setSpacing(0)
 
-        pill_row = QHBoxLayout()
-        pill_row.setContentsMargins(14, 10, 14, 4)
+        self._pill_bar = QWidget()
+        self._pill_bar.setStyleSheet("background: transparent;")
+        pill_row = QHBoxLayout(self._pill_bar)
+        pill_row.setContentsMargins(14, 6, 14, 2)
         pill_row.setSpacing(8)
         self._result_pill = _OptPillIsland(("Pareto 前沿", "尺寸 / 壁厚场", "三维场"))
         self._result_pill.set_tab_enabled(1, False)
         self._result_pill.set_tab_enabled(2, False)
         pill_row.addWidget(self._result_pill)
         pill_row.addStretch(1)
-        p3v.addLayout(pill_row)
+        p3v.addWidget(self._pill_bar)
 
         self._result_body_stack = QStackedWidget()
         self._result_body_stack.setStyleSheet("background: transparent;")
@@ -1283,12 +1318,6 @@ class OptimizationPage(QWidget):
                 rows_data.append(
                     (cid, row.get("mass_flow_A_kg_s"), row.get("mass_flow_B_kg_s"))
                 )
-        elif isinstance(self.report, dict) and self.report.get("conditions"):
-            for row in self.report["conditions"]:
-                cid = "当前工况" if row.get("condition_id") == "current" else str(row.get("condition_id", "—"))
-                rows_data.append(
-                    (cid, row.get("mass_flow_A_kg_s"), row.get("mass_flow_B_kg_s"))
-                )
         else:
             form = self._form
             is_3d = form.combo_dim.currentIndex() == 1
@@ -1393,8 +1422,9 @@ class OptimizationPage(QWidget):
                 payload = json.load(source)
                 rows = study.validate_condition_table(payload)
         except (OSError, ValueError, TypeError) as exc:
-            self.status.setText(f"工况导入失败：{exc}")
+            self._report_notice("工况导入失败", str(exc), kind="err")
             return
+        self._action_notice = None
         self.conditions = rows
         self.mass_requirements = deepcopy(payload.get("mass_requirements"))
         if self.mass_requirements is not None:
@@ -1402,7 +1432,10 @@ class OptimizationPage(QWidget):
         elif self.method.currentData() == "qlognei":
             self.method.setCurrentIndex(self.method.findData("qlognehvi"))
         self.refresh_setup()
-        self.status.setText(f"已导入 {len(rows)} 个工况：{Path(path).name}")
+        msg = f"已导入 {len(rows)} 个工况：{Path(path).name}"
+        self.status.setText(msg)
+        self._opt_status_badge.setToolTip(msg)
+        self._notify_shell()
 
     def use_current_condition(self):
         self.conditions = None
@@ -1480,14 +1513,15 @@ class OptimizationPage(QWidget):
             except (TypeError, ValueError):
                 mm_parts.append("—")
         dim_tag = "3D" if is_3d else "2D"
+        fluid_a_raw = form.combo_fluidA.currentText().strip()
+        fluid_b_raw = form.combo_fluidB.currentText().strip()
+        fluid_a = _FLUID_LABELS.get(fluid_a_raw.lower(), fluid_a_raw or "—")
+        fluid_b = _FLUID_LABELS.get(fluid_b_raw.lower(), fluid_b_raw or "—")
         self._pub_topo_val.setText(form.combo_tpms.currentText() or "—")
         self._pub_dom_val.setText(f"{f' {TIMES} '.join(mm_parts)} mm · {dim_tag}")
-        self._pub_fluid_val.setText(
-            f"{form.combo_fluidA.currentText()} / {form.combo_fluidB.currentText()}"
-        )
+        self._pub_fluid_val.setText(f"{fluid_a} / {fluid_b}")
         self.public_summary.setText(
-            f"公共工况 · {form.combo_tpms.currentText()} · "
-            f"{form.combo_fluidA.currentText()} / {form.combo_fluidB.currentText()}\n"
+            f"公共工况 · {form.combo_tpms.currentText()} · {fluid_a} / {fluid_b}\n"
             f"计算域 {' × '.join(raw_lengths)} m · 网格 {' × '.join(grids)} · 材料、端口与求解设置沿用当前算例"
         )
 
@@ -1515,7 +1549,7 @@ class OptimizationPage(QWidget):
         rows, requirements = self.conditions, self.mass_requirements
         n = len(rows) if rows else 1
         obj_mode = "mass_requirements" if requirements else "mean"
-        obj_word = format_objective_summary(n, obj_mode)
+        obj_word = format_objective_summary(n, obj_mode, imported=bool(rows))
         self._objective_val.setText(obj_word)
         self.condition_summary.setText(
             f"目标：{obj_word} · " + "、".join(row["condition_id"] for row in rows)
@@ -1594,6 +1628,8 @@ class OptimizationPage(QWidget):
         if self._form._close_pending or not self.is_idle():
             return
         self._launching = True
+        self._awaiting_first_update = True
+        self._action_notice = None
         self._set_busy(True)
         try:
             inputs = (
@@ -1635,9 +1671,10 @@ class OptimizationPage(QWidget):
             if self._job is not None:
                 self._job.deleteLater()
                 self._job = None
+            self._awaiting_first_update = False
             self._status_kind = "err"
             self._status_short = "启动失败"
-            self.status.setText(f"启动失败：{exc}")
+            self._report_notice("启动失败", str(exc), kind="err")
             self.set_stage("running", "idle")
             self.set_stage("config", "active")
         else:
@@ -1645,6 +1682,7 @@ class OptimizationPage(QWidget):
         finally:
             self._launching = False
             if self.is_idle():
+                self._awaiting_first_update = False
                 self._set_busy(False)
             else:
                 self._notify_shell()
@@ -1690,6 +1728,7 @@ class OptimizationPage(QWidget):
     def _update(self, state) -> None:
         if self._form._close_pending:
             return
+        self._awaiting_first_update = False
         report = state["report"]
         self.last_output_dir = self._job.output_dir
         if self._live_update is None:
@@ -1697,6 +1736,7 @@ class OptimizationPage(QWidget):
             self._last_drawn = report["n_usable"]
         self._live_update = (state, time.monotonic())
         self.show_live_update(state)
+        self._notify_shell()
 
     def _draw_live(self) -> None:
         if self._form._close_pending or self._live_update is None:
@@ -1720,6 +1760,7 @@ class OptimizationPage(QWidget):
 
     def _terminal(self, report, error: str) -> None:
         self._live_timer.stop()
+        self._awaiting_first_update = False
         if self._form._close_pending:
             return
         directory = self._job.output_dir
@@ -1741,7 +1782,13 @@ class OptimizationPage(QWidget):
             )
             self._status_kind = "err" if error else "warn"
             self._status_short = "运行失败" if error else "已取消"
+            self._action_notice = ReadoutNotice(
+                "运行失败" if error else "已取消",
+                str(error) if error else "工况准备结束，尚未启动优化搜索",
+                kind="err" if error else "warn",
+            )
             self.status.setText(text)
+            self._opt_status_badge.setToolTip(text)
             self._set_kpi(gen=label, best_q="—", best_dp="—", eta="—")
             self.set_stage("running", "idle")
             self.set_stage("config", "active")
@@ -1749,6 +1796,7 @@ class OptimizationPage(QWidget):
 
     @Slot()
     def _settled(self) -> None:
+        self._awaiting_first_update = False
         self._job = None
         self._set_busy(False)
 
@@ -1957,7 +2005,7 @@ class OptimizationPage(QWidget):
         )
 
     def pareto_ready(self) -> bool:
-        return bool(self._plot_indices)
+        return self._plotted_count > 0
 
     def field_ready(self) -> bool:
         return sum(bool(axis.images) for axis in self.field_canvas.figure.axes) == 2
@@ -2112,6 +2160,7 @@ class OptimizationPage(QWidget):
                     )
                 )
 
+        report_conds = report.get("conditions") or ()
         cond_cells = tuple(
             ConditionCell(
                 condition_id=(
@@ -2120,11 +2169,14 @@ class OptimizationPage(QWidget):
                 mass_flow_a_kg_s=c.get("mass_flow_A_kg_s"),
                 mass_flow_b_kg_s=c.get("mass_flow_B_kg_s"),
             )
-            for c in (report.get("conditions") or ())
+            for c in report_conds
+        )
+        imported_conditions = not (
+            len(report_conds) == 1 and report_conds[0].get("condition_id") == "current"
         )
         can_load = on_front and row.get("status") == "completed"
         return SelectedDesignData(
-            index=row.get("index", history_pos),
+            index=int(row["index"]),
             objectives=objectives,
             spec_rows=spec_rows,
             front_items=tuple(front_items),
@@ -2133,6 +2185,7 @@ class OptimizationPage(QWidget):
             front_title=front_title,
             front_sort_label=front_sort,
             objective_mode="mass_requirements" if constrained else "mean",
+            imported_conditions=imported_conditions,
             can_load=can_load,
             can_export=row.get("status") == "completed",
         )
@@ -2140,26 +2193,26 @@ class OptimizationPage(QWidget):
     def _populate_failed_card(self, baseline: dict[str, Any]) -> list[str]:
         try:
             details = study.baseline_failure_details(baseline, self.last_output_dir)
-            reasons = study.baseline_failure_reasons(baseline, self.last_output_dir)
+            reasons = details["reasons"]
         except (ValueError, OSError, KeyError, TypeError) as exc:
             details = {
                 "condition": "—",
                 "stage": "均匀基准",
                 "checks": [],
+                "details": [baseline.get("reason") or "", f"工况归档读取失败：{exc}"],
                 "reasons": [baseline.get("reason") or "", f"工况归档读取失败：{exc}"],
             }
             reasons = [r for r in details["reasons"] if r]
 
         self._fail_cond_val.setText(details["condition"])
         self._fail_stage_val.setText(details["stage"])
-        if details["checks"]:
+        display_items = [text for text in details["details"] if text]
+        if display_items:
             html_items = [
                 text.replace("Re", SYM["Re"]).replace("Nu", SYM["Nu"])
-                for text in details["checks"]
+                for text in display_items
             ]
             self._fail_reason_val.setText("；".join(html_items))
-        elif details["reasons"]:
-            self._fail_reason_val.setText("；".join(details["reasons"]))
         else:
             self._fail_reason_val.setText("—")
         self._fail_open_dir_btn.setEnabled(
@@ -2169,6 +2222,7 @@ class OptimizationPage(QWidget):
 
     def show_pareto(self, report, *, running: bool = False):
         self.report = report
+        self._action_notice = None
         self.selected_index = None
         self.load_button.setEnabled(False)
         self.export_geometry_button.setEnabled(False)
@@ -2179,6 +2233,7 @@ class OptimizationPage(QWidget):
         self._result_pill.set_current_index(0, emit=False)
 
         history = report["history"]
+        self._id_to_pos = {int(row["index"]): pos for pos, row in enumerate(history)}
         usable = [row for row in history if row["status"] == "completed"]
         constrained = "mass_requirements" in report
         if constrained:
@@ -2212,10 +2267,10 @@ class OptimizationPage(QWidget):
             is_base = self._is_uniform_baseline(row, constrained=constrained)
             points.append(
                 ParetoPoint(
-                    index=row.get("index", pos),
+                    index=int(row["index"]),
                     x=float(x_value(row)),
                     y=float(row["objectives"][y_key]),
-                    phase=str(row.get("phase") or "initial"),
+                    phase=str(row.get("phase") or ""),
                     on_front=(pos in pareto_set),
                     is_baseline=is_base,
                     feasible=bool(row.get("feasible", True)),
@@ -2229,6 +2284,7 @@ class OptimizationPage(QWidget):
         render_error = None
         if baseline_failed and not running:
             self._plot_indices = []
+            self._plotted_count = 0
             self.pareto_view.clear()
             self._result_body_stack.setCurrentWidget(self._failed_card_host)
         else:
@@ -2239,19 +2295,21 @@ class OptimizationPage(QWidget):
                     points,
                     selected_index=None,
                     mode=plot_mode,
-                    interactive=bool(rows) and not running,
+                    interactive=bool(points) and not running,
                     title_note=title_note,
                     draw_now=True,
                 )
                 self.pareto_canvas.show()
                 self._plot_indices = indices
-                if rows and not running:
+                self._plotted_count = len(points)
+                if points and not running:
                     self.pareto_view.point_picked.connect(self._on_pareto_point_picked)
                     self._pick_id = True
             except Exception as exc:
                 _log.exception("Could not render optimization Pareto figure")
                 render_error = f"{type(exc).__name__}: {exc}"
                 self._plot_indices = []
+                self._plotted_count = 0
                 self._disconnect_pick()
                 self.pareto_canvas.figure.clear()
                 self.pareto_canvas.hide()
@@ -2304,13 +2362,7 @@ class OptimizationPage(QWidget):
     def _history_pos_for_id(self, design_id: int) -> int | None:
         if not isinstance(self.report, dict):
             return None
-        history = self.report.get("history") or []
-        for pos, row in enumerate(history):
-            if row.get("index") == design_id:
-                return pos
-        if 0 <= design_id < len(history):
-            return design_id
-        return None
+        return self._id_to_pos.get(design_id)
 
     def _on_pareto_point_picked(self, design_id: int) -> None:
         self.select_design(design_id)
@@ -2329,7 +2381,7 @@ class OptimizationPage(QWidget):
         on_front = pos in set(self.report.get("pareto_indices") or ())
         self.load_button.setEnabled(on_front)
         self.export_geometry_button.setEnabled(True)
-        self.pareto_view.set_selected_index(row.get("index", pos))
+        self.pareto_view.set_selected_index(int(row["index"]))
 
         l_range, t_range = self._preview_selected_design(row.get("x_decision"))
         self.selected_panel.set_data(
@@ -2355,8 +2407,9 @@ class OptimizationPage(QWidget):
                 self.report, self.selected_index, self.last_output_dir, current
             )
         except (OSError, ValueError, TypeError, KeyError, IndexError) as exc:
-            self.status.setText(f"连续场载入失败：{exc}")
+            self._report_notice("连续场载入失败", str(exc), kind="err")
             return
+        self._action_notice = None
         row = self.report["conditions"][0]
         form._continuous_field_spec = config.zones.config
         form._pareto_x_decision = None
@@ -2442,7 +2495,7 @@ class OptimizationPage(QWidget):
         except (OSError, RuntimeError, ValueError, TypeError, KeyError) as exc:
             self._clear_preview()
             self.figures_changed.emit()
-            self.status.setText(f"连续场预览失败：{exc}")
+            self._report_notice("连续场预览失败", str(exc), kind="err")
             return None, None
 
         l_range = (float(np.min(L)), float(np.max(L)))

@@ -137,15 +137,21 @@ class SelectedDesignData:
     front_title: str = "前沿方案"
     front_sort_label: str = "压降比 ↑"
     objective_mode: str = "mean"
+    imported_conditions: bool = False
     can_load: bool = True
     can_export: bool = True
 
 
-def format_objective_summary(n_conditions: int, objective_mode: str = "mean") -> str:
+def format_objective_summary(
+    n_conditions: int,
+    objective_mode: str = "mean",
+    *,
+    imported: bool = False,
+) -> str:
     """Format the locked objective wording for optimization drawers."""
     if objective_mode in ("mass", "mass_requirements"):
         return "逐项达标"
-    if n_conditions <= 1:
+    if not imported and n_conditions <= 1:
         return "当前工况"
     return f"{n_conditions} 工况均值"
 
@@ -834,7 +840,9 @@ class SelectedDesignPanel(QWidget):
         # 5. Condition grid with locked mass-flow header and objective wording.
         if d.conditions:
             n_cond = len(d.conditions)
-            obj_text = format_objective_summary(n_cond, d.objective_mode)
+            obj_text = format_objective_summary(
+                n_cond, d.objective_mode, imported=d.imported_conditions
+            )
             self._layout.addWidget(
                 _band_header(
                     "工况",

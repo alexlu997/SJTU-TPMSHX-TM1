@@ -67,7 +67,7 @@ def test_native_control_reaches_workers_and_stays_locked_through_cancel(
         monkeypatch.setattr('sjtu_tpmshx.applications.design.sizing.size_fixed_cell', held)
         page = win.quick_design
         page.le_qd_file.setText('not-read.xlsx')
-        page.combo_qd_mode.setCurrentIndex(page.combo_qd_mode.findData('fixed'))
+        page.mode_selector.set_value('fixed')
         page.submit()
         cancel = page.cancel
     try:

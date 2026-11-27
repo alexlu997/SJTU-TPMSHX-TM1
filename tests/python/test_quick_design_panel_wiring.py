@@ -26,8 +26,9 @@ def test_page_reads_launch_control_and_keeps_results_between_visits(win, monkeyp
     monkeypatch.setattr('sjtu_tpmshx.applications.design.cases.load_cases', lambda path: [_CASE])
     monkeypatch.setattr('sjtu_tpmshx.applications.design.sizing.size_fixed_cell', size)
     page = win.quick_design
+    assert not page._qd_export_btn.isEnabled()
     page.le_qd_file.setText('study.csv')
-    page.combo_qd_mode.setCurrentIndex(page.combo_qd_mode.findData('fixed'))
+    page.mode_selector.set_value('fixed')
     for threads in (1, 0):
         win.btn_quick_design.click()
         assert win.page_stack.currentWidget() is page
@@ -36,6 +37,7 @@ def test_page_reads_launch_control_and_keeps_results_between_visits(win, monkeyp
         _wait_for(page.is_idle)
         result = page.last_result
         assert result['feasible'] == [result['best']]
+        assert page._qd_export_btn.isEnabled()
         win.btn_tab_layout.click()
         assert win.page_stack.currentWidget() is not page
         win.btn_quick_design.click()
@@ -57,6 +59,16 @@ def test_page_reads_launch_control_and_keeps_results_between_visits(win, monkeyp
     assert win.appearance.is_drawer_open('qd')
     assert win.inspector_drawer.strip_index() == 1
     assert not page.peek_card.isVisibleTo(page)
+
+    # Invalid input error is surfaced visibly via toast and readout strip, not only a hidden label.
+    page.mode_selector.set_value('auto')
+    old_l = page.le_qd_l.text()
+    page.le_qd_l.setText('4,oops')
+    page.submit()
+    QApplication.processEvents()
+    assert '胞元尺寸 L' in win.dialogs.last_notice
+    assert win.readout_strip.isVisibleTo(win)
+    page.le_qd_l.setText(old_l)
     win.appearance.set_drawer_open(False, page_key='qd')
     page.select_view_tab(0)
 
@@ -260,11 +272,11 @@ def test_completed_energy_diagnostics_include_all_cases_without_changing_feasibi
     rows = [[table.item(i, j).text() for j in range(table.columnCount())]
             for i in range(table.rowCount())]
     assert rows == [
-        ['Diamond_l5_t0.5', 'hot', '100', '75', '25', 'available', '', 'True', '是', ''],
-        ['Diamond_l5_t0.5', 'zero', '0', '0', '—', 'insufficient_data',
-         'missing source diagnostic', 'True', '是', ''],
-        ['Gyroid_l6_t0.4', 'legacy', '7', '—', '—', '未提供',
-         '未提供能量不平衡诊断', 'False', '否', 'not-converged@final'],
+        ['Diamond_l5_t0.5', 'hot', '100', '75', '25', '可用', '', '是', '是', ''],
+        ['Diamond_l5_t0.5', 'zero', '0', '0', '—', '数据不足',
+         'missing source diagnostic', '是', '是', ''],
+        ['Gyroid_l6_t0.4', 'legacy', '7', '—', '—', '—',
+         '未提供能量不平衡诊断', '否', '否', 'not-converged@final'],
     ]
     assert feasible.percase[0]['energy_imbalance_rel'] == .25
 
@@ -346,7 +358,8 @@ def test_failure_keeps_completed_candidates_error_and_export(make_page, monkeypa
     monkeypatch.setattr(panel, 'QuickDesignJob', make_worker)
     page = make_page()
     page.le_qd_file.setText(str(inputs))
-    page.le_qd_topo.setText('Diamond')
+    page.topo_checks['Diamond'].setChecked(True)
+    page.topo_checks['Gyroid'].setChecked(False)
     page.le_qd_l.setText('4,5,6,7' if stage == 'enumeration' else '4,5')
     page.le_qd_t.setText('0.4')
     page.chk_qd_refine.setChecked(stage == 'refinement')
@@ -427,15 +440,15 @@ def test_cli_and_gui_share_unified_defaults_and_density(make_page, monkeypatch, 
     assert page.le_qd_rho.text() == '2700'
     assert page.le_qd_ks.text() == '150'
     page.le_qd_file.setText('spec.xlsx')
-    page.combo_qd_mode.setCurrentIndex(page.combo_qd_mode.findData('fixed'))
+    page.mode_selector.set_value('fixed')
     params = page._gather_inputs()
     assert params['rho_s'] == 2700. and params['k_s'] == 150.
     assert params['arrangement'] == 'cross' and params['prop_model'] == 'mean'
     assert params['height'] is None
 
     # Previous GUI counterflow and CLI const selections stay reachable.
-    page.combo_qd_arr.setCurrentIndex(page.combo_qd_arr.findData('counter'))
-    page.combo_qd_prop.setCurrentIndex(page.combo_qd_prop.findData('const'))
+    page.arrangement_selector.set_value('counter')
+    page.prop_model_selector.set_value('const')
     legacy = page._gather_inputs()
     assert legacy['arrangement'] == 'counter' and legacy['prop_model'] == 'const'
 
@@ -571,7 +584,7 @@ def test_cli_and_gui_match_on_shared_inputs(make_page, monkeypatch, tmp_path, ca
     gui_control = RunControl(cancel_check=lambda: gui_state['cancel'])
     page = make_page()
     page.le_qd_file.setText(str(source))
-    page.combo_qd_mode.setCurrentIndex(page.combo_qd_mode.findData(mode))
+    page.mode_selector.set_value(mode)
     page.chk_qd_rect.setChecked(use_rect)
     if use_rect:
         page.le_qd_height.setText('750')
@@ -580,7 +593,8 @@ def test_cli_and_gui_match_on_shared_inputs(make_page, monkeypatch, tmp_path, ca
         page.le_qd_cell_l.setText('7')
         page.le_qd_cell_t.setText('0.4')
     else:
-        page.le_qd_topo.setText('Diamond')
+        page.topo_checks['Diamond'].setChecked(True)
+        page.topo_checks['Gyroid'].setChecked(False)
         page.le_qd_l.setText('5,6,7')
         page.le_qd_t.setText('0.4')
         page.chk_qd_refine.setChecked(use_refine)

@@ -309,7 +309,7 @@ class VolumeDpView(QWidget):
             rows = self._rows
             n = len(rows)
             lab_w = 212
-            top = 58
+            top = 34
             bottom = self._bottom_pad
             avail_w = max(240, wp - lab_w - 40)
             wv = avail_w * 0.34
@@ -522,7 +522,7 @@ class VolumeDpView(QWidget):
             self._figure.legend(
                 handles=handles,
                 loc="upper right",
-                bbox_to_anchor=(1.0 - 24.0 / wp, 1.0 - 12.0 / hp),
+                bbox_to_anchor=(1.0 - 24.0 / wp, 1.0 - 4.0 / hp),
                 frameon=False,
                 fontsize=11.5 * _PT,
                 labelcolor=t["fg"],
@@ -601,6 +601,17 @@ class VolumeDpView(QWidget):
             return
 
         if not self._case_limits:
+            axd.annotate(
+                "上限 —",
+                (xhi_d, -0.5),
+                xytext=(-6, -4),
+                textcoords="offset points",
+                ha="right",
+                va="top",
+                fontsize=10.5 * _PT,
+                color=t["tert"],
+                annotation_clip=False,
+            )
             return
 
         # Group identical numeric limits so reference lines do not collide.

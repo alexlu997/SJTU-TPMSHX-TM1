@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from math import ceil, isfinite
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from PySide6.QtCore import QPointF, QRect, QRectF, QSize, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen, QPolygonF, QTextDocument
@@ -54,7 +54,7 @@ _FIELD_WIDTH_COMPACT = 150
 
 _ENERGY_COLUMNS = [
     "构型",
-    "工况",
+    "算例",
     "热侧 Q [W]",
     "冷侧 Q [W]",
     "能量不平衡 [%]",
@@ -64,6 +64,12 @@ _ENERGY_COLUMNS = [
     "构型可行",
     "终验原因",
 ]
+
+_ENERGY_STATUS_LABELS: dict[str, str] = {
+    "available": "可用",
+    "insufficient_data": "数据不足",
+    "unavailable": "不可用",
+}
 
 _QD_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("拓扑", "拓扑", "l"),
@@ -343,29 +349,58 @@ class _PillIsland(QFrame):
             btn.setStyleSheet(on_qss if idx == self._current else off_qss)
 
 
-class _SegmentedComboSync(QFrame):
-    """Style P2 segmented control bi-directionally synced to a backing QComboBox."""
+class _SegmentedChoice(QFrame):
+    """Style P2 segmented selector holding ``(label, backend_value)`` pairs directly."""
 
-    def __init__(self, combo: QComboBox, labels: tuple[str, ...], parent: QWidget | None = None):
+    value_changed = Signal(str)
+
+    def __init__(
+        self,
+        items: Sequence[tuple[str, str]],
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
-        self._combo = combo
+        self._values: list[str] = [val for _, val in items]
         self._buttons: list[QPushButton] = []
+        self._current = 0
         self.setObjectName("qdSegRow")
         self.setFixedHeight(28)
         lay = QHBoxLayout(self)
         lay.setContentsMargins(2, 2, 2, 2)
         lay.setSpacing(2)
-        for idx, cap in enumerate(labels):
+        for idx, (cap, _val) in enumerate(items):
             btn = QPushButton(cap)
             btn.setFixedHeight(24)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.clicked.connect(lambda _c=False, i=idx: self._combo.setCurrentIndex(i))
+            btn.clicked.connect(lambda _c=False, i=idx: self.set_current_index(i))
             self._buttons.append(btn)
             lay.addWidget(btn, 1)
-        self._combo.currentIndexChanged.connect(self._sync)
-        self._sync()
+        self._apply_style()
 
-    def _sync(self, *_args) -> None:
+    def current_index(self) -> int:
+        return self._current
+
+    def current_value(self) -> str:
+        return self._values[self._current]
+
+    def set_value(self, value: str) -> None:
+        idx = self._values.index(value)
+        self.set_current_index(idx)
+
+    def set_current_index(self, index: int) -> None:
+        if not 0 <= index < len(self._values):
+            raise IndexError(index)
+        changed = index != self._current
+        self._current = index
+        self._apply_style()
+        if changed:
+            self.value_changed.emit(self._values[self._current])
+
+    def set_label(self, index: int, text: str) -> None:
+        """Update display text without changing the backend value."""
+        self._buttons[index].setText(text)
+
+    def _apply_style(self) -> None:
         t = get_theme()
         self.setStyleSheet(
             f"QFrame#qdSegRow {{ background: {t['sunken']}; border: none; "
@@ -382,9 +417,8 @@ class _SegmentedComboSync(QFrame):
             "font-size: 12px; font-weight: 400; }"
             f"QPushButton:hover {{ color: {t['fg']}; }}"
         )
-        cur = self._combo.currentIndex()
         for idx, btn in enumerate(self._buttons):
-            btn.setStyleSheet(on_qss if idx == cur else off_qss)
+            btn.setStyleSheet(on_qss if idx == self._current else off_qss)
 
 
 class _PlotWithPeek(QWidget):
@@ -431,9 +465,9 @@ class QuickDesignPage(QWidget):
         self._shell_attached = False
         self._status_kind = "idle"
         self._status_short = "就绪"
+        self._action_notice: ReadoutNotice | None = None
         self._rule_a_grids: list[QGridLayout] = []
         self._rule_a_fields: list[QWidget] = []
-        self._syncing_topo = False
         self.setWindowTitle("快速设计工具")
         self.setMinimumSize(640, 520)
         self._build_controls()
@@ -460,8 +494,6 @@ class QuickDesignPage(QWidget):
     def attach_to_shell(self) -> None:
         """Mark the page as hosted inside the Style P2 Main_Menu shell."""
         self._shell_attached = True
-        self._standalone_bar.hide()
-        self._standalone_input_wrap.hide()
         self._qd_status.hide()
         self._sync_peek_visibility()
 
@@ -470,10 +502,10 @@ class QuickDesignPage(QWidget):
         return self._status_kind, self._status_short
 
     def readout_spec(self) -> tuple[list[ReadoutItem], ReadoutNotice | None]:
-        """Return bottom ReadoutStrip items and optional partial notice."""
+        """Return bottom ReadoutStrip items and optional notice."""
         res = self.last_result
         if res is None:
-            return [], None
+            return [], self._action_notice
         feasible = res.get("feasible") or []
         best = res.get("best")
         elapsed = res.get("elapsed_s")
@@ -510,8 +542,8 @@ class QuickDesignPage(QWidget):
             ReadoutItem("最轻", min_wt_text, min_wt_unit),
             ReadoutItem("用时", elapsed_text, elapsed_unit),
         ]
-        notice = None
-        if res.get("partial"):
+        notice = self._action_notice
+        if notice is None and res.get("partial"):
             reason = res.get("termination_reason")
             title = "失败中止" if reason == "failed" else "已取消"
             notice = ReadoutNotice(title, "部分结果，不代表完整搜索最优", kind="warn")
@@ -558,9 +590,23 @@ class QuickDesignPage(QWidget):
 
     def _set_status(self, full_text: str, *, kind: str, short_text: str) -> None:
         self._qd_status.setText(full_text)
+        self._qd_status_badge.setToolTip(full_text)
         self._status_kind = kind
         self._status_short = short_text
+        if kind in ("err", "warn"):
+            self._action_notice = ReadoutNotice(short_text, full_text, kind=kind)
+            if self._shell_attached:
+                self._window.dialogs.notify(
+                    full_text, kind="error" if kind == "err" else "warn"
+                )
+        else:
+            self._action_notice = None
         self._notify_shell()
+
+    def _sync_export_enabled(self) -> None:
+        self._qd_export_btn.setEnabled(
+            bool(self.last_result is not None and self.last_result.get("all"))
+        )
 
     @Slot()
     def submit(self):
@@ -576,7 +622,7 @@ class QuickDesignPage(QWidget):
             self._set_status(f"输入解析失败: {error}", kind="err", short_text="输入错误")
             return
         if not params["file"]:
-            self._set_status("请先选工况文件", kind="warn", short_text="待选工况")
+            self._set_status("请先选择算例文件", kind="warn", short_text="待选算例")
             return
 
         worker = QuickDesignJob(params, control=self._window.run_control)
@@ -585,6 +631,7 @@ class QuickDesignPage(QWidget):
         worker.finished.connect(self._release_worker, Qt.ConnectionType.QueuedConnection)
         self._worker = worker
         self.last_result = None
+        self._sync_export_enabled()
         self._feasible_rows = []
         self._feasible_tags = {}
         self._selected_row = None
@@ -622,6 +669,7 @@ class QuickDesignPage(QWidget):
     def _show_result(self, result):
         self._qd_cancel_btn.setEnabled(False)
         self.last_result = result
+        self._sync_export_enabled()
         feasible, best = result["feasible"], result["best"]
         self._fill_table(feasible, partial=result["partial"])
         self._fill_energy_table(result["all"])
@@ -665,42 +713,61 @@ class QuickDesignPage(QWidget):
         self._worker.deleteLater()
         self._worker = None
         self._qd_run_btn.setEnabled(True)
+        self._sync_export_enabled()
         self.activity_changed.emit()
         self._notify_shell()
 
     def _gather_inputs(self) -> dict:
-        """Read the selected controls from the Quick Design page."""
-        def positive(attr: str, divisor: float = 1.0) -> float:
-            value = float(getattr(self, attr).text()) / divisor
+        """Read the visible controls directly from the Quick Design page."""
+        def positive(attr: str, label: str, divisor: float = 1.0) -> float:
+            try:
+                value = float(getattr(self, attr).text()) / divisor
+            except ValueError as exc:
+                raise ValueError(f"{label}须为数字") from exc
             if not isfinite(value) or value <= 0:
-                raise ValueError(f"{attr} 必须为有限正数")
+                raise ValueError(f"{label}必须为有限正数")
             return value
 
-        rho_s = positive("le_qd_rho")
-        k_s = positive("le_qd_ks")
-        height = positive("le_qd_height", 1e3) if self.chk_qd_rect.isChecked() else None
-        mode = self.combo_qd_mode.currentData()
+        rho_s = positive("le_qd_rho", "密度 ρ_s")
+        k_s = positive("le_qd_ks", "导热系数 k_s")
+        height = (
+            positive("le_qd_height", "固定迎风高度 H", 1e3)
+            if self.chk_qd_rect.isChecked()
+            else None
+        )
+        mode = self.mode_selector.current_value()
         params: dict[str, Any] = {
             "file": self.le_qd_file.text(),
             "mode": mode,
-            "arrangement": self.combo_qd_arr.currentData(),
+            "arrangement": self.arrangement_selector.current_value(),
             "rho_s": rho_s,
             "k_s": k_s,
-            "prop_model": self.combo_qd_prop.currentData(),
+            "prop_model": self.prop_model_selector.current_value(),
             "height": height,
             "refine": self.chk_qd_refine.isChecked(),
         }
         if mode == "fixed":
             params["cell"] = (
                 self.combo_qd_cell_topo.currentText(),
-                positive("le_qd_cell_l"),
-                positive("le_qd_cell_t"),
+                positive("le_qd_cell_l", "固定胞元尺寸 L"),
+                positive("le_qd_cell_t", "固定壁厚 t"),
             )
         else:
+            topos = [name for name, cb in self.topo_checks.items() if cb.isChecked()]
+            if not topos:
+                raise ValueError("请至少勾选一种拓扑")
+            try:
+                l_vals = _flist(self.le_qd_l.text())
+            except ValueError as exc:
+                raise ValueError(f"胞元尺寸 L 列表格式无效: {exc}") from exc
+            try:
+                t_vals = _flist(self.le_qd_t.text())
+            except ValueError as exc:
+                raise ValueError(f"壁厚 t 列表格式无效: {exc}") from exc
             params["nodes"] = {
-                "topo": [s.strip() for s in self.le_qd_topo.text().split(",") if s.strip()],
-                "l": _flist(self.le_qd_l.text()),
-                "t": _flist(self.le_qd_t.text()),
+                "topo": topos,
+                "l": l_vals,
+                "t": t_vals,
             }
         return params
 
@@ -877,7 +944,7 @@ class QuickDesignPage(QWidget):
         )
         case_rows: list[tuple[str, str]] = []
         for pc in getattr(d, "percase", None) or []:
-            cid = f"工况 {pc.get('case', '—')}"
+            cid = f"算例 {pc.get('case', '—')}"
             q_kw = _fmt_num(
                 pc["Q_W"] / 1e3 if pc.get("Q_W") is not None else None,
                 ".2f",
@@ -954,14 +1021,32 @@ class QuickDesignPage(QWidget):
                     "—" if value is None else f"{value * scale:.6g}"
                     for value, scale in zip(values, (1, 1, 100))
                 ]
+                raw_status = pc.get("energy_imbalance_status")
+                status_text = (
+                    _ENERGY_STATUS_LABELS.get(str(raw_status), str(raw_status))
+                    if raw_status
+                    else "—"
+                )
+                reason_text = (
+                    pc["energy_imbalance_reason"]
+                    if "energy_imbalance_reason" in pc
+                    else "未提供能量不平衡诊断"
+                )
+                conv_raw = (pc.get("run_status") or {}).get("converged")
+                if conv_raw is True:
+                    conv_text = "是"
+                elif conv_raw is False:
+                    conv_text = "否"
+                else:
+                    conv_text = "—"
                 rows.append(
                     [
                         cid(design),
                         str(pc["case"]),
                         *numbers,
-                        pc.get("energy_imbalance_status", "未提供"),
-                        pc.get("energy_imbalance_reason", "未提供能量不平衡诊断"),
-                        str((pc.get("run_status") or {}).get("converged", "unknown")),
+                        status_text,
+                        reason_text,
+                        conv_text,
                         "是" if design.feasible else "否",
                         "; ".join(pc.get("acceptance_reasons", [])),
                     ]
@@ -991,7 +1076,7 @@ class QuickDesignPage(QWidget):
             return
         try:
             if Path(path).resolve() == Path(last["params"]["file"]).resolve():
-                raise ValueError("导出文件不能覆盖输入工况文件")
+                raise ValueError("导出文件不能覆盖输入算例文件")
             from sjtu_tpmshx.applications.design.report import write_xlsx
 
             partial = last["partial"]
@@ -1000,12 +1085,18 @@ class QuickDesignPage(QWidget):
                 path, last["all"], partial=partial, termination_reason=reason
             )
             state = "失败中止" if reason == "failed" else "已取消"
-            self._qd_status.setText(
+            msg = (
                 f"{f'已导出部分结果（{state}）' if partial else '已导出'} → {path}  "
-                f"(构型汇总 {n_total}/可行 {n_feas} · 工况明细 {n_det} 行)"
+                f"(构型汇总 {n_total}/可行 {n_feas} · 算例明细 {n_det} 行)"
             )
+            self._qd_status.setText(msg)
+            self._qd_status_badge.setToolTip(msg)
+            self._action_notice = None
+            if self._shell_attached:
+                self._window.dialogs.notify(msg, kind="success")
+                self._notify_shell()
         except Exception as exc:
-            self._qd_status.setText(f"导出失败: {exc}")
+            self._set_status(f"导出失败: {exc}", kind="err", short_text="导出失败")
 
     def _balance_table_columns(self) -> None:
         tbl = self._qd_table
@@ -1099,14 +1190,15 @@ class QuickDesignPage(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # ── Header controls (reparented into workbenchHeader when mounted in Main_Menu) ──
-        self._qd_status_badge = QPushButton("就绪")
+        # ── Header controls (mounted into workbenchHeader by Main_Menu) ──
+        self._qd_status_badge = QPushButton("就绪", self)
         self._qd_status_badge.setFixedHeight(28)
         self._qd_status_badge.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._qd_status_badge.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
-        btn_export = QPushButton("导出 xlsx")
+        btn_export = QPushButton("导出 xlsx", self)
         btn_export.setFixedHeight(30)
+        btn_export.setEnabled(False)
         btn_export.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_export.setIcon(icon("download", t["sub"]))
         btn_export.setIconSize(QSize(14, 14))
@@ -1120,7 +1212,7 @@ class QuickDesignPage(QWidget):
         btn_export.clicked.connect(self.export)
         self._qd_export_btn = btn_export
 
-        btn_cancel = QPushButton("取消")
+        btn_cancel = QPushButton("取消", self)
         btn_cancel.setFixedHeight(30)
         btn_cancel.setEnabled(False)
         btn_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1134,7 +1226,7 @@ class QuickDesignPage(QWidget):
         btn_cancel.clicked.connect(self.cancel)
         self._qd_cancel_btn = btn_cancel
 
-        btn_run = QPushButton("运行设计")
+        btn_run = QPushButton("运行设计", self)
         btn_run.setFixedHeight(30)
         btn_run.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_run.setIcon(icon("play", t["primary_fg"]))
@@ -1149,22 +1241,11 @@ class QuickDesignPage(QWidget):
         btn_run.clicked.connect(self.submit)
         self._qd_run_btn = btn_run
 
-        # Standalone action bar (hidden when attached to Main_Menu shell).
-        self._standalone_bar = QWidget()
-        sb_lay = QHBoxLayout(self._standalone_bar)
-        sb_lay.setContentsMargins(14, 10, 14, 4)
-        sb_lay.setSpacing(8)
-        sb_lay.addWidget(btn_run)
-        sb_lay.addWidget(btn_cancel)
-        sb_lay.addWidget(btn_export)
-        sb_lay.addStretch(1)
-        root.addWidget(self._standalone_bar)
-
         # ── Top-left pill view switcher ──
         pill_row = QHBoxLayout()
-        pill_row.setContentsMargins(14, 10, 14, 6)
+        pill_row.setContentsMargins(14, 6, 14, 2)
         pill_row.setSpacing(8)
-        self._view_pill = _PillIsland(("可行设计", f"体积{ENDASH}压降", "工况能量诊断"))
+        self._view_pill = _PillIsland(("可行设计", f"体积{ENDASH}压降", "算例能量诊断"))
         self._view_pill.current_changed.connect(self.select_view_tab)
         pill_row.addWidget(self._view_pill)
         pill_row.addStretch(1)
@@ -1227,7 +1308,7 @@ class QuickDesignPage(QWidget):
         energy_layout.setContentsMargins(12, 4, 12, 8)
         energy_layout.setSpacing(6)
         energy_note = QLabel(
-            "已完成候选的逐工况诊断（含不可行构型）；能量诊断不参与当前可行性筛选。"
+            "已完成候选的逐算例诊断（含不可行构型）；能量诊断不参与当前可行性筛选。"
         )
         energy_note.setWordWrap(True)
         energy_note.setStyleSheet(
@@ -1258,16 +1339,16 @@ class QuickDesignPage(QWidget):
         root.addWidget(self._view_stack, 1)
 
         # ── Build Rule A Input Drawer Body (F13) ──
-        self._input_drawer_body = QWidget()
+        self._input_drawer_body = QWidget(self)
         self._input_drawer_body.setStyleSheet("background: transparent;")
         in_lay = QVBoxLayout(self._input_drawer_body)
         in_lay.setContentsMargins(0, 0, 0, 0)
         in_lay.setSpacing(0)
 
         le_file = QLineEdit()
-        le_file.setPlaceholderText("选择 .xlsx / .csv 工况文件…")
+        le_file.setPlaceholderText("选择 .xlsx / .csv 算例文件…")
         le_file.setToolTip(
-            "工况单位：温度 K · 绝压 kPa · 质量流量 kg/s · 换热量 kW；压降上限填比例（如 5% 填 0.05）。\n"
+            "算例单位：温度 K · 绝压 kPa · 质量流量 kg/s · 换热量 kW；压降上限填比例（如 5% 填 0.05）。\n"
             "表头：case, hot_fluid, T_in_h_K, P_in_h_kPa, mdot_h, cold_fluid, "
             "T_in_c_K, P_in_c_kPa, mdot_c, dPlim_h, dPlim_c，另需 Q_kW 或 dT_h_K。"
         )
@@ -1275,26 +1356,21 @@ class QuickDesignPage(QWidget):
 
         def _browse() -> None:
             path, _ = QFileDialog.getOpenFileName(
-                self, "选择工况文件", "", "工况 (*.xlsx *.csv);;所有文件 (*)"
+                self, "选择算例文件", "", "算例 (*.xlsx *.csv);;所有文件 (*)"
             )
             if path:
                 le_file.setText(path)
 
         in_lay.addWidget(
             self._make_rule_a_section(
-                "工况文件",
+                "算例文件",
                 [("文件", le_file)],
                 first=True,
                 actions=(("浏览…", _browse),),
             )
         )
 
-        # Backing combos preserve the exact backend data contract for tests and code.
-        combo_mode = QComboBox(self)
-        combo_mode.addItem("自动搜索", "auto")
-        combo_mode.addItem("固定胞元", "fixed")
-        combo_mode.hide()
-        seg_mode = _SegmentedComboSync(combo_mode, ("自动搜索", "固定胞元"))
+        seg_mode = _SegmentedChoice((("自动搜索", "auto"), ("固定胞元", "fixed")))
         seg_mode.setFixedWidth(_FIELD_WIDTH_DESKTOP)
         seg_mode.setToolTip(
             "自动搜索：枚举拓扑、胞元尺寸和壁厚，再为各候选定尺。\n"
@@ -1302,20 +1378,12 @@ class QuickDesignPage(QWidget):
         )
         self._rule_a_fields.append(seg_mode)
 
-        combo_arr = QComboBox(self)
-        combo_arr.addItem("交叉流", "cross")
-        combo_arr.addItem("逆流", "counter")
-        combo_arr.hide()
-        seg_arr = _SegmentedComboSync(combo_arr, ("交叉流", "逆流"))
+        seg_arr = _SegmentedChoice((("交叉流", "cross"), ("逆流", "counter")))
         seg_arr.setFixedWidth(_FIELD_WIDTH_DESKTOP)
         seg_arr.setToolTip("交叉流：两股流体沿相互垂直的方向流动（默认）。\n逆流：两股流体沿同轴反向流动。")
         self._rule_a_fields.append(seg_arr)
 
-        combo_prop = QComboBox(self)
-        combo_prop.addItem("均温物性", "mean")
-        combo_prop.addItem("入口定物性", "const")
-        combo_prop.hide()
-        seg_prop = _SegmentedComboSync(combo_prop, ("均温", "入口定物性"))
+        seg_prop = _SegmentedChoice((("均温", "mean"), ("入口定物性", "const")))
         seg_prop.setFixedWidth(_FIELD_WIDTH_DESKTOP)
         seg_prop.setToolTip(
             "均温物性：先按入口温度求解，再按各股流体进出口平均温度更新物性并求解一次（默认）。\n"
@@ -1380,8 +1448,6 @@ class QuickDesignPage(QWidget):
         )
 
         # Auto search range band
-        le_topo = QLineEdit("Diamond,Gyroid", self)
-        le_topo.hide()
         topo_row = QWidget()
         topo_row.setFixedWidth(_FIELD_WIDTH_DESKTOP)
         topo_row.setStyleSheet("background: transparent;")
@@ -1398,37 +1464,13 @@ class QuickDesignPage(QWidget):
             f"QCheckBox::indicator:checked {{ background: {t['chk_checked_bg']}; "
             f"border: 1px solid {t['chk_checked_border']}; }}"
         )
-
-        def _sync_topo_from_checks() -> None:
-            if self._syncing_topo:
-                return
-            self._syncing_topo = True
-            try:
-                selected = [name for name, cb in topo_checks.items() if cb.isChecked()]
-                le_topo.setText(",".join(selected))
-            finally:
-                self._syncing_topo = False
-
-        def _sync_checks_from_topo(text: str) -> None:
-            if self._syncing_topo:
-                return
-            self._syncing_topo = True
-            try:
-                chosen = {part.strip() for part in text.split(",") if part.strip()}
-                for name, cb in topo_checks.items():
-                    cb.setChecked(name in chosen)
-            finally:
-                self._syncing_topo = False
-
         for name in ("Diamond", "Gyroid"):
             cb = QCheckBox(name)
             cb.setChecked(True)
             cb.setStyleSheet(chk_qss)
-            cb.toggled.connect(lambda _v: _sync_topo_from_checks())
             topo_checks[name] = cb
             tl.addWidget(cb)
         tl.addStretch(1)
-        le_topo.textChanged.connect(_sync_checks_from_topo)
 
         l_nodes = [str(value).removesuffix(".0") for value in TRAIN_L_NODES]
         le_l = UnitLineEdit(", ".join(l_nodes), unit="mm")
@@ -1499,15 +1541,15 @@ class QuickDesignPage(QWidget):
         in_lay.addWidget(fixed_group)
         in_lay.addStretch(1)
 
-        def _on_mode_changed(_index: int) -> None:
-            is_auto = combo_mode.currentData() == "auto"
+        def _on_mode_changed(mode_value: str) -> None:
+            is_auto = mode_value == "auto"
             auto_group.setVisible(is_auto)
             fixed_group.setVisible(not is_auto)
 
-        combo_mode.currentIndexChanged.connect(_on_mode_changed)
+        seg_mode.value_changed.connect(_on_mode_changed)
 
         # Selected design drawer tab (Tab 1)
-        self._selected_drawer_body = QWidget()
+        self._selected_drawer_body = QWidget(self)
         self._selected_drawer_body.setStyleSheet("background: transparent;")
         sel_lay = QVBoxLayout(self._selected_drawer_body)
         sel_lay.setContentsMargins(0, 0, 0, 0)
@@ -1516,13 +1558,6 @@ class QuickDesignPage(QWidget):
         sel_lay.addWidget(self.selected_panel)
         sel_lay.addStretch(1)
 
-        # Standalone host for input drawer body when QuickDesignPage is not mounted in Main_Menu.
-        self._standalone_input_wrap = QWidget()
-        si_lay = QVBoxLayout(self._standalone_input_wrap)
-        si_lay.setContentsMargins(0, 0, 0, 0)
-        si_lay.addWidget(self._input_drawer_body)
-        root.addWidget(self._standalone_input_wrap)
-
         lbl_status = QLabel("就绪")
         lbl_status.setWordWrap(True)
         lbl_status.setStyleSheet(
@@ -1530,16 +1565,16 @@ class QuickDesignPage(QWidget):
         )
         root.addWidget(lbl_status)
 
-        # Contract widget attributes
+        # Visible control attributes
         self.le_qd_file = le_file
-        self.combo_qd_mode = combo_mode
-        self.combo_qd_arr = combo_arr
+        self.mode_selector = seg_mode
+        self.arrangement_selector = seg_arr
         self.le_qd_rho = le_rho
         self.le_qd_ks = le_ks
-        self.combo_qd_prop = combo_prop
+        self.prop_model_selector = seg_prop
         self.chk_qd_rect = chk_rect
         self.le_qd_height = le_height
-        self.le_qd_topo = le_topo
+        self.topo_checks = topo_checks
         self.le_qd_l = le_l
         self.le_qd_t = le_t
         self.chk_qd_refine = chk_refine

@@ -117,6 +117,8 @@ def _padded_bounds(
 
 
 def _phase_label(phase: str) -> str:
+    if not phase:
+        return "—"
     return _PHASE_LABELS.get(phase, phase)
 
 
@@ -381,7 +383,10 @@ class ParetoView(QWidget):
                     self._canvas.draw_idle()
                 return
 
-            left, right, top, bottom = (76, 26, 62, 52) if compact else (82, 30, 68, 56)
+            if self._title_note:
+                left, right, top, bottom = (76, 26, 34, 50) if compact else (82, 30, 38, 54)
+            else:
+                left, right, top, bottom = (76, 26, 20, 50) if compact else (82, 30, 24, 54)
             ax = self._figure.add_axes(
                 _frac_rect(left, top, max(80, wp - left - right), max(80, hp - top - bottom), wp, hp)
             )
@@ -449,7 +454,7 @@ class ParetoView(QWidget):
             )
 
         front = sorted(
-            (pt for pt in pts if pt.on_front and not pt.is_baseline),
+            (pt for pt in pts if pt.on_front),
             key=lambda pt: (pt.x, -pt.y),
         )
         if front:
@@ -534,12 +539,25 @@ class ParetoView(QWidget):
             )
             ax.scatter([baseline.x], [baseline.y], marker="o", s=8, color=t["sub"], zorder=4.3)
 
-        f_init = [pt for pt in front if pt.phase != "iteration"]
-        f_iter = [pt for pt in front if pt.phase == "iteration"]
+        f_init = [pt for pt in front if not pt.is_baseline and pt.phase == "initial"]
+        f_iter = [pt for pt in front if not pt.is_baseline and pt.phase == "iteration"]
+        f_other = [
+            pt for pt in front if not pt.is_baseline and pt.phase not in ("initial", "iteration")
+        ]
         if f_init:
             ax.scatter(
                 [pt.x for pt in f_init],
                 [pt.y for pt in f_init],
+                s=52,
+                facecolors=t["canvas"],
+                edgecolors=t["accent"],
+                linewidths=1.7,
+                zorder=4.5,
+            )
+        if f_other:
+            ax.scatter(
+                [pt.x for pt in f_other],
+                [pt.y for pt in f_other],
                 s=52,
                 facecolors=t["canvas"],
                 edgecolors=t["accent"],
@@ -620,6 +638,20 @@ class ParetoView(QWidget):
                     mew=1.6,
                     ms=6.0,
                     label=f"初始前沿 ({len(f_init)})",
+                )
+            )
+        if f_other:
+            handles.append(
+                Line2D(
+                    [],
+                    [],
+                    marker="o",
+                    ls="",
+                    mfc=t["canvas"],
+                    mec=t["accent"],
+                    mew=1.6,
+                    ms=6.0,
+                    label=f"前沿方案 ({len(f_other)})",
                 )
             )
         if non_front:
