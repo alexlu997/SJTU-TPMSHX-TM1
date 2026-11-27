@@ -13,7 +13,9 @@ Public preparation records `CaseData.metadata.provenance`: package version,
 source repository revision and tracked-change flag, plus configured raw-data
 repository revision and the separate `data-revision.txt` declaration. Public
 execution keeps that preparation record and adds its own entry snapshot
-under `FieldResult.metadata.provenance.execution`. Model versions stay in
+under `FieldResult.metadata.provenance.execution`. In a Quick Design study,
+preparation and execution record the snapshot that the study takes at its entry.
+Model versions stay in
 `model_refs`. Backend/schema labels are not code revisions. YAML/HDF5 keep
 these records without querying Git during loading or postprocessing.
 
