@@ -108,7 +108,7 @@ Separate dialogs own their own window and background worker state.
 ### 2. Public interface and boundary rules
 
 - **Qt boundary rule**: Keep `PySide6` imports inside `python/applications/gui/ui/`, `python/applications/gui/controllers/`, the GUI entry point [python/applications/gui/main.py](../python/applications/gui/main.py), and the desktop launcher [python/desktop.py](../python/desktop.py).
-  The one exception is the offscreen GUI smoke tools `python/development/runs/_smoke_boot.py` and `python/development/runs/smokes/`.
+  The only other modules that can import Qt are `python/development/runs/_smoke_boot.py` and the offscreen GUI smoke tools in `python/development/runs/smokes/`.
   Lower layers (`data_types/`, `physical_models/`, `preprocess/`, `solvers/`, `postprocess/`, `file_io/`, `run_control/`, `cpp_interface/`) must stay free of Qt.
 - Each physical quantity has a symbol, stored unit, applicable dimensions and range reference on its [configuration field](../python/data_types/compute_config.py).
   Keep the default on that field and the enforced limit with its model or validator.
