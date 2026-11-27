@@ -144,6 +144,26 @@ int main(void) {
     OK(tpmshx_geometry_threshold_batch_v1(TPMSHX_GEOMETRY_DIAMOND,
         ratios, 2, thresholds, 2, error, sizeof error));
     CHECK(thresholds[0] > 0. && thresholds[1] > 0.);
+    {
+        const double box[3] = {cells[0] / 4., 5., 3.};
+        const double deltas[8] = {-.2, -.1, 0., .1, .2, .3, .4, .5};
+        double samples[8], lower[8], upper[8], local_walls[8];
+        OK(tpmshx_geometry_signed_wall_grid_v1(TPMSHX_GEOMETRY_DIAMOND, cells[0],
+            box, small_shape, walls, 1, deltas, 8, samples, lower, upper, 8, error, sizeof error));
+        CHECK(samples[0] == 0. && fabs(samples[4] - 1.) < 1e-15);
+        for (i = 0; i < 8; ++i)
+            CHECK(lower[i] == deltas[i] - thresholds[0] && upper[i] == deltas[i] + thresholds[0]);
+        fill(samples, 8, -77.); fill(lower, 8, -77.); fill(upper, 8, -77.);
+        status = tpmshx_geometry_signed_wall_grid_v1(TPMSHX_GEOMETRY_DIAMOND, cells[0],
+            box, small_shape, walls, 1, deltas, 8, samples, lower, upper, 7, error, sizeof error);
+        CHECK(status == TPMSHX_GEOMETRY_INVALID);
+        fill(local_walls, 8, walls[0]);
+        local_walls[7] = cells[0] / 2.;
+        status = tpmshx_geometry_signed_wall_grid_v1(TPMSHX_GEOMETRY_DIAMOND, cells[0],
+            box, small_shape, local_walls, 8, deltas, 1, samples, lower, upper, 8, error, sizeof error);
+        CHECK(status == TPMSHX_GEOMETRY_INVALID && error[0] != '\0');
+        CHECK(all_equal(samples, 8, -77.) && all_equal(lower, 8, -77.) && all_equal(upper, 8, -77.));
+    }
     offset = levels(thresholds[0], .3);
     reference = levels(thresholds[0], 0.);
     OK(tpmshx_geometry_counts_v1(index, thresholds, 2, counts, 6, error, sizeof error));

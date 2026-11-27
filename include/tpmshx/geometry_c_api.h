@@ -67,6 +67,17 @@ TPMSHX_GEOMETRY_API void TPMSHX_GEOMETRY_CALL tpmshx_geometry_index_destroy_v1(
     tpmshx_geometry_index_v1* index);
 TPMSHX_GEOMETRY_API int TPMSHX_GEOMETRY_CALL tpmshx_geometry_phi_grid_v1(
     uint32_t topology, size_t N, double* result, size_t result_count, char* error, size_t error_capacity);
+/* Sample each axis from zero to box_mm[axis], including both faces.
+ * Each axis needs at least two points. cell_mm is the uniform period.
+ * walls_mm and delta each have one element or one element per grid point.
+ * Each output has sample_count elements in (x, y, z) order, with z contiguous.
+ * The limits are delta - C and delta + C. C is the calibrated threshold at walls_mm / cell_mm.
+ * The solid includes both limits. Fluid A has phi < lower. Fluid B has phi > upper.
+ */
+TPMSHX_GEOMETRY_API int TPMSHX_GEOMETRY_CALL tpmshx_geometry_signed_wall_grid_v1(
+    uint32_t topology, double cell_mm, const double box_mm[3], const size_t shape[3],
+    const double* walls_mm, size_t wall_count, const double* delta, size_t delta_count,
+    double* phi, double* lower, double* upper, size_t sample_count, char* error, size_t error_capacity);
 /* All geometry inputs, intermediate values and outputs use float64. */
 TPMSHX_GEOMETRY_API int TPMSHX_GEOMETRY_CALL tpmshx_geometry_threshold_batch_v1(
     uint32_t topology, const double* wall_over_cell, size_t count,

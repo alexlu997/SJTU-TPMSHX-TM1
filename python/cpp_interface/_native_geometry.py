@@ -38,6 +38,8 @@ _SIGNATURES = {
     'index_create': [_Uint, _Size, _HandleP],
     'index_create_from_phi': [_SizeP, _DoubleP, _Size, _HandleP],
     'phi_grid': [_Uint, _Size, _DoubleP, _Size],
+    'signed_wall_grid': [_Uint, _Double, _DoubleP, _SizeP, _DoubleP, _Size, _DoubleP, _Size,
+                         _DoubleP, _DoubleP, _DoubleP, _Size],
     'threshold_batch': [_Uint, _DoubleP, _Size, _DoubleP, _Size],
     'hydraulic_radius_batch': [_DoubleP, _Size, _DoubleP, _Size],
     'counts': [_Handle, _DoubleP, _Size, _Int64P, _Size],
@@ -242,6 +244,22 @@ def _cached_phi(path, topology, resolution):
 def phi_grid(topology, N=128):
     code, n = geometry_topology(topology), _resolution(N)
     return _cached_phi(_library_path(), code, n)
+
+
+def signed_wall_grid(topology, cell_mm, box_mm, sample_counts, t_mm, delta):
+    code, box = geometry_topology(topology), _array(box_mm)
+    shape = tuple(_resolution(n) for n in sample_counts)
+    if box.shape != (3,) or len(shape) != 3 or min(shape) < 2:
+        raise ValueError('the box needs three lengths and at least two samples per axis')
+    walls, offsets = _array(t_mm), _array(delta)
+    for name, field in (('t_mm', walls), ('delta', offsets)):
+        if field.ndim and field.shape != shape:
+            raise ValueError(f'{name} must be scalar or have sample shape {shape}')
+    phi, lower, upper = (np.empty(shape, dtype=np.float64) for _ in range(3))
+    _call(_library().signed_wall_grid, code, _scalar(cell_mm), _pointer(box), (_Size * 3)(*shape),
+          _pointer(walls), walls.size, _pointer(offsets), offsets.size,
+          _pointer(phi), _pointer(lower), _pointer(upper), phi.size)
+    return {'phi': phi, 'lower': lower, 'upper': upper}
 
 
 def threshold(topology, wall_over_cell):

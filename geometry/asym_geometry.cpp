@@ -30,9 +30,6 @@ double divide(double numerator, double denominator) {
     if (denominator==0.) throw std::domain_error("float division by zero");
     return numerator/denominator;
 }
-Levels double_levels(double C, double delta) {
-    return {delta-C,delta+C};
-}
 struct Masks { std::vector<std::uint8_t> solid, a, b; };
 Masks masks(ArrayView<const double> phi, const Levels& levels) {
     Masks result;

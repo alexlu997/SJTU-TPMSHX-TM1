@@ -11,9 +11,25 @@ from sjtu_tpmshx.physical_models.asym_geometry import (
 from sjtu_tpmshx.development.runs.tools.asym_geometry_research import (
     a0_sides_richardson, percolates_z, find_delta_max,
 )
-from sjtu_tpmshx.physical_models.tpms_geometry import _phi_grid, compute_geometry, _C_from_tL
+from sjtu_tpmshx.physical_models.tpms_geometry import _phi_grid, compute_geometry, _C_from_tL, signed_wall_grid
 
 N = 64  # 测试用小网格（快）
+
+
+@pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
+def test_signed_wall_limits_belong_to_the_solid(topology):
+    cell, wall = 7., .6
+    shape = (8, 7, 6)
+    C = _C_from_tL(topology, wall / cell)
+    for delta, limit in ((C, 'lower'), (-C, 'upper')):
+        samples, reason = signed_wall_grid(topology, cell, (9., 7., 3.), shape, wall, delta)
+        assert reason is None
+        phi = samples['phi']
+        assert phi[0, 0, 0] == samples[limit][0, 0, 0] == 0.
+        fluid_a = phi < samples['lower']
+        fluid_b = phi > samples['upper']
+        assert not fluid_a[0, 0, 0] and not fluid_b[0, 0, 0]
+        assert (fluid_a.mean(), fluid_b.mean()) == eps_sides(phi, C, delta)[:2]
 
 
 @pytest.mark.parametrize('area_a, area_b, expected', [

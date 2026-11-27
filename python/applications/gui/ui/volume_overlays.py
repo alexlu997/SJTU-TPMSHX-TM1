@@ -215,15 +215,9 @@ class _VerticalHairline(QWidget):
 class _ThinProgressBar(QWidget):
     """Compact 6 px progress bar used inside ``LatticeProgressCard``."""
 
-    def __init__(
-        self,
-        progress: float,
-        tokens: Mapping[str, Any],
-        width: int = 104,
-        parent: QWidget | None = None,
-    ) -> None:
+    def __init__(self, tokens: Mapping[str, Any], width: int = 104, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._progress = max(0.0, min(1.0, float(progress)))
+        self._progress = 0.0
         self._tokens = dict(tokens)
         self.setFixedSize(width, 6)
 
@@ -746,9 +740,6 @@ class LatticeProgressCard(QFrame):
     def __init__(
         self,
         *,
-        title: str = "构建晶格",
-        detail: str = "",
-        progress: float = 0.0,
         tokens: Mapping[str, Any] | None = None,
         parent: QWidget | None = None,
     ) -> None:
@@ -756,7 +747,6 @@ class LatticeProgressCard(QFrame):
         self._tokens: dict[str, Any] = dict(get_theme())
         if tokens is not None:
             self._tokens.update(tokens)
-        self._progress = max(0.0, min(1.0, float(progress)))
 
         self.setObjectName("latticeProgressCard")
         self.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
@@ -769,15 +759,14 @@ class LatticeProgressCard(QFrame):
         self._dot.setStyleSheet("background: transparent;")
         layout.addWidget(self._dot)
 
-        self._title_label = QLabel(title)
+        self._title_label = QLabel("构建晶格")
         layout.addWidget(self._title_label)
 
-        self._detail_label = QLabel(detail)
+        self._detail_label = QLabel()
         _enable_tnum(self._detail_label)
-        self._detail_label.setVisible(bool(detail))
         layout.addWidget(self._detail_label)
 
-        self._bar = _ThinProgressBar(self._progress, self._tokens, width=104)
+        self._bar = _ThinProgressBar(self._tokens, width=104)
         layout.addWidget(self._bar)
 
         self._sep = _VerticalHairline(self._tokens["border"], height=16)
@@ -791,43 +780,15 @@ class LatticeProgressCard(QFrame):
 
         self.apply_theme(self._tokens)
 
-    def progress(self) -> float:
-        """Return the current completion fraction in ``[0.0, 1.0]``."""
-        return self._progress
-
     def detail(self) -> str:
-        """Return the current build stage detail string."""
+        """Return the current build stage text."""
         return self._detail_label.text()
 
-    def set_progress(
-        self,
-        fraction: float,
-        detail: str | None = None,
-        *,
-        title: str | None = None,
-    ) -> None:
-        """Update progress fraction and optional title or stage text."""
-        self._progress = max(0.0, min(1.0, float(fraction)))
-        self._bar.set_progress(self._progress)
-        if title is not None:
-            self._title_label.setText(title)
-        if detail is not None:
-            self._detail_label.setText(detail)
-            self._detail_label.setVisible(bool(detail))
+    def set_stage(self, domain_label: str, stage_label: str, step: int, total: int) -> None:
+        """Show the domain, the stage name and the stage count, for example ``壁面 2/5``."""
+        self._detail_label.setText(f"{domain_label} · {stage_label} {step}/{total}")
+        self._bar.set_progress(step / total)
         self.adjustSize()
-
-    def set_stage(
-        self,
-        domain_label: str,
-        stage_label: str,
-        step: int,
-        total: int,
-        fraction: float | None = None,
-    ) -> None:
-        """Format a multi-stage lattice build status line and update progress."""
-        detail = f"{domain_label} · {stage_label} {step}/{total}"
-        frac = (step / total) if (fraction is None and total > 0) else (fraction or 0.0)
-        self.set_progress(frac, detail=detail)
 
     def apply_theme(self, tokens: Mapping[str, Any]) -> None:
         """Apply Style P2 theme tokens to the progress card."""
@@ -871,11 +832,7 @@ class LatticeDomainCard(QFrame):
 
     def __init__(
         self,
-        domain_name: str = "",
-        rule_html: str = "",
-        triangles: int = 0,
         *,
-        cached: bool = True,
         tokens: Mapping[str, Any] | None = None,
         parent: QWidget | None = None,
     ) -> None:
@@ -883,7 +840,6 @@ class LatticeDomainCard(QFrame):
         self._tokens: dict[str, Any] = dict(get_theme())
         if tokens is not None:
             self._tokens.update(tokens)
-        self._cached = cached
 
         self.setObjectName("latticeDomainCard")
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
@@ -893,18 +849,17 @@ class LatticeDomainCard(QFrame):
         layout.setContentsMargins(10, 5, 11, 5)
         layout.setSpacing(8)
 
-        self._domain_label = QLabel(domain_name)
+        self._domain_label = QLabel()
         layout.addWidget(self._domain_label)
 
-        self._rule_label = QLabel(rule_html)
-        if "<" in rule_html:
-            self._rule_label.setTextFormat(Qt.TextFormat.RichText)
+        self._rule_label = QLabel()
+        self._rule_label.setTextFormat(Qt.TextFormat.RichText)
         layout.addWidget(self._rule_label)
 
         self._sep1 = QLabel("·")
         layout.addWidget(self._sep1)
 
-        self._tri_label = QLabel(_format_triangles(triangles))
+        self._tri_label = QLabel()
         _enable_tnum(self._tri_label)
         layout.addWidget(self._tri_label)
 
@@ -923,7 +878,6 @@ class LatticeDomainCard(QFrame):
         c_lay.addWidget(self._cache_label)
         layout.addWidget(self._cache_box)
 
-        self._sync_cache_visibility()
         self.apply_theme(self._tokens)
 
     def set_domain_info(
@@ -932,17 +886,14 @@ class LatticeDomainCard(QFrame):
         rule_html: str,
         triangles: int,
         *,
-        cached: bool = True,
+        cached: bool,
     ) -> None:
-        """Update the displayed lattice domain summary."""
+        """Show the domain name, its phase rule, the triangle count and the cache state."""
         self._domain_label.setText(domain_name)
-        self._rule_label.setTextFormat(
-            Qt.TextFormat.RichText if "<" in rule_html else Qt.TextFormat.PlainText
-        )
         self._rule_label.setText(rule_html)
         self._tri_label.setText(_format_triangles(triangles))
-        self._cached = cached
-        self._sync_cache_visibility()
+        self._sep2.setVisible(cached)
+        self._cache_box.setVisible(cached)
         self.adjustSize()
 
     def apply_theme(self, tokens: Mapping[str, Any]) -> None:
@@ -971,10 +922,6 @@ class LatticeDomainCard(QFrame):
         )
         self.adjustSize()
         self.update()
-
-    def _sync_cache_visibility(self) -> None:
-        self._sep2.setVisible(self._cached)
-        self._cache_box.setVisible(self._cached)
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
