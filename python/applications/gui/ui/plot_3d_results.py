@@ -13,7 +13,7 @@ from sjtu_tpmshx.applications.gui.ui.theme import resolve_cmap
 from .vis3d_constants import field_color_limits
 from .matplotlib_canvas import style_colorbar
 
-from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
+from sjtu_tpmshx.data_types.validator import convert_temperature_float
 from sjtu_tpmshx.postprocess.result_display import RESULT_FIELD_SPECS, extrapolation_watermark
 from sjtu_tpmshx.run_control.logutil import get_logger
 
@@ -192,7 +192,10 @@ def _render_2d_slices_from_3d(window, res, field=None):
                 full_t = [Ta, Tb, Ts]
                 limits = field_color_limits(full_t, kwargs['sync'])
                 if unit == '°C':
-                    limits = [(lo - CELSIUS_ZERO_K, hi - CELSIUS_ZERO_K) for lo, hi in limits]
+                    limits = [
+                        (convert_temperature_float(lo, 'K', 'C'), convert_temperature_float(hi, 'K', 'C'))
+                        for lo, hi in limits
+                    ]
                 kwargs['color_limits'] = limits
             else:
                 if key == 'pres':
@@ -212,7 +215,7 @@ def _render_2d_slices_from_3d(window, res, field=None):
             if attr == 'canvas_temp':
                 fields = [Ta[:, :, k_mid], Tb[:, :, k_mid], Ts[:, :, k_mid]]
                 if unit == '°C':
-                    fields = [a - CELSIUS_ZERO_K for a in fields]
+                    fields = [convert_temperature_float(a, 'K', 'C') for a in fields]
                 names, field_unit, field_fmt = [spec.symbol for spec in t_specs], unit, '.2f'
             elif attr == 'canvas_pres':
                 fields = [p_slice_a]
@@ -288,7 +291,9 @@ def _plot_3d_temperature(canvas, Ta_slice, Tb_slice, Ts_slice, xc, yc, z_info,
     """Show the selected temperature slices with a shared range by default."""
     _T = _get_theme()
     if unit == '°C':
-        Ta_slice, Tb_slice, Ts_slice = (a - CELSIUS_ZERO_K for a in (Ta_slice, Tb_slice, Ts_slice))
+        Ta_slice, Tb_slice, Ts_slice = (
+            convert_temperature_float(a, 'K', 'C') for a in (Ta_slice, Tb_slice, Ts_slice)
+        )
     indices = list(range(3)) if phase is None else [phase]
     axes = np.atleast_1d(_begin_canvas_plot(canvas, len(indices), 1))
     Y, X = np.meshgrid(yc, xc)

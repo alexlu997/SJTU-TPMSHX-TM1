@@ -6,9 +6,10 @@ import json
 from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox, QTableWidgetItem
 
 from sjtu_tpmshx.applications.gui.controllers.session_manager import SessionManager
+from sjtu_tpmshx.applications.gui.ui.field_factory import _format_decimal_exact
 from sjtu_tpmshx.applications.gui.ui.window_config import DOMAIN_SHAPE_NOTICE, LINE_EDITS, validate_domain_shape
 from sjtu_tpmshx.applications.gui.ui.ui_constants import TOAST_MS_MED
-from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
+from sjtu_tpmshx.data_types.validator import convert_temperature_decimal
 
 
 def shanghai_field_defaults(*, is_3d: bool) -> dict[str, str]:
@@ -155,11 +156,16 @@ class CaseFiles:
                     raise ValueError(f'Invalid {section}.')
             merged = self.capture_current_preset('Imported parameters')
             unit = preset.get('temp_unit', window._temp_unit)
-            if unit != window._temp_unit:
+            if unit in ('K', 'C') and unit != window._temp_unit:
                 for name in ('le_TinA', 'le_TinB'):
                     if name not in preset.get('line_edits', {}) and getattr(window, name).text().strip():
-                        kelvin = window._temp_to_K(getattr(window, name))
-                        merged['line_edits'][name] = str(kelvin - CELSIUS_ZERO_K if unit == 'C' else kelvin)
+                        merged['line_edits'][name] = _format_decimal_exact(
+                            convert_temperature_decimal(
+                                getattr(window, name).text(),
+                                window._temp_unit,
+                                unit,
+                            )
+                        )
             for name, value in preset.items():
                 if name in ('line_edits', 'combos', 'checks'):
                     merged[name].update(value)
@@ -401,8 +407,7 @@ class CaseFiles:
                     except (TypeError, ValueError):
                         raise ValueError(f'Invalid numeric field: {name}') from None
                     if spec.family == 'temp':
-                        kelvin = number + CELSIUS_ZERO_K if temp_unit == 'C' else number
-                        if kelvin <= 0:
+                        if convert_temperature_decimal(value, temp_unit, 'K') <= 0:
                             raise ValueError(f'{name}: Must be above 0 K')
                 if section == 'combos':
                     widget = getattr(window, name, None)
@@ -732,9 +737,17 @@ class CaseFiles:
         edits = restored.setdefault('line_edits', {})
         for name in ('le_TinA', 'le_TinB'):
             if name not in edits:
-                edits[name] = str(window._temp_to_K(getattr(window, name)))
+                edits[name] = _format_decimal_exact(
+                    convert_temperature_decimal(
+                        getattr(window, name).text(),
+                        getattr(window, '_temp_unit', 'K'),
+                        'K',
+                    )
+                )
             elif saved_unit == 'C' and str(edits[name]).strip():
-                edits[name] = str(float(edits[name]) + CELSIUS_ZERO_K)
+                edits[name] = _format_decimal_exact(
+                    convert_temperature_decimal(str(edits[name]), 'C', 'K')
+                )
         restored['temp_unit'] = 'K'
         notice = self.apply_user_preset(
             restored, show_notice=False, source_name=payload.get('preset_source') or '')

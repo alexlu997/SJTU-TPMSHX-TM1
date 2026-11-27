@@ -349,6 +349,51 @@ _UNIT_CONDUCTIVITY_DEC = {
 _CELSIUS_ZERO_DEC = Decimal(str(CELSIUS_ZERO_K))
 
 
+def convert_temperature_decimal(
+    value: Any,
+    from_unit: str,
+    to_unit: str,
+) -> Decimal:
+    """Convert one temperature between kelvin (``'K'``) and Celsius (``'C'``) in Decimal."""
+    if from_unit not in ('K', 'C'):
+        raise ValueError(f"Unsupported temperature unit: {from_unit!r}")
+    if to_unit not in ('K', 'C'):
+        raise ValueError(f"Unsupported temperature unit: {to_unit!r}")
+    if isinstance(value, bool):
+        raise ValueError(f"Unsupported temperature value: {value!r}")
+    if isinstance(value, Decimal):
+        dec = value
+    elif isinstance(value, int):
+        dec = Decimal(value)
+    elif isinstance(value, float):
+        dec = Decimal(repr(value))
+    elif isinstance(value, str):
+        raw = value.strip()
+        try:
+            dec = Decimal(raw)
+        except InvalidOperation as exc:
+            raise ValueError(f"could not convert string to float: {raw!r}") from exc
+    else:
+        raise ValueError(f"Unsupported temperature value: {value!r}")
+    if from_unit == to_unit:
+        return dec
+    if from_unit == 'C':
+        return dec + _CELSIUS_ZERO_DEC
+    return dec - _CELSIUS_ZERO_DEC
+
+
+def convert_temperature_float(
+    value: Any,
+    from_unit: str,
+    to_unit: str,
+) -> Any:
+    """Convert a scalar temperature (via Decimal) or numeric array between ``'K'`` and ``'C'``."""
+    if isinstance(value, (str, int, float, Decimal)) and not isinstance(value, bool):
+        return float(convert_temperature_decimal(value, from_unit, to_unit))
+    offset = float(convert_temperature_decimal(0, from_unit, to_unit))
+    return value if offset == 0.0 else value + offset
+
+
 def parse_unit_decimal(raw_text: str, unit_text: str,
                        family: str, target_unit: Optional[str] = None,
                        temp_unit: str = 'K') -> Optional[Decimal]:
@@ -386,14 +431,14 @@ def parse_unit_decimal(raw_text: str, unit_text: str,
         den = src_div * dst_mul
         return num if den == 1 else num / den
     if family == 'temp':
-        want_K = (temp_unit == 'K')
+        target = 'K' if temp_unit == 'K' else 'C'
         if u in ('k', 'kelvin'):
-            return dec if want_K else dec - _CELSIUS_ZERO_DEC
+            return convert_temperature_decimal(dec, 'K', target)
         if u in ('c', '°c', 'celsius', 'degc'):
-            return dec + _CELSIUS_ZERO_DEC if want_K else dec
+            return convert_temperature_decimal(dec, 'C', target)
         if u in ('f', '°f', 'fahrenheit', 'degf'):
-            K = (dec - Decimal('32')) * Decimal('5') / Decimal('9') + _CELSIUS_ZERO_DEC
-            return K if want_K else K - _CELSIUS_ZERO_DEC
+            celsius = (dec - Decimal('32')) * Decimal('5') / Decimal('9')
+            return convert_temperature_decimal(celsius, 'C', target)
         return None
     raise ValueError(f"unknown family {family!r}")
 

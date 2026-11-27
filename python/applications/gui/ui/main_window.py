@@ -9,9 +9,11 @@ from PySide6.QtWidgets import (
 )
 
 from sjtu_tpmshx.data_types.compute_config import SCO2_P_RANGE_PA
-from sjtu_tpmshx.data_types.validator import format_unit_value
+from sjtu_tpmshx.data_types.validator import (
+    convert_temperature_decimal,
+    format_unit_value,
+)
 from sjtu_tpmshx.model_configs.df_domain import TRAIN_L, TRAIN_T
-from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
 from sjtu_tpmshx.physical_models.tpms_calc import geometry as tpms_geometry, adaptive_grid
 from sjtu_tpmshx.applications.gui.ui.window_config import LINE_EDITS, parse_field_decimal
 from sjtu_tpmshx.applications.gui.ui.case_files import CaseFiles
@@ -709,16 +711,22 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
             reason = ""
             if spec.positive:
                 try:
-                    v = value if is_temperature and value is not None else float(formatted)
-                    if is_temperature and not unit_match and temp_unit == 'C':
-                        v += CELSIUS_ZERO_K
-                    if not math.isfinite(v):
-                        reason = "Must be finite"
-                    elif v <= 0:
-                        if is_temperature:
+                    if is_temperature:
+                        if unit_match and dec_val is not None:
+                            kelvin_dec = dec_val
+                        else:
+                            source = value if value is not None else formatted
+                            kelvin_dec = convert_temperature_decimal(source, temp_unit, 'K')
+                        if not kelvin_dec.is_finite():
+                            reason = "Must be finite"
+                        elif kelvin_dec <= 0:
                             reason = "Must be above 0 K"
                             value = None  # Keep the rejected input for the next validation.
-                        else:
+                    else:
+                        v = float(formatted)
+                        if not math.isfinite(v):
+                            reason = "Must be finite"
+                        elif v <= 0:
                             reason = "Must be > 0"
                 except ValueError:
                     reason = "Must be a number"
