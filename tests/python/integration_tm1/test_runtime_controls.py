@@ -74,7 +74,7 @@ def test_two_d_residual_failure_preserves_original_exception(monkeypatch, error)
     """The full public solve propagates failures from the real SIMPLE callback."""
     from dataclasses import replace
     from sjtu_tpmshx.solvers import full_2d
-    from tests.python.test_pipeline_2d_smoke import _shanghai_like_cfg
+    from tests.python.execution_tm1.test_pipeline_2d_smoke import _shanghai_like_cfg
 
     def forbidden(*args, **kwargs):
         pytest.fail('result capture after residual callback failure')

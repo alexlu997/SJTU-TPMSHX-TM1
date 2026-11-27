@@ -18,8 +18,8 @@ from sjtu_tpmshx.postprocess import api
 from tests.python.native.result_reference import api as reference
 from tests.python.native.test_result_metrics import quick_result
 from tests.python.native_adapters.test_native_result_balance import assert_values, observe, assert_observation
-from tests.python.test_conservative_energy_results import result_fixture
-from tests.python.test_temperature_face_results import temperature_fixture
+from tests.python.postprocess_tm1.test_conservative_energy_results import result_fixture
+from tests.python.postprocess_tm1.test_temperature_face_results import temperature_fixture
 from tests.python.postprocess_tm1.test_physical_balance import sample_result
 from tests.python.postprocess_tm1.test_qualification import qualified_result, required_metrics
 
