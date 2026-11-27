@@ -2,6 +2,7 @@
   "stages": {
     "air-2d": {"example": "air_2d.json"},
     "air-3d": {"example": "air_3d.json"},
+    "air-3d-default-threads": {"example": "air_3d.json", "cpu_threads": null},
     "zoned-air-2d": {"example": "air_2d.json", "fluids": ["air", "cold-air"], "field": "zoned", "topology": "Diamond"},
     "water-2d": {"example": "air_2d.json", "fluids": ["air", "water"], "topology": "Diamond"},
     "water-3d": {"example": "air_3d.json", "fluids": ["air", "water"], "field": "continuous", "topology": "Diamond"},
@@ -29,7 +30,7 @@
       "x_decision": [6.0, 6.5, 7.0, 7.5, 0.4, 0.45, 0.5, 0.55]
     }}
   },
-  "pause_resume": "air-3d",
+  "pause_resume": ["air-2d", "air-3d"],
   "rejected": {"case": "sco2-2d", "P_in_Pa": 7000000.0},
   "quick_design": {
     "case": 1, "hot_fluid": "air", "T_in_h": 688.23, "P_in_h": 1088700.0, "mdot_h": 0.2855,

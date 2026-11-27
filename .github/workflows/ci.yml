@@ -368,7 +368,7 @@ jobs:
       - name: Evaluate real files from source and installed wheels in the minimal environment
         if: needs.scope.outputs.tier != 'docs'
         run: '"$CI_PYTHON" -m pytest tests/python/integration_tm1/test_minimal_install.py -q'
-      - name: Compare two Linux evaluations of the Mac reference files
+      - name: Compare two Linux evaluations of the CI macOS handoff files
         if: needs.scope.outputs.tier != 'docs'
         run: |
           shopt -s globstar
