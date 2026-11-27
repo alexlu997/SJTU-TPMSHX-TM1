@@ -141,7 +141,7 @@ def test_lattice_exact_wall_vertices_empty_domain_and_detail(lattice_request):
     for detail in ('low', 'medium', 'high'):
         mesh, _ = cache.build(replace(r, detail=detail), threading.Event(), lambda *_: None)
         counts.append(mesh.n_cells)
-        assert mesh.n_open_edges == 0
+        assert mesh.n_open_edges == 0 and mesh.is_all_triangles
     assert 0 < counts[0] < counts[1] < counts[2]
     empty, _ = cache.build(replace(r, delta=10.), threading.Event(), lambda *_: None)
     assert empty.n_cells == empty['Ta'].size == 0

@@ -131,10 +131,11 @@ def _geometry(request, cell, centers, lengths, stage, cancel):
             pieces.append(cap)
 
     # A level through a grid vertex can give several copies of that vertex at roundoff distance.
+    # The merge collapses some triangles. Remove them: a collapsed triangle has no area.
     clean = vtkStaticCleanPolyData()
     clean.SetInputData(pv.merge(pieces, merge_points=False))
     clean.SetTolerance(8 * np.finfo(float).eps)
-    clean.ConvertPolysToLinesOn()
+    clean.ConvertPolysToLinesOff()
     clean.Update()
     mesh = pv.wrap(clean.GetOutput()).triangulate()
     stage(4)

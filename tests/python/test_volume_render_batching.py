@@ -172,7 +172,7 @@ def _make_stub_panel():
             'set_display_mode', 'set_slice_position', 'refresh_colormaps',
             '_reset_lattice', '_request_lattice', '_render_lattice_actors', '_restore_shown_lattice',
             '_on_lattice_progress', '_on_lattice_ready', '_on_lattice_failed', '_cancel_lattice',
-            '_on_toolbar_geometry_changed', 'set_lattice_geometry',
+            '_on_toolbar_geometry_changed', '_on_toolbar_detail_changed', 'set_lattice_geometry',
         ),
     )
     return panel
@@ -429,13 +429,47 @@ def test_lattice_follows_field_phase_and_keeps_the_shown_scene_until_ready():
         assert panel.select_field('Ts')
         assert panel._lattice.submit.call_args.args[0].phase == 'S'
         panel.plotter.add_mesh.assert_not_called()
+        # A theme change clears the scene. The simplified Ts scene shows until the solid mesh is ready.
+        _bind_panel_methods(panel, ('apply_theme', '_render_initial_scene', '_setup_studio_lights',
+                                    '_add_contact_shadow', '_configure_axes_triad', '_apply_isometric_pose',
+                                    '_apply_overlay_styles'))
+        panel.apply_theme()
+        drawn = {c.kwargs['name']: c.kwargs.get('scalars') for c in panel.plotter.add_mesh.call_args_list}
+        assert drawn['main_surface'] == 'Ts' and 'main_lattice' not in drawn
+        panel.lattice_card.hide.assert_called_with()
+        # Cancel shows the fluid A lattice and Ta again.
+        panel.plotter.add_mesh.reset_mock()
         panel._cancel_lattice()
         assert panel._field == 'Ta' and panel._lattice_pending is None
         panel.toolbar.set_geometry_mode.assert_called_with('lattice')
+        drawn = {c.kwargs['name']: c.kwargs.get('scalars') for c in panel.plotter.add_mesh.call_args_list}
+        assert drawn['main_lattice'] == 'Ta'
+
+        # An empty phase domain draws no lattice actor and reports zero triangles.
+        panel._lattice.submit.return_value = 3
+        panel.toolbar.detail_level.return_value = 'low'
+        panel._on_toolbar_detail_changed('low')
+        empty = pv.PolyData()
+        empty.point_data['Ta'] = np.empty(0)
+        empty.set_active_scalars('Ta')
+        panel.plotter.add_mesh.reset_mock()
+        panel._on_lattice_ready(3, empty, True)
+        assert 'main_lattice' not in {c.kwargs['name'] for c in panel.plotter.add_mesh.call_args_list}
+        assert panel.lattice_card.set_domain_info.call_args.args[2] == 0
 
         panel._on_toolbar_geometry_changed('simple')
         assert panel._geometry == 'simple' and panel._lattice_mesh is None
         assert 'main_surface' in {c.kwargs['name'] for c in panel.plotter.add_mesh.call_args_list}
+
+        # Cleanup stops the worker. A late progress signal then has no request to show.
+        panel._lattice.submit.return_value = 4
+        panel._on_toolbar_geometry_changed('lattice')
+        _bind_panel_methods(panel, ('cleanup', '_stop_camera_tween'))
+        panel.cleanup()
+        panel._lattice.close.assert_called_once_with()
+        panel.lattice_progress.set_stage.reset_mock()
+        panel._on_lattice_progress(4, 1, '采样 φ')
+        panel.lattice_progress.set_stage.assert_not_called()
     finally:
         panel.colorbar.deleteLater()
 

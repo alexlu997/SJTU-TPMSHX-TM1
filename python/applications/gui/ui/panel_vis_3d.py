@@ -709,6 +709,7 @@ class ThreeDVisPanel(QWidget):
         self._cleaned_up = True
         self._stop_camera_tween()
         self._lattice.close()
+        self._lattice_pending = None
         if getattr(self, "_camera_observer_tag", None) is not None:
             cam = self.plotter.renderer.GetActiveCamera()
             if cam is not None:
@@ -1261,6 +1262,8 @@ class ThreeDVisPanel(QWidget):
     def _render_initial_scene(self) -> None:
         pl = self.plotter
         pl.clear()
+        self._volume_actor = None
+        self._data_actors.clear()
         pl.set_background(get_theme()["canvas"])
         self._setup_studio_lights()
         self._add_contact_shadow()
@@ -1571,21 +1574,23 @@ class ThreeDVisPanel(QWidget):
         self._add_domain_edges(0.32 if get_theme_name() == "light" else 0.58, line_width=1.0)
 
     def _render_lattice_actors(self, cmap: str, clim: tuple[float, float]) -> None:
-        actor = self.plotter.add_mesh(
-            self._lattice_mesh,
-            scalars=self._field,
-            cmap=cmap,
-            clim=clim,
-            ambient=0.30,
-            diffuse=0.75,
-            specular=0.12,
-            specular_power=24.0,
-            show_scalar_bar=False,
-            name="main_lattice",
-            render=False,
-        )
-        self._volume_actor = actor
-        self._data_actors.add(actor)
+        # A phase domain can be empty, for example at a large level-set offset. Show only the box edges.
+        if self._lattice_mesh.n_cells:
+            actor = self.plotter.add_mesh(
+                self._lattice_mesh,
+                scalars=self._field,
+                cmap=cmap,
+                clim=clim,
+                ambient=0.30,
+                diffuse=0.75,
+                specular=0.12,
+                specular_power=24.0,
+                show_scalar_bar=False,
+                name="main_lattice",
+                render=False,
+            )
+            self._volume_actor = actor
+            self._data_actors.add(actor)
         self._add_domain_edges(0.40 if get_theme_name() == "light" else 0.72, line_width=1.2)
         self.lattice_card.set_domain_info(
             _LATTICE_DOMAIN_NAME[self._lattice_phase],
@@ -1671,6 +1676,7 @@ class ThreeDVisPanel(QWidget):
         self.toolbar.set_detail_level(self._detail)
         if self._geometry == "lattice" and self._lattice_mesh.active_scalars_name != self._field:
             self._field = self._lattice_mesh.active_scalars_name
+            self._rebuild_scene_for_ui()
             self.field_changed.emit(self._field)
 
     def _sync_colorbar(self, cmap: str, clim: tuple[float, float]) -> None:
@@ -1689,8 +1695,9 @@ class ThreeDVisPanel(QWidget):
             wanted = self._lattice_pending[3] if self._lattice_pending else self._lattice_mesh.active_scalars_name
             if wanted != self._field:
                 self._request_lattice()
-            if self._geometry == "lattice" and self._lattice_mesh.active_scalars_name != self._field:
-                return  # Keep the lattice on the screen until the mesh for the new field is ready.
+        lattice = self._geometry == "lattice" and self._lattice_mesh.active_scalars_name == self._field
+        if self._geometry == "lattice" and not lattice and self._volume_actor is not None:
+            return  # Keep the lattice on the screen until the mesh for the new field is ready.
         self._clear_data_actors()
         if self._field not in PANEL_FIELD_SPECS:
             if render:
@@ -1702,8 +1709,12 @@ class ThreeDVisPanel(QWidget):
         clim = self._clim_for(self._field)
 
         try:
-            if self._geometry == "lattice":
+            if lattice:
                 self._render_lattice_actors(cmap, clim)
+            elif self._geometry == "lattice":
+                # A cleared scene during a field change shows the simplified scene until the mesh is ready.
+                self.lattice_card.hide()
+                self._render_surface_actors(self._grid_vol, cmap, clim)
             elif self._display_mode == "surface":
                 self._render_surface_actors(self._grid_vol, cmap, clim)
             elif self._display_mode == "slice":
@@ -1713,6 +1724,7 @@ class ThreeDVisPanel(QWidget):
         except Exception as exc:
             self._clear_data_actors()
             self.colorbar.hide()
+            self.lattice_card.hide()
             self.status.setText(f"三维渲染失败：{exc}")
             self.status.show()
             self._layout_overlays()
