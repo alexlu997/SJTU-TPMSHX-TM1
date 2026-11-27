@@ -117,6 +117,9 @@ def compare(reference, current):
     left, right = load(reference), load(current)
     images = [{name: row['sha256'] for name, row in run['native'].items()} for run in (left, right)]
     print('Native images:', 'identical' if images[0] == images[1] else 'different builds')
+    kernels = [run.get('botorch_kernel') for run in (left, right)]
+    if any(kernels):
+        print('BoTorch kernel:', 'identical' if kernels[0] == kernels[1] else f'{kernels[0]} -> {kernels[1]}')
     a, b = left['cases'], right['cases']
     failed = 0
     for name in a | b:
@@ -209,11 +212,11 @@ def proposal(spec, control, folder):
 
 
 @contextmanager
-def capture_warnings(output):
+def capture_warnings(output, key='python_warnings'):
     with warnings.catch_warnings(record=True) as emitted:
         warnings.simplefilter('always')
         yield
-    output['python_warnings'] = [f'{w.category.__name__}: {w.message}' for w in emitted]
+    output[key] = [f'{w.category.__name__}: {w.message}' for w in emitted]
 
 
 @contextmanager
@@ -232,6 +235,12 @@ def run(args):
     args.output.mkdir(parents=True)
     lock = 'bo-macos.txt' if sys.platform == 'darwin' else 'bo-windows.txt'
     manifest = runtime(args.native.resolve(), ('geometry', 'preparation', 'solver', 'result'), (lock, 'base.txt'))
+    with capture_warnings(manifest, 'import_warnings'):
+        import_module('botorch.acquisition.multi_objective.logei')
+        for name in ('preprocess.api', 'solvers.api', 'postprocess.api', 'file_io.result_io',
+                     'applications.execution.recovery', 'applications.design.workflow',
+                     'applications.optimization.multi_condition_optimizer'):
+            module(name)
     control = module('run_control.module_ports').RunControl(native_library=os.environ['TPMSHX_SOLVER_LIBRARY'],
         native_table_directory=str(args.tables.resolve()), cpu_threads=1)
     cases, times = {}, {}
@@ -284,14 +293,17 @@ def handoff(args):
         raise ValueError('Run the independent handoff on Linux x86_64.')
     args.output.mkdir(parents=True)
     manifest = runtime(args.native.resolve(), ('result',), ('postprocess.txt',))
+    with capture_warnings(manifest, 'import_warnings'):
+        load_result = module('file_io.result_io').load_result
+        evaluate = module('postprocess.api').evaluate
     cases, sources = {}, {}
     start = perf_counter()
     for path in args.mac_files:
         output = {}
         with capture_warnings(output):
-            field = module('file_io.result_io').load_result(path)
+            field = load_result(path)
             name = f"handoff-{field.grid['dimension']}d"
-            report = module('postprocess.api').evaluate(field)
+            report = evaluate(field)
             output.update(field=result_fields(field), performance=evaluation(field, report))
         cases[name] = exact(output)
         sources[name] = dict(sha256=hashlib.sha256(path.read_bytes()).hexdigest(),

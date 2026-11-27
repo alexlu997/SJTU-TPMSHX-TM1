@@ -17,11 +17,12 @@ def test_first_difference_per_case(tmp_path, capsys):
             output['status'] = 'completed'
             for message in messages:
                 warnings.warn(message, RuntimeWarning, stacklevel=2)
-        save(folder, {'native': {}, 'cases': exact(cases)})
+        save(folder, {'native': {}, 'botorch_kernel': {'path': folder.name}, 'cases': exact(cases)})
     assert not compare(old, old)
     capsys.readouterr()
     assert compare(old, new)
     report = capsys.readouterr().out
+    assert "BoTorch kernel: {'path': 'old'} -> {'path': 'new'}" in report
     assert 'stage.prepared.T(0, 1): 0x0.0p+0 != -0x0.0p+0' in report
     assert 'stage.field' not in report
     assert "python_warnings[0]: 'RuntimeWarning: first' != 'RuntimeWarning: second'" in report
