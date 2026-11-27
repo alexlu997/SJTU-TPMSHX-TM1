@@ -3,6 +3,7 @@ import pytest
 
 from engineering.scripts import ci_scope
 from engineering.scripts.ci_scope import require_jobs, select_scope
+from engineering.scripts.pre_push_check import CLOSE, CONSUMERS, select
 
 
 @pytest.mark.parametrize('event,paths,expected', [
@@ -26,6 +27,28 @@ from engineering.scripts.ci_scope import require_jobs, select_scope
 ])
 def test_scope_keeps_conservative_boundaries(event, paths, expected):
     assert select_scope(event, paths) == expected
+
+
+IO_NODES = list(CONSUMERS[0][1])
+
+
+@pytest.mark.parametrize('paths,deleted,expected', [
+    (['python/applications/gui/ui/optimize_panel.py'], [], ([], IO_NODES, [], [])),
+    # A rename gives the old name. The old name still selects its consumers.
+    (['python/applications/gui/ui/main_window.py'], ['python/applications/gui/ui/main_window.py'],
+     ([], [CLOSE], [], [])),
+    # A changed test file runs whole, so its mapped nodes are not repeated.
+    (['python/applications/gui/ui/panel_vis_3d.py', 'tests/python/test_io_actions.py'], [],
+     (['tests/python/test_io_actions.py'], [CLOSE], [], [])),
+    (['tests/python/native/test_cpp_quick_design.py', 'tests/python/integration_tm1/test_public_gui.py',
+      'tests/python/_ci_shard0.txt', 'tests/python/test_removed.py', 'docs/architecture.md'],
+     ['tests/python/test_removed.py'],
+     ([], [], ['tests/python/native/test_cpp_quick_design.py', 'tests/python/integration_tm1/test_public_gui.py'],
+      ['tests/python/_ci_shard0.txt'])),
+])
+def test_pre_push_selects_light_consumers_and_defers_heavy_and_ci_items(paths, deleted, expected):
+    files, nodes, heavy, ci = select(paths, lambda path: path not in deleted)
+    assert (files, nodes, [path for path, _ in heavy], [path for path, _ in ci]) == expected
 
 
 @pytest.mark.parametrize('tier', ['docs', 'application', 'full'])

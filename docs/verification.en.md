@@ -23,6 +23,7 @@ export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_TH
 "$PYTHON" -m ruff check .
 "$PYTHON" -m engineering.scripts.check_types --platform darwin
 "$PYTHON" -m engineering.scripts.check_types --platform win32
+"$PYTHON" -m sjtu_tpmshx.development.runs.tools.audit_import_graph --fail-on-violations
 "$PYTHON" -m pytest tests/python -q -ra -m "not slow and not heavy" --ignore=tests/python/integration_tm1 -n 2 --dist worksteal --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/fast.xml
 "$PYTHON" -m pytest tests/python/integration_tm1 -q -ra --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/integration.xml
 # Complete local acceptance: no -m filter. Replace auto with a fixed worker count for available resources.
@@ -94,7 +95,7 @@ The `[tool.mypy].files` setting in `pyproject.toml` lists 21 files. These files 
 Mypy checks function bodies without annotations in the envelope, the three stage APIs, and the `_metadata` module that the preparation API imports.
 The same check covers the result evaluation host, native query, and evidence packer.
 
-The `scope` job in `.github/workflows/ci.yml` runs `ruff check .` and `engineering.scripts.check_types` with `--platform darwin` and `--platform win32` one time for each change that is not in the `docs` tier. The pytest shards do not run ruff or mypy. Use the commands above for local checks.
+The `scope` job in `.github/workflows/ci.yml` runs `ruff check .`, `engineering.scripts.check_types` with `--platform darwin` and `--platform win32`, and `audit_import_graph --fail-on-violations` one time for each change that is not in the `docs` tier. The audit also rejects import cycles in the `ui` and `solvers` owners and prints the cycle path. The pytest shards do not run ruff or mypy. Use the commands above for local checks. Before review and push, run the [light pre-push check](collaboration.md#synchronize-and-review).
 
 The first pytest command excludes slow/heavy and `integration_tm1`. The second runs that complete integration directory one time. Neither replaces the third, complete local gate. Local commands run the unsharded subsets.
 

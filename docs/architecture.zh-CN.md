@@ -79,6 +79,7 @@ Python 目录的职责见 [Python 分层所有者](#python-分层所有者)表�
 
 `python/cpp_interface/` 中的绑定遵守以下导入限制。
 `python -m sjtu_tpmshx.development.runs.tools.audit_import_graph --fail-on-violations` 检查这些限制。
+该审计也拒绝 `ui` 归属和 `solvers` 归属内各模块之间的导入环。
 
 - 绑定可以导入 `run_control`、`model_configs` 和 `data_types` 模块，但不导入各阶段数据类型所在的模块。
 - 阶段数据类型为 `CaseData`、`ModelRef`、`FieldResult`、`MetricSpec`、`MetricValue` 和 `PerformanceResult`。
