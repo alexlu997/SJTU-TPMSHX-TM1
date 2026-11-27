@@ -41,7 +41,7 @@ def test_narrow_field_colorbars_keep_distinct_absolute_labels(dimension, field, 
                       ucA=velocity, vcA=zeros, ucB=velocity, vcB=zeros,
                       vmag_A=velocity, vmag_B=velocity,
                       N_x=4, N_y=3, L=.04, H=.03, dir_A=0, dir_B=3)
-        window = SimpleNamespace(cache=ResultCache(), _field_phase=phase,
+        window = SimpleNamespace(cache=ResultCache(), _field_phase=phase, _temp_unit='K',
             _DIR_MAP={0: 'x+', 3: 'y-'}, canvas_temp=canvas, canvas_pres=canvas,
             canvas_vel=canvas, _update_tout=lambda _: None)
         canvas.plot_pressure = lambda *args, **kwargs: MatplotlibCanvas.plot_pressure(canvas, *args, **kwargs)

@@ -5,6 +5,7 @@ import base64
 import collections
 import datetime
 import json
+import math
 import zlib
 from copy import deepcopy
 from pprint import pformat
@@ -109,6 +110,7 @@ class RunHistory:
         from sjtu_tpmshx.applications.gui.ui.builders_sidebar import result_metric_texts
 
         values = result_metric_texts(window)
+        summary = window.results.summary()
         recorded_ts = str(provenance.get("completed_at") or "").strip()
         time_label = _format_time_of_day(recorded_ts)
         self._last_run_ts = time_label
@@ -122,8 +124,8 @@ class RunHistory:
             "Q_unit": values["Q_unit"],
             "dP_A": values["dP_A"],
             "dP_B": values["dP_B"],
-            "ToutA": values["ToutA"],
-            "ToutB": values["ToutB"],
+            **{key: (float(summary[key]) if summary.get(key) is not None and math.isfinite(summary[key]) else None)
+               for key in ("T_out_A_K", "T_out_B_K")},
             "preset": snap,
             "preset_source": provenance["preset_source"],
             "mode": provenance["mode"],

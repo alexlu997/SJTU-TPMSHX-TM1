@@ -688,6 +688,9 @@ def test_session_restores_complete_physical_case_in_kelvin(win, monkeypatch, uni
                 edits[f'le_pipe{side}_{end}_{suffix}'] = value
     for name, value in edits.items():
         getattr(win, name).setText(value)
+    # Include a repeating-decimal °F inlet so close/reopen checks exact equality.
+    win.le_TinB.setText('70 F')
+    win.le_TinB.editingFinished.emit()
     before = asdict(config_from_window(win))
     before['flags']['temp_unit'] = 'K'
     saved = {}
