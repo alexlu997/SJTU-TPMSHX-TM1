@@ -504,6 +504,20 @@ def test_numeric_inputs_rule_a_left_aligned_with_unit_suffix(win):
         QLineEdit.setText(win.le_uA, '1.08 km/h')
         win.le_uA.editingFinished.emit()
         assert win.le_uA.text() == '0.3'
+
+        from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+        QLineEdit.setText(win.le_TinA, '70 F')
+        win.le_TinA.editingFinished.emit()
+        t_in_k_from_k = config_from_window(win, strict=True).fluid_A.T_in_K
+        win._toggle_temp_unit()
+        try:
+            assert win._temp_unit == 'C'
+            QLineEdit.setText(win.le_TinA, '70 F')
+            win.le_TinA.editingFinished.emit()
+            t_in_k_from_c = config_from_window(win, strict=True).fluid_A.T_in_K
+        finally:
+            win._toggle_temp_unit()
+        assert t_in_k_from_k == t_in_k_from_c
     finally:
         win.le_PinA.setText(orig_pin)
         win.le_pipeA_in_ctr.setText(orig_ctr)

@@ -119,7 +119,7 @@ def test_inlet_keeps_valid_temperature_format_and_value(win, unit, text, display
 
 
 @pytest.mark.parametrize('unit,zero,normal,switched', [
-    ('K', '(0)', '150 * 2', '26.850000000000023'),
+    ('K', '(0)', '150 * 2', '26.85'),
     ('C', '(-273.15)', '25 + 1.85', '300'),
 ])
 def test_unit_switch_keeps_rejected_temperature_expression_at_absolute_zero(win, unit, zero, normal, switched):

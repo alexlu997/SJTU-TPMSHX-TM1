@@ -12,6 +12,9 @@ Fluid status labels resolve their styles from the current theme at call time.
 
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
+import math
+
 from PySide6.QtWidgets import QMessageBox
 
 from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
@@ -163,10 +166,14 @@ class FluidInputMixin:
         compute path should go through this rather than `float(le.text())`
         so the K/°C toggle stays sound.
         """
-        v = float(le.text())
+        raw = str(le.text()).strip()
+        try:
+            value = Decimal(raw)
+        except InvalidOperation as exc:
+            raise ValueError(f"could not convert string to float: {raw!r}") from exc
         if getattr(self, '_temp_unit', 'K') == 'C':
-            v += CELSIUS_ZERO_K
-        return v
+            value += Decimal(str(CELSIUS_ZERO_K))
+        return float(value)
 
     def _set_temp_K(self, le, kelvin_value, fmt='{:.17g}'):
         """Write the selected temperature unit without rounding the input."""
@@ -217,24 +224,29 @@ class FluidInputMixin:
         label suffixes (`[K]` ↔ `[°C]`) so the UI is self-consistent.
         """
         from sjtu_tpmshx.applications.gui.ui.expr_eval import eval_expr, is_expression
+        from sjtu_tpmshx.applications.gui.ui.field_factory import _format_decimal_exact
         self._refresh_field_validation()
+        offset = Decimal(str(CELSIUS_ZERO_K))
         if getattr(self, '_temp_unit', 'K') == 'K':
-            new_unit, offset = 'C', -CELSIUS_ZERO_K
+            new_unit, offset = 'C', -offset
         else:
-            new_unit, offset = 'K', CELSIUS_ZERO_K
+            new_unit = 'K'
         for name in ('le_TinA', 'le_TinB'):
             field = getattr(self, name, None)
             if field is None:
                 continue
-            text = field.text()
+            text = field.text().strip()
             try:
-                value = float(text)
-            except ValueError:
-                # A rejected expression still uses its original display unit.
-                value = eval_expr(text) if is_expression(text) else None
-                if value is None:
+                value = Decimal(text)
+                if not value.is_finite():
                     continue
-            field.setText(format(value + offset, '.17g'))
+            except InvalidOperation:
+                # A rejected expression still uses its original display unit.
+                expr_val = eval_expr(text) if is_expression(text) else None
+                if expr_val is None or not math.isfinite(expr_val):
+                    continue
+                value = Decimal(repr(expr_val))
+            field.setText(_format_decimal_exact(value + offset))
         self._temp_unit = new_unit
         self._sync_temp_unit_labels()
         self._refresh_field_validation()
