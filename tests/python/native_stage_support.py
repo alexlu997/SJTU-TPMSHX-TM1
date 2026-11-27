@@ -10,7 +10,7 @@ from tests.python.native_preparation_abi import (
     _configuration_3d, _configuration_continuous, _configuration_continuous_3d, _configuration_fluids,
     _configuration_spatial_3d,
 )
-from tests.python.test_native_prepare_adapter import _same
+from tests.python.native_adapters.test_native_prepare_adapter import _same
 
 
 def plane_configuration(pair):

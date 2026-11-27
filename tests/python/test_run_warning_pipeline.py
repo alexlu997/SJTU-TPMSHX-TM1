@@ -8,7 +8,7 @@ import pytest
 import importlib
 from sjtu_tpmshx.applications.result_adapter import compute_result
 from sjtu_tpmshx.physical_models.tpms_calc import compute
-from tests.python.test_pipeline_2d_smoke import _shanghai_like_cfg
+from tests.python.execution_tm1.test_pipeline_2d_smoke import _shanghai_like_cfg
 from tests.python.cases_3d import small_air_config
 from tests.python.gui_worker_support import win as win
 

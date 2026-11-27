@@ -71,8 +71,8 @@ def _render_panel(destination):
                                             'decoded_pixels_match': True}
             if scale == 1:
                 first = pixels
-        assert panel.set_field('Ts')
-        assert panel.field() == 'Ts'
+        assert panel.select_field('Ts')
+        assert panel.active_field() == 'Ts'
         QTimer.singleShot(100, loop.quit)
         loop.exec()
         changed = panel.plotter.screenshot(str(output / 'solid.png'), return_img=True)
@@ -85,7 +85,7 @@ def _render_panel(destination):
         captured = panel.capture_image()
         export = output / 'application-export.png'
         with patch.object(QFileDialog, 'getSaveFileName',
-                          return_value=(str(export), 'PNG images (*.png)')):
+                          return_value=(str(export), 'PNG 图像 (*.png)')):
             panel._on_screenshot()
         with Image.open(export) as decoded:
             exported_arr = np.asarray(decoded)

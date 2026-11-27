@@ -26,7 +26,7 @@ def test_figure_export_records_current_source_and_version(tmp_path, monkeypatch,
     from sjtu_tpmshx.applications.gui.ui import result_export
 
     path = tmp_path / 'figure.png'
-    choices = iter([('温度', True), ('150 (screen)', True)])
+    choices = iter([('温度', True), ('150（屏幕）', True)])
     monkeypatch.setattr(result_export.QInputDialog, 'getItem', lambda *a, **kw: next(choices))
     monkeypatch.setattr(result_export.QFileDialog, 'getSaveFileName',
                         lambda *a, **kw: (str(path), 'PNG (*.png)'))
@@ -1243,6 +1243,7 @@ def test_pareto_figure_copy_export_survives_field_result_then_clears_on_empty(
     win.btn_export.setEnabled(False)
     win.optimization.show_pareto(front)
     monkeypatch.setattr(win.workbench, 'active_tab', 'pareto')
+    win.result_export.refresh_export_button()
     menu_actions = {action.text(): action for action in win.btn_export.menu().actions()}
     try:
         for state in ('pareto', 'preset-load', 'later-field-result'):
@@ -1255,11 +1256,11 @@ def test_pareto_figure_copy_export_survives_field_result_then_clears_on_empty(
             assert win.btn_export.isEnabled()
             menu_actions['复制当前图像'].trigger()
             assert not QGuiApplication.clipboard().image().isNull()
-            assert '已复制 pareto' in win.statusBar().currentMessage()
+            assert '已复制 pareto' in win.dialogs.last_notice
             calls = []
             def choose(*args):
                 calls.append(args[3])
-                return ('Pareto / 优化', True) if len(calls) == 1 else ('150 (screen)', True)
+                return ('Pareto / 优化', True) if len(calls) == 1 else ('150（屏幕）', True)
             monkeypatch.setattr(result_export.QInputDialog, 'getItem', choose)
             path = tmp_path / f'{state}.png'
             monkeypatch.setattr(result_export.QFileDialog, 'getSaveFileName',
@@ -1268,7 +1269,7 @@ def test_pareto_figure_copy_export_survives_field_result_then_clears_on_empty(
             assert 'Pareto / 优化' in calls[0] and path.is_file()
         win.optimization.show_pareto(dict(front, pareto_indices=[]))
         win.result_export.copy_figure_clipboard()
-        assert '当前无可复制' in win.statusBar().currentMessage()
+        assert '当前无可复制' in win.dialogs.last_notice
         choices = []
         monkeypatch.setattr(result_export.QInputDialog, 'getItem',
                             lambda *a: (choices.append(a[3]) or ('', False)))
@@ -1311,7 +1312,7 @@ def test_continuous_field_preview_button_shows_and_exports_after_preset_load(
         QGuiApplication.clipboard().clear()
         win.result_export.copy_figure_clipboard()
         assert not QGuiApplication.clipboard().image().isNull()
-        assert '已复制 opt_field' in win.statusBar().currentMessage()
+        assert '已复制 opt_field' in win.dialogs.last_notice
         # A later Compute preset is not the source of this retained field figure.
         win.case_files.load_named_preset('Shanghai (3D Gyroid)')
         assert win.optimization.field_ready()
@@ -1319,7 +1320,7 @@ def test_continuous_field_preview_button_shows_and_exports_after_preset_load(
         options = []
         def choose(*args):
             options.append(args[3])
-            return ('优化尺寸/壁厚场', True) if len(options) == 1 else ('150 (screen)', True)
+            return ('优化尺寸/壁厚场', True) if len(options) == 1 else ('150（屏幕）', True)
         monkeypatch.setattr(result_export.QInputDialog, 'getItem', choose)
         monkeypatch.setattr(result_export.QFileDialog, 'getSaveFileName',
                             lambda *a: (str(path), 'PNG (*.png)'))
@@ -1359,7 +1360,7 @@ def test_optimization_copy_uses_selected_result_tab_and_rejects_empty_field(win,
         clipboard.clear()
         win.result_export.copy_figure_clipboard()
         assert clipboard.image().isNull()
-        assert '当前无可复制' in win.statusBar().currentMessage()
+        assert '当前无可复制' in win.dialogs.last_notice
         choices = []
         monkeypatch.setattr(result_export.QInputDialog, 'getItem',
                             lambda *a: (choices.append(a[3]) or ('', False)))
@@ -1401,7 +1402,7 @@ def test_retained_pareto_export_does_not_take_new_compute_preset_name(
     line = win.optimization.pareto_canvas.figure.axes[0].lines[0]
     np.testing.assert_array_equal(line.get_xydata(), [[.8, 1.], [1.1, 2.]])
     path = tmp_path / 'retained-pareto.png'
-    choices = iter([('Pareto / 优化', True), ('150 (screen)', True)])
+    choices = iter([('Pareto / 优化', True), ('150（屏幕）', True)])
     monkeypatch.setattr(result_export.QInputDialog, 'getItem', lambda *a: next(choices))
     monkeypatch.setattr(result_export.QFileDialog, 'getSaveFileName',
                         lambda *a: (str(path), 'PNG (*.png)'))
@@ -1473,12 +1474,12 @@ def test_optimization_volume_copy_and_export_require_current_render(
         pixels[:] = expected
         panel.plotter.screenshot.reset_mock()
         path = tmp_path / 'optimization-volume.png'
-        save_dialog = Mock(return_value=(str(path), 'PNG images (*.png)'))
+        save_dialog = Mock(return_value=(str(path), 'PNG 图像 (*.png)'))
         monkeypatch.setattr(result_export.QFileDialog, 'getSaveFileName', save_dialog)
         win.result_export.export_figure()
         picker.assert_called_once()
         assert picker.call_args.args[3] == ['优化三维场']
-        assert save_dialog.call_args.args[3] == 'PNG images (*.png)'
+        assert save_dialog.call_args.args[3] == 'PNG 图像 (*.png)'
         panel.plotter.screenshot.assert_called_once_with(return_img=True)
         with Image.open(path) as saved:
             np.testing.assert_array_equal(np.asarray(saved)[:, :, :channels], expected)
@@ -1495,7 +1496,7 @@ def test_optimization_volume_copy_and_export_require_current_render(
 
         main_path = tmp_path / 'main-3d.png'
         monkeypatch.setattr(result_export.QFileDialog, 'getSaveFileName',
-                            lambda *a: (str(main_path), 'PNG images (*.png)'))
+                            lambda *a: (str(main_path), 'PNG 图像 (*.png)'))
         main_picker = Mock(return_value=('三维视图', True))
         monkeypatch.setattr(result_export.QInputDialog, 'getItem', main_picker)
         win.result_export.export_figure()
@@ -1511,7 +1512,7 @@ def test_optimization_volume_copy_and_export_require_current_render(
         warning = Mock()
         monkeypatch.setattr(result_export.QMessageBox, 'warning', warning)
         win.result_export.export_figure()
-        assert warning.call_args.args[1:] == ('Export failed', 'screenshot failed')
+        assert warning.call_args.args[1:] == ('导出失败', 'screenshot failed')
 
         # Switching L/t clears _volume_actor if the next 3D render fails.
         panel._arrays = {'L_mm': object(), 't_mm': object()}
@@ -1522,7 +1523,7 @@ def test_optimization_volume_copy_and_export_require_current_render(
         panel._sync_colorbar = Mock()
         panel._update_status = Mock()
         panel._rebuild_scene = MethodType(ThreeDVisPanel._rebuild_scene, panel)
-        ThreeDVisPanel.set_field(panel, 't_mm')
+        ThreeDVisPanel.select_field(panel, 't_mm')
         assert panel._field == 't_mm' and panel._volume_actor is None
         assert win.optimization._volume_ready
         assert not win.optimization.volume_ready()

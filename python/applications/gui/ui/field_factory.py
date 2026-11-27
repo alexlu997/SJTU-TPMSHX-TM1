@@ -1,6 +1,7 @@
 """Themed widget builders and Alignment Rule A input fields for the GUI."""
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
 import re
 from typing import Optional, Tuple
 
@@ -41,19 +42,94 @@ def default_factory() -> "FieldFactory":
     return _FACTORY
 
 
+def _format_decimal_exact(value: Decimal) -> str:
+    """Format a finite Decimal without introducing premature 15-digit rounding."""
+    if value == 0:
+        return "0"
+    mag = abs(value)
+    if mag >= Decimal("1e15") or mag < Decimal("1e-9"):
+        return format(value.normalize(), "g")
+    text = format(value, "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text or "0"
+
+
+def _si_to_display_full(si_text: str, scale: float) -> str:
+    """Convert an SI text string to full-precision displayed-unit text."""
+    if scale == 1.0:
+        return si_text
+    raw = si_text.strip()
+    if not raw:
+        return si_text
+    try:
+        dec = Decimal(raw)
+        scale_dec = Decimal(str(scale))
+    except (InvalidOperation, ValueError):
+        return si_text
+    if not dec.is_finite() or not scale_dec.is_finite():
+        return si_text
+    scaled = dec * scale_dec
+    if not scaled.is_finite():
+        return si_text
+    return _format_decimal_exact(scaled)
+
+
+def _display_to_si(disp_text: str, scale: float) -> str:
+    """Convert a displayed-unit text string back to canonical SI storage text."""
+    if scale == 1.0:
+        return disp_text
+    raw = disp_text.strip()
+    if not raw:
+        return disp_text
+    try:
+        dec = Decimal(raw)
+        scale_dec = Decimal(str(scale))
+    except (InvalidOperation, ValueError):
+        return disp_text
+    if not dec.is_finite() or not scale_dec.is_finite() or scale_dec == 0:
+        return disp_text
+    si = dec / scale_dec
+    if not si.is_finite():
+        return disp_text
+    return _format_decimal_exact(si)
+
+
+def _scale_numeric_to_si_text(value: float, scale: float) -> str:
+    """Format a finite evaluated display-unit float into canonical SI text."""
+    return _format_decimal_exact(Decimal(repr(value)) / Decimal(str(scale)))
+
+
 class UnitLineEdit(QLineEdit):
     """Line edit with an Alignment Rule A muted unit suffix painted inside the field.
 
-    The underlying ``text()`` stays exact for parsing, serialization, and undo.
+    Users view and edit in ``display_unit`` (for example, kPa for inlet pressure
+    and mm for port coordinates), with 6-significant-digit formatting when
+    unfocused and full precision while focused. ``text()`` and ``setText()``
+    keep the canonical SI storage boundary so saved files and solver configs stay
+    unchanged and unedited values keep exact precision.
     """
 
     def __init__(
         self,
         text: str = "",
         unit: str = "",
+        *,
+        display_unit: str = "",
+        display_scale: float = 1.0,
         parent: Optional[QWidget] = None,
     ) -> None:
-        super().__init__(text, parent)
+        self._raw_unit = (unit or "").strip()
+        self._display_unit = (display_unit or self._raw_unit).strip()
+        self._display_scale = float(display_scale)
+        self._si_text = str(text)
+        self._initial_si_text = self._si_text
+        self._syncing_display = True
+        disp = _si_to_display_full(self._si_text, self._display_scale)
+        super().__init__(disp, parent)
+        self._initial_disp_text = disp
+        self._syncing_display = False
+
         font = self.font()
         font.setFeature(QFont.Tag("tnum"), 1)
         self.setFont(font)
@@ -61,17 +137,85 @@ class UnitLineEdit(QLineEdit):
         self._unit_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self._unit_label.setObjectName("fieldUnitSuffix")
         self._unit = ""
-        self.set_unit(unit)
+        self._apply_suffix(self._display_unit)
+        self.textChanged.connect(self._on_display_text_changed)
+
+    def _on_display_text_changed(self, disp_text: str) -> None:
+        if self._syncing_display:
+            return
+        if disp_text == self._initial_disp_text:
+            self._si_text = self._initial_si_text
+        else:
+            self._si_text = _display_to_si(disp_text, self._display_scale)
+
+    def text(self) -> str:
+        """Return canonical SI text for solver config, validation, and saved files."""
+        if not self._syncing_display and self._display_scale != 1.0:
+            cur_disp = super().text()
+            if cur_disp == self._initial_disp_text:
+                return self._initial_si_text
+            self._si_text = _display_to_si(cur_disp, self._display_scale)
+        return self._si_text
+
+    def setText(self, text: str) -> None:
+        """Store canonical SI text and synchronize the displayed-unit edit buffer."""
+        si_str = "" if text is None else str(text)
+        self._si_text = si_str
+        self._initial_si_text = si_str
+        disp = _si_to_display_full(si_str, self._display_scale)
+        self._initial_disp_text = disp
+        self._syncing_display = True
+        try:
+            super().setText(disp)
+        finally:
+            self._syncing_display = False
+        self.update()
 
     def unit(self) -> str:
-        """Return the muted unit suffix text."""
+        """Return the active muted unit suffix text."""
         return self._unit
 
+    def display_unit(self) -> str:
+        """Return the unit shown and edited inside the field."""
+        return self._display_unit
+
+    def display_scale(self) -> float:
+        """Return the factor mapping canonical SI values into the displayed unit."""
+        return self._display_scale
+
+    def raw_display_text(self) -> str:
+        """Return the unscaled edit buffer text in the displayed unit."""
+        return super().text()
+
+    def set_display_unit(self, display_unit: str, display_scale: float = 1.0) -> None:
+        """Configure displayed/editable unit scaling (e.g. Pa -> kPa, m -> mm)."""
+        si_str = self.text()
+        self._display_unit = (display_unit or self._raw_unit).strip()
+        self._display_scale = float(display_scale)
+        self._si_text = si_str
+        self._initial_si_text = si_str
+        disp = _si_to_display_full(si_str, self._display_scale)
+        self._initial_disp_text = disp
+        self._syncing_display = True
+        try:
+            super().setText(disp)
+        finally:
+            self._syncing_display = False
+        self._apply_suffix(self._display_unit)
+        self.update()
+
     def set_unit(self, unit: str) -> None:
-        """Update the muted unit suffix inside the right edge of the field."""
+        """Update the raw unit suffix (and display unit when unscaled)."""
+        clean = (unit or "").strip()
+        self._raw_unit = clean
+        if self._display_scale == 1.0:
+            self._display_unit = clean
+        self._apply_suffix(self._display_unit)
+
+    def _apply_suffix(self, text: str) -> None:
         from sjtu_tpmshx.applications.gui.ui.theme import get_theme
 
-        self._unit = (unit or "").strip()
+        self._unit = (text or "").strip()
         if self._unit:
             t = get_theme()
             self._unit_label.setText(self._unit)
@@ -99,15 +243,30 @@ class UnitLineEdit(QLineEdit):
         super().resizeEvent(event)
         self._position_unit()
 
-    def paintEvent(self, event) -> None:
-        raw = self.text()
-        if self.hasFocus() or len(raw) <= 8:
-            super().paintEvent(event)
-            return
+    def focusInEvent(self, event) -> None:
+        super().focusInEvent(event)
+        self.update()
+
+    def focusOutEvent(self, event) -> None:
+        super().focusOutEvent(event)
+        self.update()
+
+    def formatted_display_text(self) -> str:
+        """Return the 6-significant-digit unfocused display text without mutating ``text()``."""
+        raw = self.text().strip()
+        if not raw:
+            return raw
         from sjtu_tpmshx.applications.gui.ui.fmt import display_number
 
-        shown = display_number(raw)
-        if shown == raw:
+        return display_number(raw, scale=self._display_scale)
+
+    def paintEvent(self, event) -> None:
+        raw_disp = super().text()
+        if self.hasFocus() or not raw_disp.strip():
+            super().paintEvent(event)
+            return
+        shown = self.formatted_display_text()
+        if shown == raw_disp:
             super().paintEvent(event)
             return
         from PySide6.QtGui import QPainter

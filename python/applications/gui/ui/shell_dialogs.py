@@ -11,7 +11,6 @@ from PySide6.QtGui import QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
-    QDialogButtonBox,
     QHBoxLayout,
     QMessageBox,
     QPlainTextEdit,
@@ -34,7 +33,8 @@ class ShellDialogs:
         ("算例计算", "Ctrl+1"),
         ("计算结果", "Ctrl+2"),
         ("优化设计", "Ctrl+3"),
-        ("快速设计 / 结果 2D·3D 切换", "Ctrl+4"),
+        ("结果 2D·3D 切换", "Ctrl+4"),
+        ("快速设计", "Ctrl+5"),
         ("收起 / 展开导航栏", "Ctrl+\\"),
         ("收起 / 展开检查器", "Ctrl+]"),
         ("专注当前画布", "F"),
@@ -52,16 +52,52 @@ class ShellDialogs:
 
     def __init__(self, window) -> None:
         self.window = window
+        self.last_notice: str = ""
+        self._active_toast = None
+
+    def notify(
+        self,
+        message: str,
+        *,
+        kind: str = "info",
+        duration_ms: int | None = None,
+        copy_payload: str | None = None,
+    ) -> None:
+        """Display a visible floating toast notification and record the latest notice text."""
+        text = str(message or "").strip()
+        self.last_notice = text
+        if not text:
+            return
+        prev = self._active_toast
+        if prev is not None:
+            try:
+                prev.hide()
+                prev.deleteLater()
+            except RuntimeError:
+                pass
+            self._active_toast = None
+        if self.window is None:
+            return
+        from sjtu_tpmshx.applications.gui.ui.microanim import toast
+
+        ms = (
+            duration_ms
+            if duration_ms is not None
+            else (5000 if kind in ("warn", "error") else 3000)
+        )
+        self._active_toast = toast(
+            self.window,
+            text,
+            kind=kind,
+            duration_ms=ms,
+            copy_payload=copy_payload,
+        )
 
     def show_overview(self) -> None:
         """Open the session-overview dashboard dialog."""
         from sjtu_tpmshx.applications.gui.ui.session_overview import open_overview
 
         open_overview(self.window)
-
-    def show_diagnostics(self) -> None:
-        """Open the result diagnostics dialog."""
-        self.window.results.show_diag_dialog()
 
     def show_solve_log(self) -> None:
         """Show a read-only viewer for the last captured solver stdout."""
@@ -93,7 +129,7 @@ class ShellDialogs:
         btn_copy.clicked.connect(
             lambda: (
                 QApplication.clipboard().setText(text),
-                self.window.statusBar().showMessage("已复制计算日志到剪贴板。", 3000),
+                self.notify("已复制计算日志到剪贴板。", kind="success", duration_ms=3000),
             )
         )
         btn_close = QPushButton("关闭")
@@ -106,19 +142,61 @@ class ShellDialogs:
         v.addLayout(btn_row)
         dlg.exec()
 
-    def resolve_output_directory(self) -> Path | None:
-        """Return the active run or optimization directory if one exists on disk."""
-        result = self.window.cache.get_result()
+    def run_info_directory_scope(self) -> str:
+        """Return the output-directory scope owned by the current RunInfoPopover trigger."""
+        window = self.window
+        in_qd = (
+            getattr(window, "page_stack", None) is not None
+            and window.page_stack.currentWidget() is window.quick_design
+        )
+        if not in_qd and window.workbench.active_tab == "layout" and not window.single_run.is_idle():
+            return "active_run"
+        return "accepted_result"
+
+    def resolve_output_directory(self, *, scope: str = "auto") -> Path | None:
+        """Return the task-scoped run, accepted-result, or optimization directory if present."""
+        window = self.window
+        if scope == "auto":
+            in_qd = (
+                getattr(window, "page_stack", None) is not None
+                and window.page_stack.currentWidget() is window.quick_design
+            )
+            tab = window.workbench.active_tab
+            if not in_qd and tab == "pareto":
+                scope = "optimization"
+            elif not in_qd and tab in ("temp", "pres", "vel", "3d"):
+                scope = "accepted_result"
+            else:
+                scope = "single"
+
         candidates: list[object] = []
-        if result is not None:
-            recovery = result.metadata.get("recovery")
-            if isinstance(recovery, dict):
-                candidates.append(recovery.get("directory"))
-        candidates.append(getattr(self.window.single_run, "active_directory", None))
-        opt = getattr(self.window, "optimization", None)
-        if opt is not None:
-            candidates.append(getattr(opt, "study_dir", None))
-            candidates.append(getattr(opt, "active_directory", None))
+        if scope == "optimization":
+            opt = getattr(window, "optimization", None)
+            if opt is not None:
+                job = getattr(opt, "_job", None)
+                if job is not None:
+                    candidates.append(getattr(job, "output_dir", None))
+                candidates.append(getattr(opt, "last_output_dir", None))
+        elif scope == "accepted_result":
+            result = window.cache.get_result()
+            if result is not None:
+                recovery = result.metadata.get("recovery")
+                if isinstance(recovery, dict):
+                    candidates.append(recovery.get("directory"))
+        elif scope == "active_run":
+            if not window.single_run.is_idle():
+                candidates.append(getattr(window.single_run, "active_directory", None))
+        elif scope == "single":
+            if not window.single_run.is_idle():
+                candidates.append(getattr(window.single_run, "active_directory", None))
+            result = window.cache.get_result()
+            if result is not None:
+                recovery = result.metadata.get("recovery")
+                if isinstance(recovery, dict):
+                    candidates.append(recovery.get("directory"))
+        else:
+            raise ValueError(f"Unknown output directory scope: {scope!r}")
+
         for raw in candidates:
             if not raw:
                 continue
@@ -127,9 +205,9 @@ class ShellDialogs:
                 return path if path.is_dir() else path.parent
         return None
 
-    def open_output_folder(self, path: str | Path | None = None) -> bool:
-        """Open the current run output folder in the system file manager."""
-        folder = Path(path) if path is not None else self.resolve_output_directory()
+    def open_output_folder(self, path: str | Path | None = None, *, scope: str = "auto") -> bool:
+        """Open the task-scoped output folder in the system file manager."""
+        folder = Path(path) if path is not None else self.resolve_output_directory(scope=scope)
         if folder is None or not folder.exists():
             QMessageBox.information(
                 self.window,
@@ -249,7 +327,7 @@ class ShellDialogs:
                 "1. 右侧参数检查器 — 在“几何”“边界”“求解”三个页签填写算例参数，按 Ctrl+] 可收起或展开。\n"
                 "2. 开始计算 — 点击右上角“开始计算”按钮或按 Ctrl+R；"
                 "“优化设计”支持多工况连续场搜索与芯体减重。\n"
-                "3. 计算结果 — 查看温度、速度、压力场图与三维视图，底部读数条显示关键指标与外推提示。\n\n"
+                "3. 计算结果 — 查看温度、速度和压力分布与三维视图，底部读数条显示关键指标与外推提示。\n\n"
                 "左侧导航栏可切换页面、搜索命令（Ctrl+K）、载入或保存配置，以及调整主题、温度单位与减少动态效果。"
                 "本提示只显示一次。"
             )
@@ -296,32 +374,3 @@ class ShellDialogs:
         )
         if app.styleSheet() != stylesheet:
             app.setStyleSheet(stylesheet)
-
-    def show_status_log(self) -> None:
-        """Show the last 50 status-bar messages in a read-only dialog."""
-        dlg = QDialog(self.window)
-        dlg.setWindowTitle("状态记录")
-        dlg.resize(640, 380)
-        t = get_theme()
-        dlg.setStyleSheet(
-            f"QDialog{{background:{t['window']};}}"
-            f"QPlainTextEdit{{background:{t['panel']}; color:{t['fg']};"
-            f" border:1px solid {t['border']}; border-radius:6px;"
-            f" font-family:{t['mono_family']}; font-size:9pt;}}"
-            f"QPushButton{{background:transparent; color:{t['fg']};"
-            f" border:1px solid {t['border_strong']}; border-radius:6px;"
-            f" padding:5px 16px; font-weight:600;}}"
-            f"QPushButton:hover{{background:{t['hover']};}}"
-        )
-        lay = QVBoxLayout(dlg)
-        txt = QPlainTextEdit()
-        txt.setReadOnly(True)
-        lines = list(getattr(self.window, "_log_history", []))
-        txt.setPlainText("\n".join(lines) if lines else "（尚无状态记录）")
-        lay.addWidget(txt)
-        btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        btns.rejected.connect(dlg.reject)
-        btns.accepted.connect(dlg.accept)
-        btns.button(QDialogButtonBox.StandardButton.Close).clicked.connect(dlg.accept)
-        lay.addWidget(btns)
-        dlg.exec()

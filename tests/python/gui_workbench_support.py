@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 
 @pytest.fixture
 def win(tmp_path, monkeypatch):
+    from sjtu_tpmshx.applications.gui.controllers import user_storage
     from sjtu_tpmshx.applications.gui.controllers.session_manager import SessionManager
     from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
 
@@ -20,6 +21,7 @@ def win(tmp_path, monkeypatch):
         original_init(self, base_dir=base_dir or tmp_path, parent=parent)
 
     monkeypatch.setattr(SessionManager, '__init__', local_session)
+    monkeypatch.setattr(user_storage, '_appearance_dir', lambda: tmp_path)
     window = Main_Menu()
     window.showNormal()
     window.resize(1300, 760)

@@ -240,11 +240,11 @@ def test_running_edits_recent_restore_and_consecutive_dimensions(run_window, mon
         assert entry['actual_grid'] == list(sizes)
         provenance = result.metadata['run_provenance']
         assert provenance['preset'] == expected
-        tip_fields = win._sb_labels['q'].toolTip().split('  ·  ')
-        assert f'preset: start-{dim}' in tip_fields
+        tip_fields = win.readout_strip.toolTip().split('  ·  ')
+        assert f'预设：start-{dim}' in tip_fields
         input_grid = '24×18×5' if dim else '24×18'
-        assert f'input grid {input_grid}' in tip_fields
-        assert 'actual result grid ' + '×'.join(map(str, sizes)) in tip_fields
+        assert f'输入网格 {input_grid}' in tip_fields
+        assert '实际网格 ' + '×'.join(map(str, sizes)) in tip_fields
         assert win.single_run.provenance is None
         win.single_run.compute.finished.emit(result)  # duplicate terminal delivery is ignored
         assert len(win.history.recent_runs) == dim + 1
@@ -397,7 +397,8 @@ def test_footer_and_history_follow_each_successful_result(run_window, monkeypatc
         _stub_compute_result(monkeypatch, lambda config, **kwargs: ComputeResult(Q_W=value))
         win.single_run.submit()
         _wait_for(win.single_run.is_idle)
-        assert win._sb_labels['q'].text() == f'{value:.1f} W/m'
+        items = win.readout_strip.items()
+        assert f'{items[0].value} {items[0].unit}' == f'{value:.1f} W/m'
     assert [entry['Q'] for entry in win.history.recent_runs] == ['180.0', '120.0', '100.0']
 
 

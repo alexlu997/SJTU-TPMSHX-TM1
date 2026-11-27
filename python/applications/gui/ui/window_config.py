@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, replace
+from decimal import Decimal, InvalidOperation
 from itertools import chain
 from math import isfinite
 from typing import Literal, Optional, get_args
@@ -12,7 +13,7 @@ from sjtu_tpmshx.data_types.compute_config import (
     GeometryConfig, OptimizerConfig, PartialBCConfig, Sco2NuConfig, SolverConfig, TPMSType,
     ZoneAxis, ZoneInputConfig,
 )
-from sjtu_tpmshx.data_types.validator import parse_unit_value
+from sjtu_tpmshx.data_types.validator import parse_unit_decimal, parse_unit_value
 
 DOMAIN_SHAPE_NOTICE = (
     "当前仅支持矩形二维／长方体三维计算。\n"
@@ -183,6 +184,24 @@ def _bound_input(window, path, default=None):
 
 
 COUNT_TOKEN_WHITELIST = frozenset(('cells', 'cell', 'pts', 'points', 'nodes'))
+
+
+def parse_field_decimal(field_attr: str, raw_text: str, unit_text: str,
+                        temp_unit: str = 'K') -> Optional[Decimal]:
+    """Convert ``raw_text [unit_text]`` to the field's canonical unit as a Decimal."""
+    spec = LINE_EDITS.get(field_attr)
+    if spec is None:
+        return None
+    if spec.family == 'count':
+        if (unit_text or '').strip().lower() not in COUNT_TOKEN_WHITELIST:
+            return None
+        try:
+            dec = Decimal(str(raw_text).strip())
+        except (InvalidOperation, ValueError):
+            return None
+        return dec if dec.is_finite() else None
+    return parse_unit_decimal(raw_text, unit_text, spec.family,
+                              target_unit=spec.unit, temp_unit=temp_unit)
 
 
 def parse_field_value(field_attr: str, raw_value: float, unit_text: str,

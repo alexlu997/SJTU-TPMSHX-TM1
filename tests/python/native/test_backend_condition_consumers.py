@@ -23,7 +23,7 @@ native_path = native_3d.native_path
 def test_gui_co2_mass_input_save_reopen_geometry_and_export(win, native_path, tmp_path, monkeypatch):
     from PySide6.QtWidgets import QFileDialog, QMessageBox
     from sjtu_tpmshx.preprocess.api import prepare_inlet_mass_capacities
-    from tests.python.test_co2_model import co2_config
+    from tests.python.preprocess.test_co2_model import co2_config
     from tests.python.integration_tm1.test_public_gui import apply_config
     from tests.python.gui_worker_support import _wait_for
     from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window

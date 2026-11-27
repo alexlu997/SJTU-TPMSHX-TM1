@@ -244,5 +244,7 @@ def test_qualification_reason_preserves_rejection_and_distinguishes_nu_inputs(wi
     win.results.publish(result)
     win.results.refresh_summary()
     label = win._sb_labels['design']
-    assert label.text() == '未通过 ⚠：B 侧 Nu（原始输入） 水 Gyroid Re 超范围'
+    reason_label = win._sb_labels['design_reason']
+    assert label.text() == '未通过 ⚠'
+    assert reason_label.text() == 'B 侧 Nu（原始输入） 水 Gyroid Re 超范围'
     assert 'Nu（计算输入）' in label.toolTip()

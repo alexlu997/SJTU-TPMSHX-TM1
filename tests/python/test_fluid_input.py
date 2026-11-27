@@ -19,8 +19,8 @@ from tests.python.gui_io_support import win as win
 ])
 def test_autofill_re_label_and_status_follow_selected_fluid(
         monkeypatch, side, label, fluid, bounds):
-    status = Mock()
-    window = SimpleNamespace(compute_tpms=lambda: True, statusBar=lambda: status,
+    dialogs = Mock()
+    window = SimpleNamespace(compute_tpms=lambda: True, dialogs=dialogs,
                              _temp_to_K=lambda field: float(field.text()),
                              combo_tpms=Mock(currentText=lambda: 'Gyroid'))
     for key, value in {'Lcell': '7', 't': '.6', 'ks': '16',
@@ -47,7 +47,7 @@ def test_autofill_re_label_and_status_follow_selected_fluid(
         shown = getattr(window, '_v_Re' + side)
         assert shown.text() == f'{re:.1f}{tag}'
         assert shown.styleSheet() == styles['VAL_WARN' if tag else 'VAL']
-        assert status.showMessage.call_args.args[0] == (
+        assert dialogs.notify.call_args.args[0] == (
             f'Fluid {side} filled.  Re={re:.0f}{tag}  Nu=4.00  dP/L=5.0 Pa/m')
         assert compute.call_args.kwargs['fluid_type'] == fluid
         assert compute.call_args.kwargs['df_mode'] == 'cfd_smooth'

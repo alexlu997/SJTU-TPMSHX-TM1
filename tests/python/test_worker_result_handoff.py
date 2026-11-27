@@ -32,19 +32,23 @@ def test_2d_tout_displays_result_scalars_across_units_and_direction_drafts(win):
         win.combo_dirA.setCurrentIndex(direction)
         win.combo_dirB.setCurrentIndex(3-direction)
         win._update_tout(-1)
-        assert float(win._sb_labels['tout'].text().split(' / ')[0]) == 341.25
-        assert float(win._sb_labels['tout'].text().split(' / ')[1]) == 312.75
+        items = win.readout_strip.items()
+        assert float(items[3].value) == 341.25
+        assert float(items[4].value) == 312.75
     win._toggle_temp_unit()
-    assert '[°C]' in win._lbl_sidebar_tout_unit.text()
-    assert win._sb_labels['tout'].text() == '68.10 / 39.60'
+    items = win.readout_strip.items()
+    assert items[3].unit == '°C' and items[4].unit == '°C'
+    assert f'{items[3].value} / {items[4].value}' == '68.10 / 39.60'
     win._update_tout(0)
-    assert float(win._sb_labels['tout'].text().split(' / ')[0]) == pytest.approx(68.10)
-    assert float(win._sb_labels['tout'].text().split(' / ')[1]) == pytest.approx(39.60)
+    items = win.readout_strip.items()
+    assert float(items[3].value) == pytest.approx(68.10)
+    assert float(items[4].value) == pytest.approx(39.60)
     win._toggle_temp_unit()
-    assert '[K]' in win._lbl_sidebar_tout_unit.text()
-    assert win._sb_labels['tout'].text() == '341.25 / 312.75'
-    assert float(win._sb_labels['tout'].text().split(' / ')[0]) == 341.25
-    assert float(win._sb_labels['tout'].text().split(' / ')[1]) == 312.75
+    items = win.readout_strip.items()
+    assert items[3].unit == 'K' and items[4].unit == 'K'
+    assert f'{items[3].value} / {items[4].value}' == '341.25 / 312.75'
+    assert float(items[3].value) == 341.25
+    assert float(items[4].value) == 312.75
     assert win.cache.get_result('2d').Q_W == result.Q_W == 123.
 
 
@@ -391,8 +395,10 @@ def test_display_timing_reaches_result_and_export_cache(win, monkeypatch, mode):
     cached = win.cache.get_result(mode)
     assert cached.metadata['timings_s'] == expected
     assert win.results.summary()['timings_s'] == expected
-    assert card_elapsed == provenance_elapsed == [25.0]
-    assert win._last_elapsed_s == 25.0
+    assert card_elapsed == [6.0]
+    assert provenance_elapsed == [25.0]
+    assert win._last_elapsed_s == 6.0
+    assert win._last_total_elapsed_s == 25.0
     assert win.results.summary()['warnings'] == ['retained warning']
     assert result.Q_W == 123.5
 
@@ -652,7 +658,7 @@ def test_close_cancels_live_pipeline_without_destroying_its_callbacks(win, monke
         assert win._close_pending
         assert not win.single_run._ticker.isActive()
         win.single_run._ticker.timeout.emit()
-        assert '正在关闭' in win.statusBar().currentMessage()
+        assert '正在关闭' in win.dialogs.last_notice
     finally:
         release.set()
     _wait_for(lambda: not isValid(win))

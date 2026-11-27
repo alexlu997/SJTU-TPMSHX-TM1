@@ -1,6 +1,7 @@
 """Shell appearance, theme, layout chrome, and settings popover owner."""
 from __future__ import annotations
 
+import json
 import os
 import sys
 from typing import Any, Callable, Mapping
@@ -19,7 +20,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from sjtu_tpmshx.applications.gui.controllers.user_storage import save_appearance_setting
+from sjtu_tpmshx.applications.gui.controllers.user_storage import (
+    load_appearance_settings,
+    save_appearance_setting,
+)
 from sjtu_tpmshx.applications.gui.ui.colormap_popover import ToggleSwitch
 from sjtu_tpmshx.applications.gui.ui.microanim import (
     is_reduced_motion,
@@ -190,11 +194,16 @@ class _SettingsPopover(QFrame):
         label_text: str,
         callback: Callable[[], None],
         shortcut: str = "",
+        *,
+        enabled: bool = True,
     ) -> None:
         t = self._tokens
         btn = QPushButton()
         btn.setFixedHeight(31)
-        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setEnabled(enabled)
+        btn.setCursor(
+            Qt.CursorShape.PointingHandCursor if enabled else Qt.CursorShape.ArrowCursor
+        )
         btn.setStyleSheet(
             f"QPushButton {{ background: transparent; border: none; "
             f"border-radius: {RADIUS_BTN}px; text-align: left; }}"
@@ -206,7 +215,8 @@ class _SettingsPopover(QFrame):
         lbl = QLabel(label_text)
         lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         lbl.setStyleSheet(
-            f"color: {t['fg']}; font-size: 12px; font-weight: 400; background: transparent;"
+            f"color: {t['fg'] if enabled else t['tert']}; "
+            "font-size: 12px; font-weight: 400; background: transparent;"
         )
         hl.addWidget(lbl)
         hl.addStretch(1)
@@ -222,8 +232,20 @@ class _SettingsPopover(QFrame):
         self._layout.addWidget(btn)
 
     def _invoke(self, callback: Callable[[], None]) -> None:
-        self.hide()
+        self.close()
         callback()
+
+    def rebuild(self, tokens: Mapping[str, Any]) -> None:
+        """Refresh the settings popover in place without leaking duplicate popups."""
+        self._tokens = dict(tokens)
+        while self._layout.count():
+            item = self._layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.hide()
+                w.setParent(None)
+                w.deleteLater()
+        self._build()
 
     def _build(self) -> None:
         window = self._appearance.window
@@ -252,15 +274,20 @@ class _SettingsPopover(QFrame):
             self._appearance.set_reduced_motion,
         )
 
+        has_log = bool((window.single_run.compute.last_log() or "").strip())
+        has_result = window.cache.has_any_results()
+
         self._add_separator()
         self._add_group("工具")
+        self._add_action_row("计算日志…", window.dialogs.show_solve_log, enabled=has_log)
+        self._add_action_row("诊断详情…", window.results.show_diag_dialog, enabled=has_result)
         if hasattr(window, "_toggle_coord_inspector"):
             self._add_action_row("坐标探针", window._toggle_coord_inspector, "Ctrl+I")
         self._add_action_row("会话总览…", window.dialogs.show_overview, "Ctrl+D")
         self._add_action_row("历史记录…", window.history.show_full_timeline)
         self._add_action_row("复制为 Python 脚本", window.history.copy_inputs_as_python)
         self._add_action_row("复制复现链接", window.history.copy_reproducible_link)
-        self._add_action_row("加载复现链接…", window.history.load_reproducible_link)
+        self._add_action_row("重置为默认参数", window._reset_defaults, "Ctrl+Shift+R")
 
         self._add_separator()
         self._add_group("帮助")
@@ -282,17 +309,58 @@ class ShellAppearance:
         self.window = window
         self._initial_reveal_scheduled = False
         self._focused = False
-        self._drawer_open = True
         self._rail_expanded = False
         self._settings_popover: _SettingsPopover | None = None
+        self._active_drawer_page: str | None = None
+        self._syncing_drawer = False
+        self._page_drawer: dict[str, dict[str, Any]] = {
+            "run": {"open": True, "tab": 0},
+            "result": {"open": True, "tab": 0},
+        }
+        raw = load_appearance_settings().get("inspector")
+        if raw:
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict):
+                    for key in ("run", "result"):
+                        entry = parsed.get(key)
+                        if isinstance(entry, dict):
+                            if isinstance(entry.get("open"), bool):
+                                self._page_drawer[key]["open"] = entry["open"]
+                            tab = entry.get("tab")
+                            if isinstance(tab, int) and not isinstance(tab, bool) and tab >= 0:
+                                limit = 2 if key == "run" else 1
+                                self._page_drawer[key]["tab"] = min(tab, limit)
+            except (TypeError, ValueError):
+                pass
 
     def is_focused(self) -> bool:
         """Return True when canvas focus mode hides surrounding chrome."""
         return self._focused
 
-    def is_drawer_open(self) -> bool:
-        """Return True when the right inspector drawer is open."""
-        return self._drawer_open
+    def _current_drawer_page(self) -> str | None:
+        window = self.window
+        if getattr(window, "page_stack", None) is not None:
+            if window.page_stack.currentWidget() is window.quick_design:
+                return None
+        tab = window.workbench.active_tab
+        if tab == "pareto":
+            return None
+        if tab in ("temp", "pres", "vel", "3d"):
+            return "result"
+        return "run"
+
+    def is_drawer_open(self, page_key: str | None = None) -> bool:
+        """Return True when the right inspector drawer is open for ``page_key``."""
+        page = page_key or self._current_drawer_page() or "run"
+        return bool(self._page_drawer.get(page, {}).get("open", True))
+
+    def drawer_tab_for(self, page_key: str) -> int:
+        """Return the remembered drawer strip tab index for ``page_key``."""
+        return int(self._page_drawer.get(page_key, {}).get("tab", 0))
+
+    def _save_inspector_prefs(self) -> None:
+        save_appearance_setting("inspector", json.dumps(self._page_drawer, sort_keys=True))
 
     def is_rail_expanded(self) -> bool:
         """Return True when the 232 px navigation rail overlay is visible."""
@@ -360,8 +428,10 @@ class ShellAppearance:
                 self.window, "设置未保存", "无法写入减少动态效果设置，请检查用户配置目录。"
             )
             return False
-        self.window.statusBar().showMessage(
-            "已开启减少动态效果" if enabled else "已恢复动态效果", 3000
+        self.window.dialogs.notify(
+            "已开启减少动态效果" if enabled else "已恢复动态效果",
+            kind="info",
+            duration_ms=3000,
         )
         return True
 
@@ -413,47 +483,104 @@ class ShellAppearance:
             QMessageBox.warning(self.window, "重启失败", f"请手动重启软件：{exc}")
 
     def _page_uses_drawer(self) -> bool:
-        window = self.window
-        if getattr(window, "page_stack", None) is not None:
-            if window.page_stack.currentWidget() is window.quick_design:
-                return False
-        return window.workbench.active_tab != "pareto"
+        return self._current_drawer_page() is not None
+
+    def record_drawer_tab(self, strip_index: int) -> None:
+        """Remember the user-selected drawer tab for the active page."""
+        if self._syncing_drawer:
+            return
+        page = self._current_drawer_page()
+        if page is None:
+            return
+        limit = 2 if page == "run" else 1
+        clamped = max(0, min(int(strip_index), limit))
+        self._page_drawer[page]["tab"] = clamped
+        if page == "run":
+            self.window._param_page = clamped
+        self._sync_result_param_subbar(page, clamped)
+        self._save_inspector_prefs()
+
+    def _sync_result_param_subbar(self, page: str | None, strip_index: int) -> None:
+        subbar = getattr(self.window, "_result_param_subbar", None)
+        if subbar is not None:
+            show_sub = page == "result" and strip_index == 1
+            subbar.setVisible(show_sub)
+            if show_sub:
+                sync_btns = getattr(self.window, "_sync_result_param_btns", None)
+                if sync_btns is not None:
+                    sync_btns()
 
     def sync_drawer_visibility(self) -> None:
-        """Reconcile drawer visibility with focus state, page type, and open flag."""
+        """Reconcile drawer tabs, visibility, and header toggle with active page preferences."""
         window = self.window
         drawer = getattr(window, "inspector_drawer", None)
         if drawer is None:
             return
-        show_drawer = self._drawer_open and not self._focused and self._page_uses_drawer()
+        page = self._current_drawer_page()
+        if page is None:
+            drawer.set_open(False)
+            self._sync_result_param_subbar(None, 0)
+            btn = getattr(window, "btn_toggle_drawer", None)
+            if btn is not None:
+                btn.setVisible(False)
+                btn.setChecked(False)
+            return
+
+        state = self._page_drawer[page]
+        saved_tab = int(state["tab"])
+        if page != self._active_drawer_page:
+            self._syncing_drawer = True
+            try:
+                if page == "run":
+                    entries = [("几何", 0), ("边界", 1), ("求解", 2)]
+                    saved_tab = max(0, min(saved_tab, 2))
+                    window._param_page = saved_tab
+                else:
+                    param_idx = max(0, min(int(getattr(window, "_param_page", 0)), 2))
+                    entries = [("结果", 3), ("参数", param_idx)]
+                    saved_tab = max(0, min(saved_tab, 1))
+                drawer.set_strip_entries(entries, active_strip_index=saved_tab)
+                self._active_drawer_page = page
+            finally:
+                self._syncing_drawer = False
+        self._sync_result_param_subbar(page, drawer.strip_index())
+
+        show_drawer = bool(state["open"]) and not self._focused
         drawer.set_open(show_drawer)
         btn = getattr(window, "btn_toggle_drawer", None)
         if btn is not None:
-            btn.setVisible(self._page_uses_drawer() and not self._focused)
+            btn.setVisible(not self._focused)
             btn.setToolTip("收起检查器  Ctrl+]" if show_drawer else "展开检查器  Ctrl+]")
             btn.setChecked(show_drawer)
 
-    def set_drawer_open(self, opened: bool) -> None:
-        """Open or close the push inspector drawer without rebuilding fields."""
-        previous = self._drawer_open
-        self._drawer_open = bool(opened)
+    def set_drawer_open(self, opened: bool, page_key: str | None = None) -> None:
+        """Open or close the push inspector drawer for the active or named page."""
+        page = page_key or self._current_drawer_page() or "run"
+        previous = bool(self._page_drawer[page]["open"])
+        self._page_drawer[page]["open"] = bool(opened)
+        self._save_inspector_prefs()
         self.sync_drawer_visibility()
         refresh_nav = getattr(self.window, "_refresh_workbench_navigation", None)
         if refresh_nav is not None:
             refresh_nav()
-        if not previous and self._drawer_open and not self._focused and self._page_uses_drawer():
+        if (
+            not previous
+            and self._page_drawer[page]["open"]
+            and not self._focused
+            and self._current_drawer_page() == page
+        ):
             drawer = getattr(self.window, "inspector_drawer", None)
             if drawer is not None:
                 reveal(drawer)
 
     def toggle_drawer(self) -> None:
-        """Toggle the right inspector drawer, exiting focus mode first if active."""
+        """Toggle the right inspector drawer for the active page, exiting focus first."""
         if self._focused:
             self.toggle_focus()
-            if not self._drawer_open:
+            if not self.is_drawer_open():
                 self.set_drawer_open(True)
             return
-        self.set_drawer_open(not self._drawer_open)
+        self.set_drawer_open(not self.is_drawer_open())
 
     def set_rail_expanded(self, expanded: bool) -> None:
         """Show or hide the 232 px expanded navigation rail overlay."""
@@ -500,10 +627,17 @@ class ShellAppearance:
             btn_focus.setText("退出专注" if focused else "专注")
         card = getattr(window, "_run_status_card", None)
         if card is not None:
-            card.setVisible((not focused and self._page_uses_drawer()) or not window.single_run.is_idle())
+            show_card = not window.single_run.is_idle() or (
+                card.state in ("running", "cancelling", "error", "cancelled", "paused")
+                and not focused
+                and self._page_uses_drawer()
+            )
+            card.setVisible(show_card)
         update_result_sidebar_visibility(window)
-        window.statusBar().showMessage(
-            "专注当前画布 · 按 F 退出" if focused else "已恢复工作台布局", 3000
+        window.dialogs.notify(
+            "专注当前画布 · 按 F 退出" if focused else "已恢复工作台布局",
+            kind="info",
+            duration_ms=3000,
         )
 
     def sync_viewport_layout(self) -> None:
@@ -539,8 +673,12 @@ class ShellAppearance:
             anchor = rail.action_anchor("more")
         if rail is not None:
             rail.set_open_action("more")
-        pop = _SettingsPopover(self, get_theme(), parent=self.window)
-        self._settings_popover = pop
+        pop = self._settings_popover
+        if pop is None:
+            pop = _SettingsPopover(self, get_theme(), parent=self.window)
+            self._settings_popover = pop
+        else:
+            pop.rebuild(get_theme())
         if anchor is not None:
             pos = anchor.mapToGlobal(QPoint(anchor.width() + 8, anchor.height() - pop.height()))
             win_pos = self.window.mapToGlobal(QPoint(0, 8))

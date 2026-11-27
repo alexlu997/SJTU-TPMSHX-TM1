@@ -119,7 +119,7 @@ def test_inlet_keeps_valid_temperature_format_and_value(win, unit, text, display
 
 
 @pytest.mark.parametrize('unit,zero,normal,switched', [
-    ('K', '(0)', '150 * 2', '26.850000000000023'),
+    ('K', '(0)', '150 * 2', '26.85'),
     ('C', '(-273.15)', '25 + 1.85', '300'),
 ])
 def test_unit_switch_keeps_rejected_temperature_expression_at_absolute_zero(win, unit, zero, normal, switched):
@@ -253,7 +253,7 @@ def test_named_preset_commits_expression_and_replaces_valid_entry(win, monkeypat
     presets = json.loads(win.case_files.store.presets_path().read_text())['presets']
     assert len(presets) == 1
     assert presets[0]['line_edits']['le_L'] == '0.2'
-    assert win.statusBar().currentMessage() == 'Saved preset: saved design.'
+    assert win.dialogs.last_notice == 'Saved preset: saved design.'
     win.le_L.setText('0.3')
     next(a for a in win.btn_recent.menu().actions() if '★ saved design' in a.text()).trigger()
     assert win.le_L.text() == '0.2'
@@ -400,9 +400,9 @@ def test_restore_uses_its_own_source_name(win, route):
 
 @pytest.mark.parametrize('field,text,expected', [
     ('le_L', '200 mm', '0.2'), ('le_L', '1/5', '0.2'),
-    # Match the existing four-significant-digit unit formatter; persistence
-    # must behave exactly like a normal editingFinished commit.
-    ('le_TinA', '25 C', '298.1'),
+    # Full-precision unit conversion; persistence must behave exactly like a
+    # normal editingFinished commit.
+    ('le_TinA', '25 C', '298.15'),
 ])
 def test_close_with_focused_expression_restores_complete_session(
         monkeypatch, tmp_path, field, text, expected):

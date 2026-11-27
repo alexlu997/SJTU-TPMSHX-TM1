@@ -18,7 +18,7 @@ from typing import Any, Mapping, Optional
 import numpy as np
 import pyvista as pv
 from pyvistaqt import QtInteractor
-from PySide6.QtCore import QEasingCurve, QPoint, Qt, QTimer, QVariantAnimation
+from PySide6.QtCore import QEasingCurve, QPoint, Qt, QTimer, QVariantAnimation, Signal
 from PySide6.QtGui import QImage, QKeySequence, QPainter, QRegion, QShortcut
 from PySide6.QtWidgets import QFileDialog, QLabel, QVBoxLayout, QWidget
 
@@ -59,21 +59,6 @@ _FIELD_SYMBOL_HTML: dict[str, str] = {
     "t_mm": SYM["t"],
 }
 
-_QUANTITY_PHASE_TO_FIELD: dict[tuple[str, str], str] = {
-    ("temperature", "A"): "Ta",
-    ("temperature", "B"): "Tb",
-    ("temperature", "solid"): "Ts",
-    ("speed", "A"): "vmag",
-    ("speed", "B"): "vmag_B",
-    ("pressure", "A"): "P_kPa",
-    ("pressure", "B"): "P_B_kPa",
-    ("design", "L"): "L_mm",
-    ("design", "t"): "t_mm",
-    ("design", "geometry"): "L_mm",
-}
-
-_PHASE_INDEX_MAP: tuple[str, str, str] = ("A", "B", "solid")
-
 _DATA_ACTOR_NAMES: tuple[str, ...] = (
     "main_surface",
     "main_volume",
@@ -110,6 +95,8 @@ def _hex_to_rgb01(hex_color: str) -> tuple[float, float, float]:
 
 class ThreeDVisPanel(QWidget):
     """Embedded PyVistaQt 3D viewport with studio rendering and Qt overlays."""
+
+    field_changed = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -269,15 +256,15 @@ class ThreeDVisPanel(QWidget):
 
     # ─────────────────────────── public API ───────────────────────────
 
-    def field(self) -> Optional[str]:
-        """Return the active field key (for example ``'Ta'`` or ``'vmag_B'``)."""
+    def active_field(self) -> Optional[str]:
+        """Return the active PANEL_FIELD_SPECS key on this 3D panel, or None."""
         return self._field
 
     def available_fields(self) -> tuple[str, ...]:
-        """Return loaded field keys in canonical display order."""
+        """Return loaded PANEL_FIELD_SPECS keys in canonical display order."""
         return self._available_fields
 
-    def set_field(self, field_key: str) -> bool:
+    def select_field(self, field_key: str) -> bool:
         """Select an available field key and update the 3D scene and colorbar."""
         if self._grid is None:
             return False
@@ -287,15 +274,10 @@ class ThreeDVisPanel(QWidget):
             return True
         self._field = field_key
         self._rebuild_scene(render=True)
+        sig = getattr(self, "field_changed", None)
+        if sig is not None:
+            sig.emit(self._field)
         return True
-
-    def set_quantity_phase(self, quantity: str, phase: str | int) -> bool:
-        """Select the 3D field matching a header quantity and phase choice."""
-        phase_key = _PHASE_INDEX_MAP[phase] if isinstance(phase, int) and 0 <= phase < 3 else str(phase)
-        target = _QUANTITY_PHASE_TO_FIELD.get((quantity, phase_key))
-        if target is None or target not in self._arrays:
-            return False
-        return self.set_field(target)
 
     def display_mode(self) -> str:
         """Return the active simplified display mode (``'surface'``, ``'slice'``, or ``'volume'``)."""
@@ -464,6 +446,9 @@ class ThreeDVisPanel(QWidget):
         if hasattr(self, "_viewport_host"):
             self._layout_overlays()
             self._update_port_chips()
+        sig = getattr(self, "field_changed", None)
+        if sig is not None:
+            sig.emit(self._field)
 
     def set_watermark(self, text: Optional[str]) -> None:
         """Show or clear an extrapolation warning watermark over the 3D viewport."""
@@ -591,26 +576,32 @@ class ThreeDVisPanel(QWidget):
         painter.end()
         return canvas.convertToFormat(image_format)
 
-    def save_screenshot(self, path: Optional[str] = None, *, scale: int = 1) -> Optional[str]:
+    def save_screenshot(
+        self,
+        path: Optional[str] = None,
+        *,
+        scale: int = 1,
+        file_filter: str = "PNG 图像 (*.png)",
+    ) -> Optional[str]:
         """Save the unified composited 3D capture to a PNG file."""
         target = path
         if target is None:
             ts = datetime.now().strftime("%Y%m%d-%H%M%S")
             dflt = f"volume_{self._field}_{self._scale_mode}_{ts}.png"
             target, _ = QFileDialog.getSaveFileName(
-                self, "Save 3D view as PNG", dflt, "PNG images (*.png)"
+                self, "保存三维视图为 PNG", dflt, file_filter
             )
             if not target:
                 return None
         image = self.capture_image(scale=scale)
         if image.isNull() or not image.save(target, "PNG"):
-            raise RuntimeError(f"Could not save 3D image to {target}")
+            raise RuntimeError(f"无法将三维图像保存到 {target}")
         if hasattr(self, "status"):
-            self.status.setText(f"Saved: {target}")
+            self.status.setText(f"已保存：{target}")
         return target
 
-    def _on_screenshot(self) -> Optional[str]:
-        return self.save_screenshot()
+    def _on_screenshot(self, *, file_filter: str = "PNG 图像 (*.png)") -> Optional[str]:
+        return self.save_screenshot(file_filter=file_filter)
 
     def cleanup(self) -> None:
         """Release VTK observers, GL context, and any open dialogs idempotently."""
@@ -896,11 +887,7 @@ class ThreeDVisPanel(QWidget):
             self._camera_fit_pending = True
             return
         self._camera_fit_pending = False
-        Lx, Ly, Lz = self._L_mm
-        pad_y = max(0.2, 0.05 * min(Lx, Ly, Lz))
-        self.plotter.renderer.ResetCameraScreenSpace(
-            (0.0, Lx, -pad_y, Ly, 0.0, Lz), 0.70
-        )
+        self.plotter.renderer.ResetCameraScreenSpace(0.8)
         self.plotter.renderer.ResetCameraClippingRange()
         if render:
             self.plotter.render()
@@ -911,6 +898,7 @@ class ThreeDVisPanel(QWidget):
         if hasattr(self, "toolbar"):
             self.toolbar.set_camera_preset(None)
         if self._tween_animation is not None:
+            self._tween_previous_update_rate = None
             self._stop_camera_tween()
             self.plotter.ren_win.SetDesiredUpdateRate(
                 self.plotter.iren.interactor.GetDesiredUpdateRate()
@@ -1073,7 +1061,7 @@ class ThreeDVisPanel(QWidget):
         rgba = np.zeros((plane.n_points, 4), dtype=np.uint8)
         rgba[:, 3] = (alpha * strength * 255.0).astype(np.uint8)
         plane.point_data["rgba"] = rgba
-        self.plotter.add_mesh(
+        shadow_actor = self.plotter.add_mesh(
             plane,
             scalars="rgba",
             rgba=True,
@@ -1083,6 +1071,8 @@ class ThreeDVisPanel(QWidget):
             name="_contact_shadow",
             render=False,
         )
+        if hasattr(shadow_actor, "SetUseBounds"):
+            shadow_actor.SetUseBounds(False)
 
     def _configure_axes_triad(self) -> None:
         t = get_theme()

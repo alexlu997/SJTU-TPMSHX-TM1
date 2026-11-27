@@ -471,8 +471,9 @@ class _ExpandedRowButton(QPushButton):
             weight = 500 if checked else 400
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 0, 10, 0)
-        layout.setSpacing(10 if height >= 34 else 8)
+        margin_h = 8 if height <= 30 else 10
+        layout.setContentsMargins(margin_h, 0, margin_h, 0)
+        layout.setSpacing(10 if height >= 34 else 6)
 
         layout.addWidget(_icon_label(icon_name, icon_color, icon_size))
 
@@ -503,8 +504,9 @@ class _ExpandedRowButton(QPushButton):
             meta_lab.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
             if "<" in meta:
                 meta_lab.setTextFormat(Qt.TextFormat.RichText)
+            meta_px = "10.5px" if height <= 30 else "11px"
             meta_lab.setStyleSheet(
-                f"color: {tokens['tert']}; font-size: 11px; font-weight: 400; "
+                f"color: {tokens['tert']}; font-size: {meta_px}; font-weight: 400; "
                 "background: transparent;"
             )
             _enable_tnum(meta_lab)
@@ -656,7 +658,9 @@ class ExpandedNavRail(QFrame):
         self._clear_layout()
         t = self._tokens
         self.setStyleSheet(f"QFrame#expandedNavRail {{ background: {t['panel']}; border: none; }}")
-        self._shadow.setColor(QColor(*t["shadow_drawer_ambient"]))
+        effect = self.graphicsEffect()
+        if isinstance(effect, QGraphicsDropShadowEffect):
+            effect.setColor(QColor(*t["shadow_drawer_ambient"]))
 
         top = QHBoxLayout()
         top.setContentsMargins(0, 0, 0, 0)

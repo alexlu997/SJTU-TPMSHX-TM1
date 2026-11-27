@@ -148,7 +148,7 @@ def test_3d_display_failure_preserves_result(win, monkeypatch, tmp_path, has_fie
         assert win.workbench.active_tab == 'temp'
         win.workbench.switch_tab('3d')
         assert win.workbench.volume_error
-        assert '三维视图不可用' in win.statusBar().currentMessage()
+        assert '三维视图不可用' in win.dialogs.last_notice
         assert win.workbench.active_tab == 'temp'
     else:
         assert win._run_status_card.state == 'error'

@@ -139,7 +139,8 @@ def _make_stub_panel():
             '_sync_colorbar', '_rebuild_scene', '_clim_for', '_opacity_ramp',
             '_slice_index', '_snap_slice_coord', '_update_status',
             '_faint_port_sides', '_add_flow_glyph',
-            'set_field', 'set_display_mode', 'set_slice_position', 'refresh_colormaps',
+            'active_field', 'available_fields', 'select_field',
+            'set_display_mode', 'set_slice_position', 'refresh_colormaps',
         ),
     )
     return panel
@@ -174,7 +175,8 @@ def test_volume_fields_are_lazy_cached_and_reset_without_changing_values(graded)
 
         for i, key in enumerate(fields):
             np.testing.assert_array_equal(panel._arrays[key], fields[key])
-            assert panel.set_field(key)
+            assert panel.select_field(key)
+            assert panel.active_field() == key
             assert len(panel._volume_grids) == i + 1
             surface_calls = [
                 call for call in panel.plotter.add_mesh.call_args_list
@@ -188,7 +190,7 @@ def test_volume_fields_are_lazy_cached_and_reset_without_changing_values(graded)
             np.testing.assert_array_equal(restored, fields[key])
 
         first_tb = panel._volume_grids['Tb'][0]
-        assert panel.set_field('Tb')
+        assert panel.select_field('Tb')
         assert panel._grid_vol is first_tb
         assert len(panel._volume_grids) == len(fields)
 
@@ -237,7 +239,7 @@ def test_design_surface_slice_volume_keep_independent_ranges_and_optional_arrows
             np.testing.assert_array_equal(panel._arrays[key], values)
             expected_range = (float(values.min()), float(values.max()))
             assert panel._global_clim[key] == pytest.approx(expected_range)
-            assert panel.set_field(key)
+            assert panel.select_field(key)
             panel.plotter.add_mesh.reset_mock()
             panel.set_display_mode('slice')
             slice_calls = {
@@ -438,3 +440,24 @@ def test_camera_preset_uses_shared_reduced_motion_preference():
         panel._update_port_chips.assert_called_once_with()
     finally:
         set_reduced_motion(previous)
+
+
+def test_shared_header_colormap_refresh_updates_main_and_optimization_3d_panels(monkeypatch):
+    """Colormap popover propagation refreshes both canvas_3d and optimization.volume_panel."""
+    import sjtu_tpmshx.applications.gui.ui.layout_drawer as layout_drawer
+    import sjtu_tpmshx.applications.gui.ui.plot_2d_results as plot_2d_results
+    from sjtu_tpmshx.applications.gui.ui.builders_canvas import _apply_colormap_refresh
+
+    monkeypatch.setattr(plot_2d_results, 'redraw_result_fields', Mock())
+    monkeypatch.setattr(layout_drawer, 'refresh_last_2d_thumbnail', Mock())
+    main_3d = SimpleNamespace(refresh_colormaps=Mock())
+    opt_3d = SimpleNamespace(refresh_colormaps=Mock())
+    window = SimpleNamespace(
+        canvas_3d=main_3d,
+        optimization=SimpleNamespace(volume_panel=opt_3d),
+    )
+
+    _apply_colormap_refresh(window)
+
+    main_3d.refresh_colormaps.assert_called_once_with()
+    opt_3d.refresh_colormaps.assert_called_once_with()

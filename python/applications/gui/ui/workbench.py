@@ -4,7 +4,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import QMessageBox
 
 from sjtu_tpmshx.applications.gui.ui.theme import get_theme
-from sjtu_tpmshx.applications.gui.ui.ui_constants import TOAST_MS_BRIEF, TOAST_MS_SHORT
+from sjtu_tpmshx.applications.gui.ui.ui_constants import TOAST_MS_SHORT
 
 
 class Workbench:
@@ -57,11 +57,12 @@ class Workbench:
         def ready():
             self.create_volume_panel()
             if not window._close_pending and self.import_error:
-                window.statusBar().showMessage(f"3D viewer unavailable: {self.import_error}", 5000)
+                window.dialogs.notify(
+                    f"三维视图暂不可用：{self.import_error}", kind="warn", duration_ms=5000
+                )
 
         def start():
             if window.canvas_3d is None and not window._close_pending:
-                window.statusBar().showMessage("Preparing 3D viewer…")
                 self.prepare_3d(ready)
 
         QTimer.singleShot(500, window, start)
@@ -88,8 +89,10 @@ class Workbench:
             placeholder.deleteLater()
             window._canvas_3d_placeholder = None
             window.canvas_3d = panel
+            from .builders_canvas import refresh_field_controls
+
+            panel.field_changed.connect(lambda _k: refresh_field_controls(window))
             window._fit_3d_card_to_viewport()
-            window.statusBar().showMessage("3D view initialised.", TOAST_MS_BRIEF)
         finally:
             self.creating_volume = False
             refresh_resource_availability(window)
@@ -121,8 +124,10 @@ class Workbench:
             window.btn_update_geometry.setVisible(page_key == "run")
         if hasattr(window, "btn_compute"):
             window.btn_compute.setVisible(
-                page_key in ("run", "result") or not window.single_run.is_idle()
+                page_key == "run" or not window.single_run.is_idle()
             )
+        if hasattr(window, "btn_export"):
+            window.btn_export.setVisible(page_key in ("result", "opt"))
         if hasattr(window, "btn_run_info"):
             window.btn_run_info.setVisible(page_key in ("run", "result"))
         window.appearance.sync_drawer_visibility()
@@ -192,7 +197,7 @@ class Workbench:
             combo.setEnabled(rules.get("2d_view", False))
         seg = getattr(window, "_2d_field_seg", None)
         if seg is not None:
-            seg.setEnabled(rules.get("2d_view", False))
+            seg.setEnabled(bool(rules.get("2d_view", False) or rules.get("3d", False)))
         rv = getattr(window, "_result_view_btns", None)
         if rv:
             rv["2d"].setEnabled(rules.get("2d_view", False))
@@ -214,6 +219,8 @@ class Workbench:
         refresh_nav = getattr(window, "_refresh_workbench_navigation", None)
         if refresh_nav is not None:
             refresh_nav()
+        if hasattr(window, "result_export"):
+            window.result_export.refresh_export_button()
 
     def split_with_current(self, tab):
         """Enter split-view pairing the currently active tab with `tab`."""
@@ -232,7 +239,7 @@ class Workbench:
             return
         available = self.canvas_tab_availability()
         if not (available.get(cur, False) and available.get(tab, False)):
-            window.statusBar().showMessage("并排对比需要两个视图均已就绪。", 4000)
+            window.dialogs.notify("并排对比需要两个视图均已就绪。", kind="warn", duration_ms=4000)
             return
         if tab == "3d" and not self.volume_ready:
             self.request_3d_view(lambda: self.split_with_current(tab))
@@ -246,8 +253,8 @@ class Workbench:
 
         _layout_split_cards(window, [cur, tab])
         self.active_tab = cur
-        window.statusBar().showMessage(
-            f"并排视图：{cur} ↔ {tab}。单击任意页面恢复单视图。", 5000
+        window.dialogs.notify(
+            f"并排视图：{cur} ↔ {tab}。单击任意页面恢复单视图。", kind="info", duration_ms=5000
         )
 
     def resolve_2d_view_card(self) -> str:
@@ -290,7 +297,6 @@ class Workbench:
             return
         self.requested_3d_result = result
         started = perf_counter()
-        window.statusBar().showMessage("正在准备三维视图…")
 
         def ready():
             if self.requested_3d_result is not result:
@@ -302,20 +308,25 @@ class Workbench:
                 return
             from sjtu_tpmshx.applications.gui.ui.plot_3d_results import finalize_plots_3d
 
+            load_err = None
             try:
                 self.volume_ready = bool(finalize_plots_3d(window))
             except Exception as exc:
                 self.volume_ready = False
-                window.statusBar().showMessage(f"三维视图加载失败：{exc}", 10000)
+                load_err = exc
             self.volume_error = not self.volume_ready
             result.metadata.setdefault("timings_s", {})["volume_display"] = perf_counter() - started
             if self.volume_ready:
                 window.canvas_3d.show()
                 window.cache.mark_drawn("3d")
                 action()
+            elif load_err is not None:
+                window.dialogs.notify(f"三维视图加载失败：{load_err}", kind="error", duration_ms=10000)
             else:
-                window.statusBar().showMessage(
-                    "三维视图不可用；场图、计算结果和数据导出仍可使用。", 10000
+                window.dialogs.notify(
+                    "三维视图不可用；场图、计算结果和数据导出仍可使用。",
+                    kind="warn",
+                    duration_ms=10000,
                 )
             self.update_tab_visibility()
 
@@ -373,14 +384,6 @@ class Workbench:
         same_tab = tab == prev_tab and not from_quick_design
         self.active_tab = tab
 
-        # Sync drawer tab selection when switching between case and result pages.
-        drawer = getattr(window, "inspector_drawer", None)
-        if drawer is not None:
-            if tab in ("temp", "pres", "vel", "3d") and prev_tab not in ("temp", "pres", "vel", "3d"):
-                drawer.set_current_index(3)
-            elif tab == "layout" and drawer.current_index() == 3:
-                drawer.set_current_index(getattr(window, "_param_page", 0))
-
         page_key = (
             "opt"
             if tab == "pareto"
@@ -392,6 +395,8 @@ class Workbench:
 
         if hasattr(window, "_field_phase_seg"):
             refresh_field_controls(window)
+        if hasattr(window, "result_export"):
+            window.result_export.refresh_export_button()
 
         if same_tab and not self.split_tabs:
             card = getattr(window, "_canvas_cards", {}).get(tab)
@@ -425,7 +430,7 @@ class Workbench:
 
             fs = getattr(window, "_2d_field_seg", None)
             if fs is not None:
-                fs.setVisible(tab in ("temp", "pres", "vel"))
+                fs.setVisible(tab in ("temp", "pres", "vel", "3d"))
             if tab in ("temp", "pres", "vel", "3d"):
                 self.result_view = "3d" if tab == "3d" else "2d"
                 paint = getattr(window, "_paint_result_seg", None)
@@ -534,6 +539,32 @@ class Workbench:
             f"Cell ({i},{j}): {name} = {val:{fmt}}\u202f{unit}"
         )
 
+    def on_canvas_click(self, event):
+        """Record a clicked physical coordinate inside the active field data axes."""
+        if getattr(event, "button", None) != 1:
+            return
+        if event.inaxes is None or event.xdata is None or event.ydata is None:
+            return
+        tab = self.active_tab
+        canvas = self.canvas_for_key(tab)
+        if canvas is None or not getattr(canvas, "axes", None):
+            return
+        data_axes = [ax for row in canvas.axes for ax in row]
+        if event.inaxes not in data_axes:
+            return
+        hd = getattr(canvas, "_hover_data", None)
+        if not isinstance(hd, dict):
+            return
+        x_mm = float(event.xdata)
+        y_mm = float(event.ydata)
+        L_mm = float(hd.get("L", 0.0)) * 1000.0
+        H_mm = float(hd.get("H", 0.0)) * 1000.0
+        if not (0.0 <= x_mm <= L_mm and 0.0 <= y_mm <= H_mm):
+            return
+        from sjtu_tpmshx.applications.gui.ui.builders_sidebar import add_sample_point
+
+        add_sample_point(self.window, x_mm, y_mm)
+
     def detach_3d_window(self):
         """Reparent canvas_3d into a standalone QDialog and show it."""
         window = self.window
@@ -574,7 +605,7 @@ class Workbench:
 
         dlg.closeEvent = _on_close
         dlg.show()
-        window.statusBar().showMessage("三维视图已分离 — 关闭窗口自动放回。", 5000)
+        window.dialogs.notify("三维视图已分离 — 关闭窗口自动放回。", kind="info", duration_ms=5000)
 
     def reattach_3d_window(self):
         """Put canvas_3d back into its original card and close the dialog."""
@@ -592,7 +623,7 @@ class Workbench:
             dlg.close()
         except Exception:
             pass
-        window.statusBar().showMessage("三维视图已放回主窗口。", TOAST_MS_SHORT)
+        window.dialogs.notify("三维视图已放回主窗口。", kind="info", duration_ms=TOAST_MS_SHORT)
 
     def canvas_for_key(self, key):
         window = self.window
@@ -648,7 +679,7 @@ class Workbench:
 
         dlg.closeEvent = _on_close
         dlg.show()
-        window.statusBar().showMessage(f"{key} 画布已分离 — 关闭窗口自动放回。", 5000)
+        window.dialogs.notify(f"{key} 画布已分离 — 关闭窗口自动放回。", kind="info", duration_ms=5000)
 
     def reattach_canvas(self, key):
         window = self.window
@@ -667,4 +698,4 @@ class Workbench:
             dlg.close()
         except Exception:
             pass
-        window.statusBar().showMessage(f"{key} 画布已放回主窗口。", TOAST_MS_SHORT)
+        window.dialogs.notify(f"{key} 画布已放回主窗口。", kind="info", duration_ms=TOAST_MS_SHORT)

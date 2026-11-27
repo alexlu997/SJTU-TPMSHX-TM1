@@ -41,6 +41,6 @@ tests/python/native/test_native_engineering_acceptance.py::test_refined_true_h_p
 tests/python/native/test_run_recovery.py
 tests/python/native/test_temperature_driver.py
 # Stage modules collected on Python 3.13.
-tests/python/test_native_prepare_offset.py
-tests/python/test_native_run_adapter_3d.py
-tests/python/test_native_prepare_spatial_adapter.py
+tests/python/native_adapters/test_native_prepare_offset.py
+tests/python/native_adapters/test_native_run_adapter_3d.py
+tests/python/native_adapters/test_native_prepare_spatial_adapter.py

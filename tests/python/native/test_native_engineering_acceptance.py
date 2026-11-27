@@ -11,7 +11,7 @@ from sjtu_tpmshx.solvers.api import run_case
 from tests.python.native import test_cpp_full_3d as native_3d
 from tests.python.native.test_native_execution import _config
 from tests.python.native.full_result_audit import physical_gates
-from tests.python.test_co2_model import CO2_PAIRS, co2_config, co2_engineering_config
+from tests.python.preprocess.test_co2_model import CO2_PAIRS, co2_config, co2_engineering_config
 
 native_path = native_3d.native_path
 

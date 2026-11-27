@@ -11,5 +11,5 @@ tests/python/native/test_simple_2d.py
 tests/python/native/test_simple_3d.py
 tests/python/native/test_simple_pressure.py
 # Stage modules collected on Python 3.13.
-tests/python/test_native_prepare_adapter.py
-tests/python/test_native_stage_run.py
+tests/python/native_adapters/test_native_prepare_adapter.py
+tests/python/native_adapters/test_native_stage_run.py

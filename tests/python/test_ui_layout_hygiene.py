@@ -22,6 +22,7 @@ from PySide6.QtWidgets import QApplication, QBoxLayout, QScrollArea  # noqa: E40
 @pytest.fixture(scope="module")
 def win(tmp_path_factory):
     import sjtu_tpmshx.applications.gui.controllers.session_manager as sm_mod
+    import sjtu_tpmshx.applications.gui.controllers.user_storage as storage_mod
 
     session_dir = tmp_path_factory.mktemp("ui-layout-session")
     original_init = sm_mod.SessionManager.__init__
@@ -35,6 +36,7 @@ def win(tmp_path_factory):
         )
 
     patch.setattr(sm_mod.SessionManager, '__init__', _init)
+    patch.setattr(storage_mod, '_appearance_dir', lambda: session_dir)
     app = QApplication.instance() or QApplication([])
     from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
     w = Main_Menu()
@@ -183,11 +185,33 @@ def test_tpms_computed_is_visible_before_and_after_calculation(win):
 
 
 def test_diagnostics_reachable_via_run_info_and_dialogs(win, monkeypatch):
+    from PySide6.QtWidgets import QLabel, QPushButton
+    from sjtu_tpmshx.data_types.compute_result import ComputeResult
+
     calls = []
     monkeypatch.setattr(win.results, 'show_diag_dialog', lambda: calls.append(True))
-    assert win.btn_run_info.isVisibleTo(win)
-    win.dialogs.show_diagnostics()
-    assert len(calls) == 1
+    win.results.publish(ComputeResult(Q_W=42.0, converged=True, diagnostics={'mode': '2d'}))
+    win.results.refresh_summary()
+    app = QApplication.instance()
+
+    for drawer_open in (True, False):
+        win.appearance.set_drawer_open(drawer_open)
+        app.processEvents()
+        assert win.btn_run_info.isVisibleTo(win)
+        win.btn_run_info.click()
+        app.processEvents()
+        pop = win._run_info_popover
+        assert pop.isVisible()
+        diag_btn = next(
+            b for b in pop.findChildren(QPushButton)
+            if any(lbl.text() == "诊断详情…" for lbl in b.findChildren(QLabel))
+        )
+        assert diag_btn.isEnabled()
+        diag_btn.click()
+        app.processEvents()
+        pop.close()
+    assert len(calls) == 2
+    win.appearance.set_drawer_open(True)
 
 
 def test_group_badge_counts_empty_field(win):
@@ -434,6 +458,71 @@ def test_numeric_inputs_rule_a_left_aligned_with_unit_suffix(win):
     assert win.le_L.alignment() & _Qt.AlignmentFlag.AlignLeft
     assert win.le_L.unit() == 'm'
     assert win.le_Nx.alignment() & _Qt.AlignmentFlag.AlignLeft
+
+    # B09: expressions and high-precision decimals edit in the displayed unit (kPa / mm)
+    # and convert once to canonical SI without premature 15-digit storage rounding.
+    orig_pin = win.le_PinA.text()
+    orig_ctr = win.le_pipeA_in_ctr.text()
+    orig_tin = win.le_TinA.text()
+    orig_ua = win.le_uA.text()
+    try:
+        from PySide6.QtWidgets import QLineEdit
+        QLineEdit.setText(win.le_PinA, '100+2')
+        win.le_PinA.editingFinished.emit()
+        assert win.le_PinA.text() == '102000'
+        assert win.le_PinA.raw_display_text() == '102'
+
+        QLineEdit.setText(win.le_PinA, '101.123456789012345')
+        win.le_PinA.editingFinished.emit()
+        assert win.le_PinA.text() == '101123.456789012345'
+        assert win.le_PinA.formatted_display_text() == '101.123'
+
+        QLineEdit.setText(win.le_PinA, '101.123456789012345 kPa')
+        win.le_PinA.editingFinished.emit()
+        assert win.le_PinA.text() == '101123.456789012345'
+        assert win.le_PinA.formatted_display_text() == '101.123'
+
+        QLineEdit.setText(win.le_pipeA_in_ctr, '20+22')
+        win.le_pipeA_in_ctr.editingFinished.emit()
+        assert win.le_pipeA_in_ctr.text() == '0.042'
+        assert win.le_pipeA_in_ctr.raw_display_text() == '42'
+
+        QLineEdit.setText(win.le_pipeA_in_ctr, '41.23456789')
+        win.le_pipeA_in_ctr.editingFinished.emit()
+        assert win.le_pipeA_in_ctr.text() == '0.04123456789'
+
+        QLineEdit.setText(win.le_pipeA_in_ctr, '41.23456789 mm')
+        win.le_pipeA_in_ctr.editingFinished.emit()
+        assert win.le_pipeA_in_ctr.text() == '0.04123456789'
+        assert win.le_pipeA_in_ctr.formatted_display_text() == '41.2346'
+
+        QLineEdit.setText(win.le_TinA, '300.123456789012345 K')
+        win.le_TinA.editingFinished.emit()
+        assert win.le_TinA.text() == '300.123456789012345'
+        assert win.le_TinA.formatted_display_text() == '300.123'
+
+        QLineEdit.setText(win.le_uA, '1.08 km/h')
+        win.le_uA.editingFinished.emit()
+        assert win.le_uA.text() == '0.3'
+
+        from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+        QLineEdit.setText(win.le_TinA, '70 F')
+        win.le_TinA.editingFinished.emit()
+        t_in_k_from_k = config_from_window(win, strict=True).fluid_A.T_in_K
+        win._toggle_temp_unit()
+        try:
+            assert win._temp_unit == 'C'
+            QLineEdit.setText(win.le_TinA, '70 F')
+            win.le_TinA.editingFinished.emit()
+            t_in_k_from_c = config_from_window(win, strict=True).fluid_A.T_in_K
+        finally:
+            win._toggle_temp_unit()
+        assert t_in_k_from_k == t_in_k_from_c
+    finally:
+        win.le_PinA.setText(orig_pin)
+        win.le_pipeA_in_ctr.setText(orig_ctr)
+        win.le_TinA.setText(orig_tin)
+        win.le_uA.setText(orig_ua)
 
 
 def test_dialog_theme_applies_first_and_changed_styles_only(monkeypatch):
@@ -705,16 +794,16 @@ def test_field_menu_revert_is_debranded(win):
         menu = QApplication.activePopupWidget()
         try:
             texts.extend(action.text() for action in menu.actions())
-            next(a for a in menu.actions() if a.text() == '恢复算例工况默认值').trigger()
+            next(a for a in menu.actions() if a.text() == '恢复默认算例值').trigger()
         finally:
             menu.close()
 
     win.le_L.setText('0.1')
     QTimer.singleShot(0, choose)
     win.le_L.contextMenuEvent(QContextMenuEvent(QContextMenuEvent.Reason.Mouse, QPoint(), QPoint()))
-    message = win.statusBar().currentMessage()
-    assert '恢复算例工况默认值' in texts
-    assert '已恢复算例工况默认值' in message
+    message = win.dialogs.last_notice
+    assert '恢复默认算例值' in texts
+    assert '已恢复默认算例值' in message
     assert not any('Shanghai' in text for text in [*texts, message])
 
 

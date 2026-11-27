@@ -16,9 +16,28 @@ from sjtu_tpmshx.applications.gui.ui.fmt import duration as fmt_duration
 from sjtu_tpmshx.applications.gui.ui.fmt import preset_display
 from sjtu_tpmshx.applications.gui.ui.nav_rail import RecentRunItem
 from sjtu_tpmshx.applications.gui.ui.run_info_popover import RunInfoData, RunInfoRow
-from sjtu_tpmshx.applications.gui.ui.theme import _btn_styles, get_theme
+from sjtu_tpmshx.applications.gui.ui.theme import (
+    RADIUS_CARD,
+    RADIUS_INPUT,
+    _btn_styles,
+    get_theme,
+)
 from sjtu_tpmshx.applications.gui.ui.ui_constants import TOAST_MS_SHORT
 from sjtu_tpmshx.run_control.provenance import SOURCE_ROOT, repository_revision
+
+
+def _menu_stylesheet() -> str:
+    """Return Style P2 QMenu QSS for the active light or dark theme."""
+    t = get_theme()
+    return (
+        f"QMenu {{ background: {t['popover']}; color: {t['fg']}; "
+        f"border: 1px solid {t['border_strong']}; border-radius: {RADIUS_CARD}px; "
+        f"padding: 6px; font-size: 12px; }}"
+        f"QMenu::item {{ padding: 6px 14px; border-radius: {RADIUS_INPUT}px; }}"
+        f"QMenu::item:selected {{ background: {t['accent_soft']}; color: {t['accent_fg']}; }}"
+        f"QMenu::item:disabled {{ color: {t['tert']}; font-size: 11px; padding: 4px 14px; }}"
+        f"QMenu::separator {{ height: 1px; background: {t['border']}; margin: 4px 8px; }}"
+    )
 
 
 def _history_status(entry) -> tuple[str, str]:
@@ -54,6 +73,18 @@ def _history_status(entry) -> tuple[str, str]:
     return label, "\n".join(details)
 
 
+def _format_time_of_day(ts: str) -> str:
+    """Format an ISO completion timestamp to HH:MM:SS while preserving time-only strings."""
+    raw = str(ts or "").strip()
+    if not raw:
+        return ""
+    if "T" in raw:
+        return raw.split("T", 1)[1][:8]
+    if " " in raw:
+        return raw.split(" ", 1)[1][:8]
+    return raw
+
+
 class RunHistory:
     """Owner of recent runs, load/save menus, timeline, links, and run info."""
 
@@ -78,14 +109,15 @@ class RunHistory:
         from sjtu_tpmshx.applications.gui.ui.builders_sidebar import result_metric_texts
 
         values = result_metric_texts(window)
-        now = datetime.datetime.now()
-        self._last_run_ts = now.strftime("%H:%M:%S")
+        recorded_ts = str(provenance.get("completed_at") or "").strip()
+        time_label = _format_time_of_day(recorded_ts)
+        self._last_run_ts = time_label
         snap = deepcopy(provenance["preset"])
         if snap is not None:
-            snap["name"] = f"Recent @ {self._last_run_ts}"
+            snap["name"] = f"Recent @ {time_label}" if time_label else "Recent"
         entry = {
-            "ts": now.isoformat(timespec="seconds"),
-            "label": self._last_run_ts,
+            "ts": recorded_ts,
+            "label": time_label or "—",
             "Q": values["Q"],
             "Q_unit": values["Q_unit"],
             "dP_A": values["dP_A"],
@@ -139,22 +171,32 @@ class RunHistory:
             self._load_menu = menu
         else:
             menu.clear()
+        menu.setStyleSheet(_menu_stylesheet())
         menu.setToolTipsVisible(True)
 
         # File actions
         load_file = menu.addAction("加载配置文件…")
         load_file.triggered.connect(window.case_files.load_config)
-        resume = menu.addAction("继续已有任务…")
+        resume = menu.addAction("继续已保存的计算…")
         resume.triggered.connect(lambda: window.single_run.resume())
+        load_link = menu.addAction("载入可复现链接…")
+        load_link.triggered.connect(window.history.load_reproducible_link)
 
         # User-saved presets
-        try:
-            user = window.case_files.store.load_user_presets()
-        except Exception:
-            user = []
         menu.addSeparator()
         uh = menu.addAction("我的预设")
         uh.setEnabled(False)
+        preset_err = None
+        try:
+            user = window.case_files.store.load_user_presets()
+            preset_err = getattr(window.case_files.store, "last_user_presets_error", None)
+        except Exception as exc:
+            preset_err = str(exc)
+            user = ()
+        if preset_err:
+            err_act = menu.addAction("   (预设读取失败)")
+            err_act.setEnabled(False)
+            err_act.setToolTip(str(preset_err))
         for p in user:
             name = p.get("name")
             if not name:
@@ -175,9 +217,13 @@ class RunHistory:
         else:
             for i, e in enumerate(entries):
                 status, details = _history_status(e)
+                raw_ts = str(e.get("label") or "")
+                ts_short = raw_ts[-8:-3] if len(raw_ts) >= 8 and ":" in raw_ts else raw_ts
+                mode_tag = str(e.get("mode", "")).upper()
+                prefix_parts = [p for p in (ts_short, mode_tag) if p]
                 label = (
-                    f"   #{i + 1}  {e['label']}   {status}   "
-                    f"Q={e['Q']} {e.get('Q_unit', '?')} · ΔP(A)={e['dP_A']}"
+                    f"   #{i + 1} {' · '.join(prefix_parts)}  {status}  "
+                    f"Q={e['Q']} {e.get('Q_unit', '?')}"
                 )
                 act = menu.addAction(label)
                 if e.get("preset") is None:
@@ -192,8 +238,8 @@ class RunHistory:
             clr.triggered.connect(self.clear_recent_runs)
 
         # Workspaces
-        ws_list = getattr(window.case_files, "WORKSPACE_NAMES", ("A", "B", "C"))
-        active_ws = getattr(window.case_files, "active_workspace", "A")
+        ws_list = window.case_files.WORKSPACES
+        active_ws = window.case_files.active_workspace
         menu.addSeparator()
         wh = menu.addAction("工作区")
         wh.setEnabled(False)
@@ -214,6 +260,7 @@ class RunHistory:
             self._save_menu = menu
         else:
             menu.clear()
+        menu.setStyleSheet(_menu_stylesheet())
 
         act_cfg = menu.addAction("保存配置文件…")
         act_cfg.triggered.connect(window.case_files.save_config)
@@ -272,8 +319,12 @@ class RunHistory:
         if rail is not None:
             rail.set_open_action("open")
         try:
+            menu.adjustSize()
             if anchor is not None:
-                menu.exec(anchor.mapToGlobal(QPoint(anchor.width() + 8, 0)))
+                origin = anchor.mapToGlobal(QPoint(anchor.width() + 8, 0))
+                win_bottom = window.mapToGlobal(QPoint(0, window.height() - 12)).y()
+                y = min(origin.y(), max(window.mapToGlobal(QPoint(0, 56)).y(), win_bottom - menu.height()))
+                menu.exec(QPoint(origin.x(), y))
             else:
                 menu.exec()
         finally:
@@ -292,8 +343,12 @@ class RunHistory:
         if rail is not None:
             rail.set_open_action("save")
         try:
+            menu.adjustSize()
             if anchor is not None:
-                menu.exec(anchor.mapToGlobal(QPoint(anchor.width() + 8, 0)))
+                origin = anchor.mapToGlobal(QPoint(anchor.width() + 8, 0))
+                win_bottom = window.mapToGlobal(QPoint(0, window.height() - 12)).y()
+                y = min(origin.y(), max(window.mapToGlobal(QPoint(0, 56)).y(), win_bottom - menu.height()))
+                menu.exec(QPoint(origin.x(), y))
             else:
                 menu.exec()
         finally:
@@ -317,8 +372,8 @@ class RunHistory:
         except ValueError as exc:
             QMessageBox.warning(self.window, "加载预设失败", str(exc))
             return
-        self.window.statusBar().showMessage(
-            f"已载入预设：{preset.get('name', '?')}。", 5000
+        self.window.dialogs.notify(
+            f"已载入预设：{preset.get('name', '?')}。", kind="info", duration_ms=5000
         )
 
     def load_recent_run(self, entry) -> None:
@@ -327,7 +382,7 @@ class RunHistory:
             QMessageBox.information(
                 self.window,
                 "没有 GUI 输入预设",
-                "此记录来自保存的工况，可从检查点继续计算。",
+                "此记录来自已保存算例，可从检查点继续计算。",
             )
             return
         try:
@@ -335,8 +390,10 @@ class RunHistory:
                 entry.get("preset") or {},
                 source_name=entry.get("preset_source") or "",
             )
-            self.window.statusBar().showMessage(
-                f"已恢复运行记录：{entry.get('ts', '?')}。", 5000
+            self.window.dialogs.notify(
+                f"已恢复运行记录：{entry.get('label') or entry.get('ts') or '—'}。",
+                kind="info",
+                duration_ms=5000,
             )
         except Exception as exc:
             QMessageBox.warning(self.window, "加载最近运行失败", str(exc))
@@ -345,7 +402,9 @@ class RunHistory:
         """Clear the in-memory recent-runs ring buffer."""
         self.recent_runs.clear()
         self.rebuild_recent_menu()
-        self.window.statusBar().showMessage("已清除最近运行记录。", TOAST_MS_SHORT)
+        self.window.dialogs.notify(
+            "已清除最近运行记录。", kind="info", duration_ms=TOAST_MS_SHORT
+        )
 
     def show_full_timeline(self) -> None:
         """Display the persistent `.session_timeline.jsonl` run log."""
@@ -427,7 +486,9 @@ class RunHistory:
             except Exception:
                 pass
             dlg.accept()
-            self.window.statusBar().showMessage("已清空历史记录。", TOAST_MS_SHORT)
+            self.window.dialogs.notify(
+                "已清空历史记录。", kind="info", duration_ms=TOAST_MS_SHORT
+            )
 
         btn_clear.clicked.connect(_clear)
         btn_close.clicked.connect(dlg.accept)
@@ -444,8 +505,8 @@ class RunHistory:
         b64 = base64.urlsafe_b64encode(compressed).decode("ascii").rstrip("=")
         token = f"TPMSHX::{b64}"
         QApplication.clipboard().setText(token)
-        self.window.statusBar().showMessage(
-            f"已复制复现链接（{len(token)} 字符）。", 5000
+        self.window.dialogs.notify(
+            f"已复制复现链接（{len(token)} 字符）。", kind="success", duration_ms=5000
         )
 
     def load_reproducible_link(self) -> None:
@@ -465,129 +526,219 @@ class RunHistory:
             compressed = base64.urlsafe_b64decode(payload + pad)
             preset = json.loads(zlib.decompress(compressed))
             self.window.case_files.apply_user_preset(preset)
-            self.window.statusBar().showMessage("已加载复现链接，请点击“开始计算”。", 5000)
+            self.window.dialogs.notify(
+                "已加载复现链接，请点击“开始计算”。", kind="info", duration_ms=5000
+            )
         except Exception as exc:
             QMessageBox.warning(self.window, "加载失败", str(exc))
 
-    def stamp_result_provenance(self, elapsed: float) -> None:
+    def stamp_result_provenance(self, total_elapsed: float | None = None) -> None:
         """Describe the completed run's inputs and returned grid on result tooltips."""
+        from sjtu_tpmshx.applications.gui.ui.fmt import recorded_elapsed_s
+
         result = self.window.cache.get_result()
         provenance = result.metadata.get("run_provenance") if result is not None else None
         if provenance is None:
             return
-        ts = datetime.datetime.now().strftime("%H:%M:%S")
-        self._last_run_ts = ts
-        commit = (repository_revision(SOURCE_ROOT)["revision"] or "")[:7]
-        grid = "×".join(map(str, provenance["input_grid"]))
-        actual_grid = "×".join(map(str, provenance["actual_grid"]))
-        dur = fmt_duration(elapsed)
-        preset = preset_display(provenance["preset_source"])
-        tip = (
-            f"Computed @ {ts}  ·  {dur}  ·  {provenance['mode'].upper()}"
-            f"  ·  input grid {grid}"
-            f"  ·  actual result grid {actual_grid}  ·  preset: {preset}"
-            + (f"  ·  commit: {commit}" if commit else "")
+        recorded_ts = str(provenance.get("completed_at") or "").strip()
+        if recorded_ts:
+            self._last_run_ts = _format_time_of_day(recorded_ts)
+        result_rev = (
+            (result.metadata.get("provenance") or {}).get("revision")
+            if isinstance(result.metadata.get("provenance"), dict)
+            else None
         )
+        commit = str(result_rev or provenance.get("commit") or "").strip()[:7]
+        grid = "×".join(map(str, provenance.get("input_grid") or ()))
+        actual_grid = "×".join(map(str, provenance.get("actual_grid") or ()))
+        solve_s = recorded_elapsed_s(result)
+        parts = [f"完成时间 {recorded_ts.replace('T', ' ') if recorded_ts else '—'}"]
+        if isinstance(solve_s, (int, float)):
+            parts.append(f"求解耗时 {fmt_duration(solve_s)}")
+        if isinstance(total_elapsed, (int, float)):
+            parts.append(f"端到端 {fmt_duration(total_elapsed)}")
+        preset = preset_display(provenance.get("preset_source") or "")
+        parts.extend(
+            (
+                str(provenance.get("mode") or "").upper(),
+                f"输入网格 {grid or '—'}",
+                f"实际网格 {actual_grid or '—'}",
+                f"预设：{preset}",
+            )
+        )
+        if commit:
+            parts.append(f"版本：{commit}")
+        tip = "  ·  ".join(parts)
         self._last_provenance_tip = tip
-        for key in ("q", "dpa", "dpb", "tout"):
+        strip = getattr(self.window, "readout_strip", None)
+        if strip is not None:
+            strip.setToolTip(tip)
+        for key in ("status", "iters"):
             lbl = getattr(self.window, "_sb_labels", {}).get(key)
             if lbl is not None:
                 lbl.setToolTip(tip)
 
-    def build_run_info_data(self) -> RunInfoData:
-        """Assemble plain-value metadata for the header ``RunInfoPopover``."""
+    def build_run_info_data(self, *, folder_path) -> RunInfoData:
+        """Assemble metadata strictly from the accepted result and its recorded provenance."""
+        from sjtu_tpmshx.applications.gui.ui.builders_sidebar import evaluate_result_status
+
         window = self.window
         result = window.cache.get_result()
         provenance = result.metadata.get("run_provenance") if result is not None else None
+        if not isinstance(provenance, dict):
+            provenance = None
         summary = window.results.summary() if result is not None else {}
 
+        _FLUID_LABELS = ("Air", "Water", "sCO₂", "CO₂")
+        _FLUID_TYPE_MAP = {"air": "Air", "water": "Water", "sco2": "sCO₂", "co2": "CO₂"}
+        _TPMS_LABELS = ("Diamond", "Gyroid")
+
         info_rows: list[RunInfoRow] = []
-        if provenance is not None:
-            mode_text = str(provenance.get("mode", "")).upper()
-            in_grid = "×".join(map(str, provenance.get("input_grid", ())))
-            act_grid = "×".join(map(str, provenance.get("actual_grid", ())))
-            preset_name = preset_display(provenance.get("preset_source") or "")
-            info_rows.append(RunInfoRow("预设", preset_name))
-            info_rows.append(RunInfoRow("维度", mode_text or "—"))
-            grid_val = act_grid if in_grid == act_grid else f"{in_grid} → {act_grid}"
-            info_rows.append(RunInfoRow("网格", grid_val or "—"))
-            if self._last_run_ts:
-                info_rows.append(RunInfoRow("完成时间", self._last_run_ts))
-            elapsed = getattr(window, "_last_elapsed_s", None)
-            if isinstance(elapsed, (int, float)):
-                info_rows.append(RunInfoRow("耗时", fmt_duration(elapsed)))
-        else:
-            preset_name = preset_display(getattr(window.case_files, "active_preset_name", ""))
-            dim_text = "3D" if getattr(window, "combo_dim", None) and window.combo_dim.currentIndex() == 1 else "2D"
-            info_rows.append(RunInfoRow("预设", preset_name))
-            info_rows.append(RunInfoRow("维度", dim_text))
-
-        # Surface CO2 CFD geometry table source whenever CO2 fluid is active.
-        from sjtu_tpmshx.applications.gui.ui.window_config import fluid_types_from_window
-
-        active_fluids = fluid_types_from_window(window)
-        has_co2 = "co2" in active_fluids.values() or (
-            result is not None and "co2" in result.metadata
-        )
-        if has_co2:
-            info_rows.append(
-                RunInfoRow("CO₂ 几何来源", "CO₂ CFD 查表", tone="accent_fg", weight=600)
+        if result is not None:
+            saved_preset = provenance.get("preset") if provenance else None
+            cfg_snap = (
+                (provenance.get("config_snapshot") if provenance else None)
+                or result.metadata.get("config_snapshot")
             )
+            mode_text = str((provenance or {}).get("mode") or summary.get("mode") or "").upper()
+            preset_name = preset_display((provenance or {}).get("preset_source") or "")
+            info_rows.append(RunInfoRow("预设", preset_name or "—"))
+            info_rows.append(RunInfoRow("维度", mode_text or "—"))
 
-        commit = (repository_revision(SOURCE_ROOT)["revision"] or "")[:7]
-        if commit:
-            info_rows.append(RunInfoRow("版本", commit, tone="tert", weight=400))
+            topo = ""
+            fluids_text = ""
+            domain_text = ""
+            cell_text = ""
+            if isinstance(cfg_snap, dict):
+                geom = cfg_snap.get("geometry") or {}
+                topo = str(geom.get("tpms") or "")
+                fa = _FLUID_TYPE_MAP.get(str((cfg_snap.get("fluid_A") or {}).get("type", "")).lower(), "")
+                fb = _FLUID_TYPE_MAP.get(str((cfg_snap.get("fluid_B") or {}).get("type", "")).lower(), "")
+                if fa or fb:
+                    fluids_text = f"{fa or '—'} / {fb or '—'}"
+                L_m = geom.get("L_dom_m")
+                H_m = geom.get("H_dom_m")
+                Lz_m = geom.get("Lz_m")
+                if isinstance(L_m, (int, float)) and isinstance(H_m, (int, float)):
+                    if mode_text == "3D" and isinstance(Lz_m, (int, float)):
+                        domain_text = f"{L_m * 1000:g} × {H_m * 1000:g} × {Lz_m * 1000:g}\u202fmm"
+                    else:
+                        domain_text = f"{L_m * 1000:g} × {H_m * 1000:g}\u202fmm"
+                lc = geom.get("L_cell_mm")
+                tw = geom.get("t_wall_mm")
+                if isinstance(lc, (int, float)) and isinstance(tw, (int, float)):
+                    cell_text = f"L {lc:g}\u202fmm · t {tw:g}\u202fmm"
+            elif isinstance(saved_preset, dict):
+                combos = saved_preset.get("combos") or {}
+                edits = saved_preset.get("line_edits") or {}
+                t_idx = combos.get("combo_tpms")
+                if isinstance(t_idx, int) and 0 <= t_idx < len(_TPMS_LABELS):
+                    topo = _TPMS_LABELS[t_idx]
+                fa_idx = combos.get("combo_fluidA")
+                fb_idx = combos.get("combo_fluidB")
+                if isinstance(fa_idx, int) and isinstance(fb_idx, int):
+                    fa = _FLUID_LABELS[fa_idx] if 0 <= fa_idx < len(_FLUID_LABELS) else "—"
+                    fb = _FLUID_LABELS[fb_idx] if 0 <= fb_idx < len(_FLUID_LABELS) else "—"
+                    fluids_text = f"{fa} / {fb}"
+                try:
+                    L_mm = float(edits["le_L"]) * 1000.0
+                    H_mm = float(edits["le_H"]) * 1000.0
+                    if mode_text == "3D" and edits.get("le_Lz"):
+                        Lz_mm = float(edits["le_Lz"]) * 1000.0
+                        domain_text = f"{L_mm:g} × {H_mm:g} × {Lz_mm:g}\u202fmm"
+                    else:
+                        domain_text = f"{L_mm:g} × {H_mm:g}\u202fmm"
+                except (KeyError, TypeError, ValueError):
+                    pass
+                lc_txt = str(edits.get("le_Lcell", "")).strip()
+                tw_txt = str(edits.get("le_t", "")).strip()
+                if lc_txt and tw_txt:
+                    cell_text = f"L {lc_txt}\u202fmm · t {tw_txt}\u202fmm"
+
+            if topo:
+                info_rows.append(RunInfoRow("拓扑", topo))
+            if fluids_text:
+                info_rows.append(RunInfoRow("流体 A / B", fluids_text))
+            if domain_text:
+                info_rows.append(RunInfoRow("计算域", domain_text))
+            if cell_text:
+                info_rows.append(RunInfoRow("胞元参数", cell_text))
+
+            if provenance is not None:
+                in_grid = "×".join(map(str, provenance.get("input_grid", ())))
+                act_grid = "×".join(map(str, provenance.get("actual_grid", ())))
+                grid_val = act_grid if in_grid == act_grid else f"{in_grid} → {act_grid}"
+                if grid_val:
+                    info_rows.append(RunInfoRow("网格", grid_val))
+                completed_at = str(provenance.get("completed_at") or "").strip()
+                if completed_at:
+                    info_rows.append(RunInfoRow("完成时间", completed_at.replace("T", " ")))
+            from sjtu_tpmshx.applications.gui.ui.fmt import recorded_elapsed_s
+
+            elapsed = recorded_elapsed_s(result)
+            if isinstance(elapsed, (int, float)):
+                info_rows.append(RunInfoRow("求解耗时", fmt_duration(elapsed)))
+
+            co2_meta = result.metadata.get("co2")
+            if isinstance(co2_meta, dict):
+                sides = [str(s) for s in (co2_meta.get("sides") or ()) if s]
+                common_geom = str(co2_meta.get("common_geometry") or "").strip()
+                label = "CO₂ CFD 查表"
+                if common_geom and "cfd" not in common_geom.lower():
+                    label = f"{label} · {common_geom}"
+                if sides:
+                    label = f"{label} ({', '.join(sides)})"
+                info_rows.append(
+                    RunInfoRow("CO₂ 几何来源", label, tone="accent_fg", weight=600)
+                )
+
+            result_rev = (
+                (result.metadata.get("provenance") or {}).get("revision")
+                if isinstance(result.metadata.get("provenance"), dict)
+                else None
+            )
+            recorded_rev = result_rev or (provenance.get("commit") if provenance else None)
+            if recorded_rev:
+                info_rows.append(
+                    RunInfoRow("版本", str(recorded_rev)[:7], tone="tert", weight=400)
+                )
+        else:
+            info_rows.append(RunInfoRow("状态", "尚未完成计算", tone="tert", weight=400))
 
         status_rows: list[RunInfoRow] = []
         if not window.single_run.is_idle():
             status_kind = "run"
             status_text = "正在求解"
-        elif result is None:
-            status_kind = "idle"
-            status_text = "尚未计算"
         else:
-            converged = result.converged
-            qualification = summary.get("qualification", {})
-            design_ok = qualification.get("design", {}).get("eligible")
-            extrap_ok = qualification.get("applicability", {}).get("passed")
-            if converged is False:
-                status_kind = "err"
-                status_text = "未收敛"
-            elif design_ok is False or extrap_ok is False:
-                status_kind = "warn"
-                status_text = "已收敛 · 存在提示"
-            elif converged is True:
-                status_kind = "ok"
-                status_text = "已收敛"
-            else:
-                status_kind = "idle"
-                status_text = "状态未知"
-
-            rel = summary.get("closure_rel")
-            if isinstance(rel, (int, float)) and rel == rel:
-                phys_ok = qualification.get("physical", {}).get("passed")
-                status_rows.append(
-                    RunInfoRow(
-                        "能量闭合",
-                        f"{abs(rel) * 100:.2f}\u202f%",
-                        tone="ok" if phys_ok else ("warn" if phys_ok is False else "fg"),
+            status_kind, status_text = evaluate_result_status(result, summary)
+            if result is not None:
+                qualification = summary.get("qualification", {})
+                design_ok = qualification.get("design", {}).get("eligible")
+                rel = summary.get("closure_rel")
+                if isinstance(rel, (int, float)) and rel == rel:
+                    phys_ok = qualification.get("physical", {}).get("passed")
+                    status_rows.append(
+                        RunInfoRow(
+                            "能量闭合",
+                            f"{abs(rel) * 100:.2f}\u202f%",
+                            tone="ok" if phys_ok else ("warn" if phys_ok is False else "fg"),
+                        )
                     )
-                )
-            iters = (summary.get("iters") or {}).get("iter_outer")
-            if iters is not None:
-                status_rows.append(RunInfoRow("外迭代", str(iters)))
-            if design_ok is not None:
-                status_rows.append(
-                    RunInfoRow(
-                        "设计资格",
-                        "合格" if design_ok else "未通过",
-                        tone="ok" if design_ok else "warn",
+                iters = (summary.get("iters") or {}).get("iter_outer")
+                if iters is not None:
+                    status_rows.append(RunInfoRow("外迭代", str(iters)))
+                if design_ok is not None:
+                    status_rows.append(
+                        RunInfoRow(
+                            "设计资格",
+                            "合格" if design_ok else "未通过",
+                            tone="ok" if design_ok else "warn",
+                        )
                     )
-                )
 
         has_log = bool((window.single_run.compute.last_log() or "").strip())
         has_diag = result is not None
-        has_folder = window.dialogs.resolve_output_directory() is not None
+        has_folder = folder_path is not None
         return RunInfoData(
             info_rows=tuple(info_rows),
             status_kind=status_kind,
@@ -615,6 +766,6 @@ class RunHistory:
         lines.append("")
         lines.append("window.case_files.apply_user_preset(cfg)")
         QApplication.clipboard().setText("\n".join(lines))
-        self.window.statusBar().showMessage(
-            "已将当前输入参数复制为 Python 脚本。", 5000
+        self.window.dialogs.notify(
+            "已将当前输入参数复制为 Python 脚本。", kind="success", duration_ms=5000
         )

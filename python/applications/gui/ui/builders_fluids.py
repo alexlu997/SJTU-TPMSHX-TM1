@@ -1,7 +1,7 @@
 """Build unified 2D/3D fluid, model, and port sections in Style P2."""
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSignalBlocker, Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -14,20 +14,38 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .builders_base import right_align_combo
 from .inspector_drawer import CollapsibleBand
 from .symbols import SYM
 from .theme import RADIUS_BTN, get_theme
 from .window_config import LINE_EDITS
 
+LABEL_COL_MIN_W = 118
+
 _DIR_ITEMS = [
-    "+x  (left → right)",
-    "-x  (right → left)",
-    "+y  (bottom → top)",
-    "-y  (top → bottom)",
-    "+z  (front → back, 3D)",
-    "-z  (back → front, 3D)",
+    "+x  左 → 右",
+    "−x  右 → 左",
+    "+y  下 → 上",
+    "−y  上 → 下",
+    "+z  前 → 后 (3D)",
+    "−z  后 → 前 (3D)",
 ]
+
+
+def sync_direction_items(window, is_3d: bool) -> None:
+    """Expose 4 planar directions in 2D and all 6 directions in 3D."""
+    items = _DIR_ITEMS if is_3d else _DIR_ITEMS[:4]
+    for side, fallback in (("A", 0), ("B", 3)):
+        combo = getattr(window, f"combo_dir{side}", None)
+        if combo is None or combo.count() == len(items):
+            continue
+        current = combo.currentIndex()
+        next_idx = current if 0 <= current < len(items) else fallback
+        with QSignalBlocker(combo):
+            combo.clear()
+            combo.addItems(items)
+            combo.setCurrentIndex(next_idx)
+        if next_idx != current and hasattr(window, "_on_dir_changed"):
+            window._on_dir_changed()
 
 
 def refresh_fluid_model_visibility(window):
@@ -79,6 +97,7 @@ def _make_band_grid(
     grid.setContentsMargins(16, 10, 16, 12)
     grid.setVerticalSpacing(8)
     grid.setHorizontalSpacing(10)
+    grid.setColumnMinimumWidth(0, LABEL_COL_MIN_W)
     grid.setColumnStretch(0, 0)
     grid.setColumnStretch(1, 1)
     band.set_body(body)
@@ -86,27 +105,58 @@ def _make_band_grid(
 
 
 def _build_pipe_section(window, lay, side, *, combo_style, dir_index):
-    """Build port rows in capture order; flow direction updates axis labels."""
+    """Build compact paired center/width port rows; flow direction updates axis labels."""
     from .field_factory import default_factory
 
     f = default_factory()
+    theme = get_theme()
     gio, sec = _make_band_grid(f"端口 {side}")
+    gio.setColumnStretch(1, 1)
+    gio.setColumnStretch(2, 1)
     window._ia_sections[f"pipe_{side.lower()}"] = sec
     combo = QComboBox()
-    combo.addItems(_DIR_ITEMS)
-    combo.setCurrentIndex(dir_index)
+    is_3d = hasattr(window, "combo_dim") and window.combo_dim.currentIndex() == 1
+    combo.addItems(_DIR_ITEMS if is_3d else _DIR_ITEMS[:4])
+    combo.setCurrentIndex(dir_index if dir_index < combo.count() else 0)
     combo.setStyleSheet(combo_style)
     combo.currentIndexChanged.connect(window._on_dir_changed)
     setattr(window, f"combo_dir{side}", combo)
-    f.add_row(gio, 0, "流动方向", right_align_combo(combo))
-    ports = (spec for spec in LINE_EDITS.values() if spec.path.startswith(f"bc_{side}."))
-    for row_idx, spec in enumerate(ports, start=1):
-        le = f.row(gio, row_idx, *spec.editor_text(""))
-        lbl = gio.itemAtPosition(row_idx, 0).widget()
-        setattr(window, spec.widget, le)
-        setattr(window, "_lbl_" + spec.widget.removeprefix("le_"), lbl)
-        if spec.definition.metadata["dimensions"] == (3,):
-            window._3d_only_widgets += [le, lbl]
+    dir_lbl = f.label("流动方向")
+    gio.addWidget(dir_lbl, 0, 0)
+    gio.addWidget(combo, 0, 1, 1, 2)
+
+    hdr_css = f"color: {theme['tert']}; font-size: 11px; font-weight: 500; background: transparent; border: none;"
+    for col, heading in ((1, "中心"), (2, "宽度")):
+        h = QLabel(heading)
+        h.setStyleSheet(hdr_css)
+        gio.addWidget(h, 1, col)
+
+    pair_defs = (
+        ("in", "", "入口", False),
+        ("in", "z_", "入口", True),
+        ("out", "", "出口", False),
+        ("out", "z_", "出口", True),
+    )
+    for row_offset, (end, key, port_title, is_3d_pair) in enumerate(pair_defs, start=2):
+        ctr_spec = LINE_EDITS[f"le_pipe{side}_{end}_{key}ctr"]
+        w_spec = LINE_EDITS[f"le_pipe{side}_{end}_{key}w"]
+        row_lbl = f.label(f"{port_title} {'z' if is_3d_pair else 'x'}")
+        gio.addWidget(row_lbl, row_offset, 0)
+        setattr(window, f"_lbl_pipe{side}_{end}_{key}row", row_lbl)
+        setattr(window, f"_lbl_pipe{side}_{end}_{key}ctr", row_lbl)
+        setattr(window, f"_lbl_pipe{side}_{end}_{key}w", row_lbl)
+
+        ctr_le = f.line_edit("" if ctr_spec.default is None else str(ctr_spec.default), unit="m")
+        ctr_le.set_display_unit("mm", 1e3)
+        w_le = f.line_edit("" if w_spec.default is None else str(w_spec.default), unit="m")
+        w_le.set_display_unit("mm", 1e3)
+        gio.addWidget(ctr_le, row_offset, 1)
+        gio.addWidget(w_le, row_offset, 2)
+        setattr(window, ctr_spec.widget, ctr_le)
+        setattr(window, w_spec.widget, w_le)
+        if is_3d_pair:
+            window._3d_only_widgets += [row_lbl, ctr_le, w_le]
+
     combo.setToolTip("入口速度在指定几何开口内均匀施加；开口外为壁面。")
     lay.addWidget(sec)
 
@@ -122,7 +172,7 @@ def _build_fluid_io_rows(window, g, side, t):
     mode.addItem("总质量流量 [kg/s]", "mass_flow")
     mode.setStyleSheet(t.style("COMBO"))
     setattr(window, f"combo_inlet_mode{s}", mode)
-    f.add_row(g, 1, "入口输入", right_align_combo(mode))
+    f.add_row(g, 1, "入口输入", mode)
     window._3d_only_widgets += [
         g.itemAtPosition(1, 0).widget(),
         g.itemAtPosition(1, 1).widget(),
@@ -146,7 +196,9 @@ def _build_fluid_io_rows(window, g, side, t):
     setattr(window, f"_lbl_Tin{s}_unit", g.itemAtPosition(4, 0).widget())
 
     pressure = LINE_EDITS[f"le_Pin{s}"]
-    setattr(window, pressure.widget, f.row(g, 5, *pressure.editor_text("入口绝压", s)))
+    pin_le = f.row(g, 5, *pressure.editor_text("入口绝压", s))
+    pin_le.set_display_unit("kPa", 1e-3)
+    setattr(window, pressure.widget, pin_le)
 
     gd, computed = _make_band_grid("物性预览", expanded=False)
     computed._set_expanded = computed.set_expanded
@@ -179,7 +231,7 @@ def build_fluid_sections(window, lay):
         "实验标定使用与具体实验 campaign、边界和压降定义绑定的有效修正；"
         "数据集选择不代表已证实的工质本征效应。"
     )
-    f.add_row(g_method, 0, "方法", right_align_combo(window.combo_df_mode))
+    f.add_row(g_method, 0, "方法", window.combo_df_mode)
     window._co2_fixed_notice = QLabel(
         "CO₂：单相 HEOS；阻力 ×2.5、Nu ×1.28 为固定修正，独立于上方选择。"
         "两侧共用 CO₂ CFD 几何。"
@@ -199,7 +251,7 @@ def build_fluid_sections(window, lay):
     window.combo_sco2_nu_mode.addItem("有效系数标定", "experimental")
     window.combo_sco2_nu_mode.setStyleSheet(combo_qss)
     window.combo_sco2_nu_mode.setToolTip("独立于 D-F；选择现行有效系数，或导入带来源的参数。")
-    f.add_row(g_nu, 0, "方法", right_align_combo(window.combo_sco2_nu_mode))
+    f.add_row(g_nu, 0, "方法", window.combo_sco2_nu_mode)
     window.btn_sco2_nu_current = QPushButton("使用现行有效系数")
     window.btn_sco2_nu_current.setStyleSheet(t.style("BTN_SECONDARY"))
     window.btn_sco2_nu_current.setToolTip("Gyroid 为换热量标定；Diamond 为同倍率迁移。适用范围见参数来源。")
@@ -296,7 +348,7 @@ def build_fluid_sections(window, lay):
             f"Fluid {side} supports Air, Water, sCO₂ and single-phase CO₂ (2D + 3D)."
         )
         setattr(window, f"combo_fluid{side}", combo)
-        f.add_row(g_fl, 0, "流体类型", right_align_combo(combo))
+        f.add_row(g_fl, 0, "流体类型", combo)
         _build_fluid_io_rows(window, g_fl, side, t)
         p_lay.addWidget(band_fl)
 

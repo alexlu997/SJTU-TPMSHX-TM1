@@ -1,6 +1,7 @@
 """Desktop user files live outside the read-only application package."""
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 import re
@@ -16,7 +17,7 @@ _DATA_FILES = (
     '.user_presets.json', '.workspace', '.session_timeline.jsonl', '.first_run_done',
 )
 _CMAP_SETTINGS = tuple(f'cmap_{quantity}' for quantity in COLORMAP_QUANTITIES)
-_APPEARANCE_SETTINGS = ('theme', 'density', 'accent', 'reduced_motion', *_CMAP_SETTINGS)
+_APPEARANCE_SETTINGS = ('theme', 'density', 'accent', 'reduced_motion', 'inspector', *_CMAP_SETTINGS)
 _LOG = logging.getLogger(__name__)
 
 
@@ -67,6 +68,22 @@ def _valid_appearance(name: str, value: str) -> bool:
         return re.fullmatch(r'#[0-9a-fA-F]{6}', value) is not None
     if name == 'reduced_motion':
         return value in ('true', 'false')
+    if name == 'inspector':
+        try:
+            parsed = json.loads(value)
+        except (TypeError, ValueError):
+            return False
+        if not isinstance(parsed, dict):
+            return False
+        for page_key, entry in parsed.items():
+            if page_key not in ('run', 'result') or not isinstance(entry, dict):
+                return False
+            if not isinstance(entry.get('open'), bool):
+                return False
+            tab = entry.get('tab')
+            if not isinstance(tab, int) or isinstance(tab, bool) or tab < 0:
+                return False
+        return True
     if name in _CMAP_SETTINGS:
         return value in COLORMAP_CHOICES
     return False
