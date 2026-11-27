@@ -229,23 +229,23 @@ def test_group_badge_counts_empty_field(win):
 
 
 def test_group_badge_updates_via_validator_debounce(win):
-    import time
-    app = QApplication.instance()
+    from PySide6.QtTest import QSignalSpy
+
     _tab_idx, band = win._drawer_bands["domain_geometry"]
     old = win.le_L.text()
     win.le_L.setText("")
     win.le_L.editingFinished.emit()
-    deadline = time.monotonic() + 2.0
-    while win._group_badge_counts.get("domain_geometry", 0) == 0 and time.monotonic() < deadline:
-        app.processEvents()
+    assert win._badge_timer.isActive()
+    assert QSignalSpy(win._badge_timer.timeout).wait(2000)
     assert win._group_badge_counts["domain_geometry"] >= 1
+    assert band.header._badge_label.isVisibleTo(band.header)
     assert "⚠" in band.header._badge_label.text()
     win.le_L.setText(old or "0.182")
     win.le_L.editingFinished.emit()
-    deadline = time.monotonic() + 2.0
-    while win._group_badge_counts.get("domain_geometry", 0) > 0 and time.monotonic() < deadline:
-        app.processEvents()
+    assert win._badge_timer.isActive()
+    assert QSignalSpy(win._badge_timer.timeout).wait(2000)
     assert win._group_badge_counts["domain_geometry"] == 0
+    assert not band.header._badge_label.isVisibleTo(band.header)
 
 
 def test_group_badge_survives_toggle(win):
