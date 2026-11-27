@@ -199,10 +199,11 @@ def test_bundle_requires_and_collects_four_prebuilt_libraries(desktop_spec_prefi
     assert '(licenses/CoolProp.txt)' in notices
     assert (staged / 'licenses/CoolProp.txt').read_bytes() == (root / 'engineering/native_build/licenses/CoolProp.txt').read_bytes()
     assert 'sjtu_tpmshx.development' in namespace['excluded']
-    # PyVista imports these VTK modules only through importlib: the source cone at import,
-    # and the OpenGL, volume and interaction modules for the 3D views.
-    assert {'vtkmodules.vtkFiltersSources', 'vtkmodules.vtkRenderingOpenGL2', 'vtkmodules.vtkRenderingVolumeOpenGL2',
-            'vtkmodules.vtkInteractionStyle', 'vtkmodules.vtkRenderingFreeType'} <= set(namespace['hidden'])
+    # PyVista imports these VTK modules only through importlib: the source cone and the
+    # 2D context renderer at import, and the OpenGL, volume and interaction modules for the 3D views.
+    assert {'vtkmodules.vtkFiltersSources', 'vtkmodules.vtkRenderingContextOpenGL2', 'vtkmodules.vtkRenderingOpenGL2',
+            'vtkmodules.vtkRenderingVolumeOpenGL2', 'vtkmodules.vtkInteractionStyle',
+            'vtkmodules.vtkRenderingFreeType'} <= set(namespace['hidden'])
 
 
 @pytest.mark.parametrize('component', ['SOLVER', 'GEOMETRY', 'PREPARATION', 'RESULT'])
