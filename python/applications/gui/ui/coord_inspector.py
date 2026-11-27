@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QPushButton, QApplication, QSizePolicy,
 )
 
-from sjtu_tpmshx.data_types.validator import convert_temperature_float
+from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
 from sjtu_tpmshx.postprocess.result_display import RESULT_FIELD_SPECS
 
 from .theme import get_theme
@@ -117,7 +117,7 @@ def _resolve_fields(window, x_mm, y_mm):
             # header K/°C toggle.
             disp_unit = unit
             if unit == 'K' and want_C:
-                v = convert_temperature_float(v, 'K', 'C')
+                v = v - CELSIUS_ZERO_K
                 disp_unit = '°C'
             out.append((label, fmt.format(v), disp_unit))
         except Exception:

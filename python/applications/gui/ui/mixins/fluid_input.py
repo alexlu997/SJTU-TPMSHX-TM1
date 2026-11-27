@@ -17,10 +17,7 @@ import math
 
 from PySide6.QtWidgets import QMessageBox
 
-from sjtu_tpmshx.data_types.validator import (
-    convert_temperature_decimal,
-    convert_temperature_float,
-)
+from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
 from sjtu_tpmshx.physical_models.design_fluids import nu_re_window
 from sjtu_tpmshx.physical_models.tpms_calc import compute as tpms_compute
 from sjtu_tpmshx.applications.gui.ui.ui_constants import TOAST_MS_MED
@@ -123,9 +120,9 @@ class FluidInputMixin:
         if defaults is None:
             return
         # Honour the current temperature display unit.
-        T_val = convert_temperature_float(
-            defaults['T'], 'K', getattr(self, '_temp_unit', 'K')
-        )
+        T_val = defaults['T']
+        if getattr(self, '_temp_unit', 'K') == 'C':
+            T_val = T_val - CELSIUS_ZERO_K
         targets = (
             (f'le_u{side}',  f"{defaults['u']:.3g}"),
             (f'le_Tin{side}', f"{T_val:.2f}"),
@@ -169,26 +166,27 @@ class FluidInputMixin:
         compute path should go through this rather than `float(le.text())`
         so the K/°C toggle stays sound.
         """
-        return convert_temperature_float(
-            str(le.text()), getattr(self, '_temp_unit', 'K'), 'K'
-        )
+        raw = str(le.text()).strip()
+        try:
+            value = Decimal(raw)
+        except InvalidOperation as exc:
+            raise ValueError(f"could not convert string to float: {raw!r}") from exc
+        if getattr(self, '_temp_unit', 'K') == 'C':
+            value += Decimal(str(CELSIUS_ZERO_K))
+        return float(value)
 
-    def _set_temp_K(self, le, kelvin_value, fmt=None):
+    def _set_temp_K(self, le, kelvin_value, fmt='{:.17g}'):
         """Write the selected temperature unit without rounding the input."""
         if le is None or kelvin_value is None or kelvin_value == '':
             return
-        from sjtu_tpmshx.applications.gui.ui.field_factory import _format_decimal_exact
         try:
-            converted = convert_temperature_decimal(
-                kelvin_value, 'K', getattr(self, '_temp_unit', 'K')
-            )
-        except ValueError:
+            v = float(kelvin_value)
+        except (TypeError, ValueError):
             return
-        if not converted.is_finite():
-            return
-        text = _format_decimal_exact(converted) if fmt is None else fmt.format(float(converted))
+        if getattr(self, '_temp_unit', 'K') == 'C':
+            v -= CELSIUS_ZERO_K
         try:
-            le.setText(text)
+            le.setText(fmt.format(v))
         except Exception:
             pass
 
@@ -228,8 +226,11 @@ class FluidInputMixin:
         from sjtu_tpmshx.applications.gui.ui.expr_eval import eval_expr, is_expression
         from sjtu_tpmshx.applications.gui.ui.field_factory import _format_decimal_exact
         self._refresh_field_validation()
-        cur_unit = getattr(self, '_temp_unit', 'K')
-        new_unit = 'C' if cur_unit == 'K' else 'K'
+        offset = Decimal(str(CELSIUS_ZERO_K))
+        if getattr(self, '_temp_unit', 'K') == 'K':
+            new_unit, offset = 'C', -offset
+        else:
+            new_unit = 'K'
         for name in ('le_TinA', 'le_TinB'):
             field = getattr(self, name, None)
             if field is None:
@@ -245,9 +246,7 @@ class FluidInputMixin:
                 if expr_val is None or not math.isfinite(expr_val):
                     continue
                 value = Decimal(repr(expr_val))
-            field.setText(
-                _format_decimal_exact(convert_temperature_decimal(value, cur_unit, new_unit))
-            )
+            field.setText(_format_decimal_exact(value + offset))
         self._temp_unit = new_unit
         self._sync_temp_unit_labels()
         self._refresh_field_validation()

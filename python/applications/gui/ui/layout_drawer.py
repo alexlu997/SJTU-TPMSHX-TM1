@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 from PySide6.QtWidgets import QMessageBox
 
-from sjtu_tpmshx.data_types.validator import convert_temperature_float
+from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
 
 from .symbols import MPL
 from .theme import get_theme, resolve_cmap
@@ -47,8 +47,8 @@ def _render_2d_thumbnail_axes(window, fig) -> bool:
     x_edges = np.concatenate(([0.0], np.cumsum(dx_a) * 1000.0))
     y_edges = np.concatenate(([0.0], np.cumsum(dy_a) * 1000.0))
 
-    temp_unit = "C" if getattr(window, "_temp_unit", "K") == "C" else "K"
-    unit = "°C" if temp_unit == "C" else "K"
+    unit = "°C" if getattr(window, "_temp_unit", "K") == "C" else "K"
+    offset = CELSIUS_ZERO_K if unit == "°C" else 0.0
     temps = [fields[k] for k in ("Ta", "Tb", "Ts") if fields.get(k) is not None]
     sync = bool(
         getattr(window, "chk_sync_colorbar_T", None)
@@ -60,9 +60,9 @@ def _render_2d_thumbnail_axes(window, fig) -> bool:
         lo, hi = field_color_limits(temps[:2], shared=True)[0]
     else:
         lo, hi = field_color_limits([Ta], shared=True)[0]
-    lo = convert_temperature_float(lo, "K", temp_unit)
-    hi = convert_temperature_float(hi, "K", temp_unit)
-    data = convert_temperature_float(np.asarray(Ta, dtype=float), "K", temp_unit)
+    lo -= offset
+    hi -= offset
+    data = np.asarray(Ta, dtype=float) - offset
 
     theme = get_theme()
     inset = fig.add_axes([0.11, 0.10, 0.76, 0.27])
