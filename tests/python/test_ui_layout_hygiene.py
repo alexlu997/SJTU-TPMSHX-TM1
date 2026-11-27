@@ -229,22 +229,33 @@ def test_group_badge_counts_empty_field(win):
 
 
 def test_group_badge_updates_via_validator_debounce(win):
-    import time
-    app = QApplication.instance()
+    from PySide6.QtCore import QEventLoop, QTimer
+
+    def wait_debounce() -> None:
+        timer = win._badge_timer
+        assert timer.isActive()
+        loop = QEventLoop()
+        guard = QTimer()
+        guard.setSingleShot(True)
+        timer.timeout.connect(loop.quit)
+        guard.timeout.connect(loop.quit)
+        guard.start(2000)
+        try:
+            loop.exec()
+        finally:
+            guard.stop()
+            timer.timeout.disconnect(loop.quit)
+
     _tab_idx, band = win._drawer_bands["domain_geometry"]
     old = win.le_L.text()
     win.le_L.setText("")
     win.le_L.editingFinished.emit()
-    deadline = time.monotonic() + 2.0
-    while win._group_badge_counts.get("domain_geometry", 0) == 0 and time.monotonic() < deadline:
-        app.processEvents()
+    wait_debounce()
     assert win._group_badge_counts["domain_geometry"] >= 1
     assert "⚠" in band.header._badge_label.text()
     win.le_L.setText(old or "0.182")
     win.le_L.editingFinished.emit()
-    deadline = time.monotonic() + 2.0
-    while win._group_badge_counts.get("domain_geometry", 0) > 0 and time.monotonic() < deadline:
-        app.processEvents()
+    wait_debounce()
     assert win._group_badge_counts["domain_geometry"] == 0
 
 
