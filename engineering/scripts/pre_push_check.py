@@ -210,7 +210,7 @@ def check(base_ref):
     seconds = round(time.monotonic() - start)
     summary = (f'Pre-push light check: {"pass" if passed else "FAIL"} at {head[:12]} '
                f'(selection base {base[:12]}, tier {tier}); '
-               + ', '.join(f'{n} {result}' for result, n in sorted(counts.items()))
+               + (', '.join(f'{n} {result}' for result, n in sorted(counts.items())) or 'no test nodes')
                + f'; {seconds} s')
     lines = [
         'TM1 pre-push light check (engineering/scripts/pre_push_check.py)',
