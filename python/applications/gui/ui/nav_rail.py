@@ -132,14 +132,6 @@ def _render_icon(name: str, color: str, size: int = 18, stroke: float = 1.55) ->
     return QIcon(pixmap)
 
 
-def _icon_label(name: str, color: str, size: int = 15, stroke: float = 1.55) -> QLabel:
-    lab = QLabel()
-    lab.setPixmap(_render_icon(name, color, size, stroke).pixmap(QSize(size, size)))
-    lab.setFixedSize(size, size)
-    lab.setStyleSheet("background: transparent;")
-    return lab
-
-
 def _status_pixmap(kind: str, tokens: Mapping[str, Any], size: float = 6.0, halo: str | None = None) -> QPixmap:
     color = QColor(tokens[_STATUS_COLOR_KEY[kind]])
     pad = 2 if halo else 0
@@ -429,7 +421,7 @@ class NavRail(QFrame):
 
 
 class _ExpandedRowButton(QPushButton):
-    """Clickable row inside the expanded rail with icon, label, and optional trailing items."""
+    """Clickable row inside the expanded rail with reusable icon, label, and trailing slots."""
 
     def __init__(
         self,
@@ -446,14 +438,95 @@ class _ExpandedRowButton(QPushButton):
         shortcut: str = "",
         checked: bool = False,
         icon_accent: bool = False,
+        enabled: bool = True,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+        self._icon_name = icon_name
+        self._height = height
+        self._icon_size = icon_size
+        self._font_size = font_size
+        self._icon_cache_key: tuple[str, str, int] | None = None
+        self._dot_cache_key: tuple[str, str] | None = None
+        self._check_cache_key: str | None = None
+
         self.setFixedHeight(height)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        layout = QHBoxLayout(self)
+        margin_h = 8 if height <= 30 else 10
+        layout.setContentsMargins(margin_h, 0, margin_h, 0)
+        layout.setSpacing(10 if height >= 34 else 6)
+
+        self._icon_label = QLabel()
+        self._icon_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._icon_label.setFixedSize(icon_size, icon_size)
+        self._icon_label.setStyleSheet("background: transparent;")
+        layout.addWidget(self._icon_label)
+
+        self._text_label = QLabel()
+        self._text_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        _enable_tnum(self._text_label)
+        layout.addWidget(self._text_label)
+        layout.addStretch(1)
+
+        self._dot_label = QLabel()
+        self._dot_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._dot_label.setStyleSheet("background: transparent;")
+        self._dot_label.hide()
+        layout.addWidget(self._dot_label)
+
+        self._meta_label = QLabel()
+        self._meta_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        _enable_tnum(self._meta_label)
+        self._meta_label.hide()
+        layout.addWidget(self._meta_label)
+
+        self._check_label = QLabel()
+        self._check_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._check_label.setFixedSize(14, 14)
+        self._check_label.setStyleSheet("background: transparent;")
+        self._check_label.hide()
+        layout.addWidget(self._check_label)
+
+        self._shortcut_label = QLabel()
+        self._shortcut_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._shortcut_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self._shortcut_label.hide()
+        layout.addWidget(self._shortcut_label, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        self.update_state(
+            tokens,
+            text=text,
+            active=active,
+            dot=dot,
+            meta=meta,
+            shortcut=shortcut,
+            checked=checked,
+            icon_accent=icon_accent,
+            enabled=enabled,
+        )
+
+    def update_state(
+        self,
+        tokens: Mapping[str, Any],
+        *,
+        text: str | None = None,
+        active: bool = False,
+        dot: str | None = None,
+        meta: str = "",
+        shortcut: str = "",
+        checked: bool = False,
+        icon_accent: bool = False,
+        enabled: bool = True,
+    ) -> None:
+        """Update button visuals, text, status mark, and trailing badges in place."""
+        self.setEnabled(enabled)
+        self.setCursor(
+            Qt.CursorShape.PointingHandCursor if enabled else Qt.CursorShape.ArrowCursor
+        )
 
         if active:
-            self.setStyleSheet(
+            btn_qss = (
                 f"QPushButton {{ background: {tokens['accent_soft']}; border: none; "
                 f"border-radius: 7px; text-align: left; }}"
             )
@@ -461,7 +534,7 @@ class _ExpandedRowButton(QPushButton):
             text_color = tokens["accent_fg"]
             weight = 600
         else:
-            self.setStyleSheet(
+            btn_qss = (
                 "QPushButton { background: transparent; border: none; "
                 "border-radius: 7px; text-align: left; }"
                 f"QPushButton:hover {{ background: {tokens['row_hover']}; }}"
@@ -469,62 +542,84 @@ class _ExpandedRowButton(QPushButton):
             icon_color = tokens["accent_fg"] if icon_accent else tokens["sub"]
             text_color = tokens["fg"]
             weight = 500 if checked else 400
+        if self.styleSheet() != btn_qss:
+            self.setStyleSheet(btn_qss)
 
-        layout = QHBoxLayout(self)
-        margin_h = 8 if height <= 30 else 10
-        layout.setContentsMargins(margin_h, 0, margin_h, 0)
-        layout.setSpacing(10 if height >= 34 else 6)
+        icon_key = (self._icon_name, icon_color, self._icon_size)
+        if self._icon_cache_key != icon_key:
+            self._icon_label.setPixmap(
+                _render_icon(self._icon_name, icon_color, self._icon_size).pixmap(
+                    QSize(self._icon_size, self._icon_size)
+                )
+            )
+            self._icon_cache_key = icon_key
 
-        layout.addWidget(_icon_label(icon_name, icon_color, icon_size))
-
-        text_label = QLabel(text)
-        text_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        if "<" in text:
-            text_label.setTextFormat(Qt.TextFormat.RichText)
-        text_label.setStyleSheet(
-            f"color: {text_color}; font-size: {int(round(font_size))}px; "
+        if text is not None:
+            fmt = Qt.TextFormat.RichText if "<" in text else Qt.TextFormat.PlainText
+            if self._text_label.textFormat() != fmt:
+                self._text_label.setTextFormat(fmt)
+            if self._text_label.text() != text:
+                self._text_label.setText(text)
+        text_qss = (
+            f"color: {text_color}; font-size: {int(round(self._font_size))}px; "
             f"font-weight: {weight}; background: transparent;"
         )
-        _enable_tnum(text_label)
-        layout.addWidget(text_label)
-        layout.addStretch(1)
+        if self._text_label.styleSheet() != text_qss:
+            self._text_label.setStyleSheet(text_qss)
 
         if dot and dot in _STATUS_COLOR_KEY:
-            pm = _status_pixmap(dot, tokens, size=6.5)
-            side = int(round(pm.width() / pm.devicePixelRatio()))
-            dot_lab = QLabel()
-            dot_lab.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-            dot_lab.setPixmap(pm)
-            dot_lab.setFixedSize(side, side)
-            dot_lab.setStyleSheet("background: transparent;")
-            layout.addWidget(dot_lab)
+            dot_key = (dot, tokens[_STATUS_COLOR_KEY[dot]])
+            if self._dot_cache_key != dot_key:
+                pm = _status_pixmap(dot, tokens, size=6.5)
+                side = int(round(pm.width() / pm.devicePixelRatio()))
+                self._dot_label.setPixmap(pm)
+                self._dot_label.setFixedSize(side, side)
+                self._dot_cache_key = dot_key
+            self._dot_label.show()
+        else:
+            self._dot_label.hide()
 
         if meta:
-            meta_lab = QLabel(meta)
-            meta_lab.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-            if "<" in meta:
-                meta_lab.setTextFormat(Qt.TextFormat.RichText)
-            meta_px = "10.5px" if height <= 30 else "11px"
-            meta_lab.setStyleSheet(
+            meta_fmt = Qt.TextFormat.RichText if "<" in meta else Qt.TextFormat.PlainText
+            if self._meta_label.textFormat() != meta_fmt:
+                self._meta_label.setTextFormat(meta_fmt)
+            if self._meta_label.text() != meta:
+                self._meta_label.setText(meta)
+            meta_px = "10.5px" if self._height <= 30 else "11px"
+            meta_qss = (
                 f"color: {tokens['tert']}; font-size: {meta_px}; font-weight: 400; "
                 "background: transparent;"
             )
-            _enable_tnum(meta_lab)
-            layout.addWidget(meta_lab)
+            if self._meta_label.styleSheet() != meta_qss:
+                self._meta_label.setStyleSheet(meta_qss)
+            self._meta_label.show()
+        else:
+            self._meta_label.hide()
 
         if checked:
-            layout.addWidget(_icon_label("check", tokens["accent_fg"], 14, stroke=1.9))
+            check_color = tokens["accent_fg"]
+            if self._check_cache_key != check_color:
+                self._check_label.setPixmap(
+                    _render_icon("check", check_color, 14, stroke=1.9).pixmap(QSize(14, 14))
+                )
+                self._check_cache_key = check_color
+            self._check_label.show()
+        else:
+            self._check_label.hide()
 
         if shortcut:
-            kbd = QLabel(shortcut)
-            kbd.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-            kbd.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-            kbd.setStyleSheet(
+            if self._shortcut_label.text() != shortcut:
+                self._shortcut_label.setText(shortcut)
+            kbd_qss = (
                 f"color: {tokens['tert']}; font-size: 11px; "
                 f"background: {tokens['sunken']}; border: 1px solid {tokens['border']}; "
                 "border-radius: 4px; padding: 1px 5px;"
             )
-            layout.addWidget(kbd, 0, Qt.AlignmentFlag.AlignVCenter)
+            if self._shortcut_label.styleSheet() != kbd_qss:
+                self._shortcut_label.setStyleSheet(kbd_qss)
+            self._shortcut_label.show()
+        else:
+            self._shortcut_label.hide()
 
 
 class ExpandedNavRail(QFrame):
@@ -556,6 +651,7 @@ class ExpandedNavRail(QFrame):
         self._workspaces: list[str] = list(workspaces)
         self._active_workspace = active_workspace
         self._recent_runs: list[RecentRunItem] = list(recent_runs)
+        self._dirty = False
 
         self.setObjectName("expandedNavRail")
         self.setFixedWidth(EXPANDED_RAIL_WIDTH)
@@ -569,38 +665,130 @@ class ExpandedNavRail(QFrame):
         self._shadow.setOffset(4, 0)
         self.setGraphicsEffect(self._shadow)
 
-        self._rebuild()
+        self._build_static_structure()
+        self._sync_ui()
+
+    def _build_static_structure(self) -> None:
+        t = self._tokens
+
+        top = QHBoxLayout()
+        top.setContentsMargins(0, 0, 0, 0)
+        top.setSpacing(0)
+        self._logo = QLabel("TM1")
+        self._logo.setFixedSize(36, 36)
+        self._logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._brand = QLabel("SJTU-TPMSHX")
+        top.addWidget(self._logo)
+        top.addSpacing(8)
+        top.addWidget(self._brand)
+        top.addStretch(1)
+        self._root_layout.addLayout(top)
+        self._root_layout.addSpacing(12)
+
+        self._page_rows: dict[str, _ExpandedRowButton] = {}
+        for key, _, full_label in NAV_PAGES:
+            row = _ExpandedRowButton(key, full_label, t)
+            row.clicked.connect(lambda _=False, k=key: self._on_page_clicked(k))
+            self._page_rows[key] = row
+            self._root_layout.addWidget(row)
+
+        self._root_layout.addSpacing(10)
+        self._top_hairline = _Hairline(t)
+        self._root_layout.addWidget(self._top_hairline)
+        self._root_layout.addSpacing(8)
+
+        self._ws_box = QWidget()
+        self._ws_box.setStyleSheet("background: transparent;")
+        self._ws_layout = QVBoxLayout(self._ws_box)
+        self._ws_layout.setContentsMargins(0, 0, 0, 0)
+        self._ws_layout.setSpacing(2)
+        self._ws_header = self._section_label("工作区")
+        self._ws_layout.addWidget(self._ws_header)
+        self._ws_rows: list[_ExpandedRowButton] = []
+        self._root_layout.addWidget(self._ws_box)
+
+        self._recent_box = QWidget()
+        self._recent_box.setStyleSheet("background: transparent;")
+        self._recent_layout = QVBoxLayout(self._recent_box)
+        self._recent_layout.setContentsMargins(0, 8, 0, 0)
+        self._recent_layout.setSpacing(2)
+        self._recent_header = self._section_label("最近运行")
+        self._recent_layout.addWidget(self._recent_header)
+        self._recent_rows: list[_ExpandedRowButton] = []
+        self._root_layout.addWidget(self._recent_box)
+
+        self._root_layout.addStretch(1)
+        self._bottom_hairline = _Hairline(t)
+        self._root_layout.addWidget(self._bottom_hairline)
+        self._root_layout.addSpacing(6)
+
+        self._action_rows: dict[str, _ExpandedRowButton] = {}
+        for key, _, full_label, shortcut in RAIL_ACTIONS:
+            icon_key = "railClose" if key == "expand" else key
+            row = _ExpandedRowButton(icon_key, full_label, t, shortcut=shortcut)
+            row.clicked.connect(lambda _=False, k=key: self._on_action_clicked(k))
+            self._action_rows[key] = row
+            self._root_layout.addWidget(row)
+
+    def _schedule_sync(self) -> None:
+        if self.isVisible():
+            self._sync_ui()
+        else:
+            self._dirty = True
+
+    def showEvent(self, event) -> None:
+        if self._dirty:
+            self._sync_ui()
+        super().showEvent(event)
 
     def set_active_page(self, key: str) -> None:
         """Select the active page row."""
+        if key == self._active_page:
+            return
         self._active_page = key
-        self._rebuild()
+        self._schedule_sync()
 
     def set_page_enabled(self, key: str, enabled: bool) -> None:
         """Enable or disable a navigation page row."""
+        enabled = bool(enabled)
+        if self._page_enabled.get(key) is enabled:
+            return
         self._page_enabled[key] = enabled
-        self._rebuild()
+        self._schedule_sync()
 
     def set_page_meta(self, page_meta: Mapping[str, tuple[str | None, str]]) -> None:
         """Set status mark and short metadata text for each page key."""
-        self._page_meta = dict(page_meta)
-        self._rebuild()
+        updated = dict(page_meta)
+        if updated == self._page_meta:
+            return
+        self._page_meta = updated
+        self._schedule_sync()
 
     def set_workspaces(self, workspaces: Sequence[str], active_workspace: str) -> None:
         """Set the workspace names and active workspace."""
-        self._workspaces = list(workspaces)
+        ws_list = list(workspaces)
+        if ws_list == self._workspaces and active_workspace == self._active_workspace:
+            return
+        self._workspaces = ws_list
         self._active_workspace = active_workspace
-        self._rebuild()
+        self._schedule_sync()
 
     def set_recent_runs(self, items: Sequence[RecentRunItem]) -> None:
         """Set the recent run entries displayed in the rail."""
-        self._recent_runs = list(items)
-        self._rebuild()
+        run_list = list(items)
+        if run_list == self._recent_runs:
+            return
+        self._recent_runs = run_list
+        self._schedule_sync()
 
     def apply_theme(self, tokens: Mapping[str, Any]) -> None:
         """Apply Style P2 theme tokens to the expanded rail."""
-        self._tokens.update(tokens)
-        self._rebuild()
+        updated = dict(self._tokens)
+        updated.update(tokens)
+        if updated == self._tokens:
+            return
+        self._tokens = updated
+        self._schedule_sync()
 
     def paintEvent(self, event) -> None:
         super().paintEvent(event)
@@ -611,24 +799,6 @@ class ExpandedNavRail(QFrame):
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(rect)
         painter.end()
-
-    def _clear_layout(self) -> None:
-        while self._root_layout.count():
-            item = self._root_layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.hide()
-                widget.setParent(None)
-                widget.deleteLater()
-            elif item.layout() is not None:
-                sub = item.layout()
-                while sub.count():
-                    child = sub.takeAt(0)
-                    cw = child.widget()
-                    if cw is not None:
-                        cw.hide()
-                        cw.setParent(None)
-                        cw.deleteLater()
 
     def _section_label(self, text: str) -> QLabel:
         lab = QLabel(text)
@@ -641,116 +811,128 @@ class ExpandedNavRail(QFrame):
 
     def _on_page_clicked(self, key: str) -> None:
         self._active_page = key
-        self._rebuild()
+        self._sync_ui()
         self.page_selected.emit(key)
 
-    def _on_workspace_clicked(self, name: str) -> None:
-        self._active_workspace = name
-        self._rebuild()
-        self.workspace_selected.emit(name)
+    def _on_workspace_row_clicked(self, index: int) -> None:
+        if 0 <= index < len(self._workspaces):
+            name = self._workspaces[index]
+            self._active_workspace = name
+            self._sync_ui()
+            self.workspace_selected.emit(name)
+
+    def _on_recent_row_clicked(self, index: int) -> None:
+        if 0 <= index < len(self._recent_runs):
+            self.recent_run_selected.emit(self._recent_runs[index].run_id)
 
     def _on_action_clicked(self, key: str) -> None:
         if key == "expand":
             self.collapse_requested.emit()
         self.action_triggered.emit(key)
 
-    def _rebuild(self) -> None:
-        self._clear_layout()
+    def _sync_ui(self) -> None:
+        self._dirty = False
         t = self._tokens
-        self.setStyleSheet(f"QFrame#expandedNavRail {{ background: {t['panel']}; border: none; }}")
+
+        frame_qss = f"QFrame#expandedNavRail {{ background: {t['panel']}; border: none; }}"
+        if self.styleSheet() != frame_qss:
+            self.setStyleSheet(frame_qss)
         effect = self.graphicsEffect()
         if isinstance(effect, QGraphicsDropShadowEffect):
             effect.setColor(QColor(*t["shadow_drawer_ambient"]))
 
-        top = QHBoxLayout()
-        top.setContentsMargins(0, 0, 0, 0)
-        top.setSpacing(0)
-        logo = QLabel("TM1")
-        logo.setFixedSize(36, 36)
-        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        logo.setStyleSheet(
+        logo_qss = (
             f"QLabel {{ background: {t['popover']}; color: {t['fg']}; "
             f"border: 1px solid {t['border_strong']}; border-radius: 9px; "
             f"font-family: {_FONT_DISP}; font-size: 12px; font-weight: 700; }}"
         )
-        brand = QLabel("SJTU-TPMSHX")
-        brand.setStyleSheet(
+        if self._logo.styleSheet() != logo_qss:
+            self._logo.setStyleSheet(logo_qss)
+        brand_qss = (
             f"color: {t['fg']}; font-size: 13px; font-weight: 600; background: transparent;"
         )
-        top.addWidget(logo)
-        top.addSpacing(8)
-        top.addWidget(brand)
-        top.addStretch(1)
-        self._root_layout.addLayout(top)
-        self._root_layout.addSpacing(12)
+        if self._brand.styleSheet() != brand_qss:
+            self._brand.setStyleSheet(brand_qss)
 
         for key, _, full_label in NAV_PAGES:
             kind, meta = self._page_meta.get(key, (None, ""))
             enabled = self._page_enabled.get(key, True)
-            row = _ExpandedRowButton(
-                key,
-                full_label,
+            self._page_rows[key].update_state(
                 t,
+                text=full_label,
                 active=(key == self._active_page),
                 dot=kind,
                 meta=meta,
+                enabled=enabled,
             )
-            row.setEnabled(enabled)
-            if not enabled:
-                row.setCursor(Qt.CursorShape.ArrowCursor)
-            row.clicked.connect(lambda _=False, k=key: self._on_page_clicked(k))
-            self._root_layout.addWidget(row)
 
-        self._root_layout.addSpacing(10)
-        self._root_layout.addWidget(_Hairline(t))
-        self._root_layout.addSpacing(8)
+        self._top_hairline.set_color(t["border"])
+        self._bottom_hairline.set_color(t["border"])
+        section_qss = (
+            f"color: {t['tert']}; font-size: 11px; font-weight: 600; background: transparent;"
+        )
+        if self._ws_header.styleSheet() != section_qss:
+            self._ws_header.setStyleSheet(section_qss)
+        if self._recent_header.styleSheet() != section_qss:
+            self._recent_header.setStyleSheet(section_qss)
 
-        if self._workspaces:
-            self._root_layout.addWidget(self._section_label("工作区"))
-            for ws in self._workspaces:
+        self._ws_box.setVisible(bool(self._workspaces))
+        while len(self._ws_rows) < len(self._workspaces):
+            idx = len(self._ws_rows)
+            row = _ExpandedRowButton(
+                "ws",
+                "",
+                t,
+                height=30,
+                icon_size=15,
+                font_size=12.5,
+            )
+            row.clicked.connect(lambda _=False, i=idx: self._on_workspace_row_clicked(i))
+            self._ws_rows.append(row)
+            self._ws_layout.addWidget(row)
+        for idx, row in enumerate(self._ws_rows):
+            if idx < len(self._workspaces):
+                ws = self._workspaces[idx]
                 is_current = ws == self._active_workspace
-                row = _ExpandedRowButton(
-                    "ws",
-                    f"工作区 {ws}",
+                row.update_state(
                     t,
-                    height=30,
-                    icon_size=15,
-                    font_size=12.5,
+                    text=f"工作区 {ws}",
                     checked=is_current,
                     icon_accent=is_current,
                 )
-                row.clicked.connect(lambda _=False, name=ws: self._on_workspace_clicked(name))
-                self._root_layout.addWidget(row)
+                row.show()
+            else:
+                row.hide()
 
-        if self._recent_runs:
-            self._root_layout.addSpacing(8)
-            self._root_layout.addWidget(self._section_label("最近运行"))
-            for item in self._recent_runs:
-                row = _ExpandedRowButton(
-                    "clock",
-                    item.label,
+        self._recent_box.setVisible(bool(self._recent_runs))
+        while len(self._recent_rows) < len(self._recent_runs):
+            idx = len(self._recent_rows)
+            row = _ExpandedRowButton(
+                "clock",
+                "",
+                t,
+                height=30,
+                icon_size=15,
+                font_size=11.5,
+            )
+            row.clicked.connect(lambda _=False, i=idx: self._on_recent_row_clicked(i))
+            self._recent_rows.append(row)
+            self._recent_layout.addWidget(row)
+        for idx, row in enumerate(self._recent_rows):
+            if idx < len(self._recent_runs):
+                item = self._recent_runs[idx]
+                row.update_state(
                     t,
-                    height=30,
-                    icon_size=15,
-                    font_size=11.5,
+                    text=item.label,
                     meta=item.summary_html,
                 )
-                row.clicked.connect(
-                    lambda _=False, rid=item.run_id: self.recent_run_selected.emit(rid)
-                )
-                self._root_layout.addWidget(row)
-
-        self._root_layout.addStretch(1)
-        self._root_layout.addWidget(_Hairline(t))
-        self._root_layout.addSpacing(6)
+                row.show()
+            else:
+                row.hide()
 
         for key, _, full_label, shortcut in RAIL_ACTIONS:
-            icon_key = "railClose" if key == "expand" else key
-            row = _ExpandedRowButton(
-                icon_key,
-                full_label,
+            self._action_rows[key].update_state(
                 t,
+                text=full_label,
                 shortcut=shortcut,
             )
-            row.clicked.connect(lambda _=False, k=key: self._on_action_clicked(k))
-            self._root_layout.addWidget(row)

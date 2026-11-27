@@ -46,7 +46,7 @@ def _enable_tnum(widget: QWidget) -> None:
     widget.setFont(font)
 
 
-def _status_mark(kind: str, tokens: Mapping[str, Any], size: float = 6.5) -> QLabel:
+def _status_pixmap(kind: str, tokens: Mapping[str, Any], size: float = 6.5) -> tuple[QPixmap, int]:
     color = QColor(tokens[_STATUS_COLOR_KEY[kind]])
     side = int(size) + 2
     pixmap = QPixmap(side * 3, side * 3)
@@ -70,11 +70,13 @@ def _status_mark(kind: str, tokens: Mapping[str, Any], size: float = 6.5) -> QLa
         painter.drawEllipse(QPointF(side / 2, side / 2), size / 2, size / 2)
     painter.end()
     pixmap.setDevicePixelRatio(3)
-    lab = QLabel()
+    return pixmap, side
+
+
+def _set_status_mark(lab: QLabel, kind: str, tokens: Mapping[str, Any], size: float = 6.5) -> None:
+    pixmap, side = _status_pixmap(kind, tokens, size=size)
     lab.setPixmap(pixmap)
     lab.setFixedSize(side, side)
-    lab.setStyleSheet("background: transparent;")
-    return lab
 
 
 class _VerticalHairline(QWidget):
@@ -86,11 +88,37 @@ class _VerticalHairline(QWidget):
         self.setFixedWidth(1)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
 
+    def set_color(self, color_hex: str) -> None:
+        color = QColor(color_hex)
+        if color != self._color:
+            self._color = color
+            self.update()
+
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
         painter.setPen(QPen(self._color, 0.5))
         painter.drawLine(QPointF(0.25, 0.0), QPointF(0.25, float(self.height())))
         painter.end()
+
+
+def _update_label(
+    lab: QLabel,
+    text: str,
+    size_px: float,
+    color_hex: str,
+    weight: int = 400,
+) -> None:
+    fmt = Qt.TextFormat.RichText if "<" in text else Qt.TextFormat.PlainText
+    if lab.textFormat() != fmt:
+        lab.setTextFormat(fmt)
+    if lab.text() != text:
+        lab.setText(text)
+    qss = (
+        f"color: {color_hex}; font-size: {int(round(size_px))}px; font-weight: {weight}; "
+        "background: transparent;"
+    )
+    if lab.styleSheet() != qss:
+        lab.setStyleSheet(qss)
 
 
 def _make_label(
@@ -99,15 +127,68 @@ def _make_label(
     color_hex: str,
     weight: int = 400,
 ) -> QLabel:
-    lab = QLabel(text)
-    if "<" in text:
-        lab.setTextFormat(Qt.TextFormat.RichText)
-    lab.setStyleSheet(
-        f"color: {color_hex}; font-size: {int(round(size_px))}px; font-weight: {weight}; "
-        "background: transparent;"
-    )
+    lab = QLabel()
     _enable_tnum(lab)
+    _update_label(lab, text, size_px, color_hex, weight=weight)
     return lab
+
+
+class _ReadoutCell:
+    """Reusable metric cell widgets and leading vertical divider."""
+
+    def __init__(self, tokens: Mapping[str, Any]) -> None:
+        self.sep = _VerticalHairline(tokens["border"])
+        self.cell = QWidget()
+        self.cell.setStyleSheet("background: transparent;")
+        self._layout = QVBoxLayout(self.cell)
+        self._layout.setSpacing(1)
+
+        self.name_label = _make_label("", 11.0, tokens["sub"], weight=500)
+        self._layout.addWidget(self.name_label)
+
+        val_row = QHBoxLayout()
+        val_row.setContentsMargins(0, 0, 0, 0)
+        val_row.setSpacing(4)
+        self.value_label = _make_label("", 14.0, tokens["fg"], weight=600)
+        self.unit_label = _make_label("", 11.0, tokens["tert"], weight=400)
+        val_row.addWidget(self.value_label)
+        val_row.addWidget(self.unit_label)
+        val_row.addStretch(1)
+        self._layout.addLayout(val_row)
+
+    def update_state(
+        self,
+        item: ReadoutItem,
+        tokens: Mapping[str, Any],
+        *,
+        first_without_stale: bool,
+        show_sep: bool,
+        compact: bool,
+    ) -> None:
+        self.sep.set_color(tokens["border"])
+        self.sep.setVisible(show_sep)
+
+        if first_without_stale:
+            pad_l = 14 if compact else 18
+        else:
+            pad_l = 12 if compact else 16
+        pad_r = 12 if compact else 18
+        self._layout.setContentsMargins(pad_l, 6, pad_r, 6)
+
+        val_size = 13.5 if compact else 14.0
+        tone_hex = tokens[item.tone] if item.tone in tokens else tokens["fg"]
+        _update_label(self.name_label, item.name, 11.0, tokens["sub"], weight=500)
+        _update_label(self.value_label, item.value, val_size, tone_hex, weight=600)
+        if item.unit:
+            _update_label(self.unit_label, item.unit, 11.0, tokens["tert"], weight=400)
+            self.unit_label.show()
+        else:
+            self.unit_label.hide()
+        self.cell.show()
+
+    def hide(self) -> None:
+        self.sep.hide()
+        self.cell.hide()
 
 
 class ReadoutStrip(QFrame):
@@ -133,6 +214,8 @@ class ReadoutStrip(QFrame):
         self._stale = stale
         self._stale_text = stale_text
         self._compact = compact
+        self._stale_dot_key: tuple[str, str] | None = None
+        self._notice_dot_key: tuple[str, str] | None = None
 
         self.setObjectName("readoutStrip")
         self.setFixedHeight(STRIP_HEIGHT)
@@ -141,7 +224,54 @@ class ReadoutStrip(QFrame):
         self._layout.setContentsMargins(0, 1, 0, 0)
         self._layout.setSpacing(0)
 
-        self._rebuild()
+        self._build_static_structure()
+        self._sync_ui()
+
+    def _build_static_structure(self) -> None:
+        t = self._tokens
+
+        self._stale_box = QWidget()
+        self._stale_box.setStyleSheet("background: transparent;")
+        self._stale_layout = QHBoxLayout(self._stale_box)
+        self._stale_layout.setSpacing(6)
+        self._stale_dot = QLabel()
+        self._stale_dot.setStyleSheet("background: transparent;")
+        self._stale_label = _make_label("", 12.0, t["warn"], weight=600)
+        self._stale_layout.addWidget(self._stale_dot)
+        self._stale_layout.addWidget(self._stale_label)
+        self._stale_sep = _VerticalHairline(t["border"])
+        self._layout.addWidget(self._stale_box)
+        self._layout.addWidget(self._stale_sep)
+
+        self._cells_host = QWidget()
+        self._cells_host.setStyleSheet("background: transparent;")
+        self._cells_layout = QHBoxLayout(self._cells_host)
+        self._cells_layout.setContentsMargins(0, 0, 0, 0)
+        self._cells_layout.setSpacing(0)
+        self._cells: list[_ReadoutCell] = []
+        self._layout.addWidget(self._cells_host)
+
+        self._layout.addStretch(1)
+
+        self._notice_sep = _VerticalHairline(t["border"])
+        self._notice_box = QWidget()
+        self._notice_box.setStyleSheet("background: transparent;")
+        self._notice_layout = QVBoxLayout(self._notice_box)
+        self._notice_layout.setSpacing(1)
+        head = QHBoxLayout()
+        head.setContentsMargins(0, 0, 0, 0)
+        head.setSpacing(5)
+        self._notice_dot = QLabel()
+        self._notice_dot.setStyleSheet("background: transparent;")
+        self._notice_title = _make_label("", 11.0, t["warn"], weight=600)
+        head.addWidget(self._notice_dot)
+        head.addWidget(self._notice_title)
+        head.addStretch(1)
+        self._notice_layout.addLayout(head)
+        self._notice_detail = _make_label("", 11.5, t["sub"], weight=500)
+        self._notice_layout.addWidget(self._notice_detail)
+        self._layout.addWidget(self._notice_sep)
+        self._layout.addWidget(self._notice_box)
 
     def items(self) -> list[ReadoutItem]:
         """Return a copy of the current readout items."""
@@ -157,29 +287,44 @@ class ReadoutStrip(QFrame):
 
     def set_items(self, items: Sequence[ReadoutItem]) -> None:
         """Replace the readout cells with a new sequence of metrics."""
-        self._items = list(items)
-        self._rebuild()
+        updated = list(items)
+        if updated == self._items:
+            return
+        self._items = updated
+        self._sync_ui()
 
     def set_notice(self, notice: ReadoutNotice | None) -> None:
         """Set or clear the right-end status notice."""
+        if notice == self._notice:
+            return
         self._notice = notice
-        self._rebuild()
+        self._sync_ui()
 
     def set_stale(self, stale: bool, text: str = "输入已修改") -> None:
         """Show or hide the leading stale-input indicator."""
+        stale = bool(stale)
+        if stale == self._stale and text == self._stale_text:
+            return
         self._stale = stale
         self._stale_text = text
-        self._rebuild()
+        self._sync_ui()
 
     def set_compact(self, compact: bool) -> None:
         """Adjust horizontal padding and value size for narrow viewports."""
+        compact = bool(compact)
+        if compact == self._compact:
+            return
         self._compact = compact
-        self._rebuild()
+        self._sync_ui()
 
     def apply_theme(self, tokens: Mapping[str, Any]) -> None:
         """Apply Style P2 theme tokens to the readout strip."""
-        self._tokens.update(tokens)
-        self._rebuild()
+        updated = dict(self._tokens)
+        updated.update(tokens)
+        if updated == self._tokens:
+            return
+        self._tokens = updated
+        self._sync_ui()
 
     def paintEvent(self, event) -> None:
         super().paintEvent(event)
@@ -188,89 +333,66 @@ class ReadoutStrip(QFrame):
         painter.drawLine(QPointF(0.0, 0.25), QPointF(float(self.width()), 0.25))
         painter.end()
 
-    def _clear_layout(self) -> None:
-        while self._layout.count():
-            item = self._layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.hide()
-                widget.setParent(None)
-                widget.deleteLater()
-
-    def _rebuild(self) -> None:
-        self._clear_layout()
+    def _sync_ui(self) -> None:
         t = self._tokens
-        self.setStyleSheet(
+        frame_qss = (
             f"QFrame#readoutStrip {{ background: {t['sunken']}; border: none; "
             "border-bottom-left-radius: 11px; border-bottom-right-radius: 11px; }"
         )
+        if self.styleSheet() != frame_qss:
+            self.setStyleSheet(frame_qss)
 
         if self._stale:
-            stale_box = QWidget()
-            stale_box.setStyleSheet("background: transparent;")
-            stl = QHBoxLayout(stale_box)
             pad_h = 12 if self._compact else 16
-            stl.setContentsMargins(pad_h, 0, pad_h, 0)
-            stl.setSpacing(6)
-            stl.addWidget(_status_mark("warn", t, size=6.5))
-            stl.addWidget(_make_label(self._stale_text, 12.0, t["warn"], weight=600))
-            self._layout.addWidget(stale_box)
-            self._layout.addWidget(_VerticalHairline(t["border"]))
+            self._stale_layout.setContentsMargins(pad_h, 0, pad_h, 0)
+            stale_key = ("warn", t[_STATUS_COLOR_KEY["warn"]])
+            if self._stale_dot_key != stale_key:
+                _set_status_mark(self._stale_dot, "warn", t, size=6.5)
+                self._stale_dot_key = stale_key
+            _update_label(self._stale_label, self._stale_text, 12.0, t["warn"], weight=600)
+            self._stale_sep.set_color(t["border"])
+            self._stale_box.show()
+            self._stale_sep.show()
+        else:
+            self._stale_box.hide()
+            self._stale_sep.hide()
 
-        val_size = 13.5 if self._compact else 14.0
-        for idx, item in enumerate(self._items):
-            if idx:
-                self._layout.addWidget(_VerticalHairline(t["border"]))
-            cell = QWidget()
-            cell.setStyleSheet("background: transparent;")
-            cl = QVBoxLayout(cell)
-            if idx == 0 and not self._stale:
-                pad_l = 14 if self._compact else 18
+        while len(self._cells) < len(self._items):
+            cell = _ReadoutCell(t)
+            self._cells.append(cell)
+            self._cells_layout.addWidget(cell.sep)
+            self._cells_layout.addWidget(cell.cell)
+        for idx, cell in enumerate(self._cells):
+            if idx < len(self._items):
+                cell.update_state(
+                    self._items[idx],
+                    t,
+                    first_without_stale=(idx == 0 and not self._stale),
+                    show_sep=(idx > 0),
+                    compact=self._compact,
+                )
             else:
-                pad_l = 12 if self._compact else 16
-            pad_r = 12 if self._compact else 18
-            cl.setContentsMargins(pad_l, 6, pad_r, 6)
-            cl.setSpacing(1)
-
-            cl.addWidget(_make_label(item.name, 11.0, t["sub"], weight=500))
-
-            val_row = QHBoxLayout()
-            val_row.setContentsMargins(0, 0, 0, 0)
-            val_row.setSpacing(4)
-            tone_hex = t[item.tone] if item.tone in t else t["fg"]
-            val_row.addWidget(_make_label(item.value, val_size, tone_hex, weight=600))
-            if item.unit:
-                val_row.addWidget(_make_label(item.unit, 11.0, t["tert"], weight=400))
-            val_row.addStretch(1)
-            cl.addLayout(val_row)
-
-            self._layout.addWidget(cell)
-
-        self._layout.addStretch(1)
+                cell.hide()
 
         if self._notice is not None:
-            self._layout.addWidget(_VerticalHairline(t["border"]))
-            notice_box = QWidget()
-            notice_box.setStyleSheet("background: transparent;")
-            nl = QVBoxLayout(notice_box)
-            nl.setContentsMargins(
+            self._notice_sep.set_color(t["border"])
+            self._notice_layout.setContentsMargins(
                 14 if self._compact else 16,
                 6,
                 16 if self._compact else 18,
                 6,
             )
-            nl.setSpacing(1)
-
-            head = QHBoxLayout()
-            head.setContentsMargins(0, 0, 0, 0)
-            head.setSpacing(5)
-            head.addWidget(_status_mark(self._notice.kind, t, size=6.0))
-            title_color = t[_STATUS_COLOR_KEY[self._notice.kind]]
-            head.addWidget(_make_label(self._notice.title, 11.0, title_color, weight=600))
-            head.addStretch(1)
-            nl.addLayout(head)
-
-            nl.addWidget(_make_label(self._notice.detail, 11.5, t["sub"], weight=500))
-            self._layout.addWidget(notice_box)
+            notice_color = t[_STATUS_COLOR_KEY[self._notice.kind]]
+            notice_key = (self._notice.kind, notice_color)
+            if self._notice_dot_key != notice_key:
+                _set_status_mark(self._notice_dot, self._notice.kind, t, size=6.0)
+                self._notice_dot_key = notice_key
+            _update_label(self._notice_title, self._notice.title, 11.0, notice_color, weight=600)
+            _update_label(self._notice_detail, self._notice.detail, 11.5, t["sub"], weight=500)
+            self._notice_sep.show()
+            self._notice_box.show()
+        else:
+            self._notice_sep.hide()
+            self._notice_box.hide()
 
         self.update()
