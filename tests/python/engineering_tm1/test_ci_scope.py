@@ -1,6 +1,7 @@
 """Keep unknown changes and missing jobs inside the full CI gate."""
 import pytest
 
+from engineering.scripts import ci_scope
 from engineering.scripts.ci_scope import require_jobs, select_scope
 
 
@@ -56,25 +57,65 @@ def test_gate_rejects_unknown_tier():
 
 
 @pytest.mark.parametrize('event', ['pull_request', 'push'])
-def test_rename_from_code_to_docs_still_requires_full_ci(tmp_path, event):
+def test_rename_from_code_to_docs_still_requires_full_ci(tmp_path, event, monkeypatch):
     from pathlib import Path
+    import shutil
     import subprocess
     import sys
 
-    script = Path(__file__).resolve().parents[3] / 'engineering' / 'scripts' / 'ci_scope.py'
+    root = Path(__file__).resolve().parents[3]
+    script = root / 'engineering' / 'scripts' / 'ci_scope.py'
     def git(*args):
         return subprocess.check_output(['git', '-c', 'user.name=CI Test',
                                        '-c', 'user.email=ci@example.invalid',
                                        *args], cwd=tmp_path, text=True).strip()
 
     git('init', '-q')
-    (tmp_path / 'model.py').write_text('unchanged content\n', encoding='utf-8')
+    workflows = tmp_path / '.github/workflows'
+    workflows.mkdir(parents=True)
+    (workflows / 'ci.yml').write_text('jobs: {}\n', encoding='utf-8')
+    git('add', '.')
+    git('commit', '-qm', 'Record the CI layout before the native jobs')
+    previous = git('rev-parse', 'HEAD')
+    shutil.copytree(root / '.github/workflows', workflows, dirs_exist_ok=True)
+    (tmp_path / 'solver').mkdir()
+    (tmp_path / 'solver/model.cpp').write_text('unchanged content\n', encoding='utf-8')
+    for path in ('docs/native-stages.md', 'docs/native-stages.zh-CN.md'):
+        assert select_scope(event, [path]) == 'full'
     git('add', '.')
     git('commit', '-qm', 'Add source')
     base = git('rev-parse', 'HEAD')
-    git('mv', 'model.py', 'README.md')
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv('GITHUB_REPOSITORY_ID', '10')
+    origin = dict(head_branch='main', head_sha=base, repository_id=10, head_repository_id=10)
+    archives = [dict(expired=False, workflow_run=dict(origin, id=i, head_sha=sha))
+                for i, sha in ((2, base), (1, base), (3, previous))]
+    monkeypatch.setattr(ci_scope, 'records', lambda *args: archives)
+    hosts = {p: dict(image=p, python='3.13.17') for p in ci_scope.PLATFORMS}
+    matching = {p: dict(hosts[p], id=p) for p in hosts}
+    # During an image rollout, the most recent main build can match only one platform.
+    runs = {2: {**matching, 'windows-2022': dict(image='previous', python='3.13.17')}, 1: matching}
+    monkeypatch.setattr(ci_scope, 'qualified_pair', runs.__getitem__)
+    restored = []
+
+    def restore(platform, source, tools):
+        restored.append(source)
+        return True
+
+    monkeypatch.setattr(ci_scope, 'restore_native', restore)
+    candidates = ci_scope.native_candidates(base)
+    assert candidates == [2, 1]
+    assert ci_scope.restore_pair(candidates, hosts)
+    assert restored == list(matching.values())
+    git('mv', 'solver/model.cpp', 'README.md')
     git('commit', '-qm', 'Move source')
     result = subprocess.check_output(
         [sys.executable, '-S', str(script), 'select', '--event', event,
          '--base', base, '--head', git('rev-parse', 'HEAD')], cwd=tmp_path, text=True)
     assert result.strip() == 'full'
+    assert ci_scope.native_candidates(base) == []
+
+    git('switch', '-q', '--detach', base)
+    (tmp_path / 'solver/model.cpp').write_text('changed content\n', encoding='utf-8')
+    git('commit', '-qam', 'Change the source at the same path')
+    assert ci_scope.native_candidates(base) == []
