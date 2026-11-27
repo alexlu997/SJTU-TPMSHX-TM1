@@ -124,6 +124,18 @@ def test_appearance_settings_toggle_units_theme_and_reduced_motion(win, monkeypa
         inlet - 273.15 if expected_unit == 'C' else inlet + 273.15, abs=.005)
     win._toggle_temp_unit()
     assert float(win.le_TinA.text()) == pytest.approx(inlet, abs=.005)
+    # A long degrees Celsius text keeps its digits and its kelvin value through a round trip.
+    from decimal import Decimal
+    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    if win._temp_unit == 'K':
+        win._toggle_temp_unit()
+    text = '5.68434188608080148696899414062499999E-15'
+    win.le_TinA.setText(text)
+    kelvin = config_from_window(win).fluid_A.T_in_K
+    win._toggle_temp_unit()
+    win._toggle_temp_unit()
+    assert Decimal(win.le_TinA.text()) == Decimal(text)
+    assert config_from_window(win).fluid_A.T_in_K == kelvin
 
     restart_notices = []
     monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.shell_appearance.save_appearance_setting',

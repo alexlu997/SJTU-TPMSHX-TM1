@@ -102,11 +102,18 @@ def test_accepted_state_reaches_recent_menu_and_persisted_timeline(
     from tests.python.gui_workbench_support import _result
 
     _configure(win, monkeypatch, mode)
+    win._toggle_temp_unit()  # History stores K values also when the run shows °C.
     result = _result(mode)
     result.converged = converged
     result.Q_W = 123. if q_status == 'available' else float('nan')
     statuses = dict.fromkeys(('Q', 'dP_A', 'dP_B', 'T_out_A', 'T_out_B'), 'available')
     statuses['Q'] = q_status
+    result.T_out_A_K = 300.533042577627
+    if q_status == 'available':
+        result.T_out_B_K = 288.917364512
+    else:
+        result.T_out_B_K = float('nan')
+        statuses['T_out_B'] = 'insufficient_data'
     reasons = {} if q_status == 'available' else {'Q': 'native heat evidence missing'}
     qualification = {'design': {'status': 'rejected', 'eligible': False}}
     label += ' · 设计不合格'
@@ -134,6 +141,10 @@ def test_accepted_state_reaches_recent_menu_and_persisted_timeline(
         assert {key: record[key] for key in expected} == expected
         assert record['Q'] == (f'{123.:.{2 if mode == "3d" else 1}f}'
                                if q_status == 'available' else '—')
+        assert record['T_out_A_K'] == 300.533042577627
+        assert record['T_out_B_K'] == (288.917364512 if q_status == 'available' else None)
+        assert 'ToutA' not in record
+    assert 'NaN' not in timeline.read_text()
     menu = win.btn_recent.menu()
     action = next(a for a in menu.actions() if a.text().strip().startswith('#1'))
     assert label in action.text()

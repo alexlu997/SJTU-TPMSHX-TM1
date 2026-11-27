@@ -9,9 +9,8 @@ from PySide6.QtWidgets import (
 )
 
 from sjtu_tpmshx.data_types.compute_config import SCO2_P_RANGE_PA
-from sjtu_tpmshx.data_types.validator import format_unit_value
+from sjtu_tpmshx.data_types.validator import convert_temp_decimal, format_unit_value, temp_text_to_kelvin
 from sjtu_tpmshx.model_configs.df_domain import TRAIN_L, TRAIN_T
-from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
 from sjtu_tpmshx.physical_models.tpms_calc import geometry as tpms_geometry, adaptive_grid
 from sjtu_tpmshx.applications.gui.ui.window_config import LINE_EDITS, parse_field_decimal
 from sjtu_tpmshx.applications.gui.ui.case_files import CaseFiles
@@ -709,9 +708,15 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
             reason = ""
             if spec.positive:
                 try:
-                    v = value if is_temperature and value is not None else float(formatted)
-                    if is_temperature and not unit_match and temp_unit == 'C':
-                        v += CELSIUS_ZERO_K
+                    # A temperature checks the K float that _temp_to_K stores from the committed text.
+                    if not is_temperature:
+                        v = float(formatted)
+                    elif unit_match:
+                        v = value
+                    elif value is not None:
+                        v = float(convert_temp_decimal(Decimal(str(value)), temp_unit, 'K'))
+                    else:
+                        v = float(temp_text_to_kelvin(formatted, temp_unit))
                     if not math.isfinite(v):
                         reason = "Must be finite"
                     elif v <= 0:
