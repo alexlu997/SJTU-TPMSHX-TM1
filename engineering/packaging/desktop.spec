@@ -18,6 +18,12 @@ with TemporaryDirectory(prefix='tm1-desktop-python-') as package_tree:
 
     excluded = ('sjtu_tpmshx.development',)
     hidden = collect_submodules('sjtu_tpmshx', filter=lambda name: not name.startswith(excluded))
+    # PyVista loads VTK classes through importlib from its class-to-module table
+    # (pyvista/_vtk.py), so Analysis does not find these modules. Collect each module
+    # in that table. The vtkmodules hooks add the VTK modules that each one needs.
+    from pyvista import _vtk as pyvista_vtk
+    hidden += [f'vtkmodules.{name}' for name in sorted(
+        {*pyvista_vtk._CORE_MODULES, *pyvista_vtk._PLOTTING_MODULES, *pyvista_vtk._OPENGL_MODULES})]
     data = collect_data_files('sjtu_tpmshx', includes=[
         'model_configs/*.json',
         'physical_models/df_surrogate/_prebuilt/*.csv',
