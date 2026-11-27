@@ -405,7 +405,7 @@ Select the reviewer as follows:
 2. The reviewer first traces connected consumers from the requirement and diff.
    Then the reviewer compares those findings with the author's related-change record.
    The reviewer makes sure that the pre-push run record is for the reviewed head commit.
-   It must have no failed, skipped, or not collected required node.
+   It must have no failed or not collected required node. Each skip must have a reason that CI also accepts.
    If the record misses a consumer, the author adds the evidence for that consumer.
    Read relevant code and model documents, including dynamic entries and saved-file consumers.
    Do not limit the review to the author's file list.
