@@ -58,9 +58,18 @@ def panel():
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
-def test_range_modes_preserve_field_specific_limits_and_reject_bad_values(panel):
+def test_range_modes_preserve_field_specific_limits_and_reject_bad_values(panel, monkeypatch):
+    from types import SimpleNamespace
+    from PySide6.QtWidgets import QCheckBox, QPushButton
+    import sjtu_tpmshx.applications.gui.ui.layout_drawer as layout_drawer
+    import sjtu_tpmshx.applications.gui.ui.plot_2d_results as plot_2d_results
+    from sjtu_tpmshx.applications.gui.ui.builders_canvas import _open_colormap_popover
+
+    monkeypatch.setattr(plot_2d_results, 'redraw_result_fields', Mock())
+    monkeypatch.setattr(layout_drawer, 'refresh_last_2d_thumbnail', Mock())
+
     values = np.arange(27., dtype=float).reshape(3, 3, 3) + 290.
-    panel._arrays = {'Ta': values, 'vmag': np.linspace(0., 20., 27).reshape(3, 3, 3)}
+    panel._arrays = {'Ta': values, 'P_kPa': np.linspace(100., 180., 27).reshape(3, 3, 3)}
     panel._cx_mm = panel._cy_mm = panel._cz_mm = np.array([0.5, 1.5, 2.5])
     panel._L_mm = (3.0, 3.0, 3.0)
     panel._grid = pv.RectilinearGrid(
@@ -70,27 +79,78 @@ def test_range_modes_preserve_field_specific_limits_and_reject_bad_values(panel)
     )
     panel._slice_xyz_mm = (1.5, 1.5, 1.5)
     panel._display_mode = 'slice'
+    panel._global_clim = {'Ta': (290., 316.), 'P_kPa': (100., 180.)}
 
-    panel.set_color_range_mode('local')
-    assert panel._scale_mode == 'local'
-    assert panel._clim_for('Ta') == (291., 315.)
+    window = QWidget()
+    window.workbench = SimpleNamespace(active_tab='3d', resolve_2d_view_card=lambda: 'temp')
+    window.canvas_3d = panel
+    window.optimization = SimpleNamespace(volume_panel=None)
+    window.chk_sync_colorbar_T = QCheckBox(window)
+    window.chk_shared_pressure_scale = QCheckBox(window)
+    window.btn_colormap = QPushButton('色阶', window)
+    window.dialogs = SimpleNamespace(notify=Mock())
+    window.chk_sync_colorbar_T.setChecked(True)
+    window.chk_shared_pressure_scale.setChecked(True)
+    try:
+        _open_colormap_popover(window)
+        pop = window._colormap_popover
+        assert set(pop._range_mode_btns) == {'global', 'local', 'custom'}
+        assert pop._range_min_edit is None and pop._range_max_edit is None
 
-    panel.set_color_range_mode('custom')
-    panel.set_custom_color_range('Ta', 300., 350.)
-    assert panel._clim_for('Ta') == (300., 350.)
-    assert panel._clim_for('vmag') == (0., 20.)
-    assert panel.colorbar.value_range() == (300., 350.)
+        # Switch to 截面 (local) via real popover button.
+        pop._range_mode_btns['local'].click()
+        assert panel._scale_mode == 'local'
+        assert panel._clim_for('Ta') == (291., 315.)
+        assert pop._range_min_edit is None
 
-    for low, high in [(float('nan'), 400.), (0., float('inf')), (350., 300.), (300., 300.)]:
-        with pytest.raises(ValueError, match='Max > Min'):
-            panel.set_custom_color_range('Ta', low, high)
+        # Switch to 自定义 (custom) via real popover button and enter Min/Max.
+        pop._range_mode_btns['custom'].click()
+        assert pop._range_min_edit is not None and pop._range_max_edit is not None
+        assert pop._range_unit_label.text() == 'K'
+        pop._range_min_edit.setText('300')
+        pop._range_max_edit.setText('350')
+        pop._range_max_edit.editingFinished.emit()
         assert panel._clim_for('Ta') == (300., 350.)
+        assert panel._clim_for('P_kPa') == (100., 180.)
+        assert panel.colorbar.value_range() == (300., 350.)
 
-    panel.set_color_range_mode('global')
-    assert panel._clim_for('Ta') == (290., 410.)
-    state = panel.color_range_state()
-    state['ranges']['Ta'][0] = 123.
-    assert panel._custom_clim['Ta'] == (300., 350.)
+        # Invalid Min/Max values in the popover inputs are rejected without altering limits.
+        for low_txt, high_txt in [('nan', '400'), ('0', 'inf'), ('350', '300'), ('300', '300')]:
+            pop._range_min_edit.setText(low_txt)
+            pop._range_max_edit.setText(high_txt)
+            pop._range_max_edit.editingFinished.emit()
+            assert panel._clim_for('Ta') == (300., 350.)
+
+        # Unit updates to kPa when inspecting pressure in custom mode.
+        panel._field = 'P_kPa'
+        _open_colormap_popover(window)
+        assert pop._range_unit_label.text() == 'kPa'
+        panel._field = 'Ta'
+
+        # Restoring a saved custom range populates the popover controls on reopen.
+        panel.restore_color_ranges({'mode': 'custom', 'ranges': {'Ta': [305., 340.]}})
+        _open_colormap_popover(window)
+        assert pop.range_mode() == 'custom'
+        assert float(pop._range_min_edit.text()) == pytest.approx(305.)
+        assert float(pop._range_max_edit.text()) == pytest.approx(340.)
+
+        # 恢复默认色阶 resets both colormap and range mode back to 全场 (global).
+        pop._reset_btn.click()
+        assert panel._scale_mode == 'global'
+        assert panel._clim_for('Ta') == (290., 316.)
+        assert pop.range_mode() == 'global'
+        assert pop._range_min_edit is None
+
+        state = panel.color_range_state()
+        state['ranges']['Ta'][0] = 123.
+        assert panel._custom_clim['Ta'] == (305., 340.)
+    finally:
+        pop = getattr(window, '_colormap_popover', None)
+        if pop is not None:
+            pop.close()
+            pop.deleteLater()
+        window.close()
+        window.deleteLater()
 
 
 def test_custom_limits_and_watermark_reach_scene_colorbar_and_capture(panel, tmp_path):

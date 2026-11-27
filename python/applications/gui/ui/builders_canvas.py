@@ -156,6 +156,28 @@ def _apply_colormap_refresh(window) -> None:
         opt_panel.refresh_colormaps()
 
 
+def _sync_colormap_popover_range(window, pop: ColormapPopover) -> None:
+    """Sync the 色阶 popover range mode and custom Min/Max inputs to the active 3D panel."""
+    panel = _active_3d_panel(window)
+    field_key = panel.active_field() if panel is not None else None
+    if panel is None or field_key not in PANEL_FIELD_SPECS:
+        pop.set_range_controls(visible=False)
+        return
+    spec = PANEL_FIELD_SPECS[field_key]
+    state = panel.color_range_state()
+    limits = (
+        tuple(state["ranges"][field_key])
+        if field_key in state["ranges"]
+        else panel._clim_for(field_key)
+    )
+    pop.set_range_controls(
+        visible=True,
+        mode=state["mode"],
+        limits=limits,
+        unit=spec.display_unit,
+    )
+
+
 def _open_colormap_popover(window) -> None:
     """Open the Style P2 ColormapPopover below the 色阶 toolbar button."""
     qty_key, qty_label = _active_cmap_quantity(window)
@@ -180,6 +202,27 @@ def _open_colormap_popover(window) -> None:
             _apply_colormap_refresh(window)
             window.dialogs.notify(f"已切换色阶：{cmap_name}", kind="info", duration_ms=3000)
 
+        def _on_range_mode(mode: str) -> None:
+            panel = _active_3d_panel(window)
+            if panel is None:
+                return
+            panel.set_color_range_mode(mode)
+            _sync_colormap_popover_range(window, pop)
+
+        def _on_custom_range(lo: float, hi: float) -> None:
+            panel = _active_3d_panel(window)
+            if panel is None:
+                return
+            field_key = panel.active_field()
+            if field_key is None:
+                return
+            try:
+                panel.set_custom_color_range(field_key, lo, hi)
+            except ValueError:
+                _sync_colormap_popover_range(window, pop)
+                return
+            _sync_colormap_popover_range(window, pop)
+
         def _on_reset() -> None:
             q_key, _ = _active_cmap_quantity(window)
             if not set_cmap(q_key, None, persist=True):
@@ -188,13 +231,19 @@ def _open_colormap_popover(window) -> None:
                     window, "设置未保存", "无法重置色阶设置，请检查用户配置目录。"
                 )
                 return
+            panel = _active_3d_panel(window)
+            if panel is not None:
+                panel.set_color_range_mode("global")
             pop.set_colormap(resolve_cmap(q_key))
+            _sync_colormap_popover_range(window, pop)
             _apply_colormap_refresh(window)
             window.dialogs.notify("已恢复默认色阶", kind="info", duration_ms=3000)
 
         pop.colormap_selected.connect(_on_select)
         pop.sync_temp_scale_changed.connect(window.chk_sync_colorbar_T.setChecked)
         pop.shared_pressure_scale_changed.connect(window.chk_shared_pressure_scale.setChecked)
+        pop.range_mode_changed.connect(_on_range_mode)
+        pop.custom_range_changed.connect(_on_custom_range)
         pop.reset_requested.connect(_on_reset)
         window._colormap_popover = pop
     else:
@@ -204,6 +253,7 @@ def _open_colormap_popover(window) -> None:
         pop.set_sync_temp_scale(window.chk_sync_colorbar_T.isChecked())
         pop.set_shared_pressure_scale(window.chk_shared_pressure_scale.isChecked())
 
+    _sync_colormap_popover_range(window, pop)
     pop.popup_below(window.btn_colormap)
 
 
