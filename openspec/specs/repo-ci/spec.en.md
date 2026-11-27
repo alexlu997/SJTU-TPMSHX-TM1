@@ -27,7 +27,7 @@ The existing `ci_shard` plugin splits them into two independent jobs.
 Each integration process runs all `tests/python/integration_tm1/` tests without marker filtering.
 On Windows/Python 3.12, integration also runs the rendering and resume cases in `tests/python/_ci_windows_312.txt`.
 Windows integration runs in separate jobs. macOS integration uses the `fast-0` runner. On the `full` tier, the macOS `fast-0` runner also runs BO in its own environment before it restores the solver library.
-Fast tests and integration MUST produce separate reports after the platform build.
+Fast tests and integration MUST produce separate reports when the platform runtime is ready.
 Routine Qt tests use offscreen mode with the 3D panel disabled.
 Actual rendering uses a separate native Qt process; the [verification guide](../../../docs/verification.en.md#qt-rendering) gives the platform requirements and evidence limits.
 CI MUST NOT depend on ignored local data assets.
@@ -35,7 +35,7 @@ CI MUST NOT depend on ignored local data assets.
 Fast jobs MUST use two workers and one BLAS/OMP/MKL/NumExpr thread. Each job MUST report its 30 slowest tests and skip reasons. JUnit XML MUST record individual statuses and durations. Test report artifacts stay available for 7 days.
 
 Uploads cover reports, collection/shard lists, and resource records under `.cache/ci/`. They exclude native solver results and local data. The shared `tests/python/native/_ci_suite.txt` list MUST select native qualification modules. In full CI, Python 3.13 native shards also run `tests/python/native/_ci_stage_suite.txt`, including slow tests. Application shards MUST transfer these modules and keep the original full collection. New modules outside the lists MUST enter application tests.
-The application tier allows omissions only for the shared native list. Fast stage cases stay in the application shards. Linux result builds run the independent numerical comparisons. Native shards and BO jobs start after their own platform build. Python 3.13 summaries MUST check complete and disjoint native shards and application coverage. Each summary MUST require its integration and BO reports. Windows/Python 3.12 uses these reports for compatibility.
+The application tier allows omissions only for the shared native list. Fast stage cases stay in the application shards. Linux result builds run the independent numerical comparisons. Native shards and BO jobs can use a verified pair of matching runtime archives from a successful push to a main ancestor. The current commit must pass its own build and qualification. If the pair is unavailable or an input changed, tests wait for their platform build. Python 3.13 summaries MUST check complete and disjoint native shards and application coverage. Each summary MUST require its integration and BO reports. Windows/Python 3.12 uses these reports for compatibility.
 
 Platform fast tests, real integration, and minimal postprocessing gates stay required. The four required checks are macOS 3.13, Windows 3.12, Windows 3.13, and minimal-postprocess. Speed improvements MUST NOT change numerical assertions or tolerances. Base and BO jobs MUST use the same platform/Python matrix. Both Windows versions use engineering/requirements/bo-windows.txt.
 Minimal postprocessing waits for the macOS and Linux artifact producers and runs independently of Windows qualification.
@@ -52,7 +52,7 @@ Minimal postprocessing waits for the macOS and Linux artifact producers and runs
 #### Scenario: Native dependencies are independently qualified
 - **WHEN** native dependency jobs run on macOS or Windows with Python 3.13
 - **THEN** one build job per platform fetches pinned source and CMake from `engineering/native_build/dependencies-lock.toml` and builds offline.
-  Qualification jobs use its matching native artifacts and execute independent EOS/pressure, Quick Design, true-h, model-h, and SIMPLE callers.
+  Qualification jobs use the selected matching native artifacts and execute independent EOS/pressure, Quick Design, true-h, model-h, and SIMPLE callers.
   Independent formulas, discrete balances, manufactured solutions, component replay, and fixed historical references check complete drivers and public C interfaces. `TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1` makes missing required executables or libraries failures. Skips cannot substitute for acceptance.
 - **AND** the native build job compiles the test bridges and runs the standalone callers. Python shards reuse the CMake-built bridges. Uploads include build logs and qualification XML. They exclude source archives, property tables, and local experimental data.
 

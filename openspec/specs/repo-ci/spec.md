@@ -24,7 +24,7 @@ main 仅推送声明的文档路径时使用 docs 层级。未知或空变更使
 集成进程运行 `tests/python/integration_tm1/` 的全部用例，不加 marker 过滤。
 Windows/Python 3.12 集成再运行 `tests/python/_ci_windows_312.txt` 的渲染和续算用例。
 Windows 集成使用独立作业，macOS 集成复用 `fast-0` runner。`full` 层级的 macOS `fast-0` runner 还在恢复求解库之前于独立环境中运行 BO。
-快测和集成 SHALL 在平台构建后分别保留报告。
+快测和集成 SHALL 在平台运行库就绪后分别保留报告。
 常规 Qt 测试使用 offscreen 并禁用 3D 面板；实际渲染使用独立的原生 Qt 进程，其平台要求和证据边界见[验证指南](../../../docs/verification.md#qt-rendering)。
 CI SHALL NOT 依赖忽略的本地数据资产。
 
@@ -32,7 +32,7 @@ CI SHALL NOT 依赖忽略的本地数据资产。
 逐项状态及耗时的 JUnit XML，测试报告 artifact 保留 7 天。上传范围为
 `.cache/ci/` 的测试报告、收集/分片清单及资源记录，不包含原生求解结果或本地数据。
 原生资格模块 SHALL 由 `tests/python/native/_ci_suite.txt` 共同清单选择。完整 CI 的 Python 3.13 原生分片再运行 `tests/python/native/_ci_stage_suite.txt`，包括长测。应用快测 SHALL 将相应模块移交原生分片并保留原完整收集集合。清单外的新模块 SHALL 自动进入应用快测。
-`application` 层级只允许省略共同原生清单中的快测覆盖，并将阶段快测留在应用分片。独立结果核数值对照在 Linux 结果库构建中执行。原生分片与 BO 作业在各自平台的构建完成后启动。
+`application` 层级只允许省略共同原生清单中的快测覆盖，并将阶段快测留在应用分片。独立结果核数值对照在 Linux 结果库构建中执行。原生分片和 BO 作业可使用同仓库 main 祖先提交成功推送后验证过的一对匹配运行库。当前提交仍须通过构建和资格验证。缺少任一归档或输入变化时，测试等待本平台的构建。
 Python 3.13 汇总门 SHALL 验证原生分片完整且互斥，再验证应用与原生两组覆盖原完整集合且没有重复。每个汇总门 SHALL 要求集成和 BO 报告。Windows/Python 3.12 使用这两份报告验证兼容性。
 平台快测、真实集成和最小后处理门均保留；macOS 3.13、Windows 3.12、Windows 3.13 和 minimal-postprocess 四项检查均为必需门，数值断言/容差不因提速改变。基础与 BO 作业 SHALL 使用相同的平台/Python 版本矩阵；两个 Windows 版本共用 engineering/requirements/bo-windows.txt。
 最小后处理等待 macOS 与 Linux 的产物生成作业，并与 Windows 资格检查并行。
@@ -48,7 +48,7 @@ Python 3.13 汇总门 SHALL 验证原生分片完整且互斥，再验证应用�
 
 #### Scenario: Native dependencies are independently qualified
 - **WHEN** macOS 或 Windows 的 Python 3.13 原生依赖作业运行
-- **THEN** 每个平台由一个构建作业按 `engineering/native_build/dependencies-lock.toml` 获取固定源码与 CMake，并离线构建。资格作业消费其匹配原生产物，真实执行独立 EOS/压力、Quick Design、true-h、model-h 与 SIMPLE caller。随后用独立公式、离散账本、制造解、组件重放和固定历史参考验证完整驱动和公开 C 接口。`TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1` 将缺少所需可执行程序或动态库视为失败，不允许以 skip 充当验收
+- **THEN** 每个平台由一个构建作业按 `engineering/native_build/dependencies-lock.toml` 获取固定源码与 CMake，并离线构建。资格作业使用所选的匹配原生产物，真实执行独立 EOS/压力、Quick Design、true-h、model-h 与 SIMPLE caller。随后用独立公式、离散账本、制造解、组件重放和固定历史参考验证完整驱动和公开 C 接口。`TPMSHX_REQUIRE_NATIVE_DEPS_TESTS=1` 将缺少所需可执行程序或动态库视为失败，不允许以 skip 充当验收
 - **AND** 原生构建作业编译测试桥接库并运行独立调用程序。Python 测试分片复用 CMake 构建的桥接库。上传构建日志和资格测试 XML，不上传源码、物性表或本地实验数据
 
 #### Scenario: CI green on a clean main

@@ -31,7 +31,7 @@ PowerShell 使用同样的 pytest 参数，以 `$env:变量名=值` 设置上述
 并以 `& $tm1Python` 调用解释器。测试前必须提供匹配的原生库。
 macOS 和 Windows 的 Python 3.13 快测按完整模块分到两个独立 runner，每片固定两个 worker。
 `fast-0` 使用 `load --maxschedchunk=1`，减少长耗时尺寸设计测试后方排队的工作；`fast-1` 使用 `worksteal`。
-每个 worker 的 BLAS/OMP 单线程。Windows 集成测试在本平台构建后与快测并行。
+每个 worker 的 BLAS/OMP 单线程。Windows 运行库就绪后，集成测试与快测并行。
 macOS 在 `fast-0` 中单独运行集成进程，共用 runner。两平台的集成报告独立保存。
 Windows/Python 3.12 跑完整集成和 [兼容性用例](../tests/python/_ci_windows_312.txt)，包括实际渲染和二维、三维续算。
 <a id="qt-rendering"></a>
@@ -59,7 +59,7 @@ GitHub workflow 使用 checkout v7、setup-python v7、upload-artifact v7，
 `ci` 的基础和独立 BO 运行均覆盖 macOS / Python 3.13，以及 Windows / Python
 3.12、3.13。`bo-tests` 作业在 Windows 的全部运行层级和 macOS 的 `application` 层级运行。
 macOS `full` 层级由 `fast-0` 测试片先在独立环境中运行 BO；该步骤在恢复求解库之前执行，BO 环境变量只在该步骤内设置。
-因此 macOS `full` 层级在构建后启动五个作业：三个原生分片和两个测试片。BO 运行分别安装对应平台的 BO 锁，严格检查环境后
+因此 macOS `full` 层级在运行库就绪后启动五个作业：三个原生分片和两个测试片。BO 运行分别安装对应平台的 BO 锁，严格检查环境后
 显式导入 Torch / BoTorch / GPyTorch，并运行多工况优化器测试（含两种真实 Log
 采集函数）。基础作业仍使用不含 BO 的锁，覆盖可选依赖缺失时的行为。
 BO 作业上传 JUnit 与完整收集 manifest，保留 7 天，不上传求解数据或虚拟环境。
@@ -94,7 +94,7 @@ Windows 求解器镜像不导出 6 个 macOS SuperLU 钩子，检查沿用这一
 
 PR 和 main 推送按 [明确的路径清单](../engineering/scripts/ci_scope.py) 选择检查层级：
 
-- `docs`：仅根目录 README、AGENTS 和 `docs/` 下的非契约 Markdown。检查本地链接、锚点和具体项目模块命令。
+- `docs`：仅根目录 README、AGENTS 和 `docs/` 下的非契约 Markdown，构建使用的两份原生 SDK 指南除外。检查本地链接、锚点和具体项目模块命令。
 - `application`：仅用于 PR，覆盖指定界面显示、布局模块、图标及对应测试，可包含文档。保留两平台构建、应用、集成、BO 与真实文件后处理检查。
 - `full`：求解器、模型、公共接口、依赖、工作流和所有未列出的路径。运行完整矩阵。
 
@@ -157,10 +157,12 @@ application 和 full tier 均构建完整 pilot。归档包含求解库、几何
 结果库通过独立 `build --component result` 构建，再与其余库一起执行完整验证。
 完整 SDK 检查编译全部 C++ 示例，执行有代表性的前处理、求解、续算和后处理路径。
 Linux 最小后处理在 macOS 的结果和 wheel 及 Linux 结果库就绪后启动，与 Windows 资格检查并行。
-BO 恢复本轮同平台归档中的几何库、准备库和结果库，不恢复求解库，与该平台的其他回归并行。
+BO 从所选平台归档中恢复几何库、准备库和结果库，不恢复求解库，与该平台的其他回归并行。
 原生库不链接 Python 运行时。Windows 两个 Python 版本测试同一构建。
-分片在本平台构建完成后启动，不等待其他平台。原生、快测和集成测试共同使用本轮工作流及源码产生的
-`native-build-<平台>` artifact。归档保留可执行权限，包含运行库、调用程序和许可声明。
+原生、快测、集成和 BO 测试可以使用同仓库 `main` 祖先提交上一次成功推送的运行库。
+两个平台的原生输入、构建步骤和托管工具链都须与来源一致。CI 按 ID 下载归档并核对摘要。
+命中时，测试使用 `trusted-native-<平台>`，同时构建并验证当前提交自己的原生库和 wheel。
+输入改变、归档缺失或过期时，测试等待本平台构建并使用 `native-build-<平台>`。归档保留可执行权限，包含运行库、调用程序和许可声明。
 CoolProp 精确缓存键绑定平台、架构、Python 3.13、托管工具链镜像版本、原生依赖锁中的 CoolProp 输入和 `engineering/scripts/build_coolprop.py`。
 `build_coolprop.py cache-key --host <主机>` 输出 CMake 版本与生成器、CoolProp 锁定版本与主机选项、CPM 依赖锁定版本及其补丁文件的 SHA-256；SuperLU 和 AMGCL 变更不使缓存失效。
 项目 C++ 和模型系数每轮重新构建；缓存命中仍须完成独立调用验证。

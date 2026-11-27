@@ -279,6 +279,9 @@ If the user names no other coordinator, the owner is the coordinator.
 
 1. Complete the relevant checks. Commit only changes in the task scope.
    Do not commit local data, environments, or exploratory reports.
+   Before a push, select the native libraries as specified in [worktree setup](#worktree-setup).
+   Use a text search or the import graph to find each module that imports a changed module.
+   Run its tests, the targeted tests for the change, and `tests/python/architecture/test_three_module_imports.py`.
 2. Start the necessary [independent review](#independent-review) of the head commit without a user reminder.
    A PR that only corrects spelling, links, or formatting in documents needs no review.
    It must not change the meaning of a rule, command, or contract.
