@@ -43,9 +43,11 @@ including retirement and necessary validation, without approval at each step.
 
 ### Worktree setup
 
-A new worktree has no `.venv-path` and no published native libraries.
+A new worktree has no published native libraries. It can have no `.venv-path`:
+`.worktreeinclude` copies that file only into Codex-managed worktrees.
 
-1. Set `.venv-path` to the accepted shared interpreter for the task lock.
+1. If `.venv-path` is missing, set it to the accepted shared interpreter for the task lock.
+   If it exists, do a check of it against the same lock.
 2. If the task changes native code, build and publish the new libraries before you use them as evidence.
 3. If the task does not change native code, use the matching libraries of the primary checkout.
    Select them for each use as follows:
@@ -297,14 +299,25 @@ If the user names no other coordinator, the owner is the coordinator.
    Fix task-related failures under the standing authority.
    Repeat the affected checks after a fix. Update the review result.
    An open failure outside the write scope needs a recorded next action.
+   After review approval, a CI repair needs no new review round if all of these conditions are true:
+   - It changes only existing test files under `tests/`. It does not change production code.
+   - All repair commits after the approved head add and delete 10 lines or fewer in total. Add the `git diff --numstat` counts
+     of each repair commit against its first parent. Do not count merges of `origin/main`.
+   - It does not remove a check, weaken an assertion, change a tolerance or a contract value,
+     or add `skip` or `xfail`.
+   - The coordinator does a check of the diff against these conditions. The PR records the result of that check,
+     the counted lines, the approved head, the repaired head, and the failed check.
+   - All necessary PR CI passes on the repaired head.
+   For a batch PR, the approved head is the batch head that the coordinator compared in batch delivery step 3.
+   Other repairs need a normal review round.
 5. Wait for the merge turn from the coordinator.
    The `main` CI cancels a run in progress when a new commit arrives,
    and repository protection needs an up-to-date branch. For this reason, merge one PR at a time.
    Start a merge only when no `main` CI run is in progress.
 6. Merge the current `origin/main` into the task branch. Resolve conflicts.
    Keep branch history. Do not force-push or overwrite the changes of another owner.
-   Compare the task diff with the reviewed diff.
-   Skip the review round only if the merge is clean and the task patch is identical.
+   Compare the task diff with the reviewed diff plus the repairs accepted under step 4.
+   Skip the review round only if the merge is clean and the task patch is identical to that diff.
    The related behavior and contracts must also stay the same.
    Otherwise, get a narrow review of the affected paths.
    Repeat the affected checks. Wait for the necessary PR CI.
@@ -388,8 +401,9 @@ Select the reviewer as follows:
    Give the open findings, the commit range, the evidence, the options, and the smallest correction.
    Round five or a later round needs user approval for a named finding and commit range.
 7. Update coverage for later commits, `main` synchronization, and conflict resolution.
-   A clean synchronization with an identical task patch and no change to related behavior or contracts
-   needs only a diff comparison. It uses no round.
+   A clean synchronization needs only a diff comparison and uses no round if two conditions are true.
+   The task patch is identical to the reviewed patch plus the repairs accepted under step 4 of the
+   [delivery workflow](#synchronize-and-review). Related behavior and contracts do not change.
    For other synchronizations, review the affected paths again.
    Do not repeat the whole review without cause.
    Keep valid test evidence. Do not repeat heavy numerical runs without a specific need.
@@ -526,11 +540,15 @@ Then measure their combined allocation, even if no files were removed.
 ## Tool instruction entry points
 
 Codex, Claude, and Antigravity use the project rules in `AGENTS.md`.
-[Codex](https://learn.chatgpt.com/docs/agent-configuration/agents-md) reads
-`AGENTS.md`. [Claude Code](https://code.claude.com/docs/en/memory#agentsmd)
-versions with AGENTS support can read it directly when no project or ancestor
-`CLAUDE.md` overrides that choice. Antigravity reads a local rule in `.agents/rules/`
-that points to `AGENTS.md`. Do a check of the loaded project instructions in the
-actual client at onboarding. If an existing Claude setup needs an entry point,
-use `@AGENTS.md` in `CLAUDE.md`. Keep the rules in one file. Do not copy them into
-a second rule set.
+[Codex](https://learn.chatgpt.com/docs/agent-configuration/agents-md) and Antigravity
+read the `AGENTS.md` at the worktree root directly. Antigravity reads the local rules in
+`.agents/rules/` only when it runs in the primary checkout. Linked worktrees do not have
+these ignored files. In a linked worktree, find the local data rule as `AGENTS.md` section 2 tells.
+[Claude Code](https://code.claude.com/docs/en/memory#agentsmd) reads the tracked root
+`CLAUDE.md`, which imports the rules with `@AGENTS.md`. Do not depend on the direct
+AGENTS support of Claude Code. In its default mode, it skips `AGENTS.md` when it finds
+a project or ancestor `CLAUDE.md`. This occurs for a checkout under the home directory
+when `~/.claude/CLAUDE.md` exists and `CLAUDE_CONFIG_DIR` points to another directory,
+for example an Orca profile. Claude then finds `~/.claude/CLAUDE.md` as an ancestor file.
+Do a check of the loaded project instructions in the actual client at onboarding.
+Keep the rules in `AGENTS.md`. Do not copy them into `CLAUDE.md` or into a second rule set.
