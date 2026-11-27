@@ -369,7 +369,11 @@ def temp_text_to_kelvin(text: str, unit: TempUnit) -> Decimal:
     raw = str(text).strip()
     # Compute and Save read this text with float(). Accept the same syntax, then convert the exact Decimal.
     float(raw)
-    return convert_temp_decimal(Decimal(raw), unit, 'K')
+    try:
+        # Decimal() rejects an exponent outside its range, for example 1e-9999999999999999999.
+        return convert_temp_decimal(Decimal(raw), unit, 'K')
+    except InvalidOperation as exc:
+        raise ValueError(f"could not convert string to float: {raw!r}") from exc
 
 
 def kelvin_to_display(kelvin, unit: TempUnit):

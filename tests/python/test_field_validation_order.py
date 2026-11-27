@@ -228,6 +228,7 @@ def test_invalid_expression_or_nonpositive_value_stays_invalid(text):
     ('K', '268.15', True), ('K', '0', False), ('C', '-273.15', False),
     ('C', '-274', False), ('C', 'nan', False), ('C', 'inf', False),
     ('C', '26.85_', False),  # Decimal() accepts this text, but Compute and Save use float().
+    ('C', '1e-9999999999999999999', False),  # float() accepts this text, but Decimal() cannot read it.
 ])
 def test_temperature_validates_absolute_value_without_changing_display_unit(unit, text, valid):
     win, le = _MockWindow(temp_unit=unit), _MockLE(text)
