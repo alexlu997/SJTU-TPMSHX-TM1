@@ -1228,9 +1228,9 @@ def test_both_import_entries_reject_unknown_format_without_changing_input(
 
 def _study_front(X, F):
     return dict(status='completed', reason=None, method='qlognehvi',
-        history=[dict(x_decision=list(x), status='completed',
+        history=[dict(index=i, x_decision=list(x), status='completed',
                       objectives=dict(heat_gain_percent=-f[0], pressure_ratio=f[1]))
-                 for x, f in zip(X, F)], pareto_indices=list(range(len(X))),
+                 for i, (x, f) in enumerate(zip(X, F))], pareto_indices=list(range(len(X))),
         n_evaluated=len(X), n_usable=len(X))
 
 
@@ -1267,7 +1267,7 @@ def test_pareto_figure_copy_export_survives_field_result_then_clears_on_empty(
                                 lambda *a, **kw: (str(path), 'PNG (*.png)'))
             menu_actions['导出图像 — PNG / SVG / PDF'].trigger()
             assert 'Pareto / 优化' in calls[0] and path.is_file()
-        win.optimization.show_pareto(dict(front, pareto_indices=[]))
+        win.optimization.show_pareto(_study_front([], []))
         win.result_export.copy_figure_clipboard()
         assert '当前无可复制' in win.dialogs.last_notice
         choices = []
@@ -1277,7 +1277,7 @@ def test_pareto_figure_copy_export_survives_field_result_then_clears_on_empty(
         assert choices and 'Pareto / 优化' not in choices[0]
         assert win.btn_export.isEnabled()  # Field results remain exportable.
         win.cache.clear()
-        win.optimization.show_pareto(dict(front, pareto_indices=[]))
+        win.optimization.show_pareto(_study_front([], []))
         assert not win.btn_export.isEnabled()
     finally:
         win.cache.clear()
@@ -1298,8 +1298,11 @@ def test_continuous_field_preview_button_shows_and_exports_after_preset_load(
     win.show()
     try:
         win.workbench.switch_tab('pareto')
-        preview = next(button for button in win.findChildren(QPushButton)
-                       if '预览连续场' in button.text())
+        config_drawer = win.optimization.drawer_tabs()[0][1]
+        preview = next(
+            button for button in config_drawer.findChildren(QPushButton)
+            if button.text() == '预览'
+        )
         preview.click()
         assert win.workbench.active_tab == 'pareto'
         assert win.optimization.result_tabs.currentWidget() is win.optimization.field_canvas, win.optimization.status.text()
@@ -1399,8 +1402,10 @@ def test_retained_pareto_export_does_not_take_new_compute_preset_name(
     front = _study_front(np.ones((2, 18)), [[-1., .8], [-2., 1.1]])
     win.optimization.show_pareto(front)
     win.case_files.load_named_preset('Shanghai (3D Gyroid)')
-    line = win.optimization.pareto_canvas.figure.axes[0].lines[0]
-    np.testing.assert_array_equal(line.get_xydata(), [[.8, 1.], [1.1, 2.]])
+    step_line = max(win.optimization.pareto_canvas.figure.axes[0].lines,
+                    key=lambda line: len(line.get_xdata()))
+    for pr, hg in ((.8, 1.), (1.1, 2.)):
+        assert np.any(np.isclose(step_line.get_xdata(), pr) & np.isclose(step_line.get_ydata(), hg))
     path = tmp_path / 'retained-pareto.png'
     choices = iter([('Pareto / 优化', True), ('150（屏幕）', True)])
     monkeypatch.setattr(result_export.QInputDialog, 'getItem', lambda *a: next(choices))
@@ -1410,7 +1415,7 @@ def test_retained_pareto_export_does_not_take_new_compute_preset_name(
     with Image.open(path) as picture:
         assert 'Subject' not in picture.info
         assert picture.info['Title'] == 'SJTU-TPMSHX pareto'
-    win.optimization.show_pareto(dict(front, pareto_indices=[]))
+    win.optimization.show_pareto(_study_front([], []))
 
 
 @pytest.mark.parametrize('channels', [3, 4])
@@ -1439,8 +1444,8 @@ def test_optimization_volume_copy_and_export_require_current_render(
     panel = SimpleNamespace(
         _grid=object(), _field='L_mm', _volume_actor=object(), _data_actors=set(),
         _available_fields=('L_mm', 't_mm'), _arrays={'L_mm': object(), 't_mm': object()},
-        _scale_mode='global', _display_mode='surface', plotter=plotter, status=Mock(),
-        colorbar=Mock(), grab=Mock(), field_changed=Mock(),
+        _scale_mode='global', _display_mode='surface', _geometry='simple', _lattice_pending=None,
+        plotter=plotter, status=Mock(), colorbar=Mock(), lattice_card=Mock(), grab=Mock(), field_changed=Mock(),
         _viewport_host=Mock(width=lambda: 0, height=lambda: 0),
         _set_export_typography=Mock(), _layout_overlays=Mock(),
         _capture_overlays=lambda: [],

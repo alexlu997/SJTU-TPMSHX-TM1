@@ -100,6 +100,10 @@ def test_vtk_renders_latin_labels_from_times_new_roman():
     assert vtkTextRenderer.GetInstance().RenderString(
         prop, "Temperature 123.45", image, dimensions, 96)
     assert all(size > 0 for size in dimensions)
+    # Italic coordinate symbols, for example the export axes triad, use the italic file.
+    prop.SetItalic(True)
+    apply_vtk_font(prop)
+    assert FT2Font(prop.GetFontFile()).style_name == "Italic"
 
 
 @pytest.mark.parametrize("theme_name", ["dark", "light"])

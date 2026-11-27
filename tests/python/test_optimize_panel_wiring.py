@@ -122,13 +122,15 @@ def archive_candidate(window, study, output_dir):
 
 
 def pick_front(page, point=0):
-    from matplotlib.backend_bases import MouseEvent, PickEvent
+    from matplotlib.backend_bases import MouseEvent
 
-    canvas = page.pareto_canvas
-    front = canvas.figure.axes[0].lines[0]
-    mouse = MouseEvent('button_press_event', canvas, 0, 0)
-    event = PickEvent('pick_event', canvas, mouse, front, ind=[point])
-    canvas.callbacks.process('pick_event', event)
+    canvas = page.pareto_view.canvas
+    ax = canvas.figure.axes[0]
+    front = sorted((pt for pt in page.pareto_view._points if pt.on_front), key=lambda pt: pt.x)
+    target = front[point]
+    px, py = ax.transData.transform((target.x, target.y))
+    mouse = MouseEvent('button_press_event', canvas, px, py, button=1)
+    canvas.callbacks.process('button_press_event', mouse)
 
 
 def test_export_button_uses_archived_objectives_after_ui_edits(window, tmp_path, monkeypatch):
@@ -311,9 +313,13 @@ def test_import_changes_only_operating_conditions(window, tmp_path, monkeypatch)
     from PySide6.QtWidgets import QFileDialog
     before = asdict(page.capture_case())
     path = tmp_path / 'conditions.json'
-    path.write_text(json.dumps({'conditions': [condition('a'), condition('b')]}))
+    path.write_text(json.dumps({'conditions': [condition('solo')]}))
     monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *a: (str(path), ''))
     page.import_conditions()
+    assert page._objective_val.text() == '1 工况均值'
+    path.write_text(json.dumps({'conditions': [condition('a'), condition('b')]}))
+    page.import_conditions()
+    assert page._objective_val.text() == '2 工况均值'
     current = page.capture_case()
     rows = job_input.condition_inputs(current, page.conditions)
     assert [r[0] for r in rows] == ['a', 'b']
@@ -326,8 +332,17 @@ def test_import_changes_only_operating_conditions(window, tmp_path, monkeypatch)
     path.write_text('{"conditions": []}')
     page.import_conditions()
     assert len(page.conditions) == 2
+    assert '工况导入失败' in window.dialogs.last_notice
+    prev_report = report(window)
+    prev_report['conditions'] = [
+        dict(prev_report['conditions'][0], condition_id='hot-500'),
+        dict(prev_report['conditions'][0], condition_id='hot-490'),
+    ]
+    page.report = prev_report
     page.use_current_condition()
     assert page.conditions is None and '当前工况' in page.condition_summary.text()
+    assert page._objective_val.text() == '当前工况'
+    assert page._cond_header._count_label.text() == '1'
 
 
 @pytest.mark.parametrize('dimension', [0, 1])
@@ -427,6 +442,8 @@ def test_live_status_and_pareto_keep_run_page_and_cancel_request(window):
     page.show_live_update({**state, 'report': terminal, 'eta_s': None})
     assert page.status.text() == '失败'
     assert 'save failed' in page.live_details.text()
+    fail_notice = page.readout_spec()[1]
+    assert fail_notice is not None and 'save failed' in fail_notice.detail
 
 
 def test_live_status_keeps_active_later_conditions_visible(window):
@@ -491,6 +508,9 @@ def test_proposal_error_restores_pareto_only_after_saved_terminal(window, tmp_pa
     page.start()
     _wait_for(page.is_idle)
     assert 'injected proposal failure' in page.status.text()
+    prop_notice = page.readout_spec()[1]
+    assert prop_notice is not None and 'injected proposal failure' in prop_notice.detail
+    assert 'injected proposal failure' in window.dialogs.last_notice
     assert page.report['n_usable'] == 2
     assert page.report['status'] == ('running' if save_failure else 'failed')
     assert page.export_pareto_button.isEnabled() is not save_failure
@@ -533,12 +553,16 @@ def test_single_condition_prepares_in_worker_and_can_cancel_before_checkpoint(
     monkeypatch.setattr(api, 'prepare_case', held_prepare)
     monkeypatch.setattr(native, 'run_multi_condition_optimization', run)
     monkeypatch.setattr(panel, 'optimization_output_dir', lambda: tmp_path)
+    page.show_pareto(expected)
+    assert page.readout_spec()[0]
     page.start()
     QTimer.singleShot(0, lambda: ticks.append(True))
     try:
         _wait_for(lambda: entered.is_set() and bool(ticks))
         assert '1 个工况' in page.status.text()
         assert not page.start_button.isEnabled()
+        # Stale previous-study readout stays hidden while the new run is preparing (B04).
+        assert page.readout_spec() == ([], None)
         # Editing the live widgets cannot alter the worker's captured input.
         window.le_TinA.setText('450')
         if cancel_during_prepare:
@@ -550,6 +574,9 @@ def test_single_condition_prepares_in_worker_and_can_cancel_before_checkpoint(
     if cancel_during_prepare:
         assert not received
         assert '尚未启动优化搜索' in page.status.text()
+        cancel_items, cancel_notice = page.readout_spec()
+        assert cancel_items  # Previous report restored after pre-search cancel.
+        assert cancel_notice is not None and '尚未启动优化搜索' in cancel_notice.detail
         assert not list(tmp_path.glob('*/optimization.json'))
     else:
         assert len(received) == 1
@@ -584,7 +611,18 @@ def test_thread_terminal_state_retained_until_actual_exit(window, tmp_path, monk
             directory = kwargs['output_dir'] / 'baseline'
             directory.mkdir(parents=True)
             (directory / 'batch.json').write_text(json.dumps(dict(conditions=[
-                dict(condition_id='one', reason='inlet pressure outside range')])))
+                dict(
+                    condition_id='one', status='failed', stage='qualification',
+                    reason='inlet pressure outside range',
+                    qualification=dict(
+                        optimization=dict(reasons=['applicability']),
+                        applicability=dict(checks=[dict(
+                            side='B', quantity='Re', source=['nu', 'water', 'Gyroid'], passed=False,
+                        )]),
+                    ),
+                ),
+                dict(condition_id='two', status='failed', stage='save_result', reason='disk full'),
+            ])))
         return expected
     monkeypatch.setattr(native, 'run_multi_condition_optimization', run)
     page.start()
@@ -608,7 +646,16 @@ def test_thread_terminal_state_retained_until_actual_exit(window, tmp_path, monk
         if status == 'failed':
             assert '均匀基准失败' in page.summary_banner.text()
             assert 'one：inlet pressure outside range' in page.status.text()
+            assert page.status_badge_spec() == ('err', '失败 · 均匀基准未通过')
+            assert page._result_body_stack.currentWidget() is page._failed_card_host
+            assert 'one' in page._fail_cond_val.text() and 'two' in page._fail_cond_val.text()
+            assert '资格检查' in page._fail_stage_val.text() and '保存结果' in page._fail_stage_val.text()
+            assert 'Nu' in page._fail_reason_val.text() and 'disk full' in page._fail_reason_val.text()
             assert not page.pareto_ready() and not page.load_button.isEnabled()
+        elif status == 'error':
+            err_notice = page.readout_spec()[1]
+            assert err_notice is not None and 'test failure' in err_notice.detail
+            assert 'test failure' in window.dialogs.last_notice
     finally:
         release.set()
     _wait_for(page.is_idle)
@@ -661,6 +708,10 @@ def test_pareto_render_failure_keeps_numerical_terminal_and_disables_half_plot(
     assert page.kpi_gen.text() == label
     assert label in page.status.text() and '绘图失败' in page.status.text()
     assert 'injected Pareto rendering failure' in page.status.text()
+    render_notice = page.readout_spec()[1]
+    assert render_notice is not None and '绘图失败' in render_notice.title
+    assert 'injected Pareto rendering failure' in render_notice.detail
+    assert 'injected Pareto rendering failure' in window.dialogs.last_notice
     assert '绘图失败' in page.summary_banner.text()
     assert page.stack.currentIndex() == 2
     assert not page.pareto_ready()
@@ -715,7 +766,11 @@ def test_cancel_checkpoint_read_failure_reaches_error_terminal(window, tmp_path,
     assert page.start_button.isEnabled() and not page.cancel_button.isEnabled()
     assert page.kpi_gen.text() == 'ERROR'
     assert 'ERROR' in page.status.text()
-    assert ('JSONDecodeError' if failure == 'invalid_json' else 'PermissionError') in page.status.text()
+    expected_err = 'JSONDecodeError' if failure == 'invalid_json' else 'PermissionError'
+    assert expected_err in page.status.text()
+    err_notice = page.readout_spec()[1]
+    assert err_notice is not None and expected_err in err_notice.detail
+    assert expected_err in window.dialogs.last_notice
     assert str(checkpoint[0].parent) in page.status.text()
     assert page.report == previous
     assert checkpoint[0].exists()
@@ -732,11 +787,34 @@ def test_pareto_keeps_relative_objectives_and_full_field_through_save_replay(win
     archived_case, _ = archive_candidate(window, study, tmp_path)
     page.report = deepcopy(study)
     page.show_pareto(study)
+    from sjtu_tpmshx.applications.gui.ui.symbols import MPL
     ax = page.pareto_canvas.figure.axes[0]
-    assert ax.get_xlabel() == 'Mean relative pressure drop [1]'
-    assert ax.get_ylabel() == 'Mean useful heat gain [%]'
-    np.testing.assert_array_equal(ax.lines[0].get_xdata(), [.25])
-    np.testing.assert_array_equal(ax.lines[0].get_ydata(), [-2.])
+    assert ax.get_xlabel() == MPL['pr_ratio']
+    assert ax.get_ylabel() == MPL['hg_pct']
+    step_line = ax.lines[0]
+    assert np.any((np.isclose(step_line.get_xdata(), .25)) & (np.isclose(step_line.get_ydata(), -2.)))
+    # Baseline #0 in pareto_indices must stay on the attainment step curve (B01).
+    base_study = deepcopy(study)
+    base_study['history'] = [
+        {**study['history'][0], 'index': 0, 'phase': 'initial',
+         'objectives': dict(pressure_ratio=1.0, heat_gain_percent=0.0)},
+        {**study['history'][0], 'index': 1, 'phase': 'iteration',
+         'objectives': dict(pressure_ratio=0.95, heat_gain_percent=-0.5)},
+        {**study['history'][0], 'index': 2, 'phase': 'iteration',
+         'objectives': dict(pressure_ratio=1.02, heat_gain_percent=0.4)},
+    ]
+    base_study.update(pareto_indices=[0, 1, 2], n_evaluated=3, n_usable=3)
+    page.show_pareto(base_study)
+    base_ax = page.pareto_canvas.figure.axes[0]
+    step_curve = max(base_ax.lines, key=lambda line: len(line.get_xdata()))
+    assert np.any(
+        np.isclose(step_curve.get_xdata(), 1.0) & np.isclose(step_curve.get_ydata(), 0.0)
+    )
+    # Restore original study for replay & load checks, and verify unmatched ID does not select (B08).
+    page.report = deepcopy(study)
+    page.show_pareto(study)
+    page.select_design(999)
+    assert page.selected_index is None
     anchor = (window.le_Lcell.text(), window.le_t.text())
     original = window.case_files.capture_current_preset('before-pick')
     case_result = ComputeResult(Q_W=1.)
@@ -791,6 +869,7 @@ def test_stale_result_cannot_be_loaded_into_other_geometry(window):
     pick_front(page)
     page.load_button.click()
     assert '原几何' in page.status.text()
+    assert '原几何' in window.dialogs.last_notice
     assert window._continuous_field_spec is None
 
 
@@ -825,6 +904,9 @@ def test_field_preview_reports_native_failures_and_clears_old_volume(window, mon
         assert reached == ['XYZ sample' if dimension else 'XY construction']
         assert '连续场预览失败' in page.status.text()
         assert message in page.status.text()
+        assert '连续场预览失败' in window.dialogs.last_notice and message in window.dialogs.last_notice
+        preview_notice = page.readout_spec()[1]
+        assert preview_notice is not None and message in preview_notice.detail
         assert page.volume_data is None and not page._volume_ready
         assert not page.result_tabs.isTabEnabled(2)
         renderer.hide.assert_called_once_with()
@@ -1012,9 +1094,11 @@ def test_missing_or_mismatched_archive_keeps_current_design(window, tmp_path, mo
         (directory / 'batch.json').write_text(json.dumps(changed))
         page.load_button.click()
         assert '载入失败' in page.status.text(), damage
+        assert '载入失败' in window.dialogs.last_notice, damage
         expected_reason = dict(missing='No such file', condition='归档工况', flow='归档工况',
                                case_id='归档算例', config='归档算例', vector='归档算例', speed='归档入口速度')
         assert expected_reason[damage] in page.status.text(), page.status.text()
+        assert expected_reason[damage] in window.dialogs.last_notice, window.dialogs.last_notice
         assert window._continuous_field_spec is None
         assert asdict(page.capture_case()) == original
 
@@ -1038,6 +1122,7 @@ def test_bad_case_input_cannot_launch(window, field, label, value, monkeypatch, 
     factory.assert_not_called()
     assert '启动失败' in page.status.text()
     assert label in page.status.text()
+    assert '启动失败' in window.dialogs.last_notice and label in window.dialogs.last_notice
     assert page.is_idle() and page.start_button.isEnabled()
 
 
@@ -1126,6 +1211,7 @@ def test_mass_requirements_import_and_current_condition_reset(window, tmp_path, 
     page.import_conditions()
     assert page.method.currentData() == 'qlognei'
     assert page.mass_requirements == payload['mass_requirements']
+    assert page._objective_val.text() == '逐项达标'
     assert 'Nu-Re' in page.eval_preview.text()
     assert '芯体质量最小' in page.eval_preview.text()
     page.use_current_condition()
@@ -1162,8 +1248,20 @@ def test_mass_result_display_and_exports_keep_feasibility(window, tmp_path, feas
             mass_kg=.25, geometry_model='tpms_geometry', x_decision=row['x_decision']))
     page.report = study
     assert page.show_pareto(study) is None
-    assert page.pareto_canvas.figure.axes[0].get_ylabel() == 'Core mass [kg]'
-    assert ('Nu Re extrapolation allowed' in page.pareto_canvas.figure.axes[0].get_title()) == allow_extrapolation
+    assert page.pareto_ready()
+    assert 'pareto' in [key for _, key in window.result_export.available_figure_entries()]
+    if not feasible:
+        from matplotlib.backend_bases import MouseEvent
+        canvas = page.pareto_view.canvas
+        ax = canvas.figure.axes[0]
+        pt = page.pareto_view._points[0]
+        px, py = ax.transData.transform((pt.x, pt.y))
+        canvas.callbacks.process('button_press_event', MouseEvent('button_press_event', canvas, px, py, button=1))
+        assert page.selected_index == 0
+        assert not page.load_button.isEnabled()
+    assert '芯体质量' in page.pareto_canvas.figure.axes[0].get_ylabel()
+    assert '[kg]' in page.pareto_canvas.figure.axes[0].get_ylabel()
+    assert ('允许 Nu-Re 外推' in page.pareto_canvas.figure.axes[0].get_title(loc='right')) == allow_extrapolation
     assert ('Nu-Re' in page.kpi_q_caption.text()) == allow_extrapolation
     assert ('Nu-Re' in panel._termination_label(study)) == allow_extrapolation
     assert ('达到模型质量下界' in panel._termination_label(study)) == attained

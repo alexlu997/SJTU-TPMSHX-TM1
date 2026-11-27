@@ -96,7 +96,7 @@ def test_window_close_cleans_both_volume_plotters_and_their_popups(win):
     for owner, name in ((win, 'canvas_3d'), (win.optimization, 'volume_panel')):
         popup = QDialog(win)
         popup.show()
-        panel = SimpleNamespace(_popup_dialogs=[popup], _stop_camera_tween=Mock(),
+        panel = SimpleNamespace(_popup_dialogs=[popup], _stop_camera_tween=Mock(), _lattice=Mock(),
                                 plotter=Mock(), color_range_state=lambda: {'mode': 'global', 'ranges': {}})
         panel.cleanup = MethodType(ThreeDVisPanel.cleanup, panel)
         setattr(owner, name, panel)
@@ -106,6 +106,7 @@ def test_window_close_cleans_both_volume_plotters_and_their_popups(win):
     for panel, popup in zip(panels, popups):
         panel.plotter.close.assert_called_once_with()
         panel._stop_camera_tween.assert_called_once_with()
+        panel._lattice.close.assert_called_once_with()
         assert panel._popup_dialogs == [] and not popup.isVisible()
 
 
@@ -196,13 +197,15 @@ def test_optimization_space_restores_drawer_state_and_keeps_active_cancel(win, c
     QApplication.processEvents()
     win.workbench.switch_tab('pareto')
     QApplication.processEvents()
-    assert not win.inspector_drawer.isVisibleTo(win)
+    assert win.inspector_drawer.isVisibleTo(win)
+    assert win.appearance.is_drawer_open('opt')
     assert not win._run_status_card.isVisibleTo(win)
     assert not win._result_view_switch.isVisibleTo(win)
     assert win.btn_focus_view.isVisibleTo(win)
     win.appearance.toggle_focus()
-    win.appearance.toggle_focus()
     assert not win.inspector_drawer.isVisibleTo(win)
+    win.appearance.toggle_focus()
+    assert win.inspector_drawer.isVisibleTo(win)
     with monkeypatch.context() as running:
         running.setattr(win.single_run, 'is_idle', lambda: False)
         win._run_status_card.start('2d')
@@ -222,12 +225,16 @@ def test_optimization_page_buttons_work_by_keyboard_and_public_edit_keeps_values
     win.le_Nx.setText('37')
     win.appearance.set_drawer_open(False)
     win.workbench.switch_tab('pareto')
-    for index, key in enumerate(('config', 'running', 'result')):
-        button = win.optimization.stage_pills[key]
+    QApplication.processEvents()
+    assert win.inspector_drawer.isVisibleTo(win)
+    tab_buttons = win.inspector_drawer.tab_strip._buttons
+    assert [b.text() for b in tab_buttons] == ['搜索配置', '所选方案']
+    for index, button in enumerate(tab_buttons):
         assert button.focusPolicy() != Qt.FocusPolicy.NoFocus
         button.setFocus()
         QTest.keyClick(button, Qt.Key.Key_Space)
-        assert win.optimization.stack.currentIndex() == index
+        assert win.inspector_drawer.strip_index() == index
+    win.appearance.select_drawer_tab('opt', 0)
     win.optimization.stack.setCurrentIndex(0)
     win.appearance.toggle_focus()
     win.optimization.edit_common_button.click()
@@ -236,11 +243,18 @@ def test_optimization_page_buttons_work_by_keyboard_and_public_edit_keeps_values
     assert win.inspector_drawer.isVisibleTo(win) and win.appearance.is_drawer_open()
     assert win.le_Nx.text() == '37'
 
+    win.workbench.show_quick_design()
+    QApplication.processEvents()
+    assert not win.appearance.is_drawer_open('qd')
+    assert not win.inspector_drawer.isVisibleTo(win)
+    win.workbench.switch_tab('layout')
+
 
 @pytest.mark.parametrize('collapsed', [False, True])
 @pytest.mark.parametrize('restore_tab', ['layout', 'pareto'])
 def test_optimization_session_restores_saved_drawer_state(win, monkeypatch, collapsed, restore_tab):
     win.appearance.set_drawer_open(not collapsed, page_key='run')
+    win.appearance.set_drawer_open(not collapsed, page_key='opt')
     win.workbench.switch_tab('pareto')
     QApplication.processEvents()
     saved = {}
@@ -252,7 +266,10 @@ def test_optimization_session_restores_saved_drawer_state(win, monkeypatch, coll
     monkeypatch.setattr(win.case_files.store, 'load_session', lambda ws: saved)
     win.case_files.restore_session()
     QApplication.processEvents()
-    assert win.workbench.active_tab == 'pareto' and win.appearance.is_drawer_open('run') == (not collapsed)
+    assert win.workbench.active_tab == 'pareto'
+    assert win.appearance.is_drawer_open('run') == (not collapsed)
+    assert win.appearance.is_drawer_open('opt') == (not collapsed)
+    win.appearance.set_drawer_open(True, page_key='opt')
 
 
 def test_optimization_figure_menu_keeps_copy_and_export_reachable(win, monkeypatch):
