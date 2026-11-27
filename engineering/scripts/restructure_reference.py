@@ -48,7 +48,9 @@ def exact(value):
     if is_dataclass(value):
         value = {field.name: getattr(value, field.name) for field in fields(value)}
     if isinstance(value, Mapping):
-        return {key: exact(item) for key, item in value.items()}
+        # The 3D pressure solver records wall time for each matrix build and solve.
+        return {key: '<wall time>' if key in ('build_seconds', 'solve_seconds') else exact(item)
+                for key, item in value.items()}
     if isinstance(value, (tuple, list)):
         return [exact(item) for item in value]
     if isinstance(value, np.generic):
