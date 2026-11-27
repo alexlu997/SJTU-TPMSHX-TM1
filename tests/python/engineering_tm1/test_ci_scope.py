@@ -114,3 +114,8 @@ def test_rename_from_code_to_docs_still_requires_full_ci(tmp_path, event, monkey
          '--base', base, '--head', git('rev-parse', 'HEAD')], cwd=tmp_path, text=True)
     assert result.strip() == 'full'
     assert ci_scope.native_candidates(base) == []
+
+    git('switch', '-q', '--detach', base)
+    (tmp_path / 'solver/model.cpp').write_text('changed content\n', encoding='utf-8')
+    git('commit', '-qam', 'Change the source at the same path')
+    assert ci_scope.native_candidates(base) == []

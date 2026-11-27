@@ -35,7 +35,12 @@ CI MUST NOT depend on ignored local data assets.
 Fast jobs MUST use two workers and one BLAS/OMP/MKL/NumExpr thread. Each job MUST report its 30 slowest tests and skip reasons. JUnit XML MUST record individual statuses and durations. Test report artifacts stay available for 7 days.
 
 Uploads cover reports, collection/shard lists, and resource records under `.cache/ci/`. They exclude native solver results and local data. The shared `tests/python/native/_ci_suite.txt` list MUST select native qualification modules. In full CI, Python 3.13 native shards also run `tests/python/native/_ci_stage_suite.txt`, including slow tests. Application shards MUST transfer these modules and keep the original full collection. New modules outside the lists MUST enter application tests.
-The application tier allows omissions only for the shared native list. Fast stage cases stay in the application shards. Linux result builds run the independent numerical comparisons. Native shards and BO jobs can use a verified pair of matching runtime archives from a successful push to a main ancestor. The current commit must pass its own build and qualification. If the pair is unavailable or an input changed, tests wait for their platform build. Python 3.13 summaries MUST check complete and disjoint native shards and application coverage. Each summary MUST require its integration and BO reports. Windows/Python 3.12 uses these reports for compatibility.
+The application tier allows omissions only for the shared native list. Fast stage cases stay in the application shards. Linux result builds run the independent numerical comparisons.
+Native shards and BO jobs can use a verified pair of runtime archives from any matching `main` push in the same repository.
+Its CI run MUST pass, and its commit MUST be an ancestor of the base commit.
+The current commit MUST pass its own build and qualification.
+If the pair is unavailable or an input changed, tests wait for their platform build.
+Python 3.13 summaries MUST check complete and disjoint native shards and application coverage. Each summary MUST require its integration and BO reports. Windows/Python 3.12 uses these reports for compatibility.
 
 Platform fast tests, real integration, and minimal postprocessing gates stay required. The four required checks are macOS 3.13, Windows 3.12, Windows 3.13, and minimal-postprocess. Speed improvements MUST NOT change numerical assertions or tolerances. Base and BO jobs MUST use the same platform/Python matrix. Both Windows versions use engineering/requirements/bo-windows.txt.
 Minimal postprocessing waits for the macOS and Linux artifact producers and runs independently of Windows qualification.
