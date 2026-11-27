@@ -803,8 +803,7 @@ def refresh_header_status(window) -> None:
         opt_start.setVisible(on_opt and not opt_running)
         opt_pause.setVisible(on_opt and opt_running)
         opt_cancel.setVisible(on_opt and opt_running)
-        if hasattr(opt, "_result_pill"):
-            opt._result_pill.setVisible(on_opt and opt.stack.currentIndex() == 2)
+        opt._result_pill.setVisible(on_opt and opt.stack.currentIndex() == 2)
         if on_opt and hasattr(window, "btn_export"):
             window.btn_export.setVisible(opt.has_exportable_result())
 

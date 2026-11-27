@@ -106,7 +106,7 @@ def test_export_preserves_accepted_input_after_file_draft_changes(make_page, tmp
     assert '已导出' in page._qd_status.text()
     workbook = load_workbook(target, read_only=True)
     try:
-        assert workbook.sheetnames == ['构型汇总', '工况明细']
+        assert workbook.sheetnames == ['构型汇总', '算例明细']
         cells = list(workbook['构型汇总'].values)
         row = dict(zip(cells[0], cells[1]))
         assert row['拓扑'] == 'Diamond' and row['l_mm'] == 7.

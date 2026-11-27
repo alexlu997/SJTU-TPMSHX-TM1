@@ -23,7 +23,7 @@ def test_second_sheet_failure_preserves_target(tmp_path, monkeypatch, existing):
     failure = OSError('second sheet write failed')
 
     def fail_second(frame, writer, *args, **kwargs):
-        if kwargs.get('sheet_name') == '工况明细':
+        if kwargs.get('sheet_name') == '算例明细':
             raise failure
         return original(frame, writer, *args, **kwargs)
 
@@ -48,10 +48,10 @@ def test_success_replaces_previous_report_with_both_sheets(tmp_path):
     assert report.write_xlsx(str(path), [design]) == (1, 1, 1)
     workbook = load_workbook(path, read_only=True)
     try:
-        assert workbook.sheetnames == ['构型汇总', '工况明细']
+        assert workbook.sheetnames == ['构型汇总', '算例明细']
         summary = list(workbook['构型汇总'].values)
         assert summary[1][summary[0].index('可行')] == '是'
-        details = list(workbook['工况明细'].values)
+        details = list(workbook['算例明细'].values)
         row = dict(zip(details[0], details[1]))
         assert row['工况'] == 3
         assert row['换热量_kW'] == 1.25

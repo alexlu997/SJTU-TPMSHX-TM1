@@ -68,12 +68,8 @@ _FIELD_WIDTH_COMPACT = 176
 _FLUID_LABELS: dict[str, str] = {
     "air": "空气",
     "water": "水",
-    "sco2": "sCO₂",
-    "co2": "CO₂",
-    "空气": "空气",
-    "水": "水",
-    "sCO₂": "sCO₂",
-    "CO₂": "CO₂",
+    "sco₂": "sCO₂",
+    "co₂": "CO₂",
 }
 
 _PHASE_LABELS: dict[str, str] = {
@@ -265,13 +261,10 @@ class OptimizationPage(QWidget):
     def attach_to_shell(self) -> None:
         """Connect OptimizationPage to the Style P2 Main_Menu shell."""
         self._shell_attached = True
-        toolbar = getattr(self._form, "_field_toolbar", None)
-        if toolbar is not None:
-            self._result_pill.setParent(toolbar)
-            toolbar.layout().insertWidget(0, self._result_pill)
-            self._result_pill.setVisible(False)
-            if self._pill_bar is not None:
-                self._pill_bar.hide()
+        toolbar = self._form._field_toolbar
+        self._result_pill.setParent(toolbar)
+        toolbar.layout().insertWidget(0, self._result_pill)
+        self._result_pill.setVisible(False)
         btn_export = getattr(self._form, "btn_export", None)
         if btn_export is not None and btn_export.menu() is not None:
             menu = btn_export.menu()
@@ -759,17 +752,10 @@ class OptimizationPage(QWidget):
         p3v.setContentsMargins(0, 0, 0, 0)
         p3v.setSpacing(0)
 
-        self._pill_bar = QWidget()
-        self._pill_bar.setStyleSheet("background: transparent;")
-        pill_row = QHBoxLayout(self._pill_bar)
-        pill_row.setContentsMargins(14, 6, 14, 2)
-        pill_row.setSpacing(8)
-        self._result_pill = _OptPillIsland(("Pareto 前沿", "尺寸 / 壁厚场", "三维场"))
+        self._result_pill = _OptPillIsland(("Pareto 前沿", "尺寸 / 壁厚场", "三维场"), self)
         self._result_pill.set_tab_enabled(1, False)
         self._result_pill.set_tab_enabled(2, False)
-        pill_row.addWidget(self._result_pill)
-        pill_row.addStretch(1)
-        p3v.addWidget(self._pill_bar)
+        self._result_pill.hide()
 
         self._result_body_stack = QStackedWidget()
         self._result_body_stack.setStyleSheet("background: transparent;")
@@ -1773,6 +1759,11 @@ class OptimizationPage(QWidget):
             self.show_pareto(report)
             detail = f" · {error}" if error else ""
             self.status.setText(f"{self.summary_banner.text()}{detail} · {directory}")
+            if error:
+                self._action_notice = ReadoutNotice("运行中止", str(error), kind="err")
+                if self._shell_attached:
+                    self._form.dialogs.notify(str(error), kind="error")
+                self._notify_shell()
         else:
             label = "ERROR" if error else "已取消"
             text = (
@@ -1792,6 +1783,8 @@ class OptimizationPage(QWidget):
             self._set_kpi(gen=label, best_q="—", best_dp="—", eta="—")
             self.set_stage("running", "idle")
             self.set_stage("config", "active")
+            if self._shell_attached and error:
+                self._form.dialogs.notify(text, kind="error")
             self._notify_shell()
 
     @Slot()
@@ -2352,6 +2345,9 @@ class OptimizationPage(QWidget):
             summary += f' · {report["reason"]}'
         if render_error:
             summary += f" · Pareto 绘图失败：{render_error}"
+            self._action_notice = ReadoutNotice("绘图失败", render_error, kind="err")
+            if self._shell_attached:
+                self._form.dialogs.notify(f"Pareto 绘图失败：{render_error}", kind="error")
         self.summary_banner.setText(summary)
         self.status.setText(summary)
         self._rebuild_condition_table()

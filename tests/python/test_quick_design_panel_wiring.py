@@ -163,6 +163,8 @@ def test_new_run_clears_stale_results_then_publishes_partial_current_result(make
     _wait_for(w.is_idle)
     assert w.last_result['all'] == [d] and w.last_result['partial']
     assert '已取消' in w._qd_status.text() and '不代表完整搜索最优' in w._qd_status.text()
+    cancel_notice = w.readout_spec()[1]
+    assert cancel_notice is not None and '已取消' in cancel_notice.title and '不代表完整搜索最优' in cancel_notice.detail
     assert w._qd_table.rowCount() == 1
     assert w._qd_table.item(0, 12).text().startswith('已完成候选内')
     assert w._qd_energy_table.rowCount() == 1
@@ -204,6 +206,8 @@ def test_run_quick_design_malformed_node_list_gives_feedback_not_crash(make_page
     w.submit()               # must NOT raise
     assert ("解析" in w._qd_status.text() or "失败" in w._qd_status.text()), \
         f"no parse-failure feedback; status was {w._qd_status.text()!r}"
+    notice = w.readout_spec()[1]
+    assert notice is not None and ("解析" in notice.detail or "失败" in notice.detail)
     assert w.is_idle(), "worker launched on bad input"
 
 
@@ -213,6 +217,8 @@ def test_run_quick_design_malformed_fixed_cell_gives_feedback(make_page):
     w.le_qd_cell_l.setText("7mm")        # malformed fixed-cell length
     w.submit()               # must NOT raise
     assert ("解析" in w._qd_status.text() or "失败" in w._qd_status.text())
+    notice = w.readout_spec()[1]
+    assert notice is not None and ("解析" in notice.detail or "失败" in notice.detail)
 
 
 def test_thread_result_warnings_reach_table(make_page, monkeypatch):
@@ -234,7 +240,7 @@ def test_thread_result_warnings_reach_table(make_page, monkeypatch):
     w._fill_table(received[0]['feasible'])
     cell = w._qd_table.item(0, 11)
     assert cell.text() == '有警告'
-    assert cell.toolTip() == '[工况 2] final-source'
+    assert cell.toolTip() == '[算例 2] final-source'
     from sjtu_tpmshx.applications.gui.ui.theme import get_theme
     assert cell.foreground().color().name() == get_theme()['warn'].lower()
 
@@ -381,6 +387,8 @@ def test_failure_keeps_completed_candidates_error_and_export(make_page, monkeypa
     status = page._qd_status.text()
     assert str(error) in status and '保留 2' in status
     assert '不代表完整搜索最优' in status and '已取消' not in status
+    notice = page.readout_spec()[1]
+    assert notice is not None and str(error) in notice.detail and '不代表完整搜索最优' in notice.detail
     assert page._qd_table.rowCount() == 1
     assert page._qd_table.item(0, 12).text().startswith('已完成候选内')
     assert page._qd_energy_table.rowCount() == 2
@@ -410,10 +418,10 @@ def test_failure_keeps_completed_candidates_error_and_export(make_page, monkeypa
         assert summary[4]['可行'] == '是' and summary[5]['可行'] == '否'
         assert summary[4]['标记'].startswith('已完成候选内')
         assert summary[5]['备注'] == 'not-converged@final'
-        for row in rows['工况明细']:
+        for row in rows['算例明细']:
             assert row['热侧出口_K'] == 400. and row['换热量_kW'] == 10.
             assert row['警告'] == 'retained source warning'
-        assert {row['数值收敛'] for row in rows['工况明细']} == {True, False}
+        assert {row['数值收敛'] for row in rows['算例明细']} == {True, False}
     finally:
         workbook.close()
 
@@ -632,7 +640,7 @@ def test_cli_and_gui_match_on_shared_inputs(make_page, monkeypatch, tmp_path, ca
 
     workbook = load_workbook(cli_out, read_only=True, data_only=True)
     try:
-        detail_rows = list(workbook['工况明细'].values)
+        detail_rows = list(workbook['算例明细'].values)
         detail_header = detail_rows[0]
         cli_order = [row[detail_header.index('构型')] for row in detail_rows[1:]]
         summary_rows = list(workbook['构型汇总'].values)

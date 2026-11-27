@@ -1,8 +1,8 @@
 """设计结果 → 双 sheet Excel。CLI 与 UI 共用, 避免输出格式分叉。
 
 构型汇总:  每构型一行 (含不可行) — 长宽高 + 重量 + dP 上限值。
-工况明细:  构型 × 工况 每行 — 该工况各自的出口温/两侧压损/换热量/Re,
-           明确对应输入 Excel 的具体工况 (而非 max-over-工况 的单值)。
+算例明细:  构型 × 算例 每行 — 该算例各自的出口温/两侧压损/换热量/Re,
+           明确对应输入 Excel 的具体算例 (而非 max-over-算例 的单值)。
 """
 from __future__ import annotations
 import math
@@ -25,7 +25,7 @@ def _H_mm(d):
 
 def warning_text(d) -> str:
     """Render final-case notices for the shared UI/CLI/export contract."""
-    return '\n'.join(f"[工况 {pc['case']}] {message}"
+    return '\n'.join(f"[算例 {pc['case']}] {message}"
                      for pc in getattr(d, 'percase', [])
                      for message in pc.get('warnings', []))
 
@@ -87,5 +87,5 @@ def write_xlsx(path, results, *, partial=False, termination_reason='cancelled') 
     with staged_files([path]) as stage:
         with pd.ExcelWriter(stage / path.name, engine="openpyxl") as xw:
             df_s.to_excel(xw, sheet_name="构型汇总", index=False)
-            df_d.to_excel(xw, sheet_name="工况明细", index=False)
+            df_d.to_excel(xw, sheet_name="算例明细", index=False)
     return len(results), sum(d.feasible for d in results), len(det)

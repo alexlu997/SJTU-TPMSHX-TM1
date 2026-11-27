@@ -191,20 +191,6 @@ def archived_design(report, index, output_dir, current):
     return config
 
 
-def baseline_failure_reasons(baseline, output_dir):
-    """Read the batch reason and each recorded condition failure."""
-    reasons = [baseline['reason']] if baseline['reason'] else []
-    if output_dir is not None:
-        path = Path(output_dir) / baseline['directory'] / 'batch.json'
-        if path.is_file():
-            with path.open(encoding='utf-8') as source:
-                batch = json.load(source)
-            for row in batch['conditions']:
-                if row['reason']:
-                    reasons.append(f'{row["condition_id"]}：{row["reason"]}')
-    return reasons
-
-
 def baseline_failure_details(baseline, output_dir):
     """Return structured recorded failure details for the failed-baseline card in one read."""
     stage_names = {

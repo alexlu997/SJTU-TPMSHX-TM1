@@ -442,6 +442,8 @@ def test_live_status_and_pareto_keep_run_page_and_cancel_request(window):
     page.show_live_update({**state, 'report': terminal, 'eta_s': None})
     assert page.status.text() == '失败'
     assert 'save failed' in page.live_details.text()
+    fail_notice = page.readout_spec()[1]
+    assert fail_notice is not None and 'save failed' in fail_notice.detail
 
 
 def test_live_status_keeps_active_later_conditions_visible(window):
@@ -506,6 +508,9 @@ def test_proposal_error_restores_pareto_only_after_saved_terminal(window, tmp_pa
     page.start()
     _wait_for(page.is_idle)
     assert 'injected proposal failure' in page.status.text()
+    prop_notice = page.readout_spec()[1]
+    assert prop_notice is not None and 'injected proposal failure' in prop_notice.detail
+    assert 'injected proposal failure' in window.dialogs.last_notice
     assert page.report['n_usable'] == 2
     assert page.report['status'] == ('running' if save_failure else 'failed')
     assert page.export_pareto_button.isEnabled() is not save_failure
@@ -569,7 +574,9 @@ def test_single_condition_prepares_in_worker_and_can_cancel_before_checkpoint(
     if cancel_during_prepare:
         assert not received
         assert '尚未启动优化搜索' in page.status.text()
-        assert page.readout_spec()[0]  # Previous report restored after pre-search cancel.
+        cancel_items, cancel_notice = page.readout_spec()
+        assert cancel_items  # Previous report restored after pre-search cancel.
+        assert cancel_notice is not None and '尚未启动优化搜索' in cancel_notice.detail
         assert not list(tmp_path.glob('*/optimization.json'))
     else:
         assert len(received) == 1
@@ -639,11 +646,16 @@ def test_thread_terminal_state_retained_until_actual_exit(window, tmp_path, monk
         if status == 'failed':
             assert '均匀基准失败' in page.summary_banner.text()
             assert 'one：inlet pressure outside range' in page.status.text()
+            assert page.status_badge_spec() == ('err', '失败 · 均匀基准未通过')
             assert page._result_body_stack.currentWidget() is page._failed_card_host
             assert 'one' in page._fail_cond_val.text() and 'two' in page._fail_cond_val.text()
             assert '资格检查' in page._fail_stage_val.text() and '保存结果' in page._fail_stage_val.text()
             assert 'Nu' in page._fail_reason_val.text() and 'disk full' in page._fail_reason_val.text()
             assert not page.pareto_ready() and not page.load_button.isEnabled()
+        elif status == 'error':
+            err_notice = page.readout_spec()[1]
+            assert err_notice is not None and 'test failure' in err_notice.detail
+            assert 'test failure' in window.dialogs.last_notice
     finally:
         release.set()
     _wait_for(page.is_idle)
@@ -696,6 +708,10 @@ def test_pareto_render_failure_keeps_numerical_terminal_and_disables_half_plot(
     assert page.kpi_gen.text() == label
     assert label in page.status.text() and '绘图失败' in page.status.text()
     assert 'injected Pareto rendering failure' in page.status.text()
+    render_notice = page.readout_spec()[1]
+    assert render_notice is not None and '绘图失败' in render_notice.title
+    assert 'injected Pareto rendering failure' in render_notice.detail
+    assert 'injected Pareto rendering failure' in window.dialogs.last_notice
     assert '绘图失败' in page.summary_banner.text()
     assert page.stack.currentIndex() == 2
     assert not page.pareto_ready()
@@ -750,7 +766,11 @@ def test_cancel_checkpoint_read_failure_reaches_error_terminal(window, tmp_path,
     assert page.start_button.isEnabled() and not page.cancel_button.isEnabled()
     assert page.kpi_gen.text() == 'ERROR'
     assert 'ERROR' in page.status.text()
-    assert ('JSONDecodeError' if failure == 'invalid_json' else 'PermissionError') in page.status.text()
+    expected_err = 'JSONDecodeError' if failure == 'invalid_json' else 'PermissionError'
+    assert expected_err in page.status.text()
+    err_notice = page.readout_spec()[1]
+    assert err_notice is not None and expected_err in err_notice.detail
+    assert expected_err in window.dialogs.last_notice
     assert str(checkpoint[0].parent) in page.status.text()
     assert page.report == previous
     assert checkpoint[0].exists()
@@ -884,6 +904,9 @@ def test_field_preview_reports_native_failures_and_clears_old_volume(window, mon
         assert reached == ['XYZ sample' if dimension else 'XY construction']
         assert '连续场预览失败' in page.status.text()
         assert message in page.status.text()
+        assert '连续场预览失败' in window.dialogs.last_notice and message in window.dialogs.last_notice
+        preview_notice = page.readout_spec()[1]
+        assert preview_notice is not None and message in preview_notice.detail
         assert page.volume_data is None and not page._volume_ready
         assert not page.result_tabs.isTabEnabled(2)
         renderer.hide.assert_called_once_with()
