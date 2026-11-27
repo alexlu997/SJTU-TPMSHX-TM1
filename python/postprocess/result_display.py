@@ -120,7 +120,7 @@ def extrapolation_model_label(metadata: dict | None) -> str:
             version = ref.get('version')
             if isinstance(version, str) and version.strip():
                 mode = metadata['darcy_forchheimer']['mode']
-                return f'{version} ({mode})' if mode == 'experimental' else version
+                return f'{version}（实验标定）' if mode == 'experimental' else version
     raise ValueError('Result metadata is missing the recorded darcy_forchheimer model reference')
 
 
@@ -129,11 +129,11 @@ def extrapolation_watermark(metadata: dict | None, reasons, *, multiline: bool =
     items = list(dict.fromkeys(str(reason) for reason in (reasons or ()) if reason))
     if not items:
         return ''
-    prefix = f'⚠ {extrapolation_model_label(metadata)} extrapolated'
+    prefix = f'⚠ {extrapolation_model_label(metadata)} 外推'
     if multiline:
         short = [item.split(' (')[0].rstrip('.') for item in items]
         return prefix + '\n' + '\n'.join(short)
-    return prefix + ': ' + ' | '.join(items)
+    return prefix + '：' + ' | '.join(items)
 
 
 def display_fields_2d(temperature, pressure, velocity):

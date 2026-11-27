@@ -99,9 +99,9 @@
 ### 1. 首先打开的文件（规则所有者）
 
 - **工作台卡片**：首先打开 [python/applications/gui/ui/builders_canvas.py](../python/applications/gui/ui/builders_canvas.py)（`build_canvas_area`），因为它构建并将全部卡片注册到 `window._canvas_cards`。
-  随后打开 [python/applications/gui/ui/ui_builders.py](../python/applications/gui/ui/ui_builders.py)（`build_ui`、`build_param_tabs`），查看顶栏入口与左侧参数分组。
+  随后打开 [python/applications/gui/ui/ui_builders.py](../python/applications/gui/ui/ui_builders.py)（`build_ui`、`build_param_tabs`），查看左侧导航栏、顶栏与右侧检查器抽屉。
 - 在[quick_design_panel.py](../python/applications/gui/ui/quick_design_panel.py) 中使用 `QuickDesignPage` 管理快速设计的输入、工作线程和结果。切换页面后可以返回查看同一任务。
-  其他窗口级对话框见 [python/applications/gui/ui/mixins/dialogs.py](../python/applications/gui/ui/mixins/dialogs.py)（`DialogsMixin`）。
+  其他窗口级对话框见 [python/applications/gui/ui/shell_dialogs.py](../python/applications/gui/ui/shell_dialogs.py)（`ShellDialogs`）。
 - **已发布结果**：打开 [python/applications/gui/controllers/result_cache.py](../python/applications/gui/controllers/result_cache.py)（`ResultCache`），它是已发布二维与三维 `ComputeResult` 的唯一所有者。
 
 ### 2. 公开接口与边界规则
@@ -134,7 +134,7 @@
 | 控制器 | [python/applications/gui/controllers/result_cache.py](../python/applications/gui/controllers/result_cache.py)、[session_manager.py](../python/applications/gui/controllers/session_manager.py) | `ResultCache`、`SessionManager`、`SCHEMA_VERSION`、`load_session`、`save_session`、`load_user_presets`、`save_user_presets` | 已发布结果缓存与会话／预设 JSON 模式兼容 |
 | 控制器 | [python/applications/gui/controllers/signal_router.py](../python/applications/gui/controllers/signal_router.py)、[compute_orchestrator.py](../python/applications/gui/controllers/compute_orchestrator.py)、[user_storage.py](../python/applications/gui/controllers/user_storage.py) | `SignalRouter`、`ComputeOrchestrator` | 退出时统一断开信号、主计算线程池及平台数据路径／外观文件 |
 | 导航与结果 | [python/applications/gui/ui/workbench.py](../python/applications/gui/ui/workbench.py)、[field_results.py](../python/applications/gui/ui/field_results.py)、[plot_2d_results.py](../python/applications/gui/ui/plot_2d_results.py) | `Workbench.canvas_tab_availability`、`update_tab_visibility`、`FieldResults.publish`、`finalize_plots`、`plot_temperature_3panel`、`_draw_zone_overlays` | 卡片可见性路由、结果发布与基于缓存的二维绘图 |
-| 导航与结果 | [python/applications/gui/ui/mixins/shortcuts.py](../python/applications/gui/ui/mixins/shortcuts.py)、[builders_sidebar.py](../python/applications/gui/ui/builders_sidebar.py)、[command_palette.py](../python/applications/gui/ui/command_palette.py) | `refresh_result_sidebar` | 按需更新快捷键、底部结果摘要与命令面板入口 |
+| 导航与结果 | [python/applications/gui/ui/shell_shortcuts.py](../python/applications/gui/ui/shell_shortcuts.py)、[builders_sidebar.py](../python/applications/gui/ui/builders_sidebar.py)、[command_palette.py](../python/applications/gui/ui/command_palette.py) | `refresh_result_sidebar` | 按需更新快捷键、底部读数条与命令面板入口 |
 | 文件 | [case_files.py](../python/applications/gui/ui/case_files.py), [result_export.py](../python/applications/gui/ui/result_export.py) | `CaseFiles`、`ResultExport` | 算例、预设、工作区会话、结果和图表导出 |
 
 - **应用层调用**：调用公开应用或后处理接口（[python/compute.py](../python/compute.py)、[python/applications/design/](../python/applications/design/)、[python/applications/optimization/](../python/applications/optimization/)、[python/postprocess/result_display.py](../python/postprocess/result_display.py)），不要直接调用 `python/cpp_interface/`。

@@ -80,6 +80,9 @@ def test_pending_result_publishes_once_and_remains_exportable(
         window.canvas_3d = QWidget(window)
         window.canvas_3d.cleanup = lambda: None
         window.canvas_3d.color_range_state = lambda: {}
+        window.canvas_3d.available_fields = lambda: ()
+        window.canvas_3d.active_field = lambda: None
+        window.canvas_3d.select_field = lambda _k: False
         return True
     monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.plot_3d_results.finalize_plots_3d', render)
     _configure(win, monkeypatch, '3d')
@@ -125,7 +128,7 @@ def test_close_and_restart_keep_owner_alive_until_imports_finish(win, imports, m
     win.workbench.schedule_3d_preinit()
     _wait_for(imports.entered.is_set)
     workspace = win.case_files.active_workspace
-    win._restart_for_appearance()
+    win.appearance.restart()
     win.case_files.switch_workspace('B' if workspace == 'A' else 'A')
     assert len(messages) == 2 and win.case_files.active_workspace == workspace
     assert not win.close() and win._close_pending and isValid(win)
@@ -140,7 +143,7 @@ def test_optional_preinit_reports_import_failure(win, imports):
     imports.release.set()
     _wait_for(lambda: not background_tasks.has_active_tasks(win))
     assert win.canvas_3d is None
-    assert 'view module unavailable' in win.statusBar().currentMessage()
+    assert 'view module unavailable' in win.dialogs.last_notice
 
 
 def test_split_request_waits_for_volume_without_losing_primary_field(win, imports, monkeypatch):
@@ -152,6 +155,9 @@ def test_split_request_waits_for_volume_without_losing_primary_field(win, import
         window.canvas_3d = QWidget(window)
         window.canvas_3d.cleanup = lambda: None
         window.canvas_3d.color_range_state = lambda: {}
+        window.canvas_3d.available_fields = lambda: ()
+        window.canvas_3d.active_field = lambda: None
+        window.canvas_3d.select_field = lambda _k: False
         return True
 
     monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.plot_3d_results.finalize_plots_3d', render)

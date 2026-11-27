@@ -96,6 +96,8 @@ class CaseFiles:
             label.setText(f"Ceff: G={settings.alpha_G}, D={settings.alpha_D}\n{settings.parameter_version}"
                           if settings.parameter_version else "未导入标定参数")
             label.setToolTip(f"{settings.source}\n{settings.applicability}")
+        from sjtu_tpmshx.applications.gui.ui.builders_sidebar import refresh_stale_indicator
+        refresh_stale_indicator(window)
 
     def resync_undo_baseline(self):
         """Start an undo checkpoint at the final restored/displayed values."""
@@ -267,8 +269,6 @@ class CaseFiles:
         # Fluid signals are blocked above to preserve the preset's inputs.
         from sjtu_tpmshx.applications.gui.ui.builders_fluids import refresh_fluid_model_visibility
         refresh_fluid_model_visibility(window)
-        if hasattr(window, '_refresh_status_bar'):
-            window._refresh_status_bar()
         if notice and show_notice:
             QMessageBox.information(window, "工况设置已更新", notice)
         return notice
@@ -406,7 +406,14 @@ class CaseFiles:
                             raise ValueError(f'{name}: Must be above 0 K')
                 if section == 'combos':
                     widget = getattr(window, name, None)
-                    count = widget.count() if widget else 0
+                    if name in ('combo_dirA', 'combo_dirB'):
+                        target_dim = combos.get(
+                            'combo_dim',
+                            window.combo_dim.currentIndex() if hasattr(window, 'combo_dim') else 0,
+                        )
+                        count = 6 if target_dim == 1 else 4
+                    else:
+                        count = widget.count() if widget else 0
                     if type(value) is not int or (widget is not None and
                                                 not 0 <= value < count):
                         raise ValueError(f'Unsupported selection: {name}')
@@ -512,9 +519,7 @@ class CaseFiles:
             self.set_shanghai_grid(is_3d=False)
         self.active_preset_name = name
         self.resync_undo_baseline()
-        if hasattr(window, '_refresh_status_bar'):
-            window._refresh_status_bar()
-        window.statusBar().showMessage(f"Preset: {name}.", 5000)
+        window.dialogs.notify(f"已载入预设：{name}。", kind="info", duration_ms=5000)
 
     def save_current_as_preset(self):
         """Prompt for a name and persist the full current field state as a
@@ -542,9 +547,8 @@ class CaseFiles:
         if not self.store.save_user_presets(presets):
             QMessageBox.warning(window, "预设未保存", "无法写入用户预设，当前输入保持不变。请检查用户数据目录。")
             return
-        window._rebuild_recent_menu()
-        window.statusBar().showMessage(
-            f"Saved preset: {name}.", 5000)
+        window.history.rebuild_recent_menu()
+        window.dialogs.notify(f"Saved preset: {name}.", kind="success", duration_ms=5000)
 
     SESSION_LINE_EDITS = tuple(LINE_EDITS)
 
@@ -601,8 +605,9 @@ class CaseFiles:
         except Exception as e:
             QMessageBox.warning(window, "Workspace switch", str(e))
         self.rebuild_workspace_menu()
-        if hasattr(window, '_refresh_status_bar'):
-            window._refresh_status_bar()
+        window.history.rebuild_recent_menu()
+        if hasattr(window, '_refresh_workbench_navigation'):
+            window._refresh_workbench_navigation()
         # Persist the choice so the next launch re-opens the same workspace.
         # Delegates to SessionManager (P2.3).
         # 2026-05-20 UI sweep (Tier 18): SessionManager.set_active_workspace
@@ -616,11 +621,13 @@ class CaseFiles:
         except Exception:
             _wrote = False
         if _wrote:
-            window.statusBar().showMessage(f"Workspace {new} loaded.", 4000)
+            window.dialogs.notify(f"已切换到工作区 {new}。", kind="info", duration_ms=4000)
         else:
-            window.statusBar().showMessage(
-                f"Workspace {new} loaded — but writing the active-workspace "
-                f"marker failed; next launch may default to 'A'.", 8000)
+            window.dialogs.notify(
+                f"已切换到工作区 {new}，但写入当前工作区标记失败；下次启动可能恢复为 A。",
+                kind="warn",
+                duration_ms=8000,
+            )
 
     def rebuild_workspace_menu(self):
         """Refresh the workspace choices shown from the More menu."""
@@ -658,10 +665,8 @@ class CaseFiles:
         _tab = window.workbench.active_tab
         if _tab in ('temp', 'pres', 'vel', '3d', '2d_view'):
             _tab = 'result'
-        _collapsed = bool(getattr(window, '_left_collapsed', False))
-        _parameter_width = (getattr(window, '_param_width', 360)
-                            if _collapsed or window._parameter_host.isHidden()
-                            else window._parameter_host.width())
+        _collapsed = not window.appearance.is_drawer_open()
+        _parameter_width = getattr(window, '_param_width', 376)
         payload['ui_state'] = {
             'active_tab': _tab,
             'left_collapsed': _collapsed,
@@ -709,7 +714,7 @@ class CaseFiles:
             self.validate_preset(payload)
         except (TypeError, ValueError) as error:
             backup = self.store.quarantine_session(ws)
-            message = f"{error}\n已保留当前工况。"
+            message = f"{error}\n已保留当前算例。"
             if backup is not None:
                 message += f"\n原会话已保存在：{backup}"
             elif self.store.session_path(ws).exists():
@@ -764,29 +769,23 @@ class CaseFiles:
             window.canvas_3d.restore_color_ranges(window._volume_color_ranges.get('results', {}))
         window.optimization.restore_volume_ranges(window._volume_color_ranges.get('optimization', {}))
         try:
-            if getattr(window, '_3d_immersive', False):
-                window._toggle_3d_immersive()
+            if window.appearance.is_focused():
+                window.appearance.toggle_focus()
             _rvw = _ui.get('result_view')
             if _rvw in ('2d', '3d'):
                 window.workbench.result_view = _rvw
                 _paint = getattr(window, '_paint_result_seg', None)
                 if _paint is not None:
                     _paint()
-            _width = _ui.get('parameter_width', 360)
+            _width = _ui.get('parameter_width', 376)
             if isinstance(_width, (int, float)):
                 window._param_width = max(320, min(520, int(_width)))
-            # Apply the saved width before collapsing, so a current expanded
-            # panel cannot overwrite it with its construction-time width.
-            window._set_parameter_panel_collapsed(False)
-            window._set_parameter_panel_collapsed(bool(_ui.get('left_collapsed', False)))
-            _page = _ui.get('parameter_page', 0)
-            if _page in (0, 1, 2):
-                window._select_param_page(_page)
             window.btn_result_summary.setChecked(bool(_ui.get('result_summary_visible', True)))
             _tab = _ui.get('active_tab')
             if _tab in ('layout', 'result', 'pareto') and \
                     _tab != window.workbench.active_tab:
                 window.workbench.switch_tab(_tab)
+            window.appearance.sync_drawer_visibility()
         except Exception:
             pass
 
@@ -825,7 +824,7 @@ class CaseFiles:
         except Exception as e:
             QMessageBox.critical(window, "Save Error", str(e))
             return False
-        window.statusBar().showMessage(f"Saved configuration: {path}", TOAST_MS_MED)
+        window.dialogs.notify(f"已保存配置：{path}", kind="success", duration_ms=TOAST_MS_MED)
         return True
 
     def load_config(self):
@@ -876,8 +875,8 @@ class CaseFiles:
                        "flags 和分区；这些输入保持当前值，请核对后计算。")
             QMessageBox.warning(window, "旧配置不完整", message)
         else:
-            message = f"Loaded configuration: {path}"
-        window.statusBar().showMessage(message, TOAST_MS_MED)
+            message = f"已载入配置：{path}"
+        window.dialogs.notify(message, kind="info", duration_ms=TOAST_MS_MED)
         return True
 
     def legacy_config_preset(self, payload):

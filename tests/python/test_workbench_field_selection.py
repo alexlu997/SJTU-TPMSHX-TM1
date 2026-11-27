@@ -81,10 +81,19 @@ def test_frozen_b_temperature_remains_selectable_in_real_phase_controls():
     for button in buttons:
         button.setCheckable(True)
     result = SimpleNamespace(fields={'Tb': np.full((2, 2, 2), 300.), 'dir_B': None})
-    window = SimpleNamespace(cache=ResultCache(), _field_phase_seg=host,
-                             _field_phase_btns=buttons, _phase_styles=('', ''),
-                             _result_view_switch=QFrame(host),
-                             btn_update_geometry=QPushButton('更新几何', host))
+    window = SimpleNamespace(
+        cache=ResultCache(),
+        appearance=SimpleNamespace(sync_drawer_visibility=lambda: None),
+        _field_toolbar=QFrame(host),
+        _field_primary_controls=QFrame(host),
+        _field_phase_seg=host,
+        _field_phase_btns=buttons,
+        _phase_styles=('', ''),
+        _result_view_switch=QFrame(host),
+        btn_colormap=QPushButton('色阶', host),
+        btn_view_result=QPushButton('查看计算结果', host),
+        btn_update_geometry=QPushButton('更新几何', host),
+    )
     window.workbench = Workbench(window)
     window.cache.set_result('3d', result)
     for tab in ('temp', 'pres', 'vel'):

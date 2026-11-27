@@ -72,7 +72,8 @@ def test_speed_scales_stay_separate_and_pressure_can_share_across_slices(win, mo
         assert win._slice_index == f['Ta'].shape[2] // 2
         win.workbench.rendered_slices = True
     win.workbench.switch_tab(field)
-    assert win.chk_shared_pressure_scale.isVisible() == (field == 'pres')
+    assert win.btn_colormap.isVisibleTo(win)
+    assert win.chk_shared_pressure_scale.isChecked()
     pressure_unit = 1000.
     independent = (.10, .35) if field == 'vel' else (
         float(f['P_fB'].min() / pressure_unit), float(f['P_fB'].max() / pressure_unit))
@@ -243,5 +244,7 @@ def test_qualification_reason_preserves_rejection_and_distinguishes_nu_inputs(wi
     win.results.publish(result)
     win.results.refresh_summary()
     label = win._sb_labels['design']
-    assert label.text() == '未通过 ⚠：B 侧 Nu（原始输入） 水 Gyroid Re 超范围'
+    reason_label = win._sb_labels['design_reason']
+    assert label.text() == '未通过 ⚠'
+    assert reason_label.text() == 'B 侧 Nu（原始输入） 水 Gyroid Re 超范围'
     assert 'Nu（计算输入）' in label.toolTip()

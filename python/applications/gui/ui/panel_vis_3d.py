@@ -33,7 +33,7 @@ from typing import Optional
 import numpy as np
 import pyvista as pv
 from pyvistaqt import QtInteractor
-from PySide6.QtCore import Qt, QTimer, QVariantAnimation, QEasingCurve
+from PySide6.QtCore import Qt, QTimer, QVariantAnimation, QEasingCurve, Signal
 from PySide6.QtGui import QDoubleValidator, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QComboBox,
@@ -178,6 +178,8 @@ class ThreeDVisPanel(QWidget):
     on top of the volume. Each Apply also pops up a 2D matplotlib contour
     window for the chosen slice.
     """
+
+    field_changed = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -649,6 +651,30 @@ class ThreeDVisPanel(QWidget):
         self._update_coord_label()
         self._validate_coord_input()
         self._update_status()
+        sig = getattr(self, "field_changed", None)
+        if sig is not None:
+            sig.emit(self._field)
+
+    def available_fields(self) -> tuple[str, ...]:
+        """Return PANEL_FIELD_SPECS keys currently loaded on this 3D panel."""
+        return tuple(self._arrays.keys())
+
+    def active_field(self) -> str | None:
+        """Return the active PANEL_FIELD_SPECS key on this 3D panel, or None."""
+        return self._field
+
+    def select_field(self, field_key: str) -> bool:
+        """Select a 3D panel field by PANEL_FIELD_SPECS key; return True if available."""
+        if field_key not in self._arrays or field_key not in PANEL_FIELD_SPECS:
+            return False
+        idx = self.combo_field.findData(field_key)
+        if idx < 0:
+            return False
+        if self.combo_field.currentIndex() != idx:
+            self.combo_field.setCurrentIndex(idx)
+        elif self._field != field_key:
+            self._on_field_changed(idx)
+        return True
 
 
     def set_watermark(self, text):
@@ -831,6 +857,9 @@ class ThreeDVisPanel(QWidget):
             self._add_slice_actor(self._slice_info['axis'],
                                   self._slice_info['coord_mm'], render=False)
         self.plotter.render()
+        sig = getattr(self, "field_changed", None)
+        if sig is not None:
+            sig.emit(self._field)
         self._update_status()
 
     def _on_plane_changed(self, idx):
@@ -1190,15 +1219,15 @@ class ThreeDVisPanel(QWidget):
         self.btn_clear.setEnabled(False)
         self._update_status()
 
-    def _on_screenshot(self):
+    def _on_screenshot(self, *, file_filter: str = "PNG images (*.png)"):
         ts = datetime.now().strftime('%Y%m%d-%H%M%S')
         dflt = f"volume_{self._field}_{self._scale_mode}_{ts}.png"
         path, _ = QFileDialog.getSaveFileName(
-            self, "Save 3D view as PNG", dflt, "PNG images (*.png)")
+            self, "保存三维视图为 PNG", dflt, file_filter)
         if not path:
             return
         self.plotter.screenshot(path)
-        self.status.setText(f"Saved: {path}")
+        self.status.setText(f"已保存：{path}")
 
     # ─────────────────────────── rendering ────────────────────────────
 
@@ -1206,7 +1235,7 @@ class ThreeDVisPanel(QWidget):
         pl = self.plotter
         pl.clear()
         placeholder = pl.add_text(
-            "Set Dimensionality = 3D, configure L/H/Lz + inlet/outlet, then Compute.",
+            "请将维度设为 3D，配置几何与进出口参数后开始计算。",
             font_size=8, color=get_theme()['ax_text'], position='upper_edge',
             font='times',
         )
@@ -1646,15 +1675,20 @@ class ThreeDVisPanel(QWidget):
         ts = datetime.now().strftime('%Y%m%d-%H%M%S')
         dflt = f"slice_{key}_{axis}_{coord_mm:.2f}mm_{ts}.png"
         path, _ = QFileDialog.getSaveFileName(
-            self, "Save 2D slice", dflt,
-            "PNG (*.png);;PDF (*.pdf);;SVG (*.svg)")
+            self, "保存二维切片", dflt,
+            "PNG 图像 (*.png);;PDF 文档 (*.pdf);;SVG 矢量图 (*.svg)")
         if not path:
             return
         try:
-            fig.savefig(path, dpi=200, bbox_inches='tight')
-            self.status.setText(f"Saved slice: {path}")
+            from sjtu_tpmshx.applications.gui.ui.typography import publication_export_fonts
+
+            with publication_export_fonts(fig):
+                fig.savefig(path, dpi=200, bbox_inches='tight')
+            if fig.canvas is not None:
+                fig.canvas.draw_idle()
+            self.status.setText(f"已保存切片：{path}")
         except Exception as e:
-            QMessageBox.warning(self, "Save failed", str(e))
+            QMessageBox.warning(self, "保存失败", str(e))
 
     # ─────────────────────────── status helpers ───────────────────────
 

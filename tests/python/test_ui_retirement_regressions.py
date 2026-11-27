@@ -287,7 +287,7 @@ def test_3d_layout_omits_invalid_port_instead_of_drawing_full_face(win, side):
     assert sum(isinstance(artist, Poly3DCollection) for artist in ax.collections) == 2
     labels = [text.get_text() for text in ax.texts]
     assert f'Inlet_{side}' not in labels and f'Outlet_{side}' not in labels
-    assert f'Fluid {side} skipped' in win.statusBar().currentMessage()
+    assert f'Fluid {side} skipped' in win.dialogs.last_notice
 
 
 @pytest.fixture
@@ -371,9 +371,9 @@ def test_badges_count_only_active_required_fields(blank_spans, mode):
     win.le_Nx.clear()
     win.le_pipeB_out_z_ctr.setText('.021')
     refresh_group_badges(win)
-    assert win._group_badge_counts['流体'] == 1
-    assert win._group_badge_counts['网格与求解器'] == 1
-    assert win._group_badge_counts['进出口边界'] == 1
+    assert win._group_badge_counts['fluid_a'] == 1
+    assert win._group_badge_counts['grid_rect'] == 1
+    assert win._group_badge_counts['pipe_b'] == 1
 
 
 @pytest.mark.parametrize('side', ['A', 'B'])
@@ -381,21 +381,22 @@ def test_inlet_mode_changes_refresh_badges(blank_spans, side):
     from time import monotonic
     from PySide6.QtTest import QTest
     win, dialogs, _ = blank_spans
+    band_key = f'fluid_{side.lower()}'
     mode = getattr(win, 'combo_inlet_mode' + side)
     mode.setCurrentIndex(mode.findData('velocity'))
     getattr(win, 'le_mass_flow' + side).clear()
     # Drain construction timers before testing mode-change signals.
     QTest.qWait(200)
-    assert win._group_badge_counts['流体'] == 0
+    assert win._group_badge_counts[band_key] == 0
     for combo, index, expected in (
             (mode, mode.findData('mass_flow'), 1),
             (win.combo_dim, 0, 0), (win.combo_dim, 1, 1),
             (mode, mode.findData('velocity'), 0)):
         combo.setCurrentIndex(index)
         deadline = monotonic() + 2
-        while win._group_badge_counts['流体'] != expected and monotonic() < deadline:
+        while win._group_badge_counts[band_key] != expected and monotonic() < deadline:
             QApplication.processEvents()
-        assert win._group_badge_counts['流体'] == expected
+        assert win._group_badge_counts[band_key] == expected
         assert win.single_run.validate_inputs() is (expected == 0)
         if expected:
             assert f'le_mass_flow{side}' in dialogs[-1]
@@ -414,7 +415,7 @@ def test_blank_second_spans_recover_and_round_trip(blank_spans, monkeypatch):
     win.le_pipeA_in_z_w.editingFinished.emit()
     QApplication.processEvents()
     refresh_group_badges(win)
-    assert win._group_badge_counts['进出口边界'] == 0
+    assert win._group_badge_counts['pipe_a'] == 0
     before = asdict(config_from_window(win, strict=True).validate())
     saved = {}
     monkeypatch.setattr(win.case_files.store, 'save_session', lambda payload, workspace: saved.update(payload) or True)

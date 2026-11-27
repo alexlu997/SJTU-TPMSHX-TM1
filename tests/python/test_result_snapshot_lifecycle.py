@@ -84,7 +84,7 @@ def test_failed_attempt_retains_one_complete_accepted_snapshot(
     drawn = win.cache.get_drawn_tabs()
     availability = win.workbench.canvas_tab_availability()
     plotted = win.canvas_temp._hover_data['fields'][0].copy()
-    history_count = len(win._recent_runs)
+    history_count = len(win.history.recent_runs)
     _assert_export(win, monkeypatch, tmp_path / 'accepted.csv', accepted)
 
     _configure(win, monkeypatch, attempt_mode)
@@ -121,7 +121,7 @@ def test_failed_attempt_retains_one_complete_accepted_snapshot(
     assert win.workbench.canvas_tab_availability() == availability
     np.testing.assert_array_equal(win.canvas_temp._hover_data['fields'][0], plotted)
     assert win.btn_export.isEnabled()
-    assert len(win._recent_runs) == history_count
+    assert len(win.history.recent_runs) == history_count
     assert win.single_run.provenance is None
     assert win._run_status_card.state == ('error' if outcome == 'error' else 'cancelled')
     assert '最近完成' in win._run_status_card.note.text()
@@ -145,10 +145,11 @@ def test_new_publication_replaces_snapshot_even_if_renderer_raises(
     assert not win.cache.has_results(old_mode)
     assert win.results.summary()['Q_W'] == accepted.Q_W
     unit = 'W' if new_mode == '3d' else 'W/m'
-    assert win._sb_labels['q'].text() == f'{accepted.Q_W:.{2 if new_mode == "3d" else 1}f} {unit}'
-    assert 'preset: accepted-333' in win._sb_labels['q'].toolTip()
-    assert 'accepted-111' not in win._sb_labels['q'].toolTip()
-    assert win._sb_labels['tout'].text() == '683.00 / 633.00'
+    items = win.readout_strip.items()
+    assert f'{items[0].value} {items[0].unit}' == f'{accepted.Q_W:.{2 if new_mode == "3d" else 1}f} {unit}'
+    assert '预设：accepted-333' in win.readout_strip.toolTip()
+    assert 'accepted-111' not in win.readout_strip.toolTip()
+    assert f'{items[3].value} / {items[4].value}' == '683.00 / 633.00'
     assert win.btn_export.isEnabled()
     assert not win.workbench.volume_ready
     assert not win.workbench.rendered_slices
@@ -204,7 +205,7 @@ def test_named_preset_source_reaches_accepted_result_and_export(snapshot_window,
     win = snapshot_window
     _configure(win, monkeypatch, '2d')
     preset = win.case_files.capture_current_preset('custom user design')
-    win._load_user_preset(preset)
+    win.history.load_user_preset(preset)
     result = _result('2d')
     result.metadata['snapshot_marker'] = 444
     _stub_compute_result(monkeypatch, lambda config, **kwargs: result)

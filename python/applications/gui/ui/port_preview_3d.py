@@ -40,65 +40,93 @@ def draw_layout_rect_3d(window, ax, L, H, Lz):
         face_patches.append(poly)
         drag_artists.append(poly)
 
-    INLET_COL = _t['inlet_color']
-    OUTLET_COL = _t['outlet_color']
-    face_alpha = 0.35
+    FLUID_COLORS = {
+        'A': _t['inlet_color'],
+        'B': _t['outlet_color'],
+    }
+    face_alpha = 0.30
+    arrow_scale = max(Lmm, Hmm, Lzmm) * 0.14
 
-    def _draw_fluid(cfg, label_tag, label_offset):
-        """Both transverse spans use the same axis convention as the inputs."""
+    def _draw_fluid(cfg, label_tag):
+        """Draw fluid A or B inlet/outlet ports colored by fluid with Chinese span callouts."""
         from sjtu_tpmshx.data_types.validator import cross_axes_for_dir
         d = cfg['dir']
         normal = d // 2
-        cross = ['XYZ'.index(axis) for axis in cross_axes_for_dir(d)]
+        cross_names = cross_axes_for_dir(d)
+        cross = ['XYZ'.index(axis) for axis in cross_names]
         extents = [Lmm, Hmm, Lzmm]
-        for end, title, color in (('in', 'Inlet', INLET_COL),
-                                  ('out', 'Outlet', OUTLET_COL)):
+        color = FLUID_COLORS[label_tag]
+        for end, zh_end in (('in', '入口'), ('out', '出口')):
             at_high_face = (d % 2 == 1) if end == 'in' else (d % 2 == 0)
             face = extents[normal] if at_high_face else 0.
+            outward = 1.0 if at_high_face else -1.0
             ctr = cfg[f'{end}_ctr'] * 1000
             width = cfg[f'{end}_w'] * 1000
             ctr2 = cfg.get(f'{end}_z_ctr')
             width2 = cfg.get(f'{end}_z_w')
             ctr2 = extents[cross[1]] / 2 if ctr2 is None else ctr2 * 1000
             width2 = extents[cross[1]] if width2 is None else width2 * 1000
-            lo, hi = max(0., ctr-width/2), min(extents[cross[0]], ctr+width/2)
-            lo2, hi2 = max(0., ctr2-width2/2), min(extents[cross[1]], ctr2+width2/2)
+            lo, hi = max(0., ctr - width / 2), min(extents[cross[0]], ctr + width / 2)
+            lo2, hi2 = max(0., ctr2 - width2 / 2), min(extents[cross[1]], ctr2 + width2 / 2)
             verts = []
             for first, second in ((lo, lo2), (hi, lo2), (hi, hi2), (lo, hi2)):
                 point = [0., 0., 0.]
                 point[normal], point[cross[0]], point[cross[1]] = face, first, second
                 verts.append(point)
             _face_patch(verts, color, face_alpha)
+
+            # External flow arrow (inlet points IN toward face; outlet points OUT away from face)
+            arrow_start = [0., 0., 0.]
+            arrow_start[normal], arrow_start[cross[0]], arrow_start[cross[1]] = (
+                face + outward * (arrow_scale if end == 'in' else arrow_scale * 0.15),
+                (lo + hi) / 2.0,
+                (lo2 + hi2) / 2.0,
+            )
+            vec = [0., 0., 0.]
+            vec[normal] = (-outward if end == 'in' else outward) * arrow_scale * 0.85
+            drag_artists.append(ax.quiver(
+                arrow_start[0], arrow_start[1], arrow_start[2],
+                vec[0], vec[1], vec[2],
+                color=color, arrow_length_ratio=0.35, linewidth=1.8,
+            ))
+
+            # Callout label positioned cleanly outside the port face with physical mm spans
             pos = [0., 0., 0.]
-            pos[normal], pos[cross[0]], pos[cross[1]] = face, ctr, ctr2
-            if normal != 2:
-                pos[2] = hi2 + label_offset
+            pos[normal] = face + outward * (arrow_scale * 1.35)
+            pos[cross[0]] = (lo + hi) / 2.0
+            pos[cross[1]] = (lo2 + hi2) / 2.0
+            a1, a2 = cross_names[0].lower(), cross_names[1].lower()
+            span_line = f"{a1} {lo:g}–{hi:g} · {a2} {lo2:g}–{hi2:g}"
             drag_artists.append(ax.text(
-                *pos, f'{title}_{label_tag}', color=color, fontsize=9,
-                fontweight='bold', ha='center'))
+                *pos, f"{label_tag} {zh_end}\n{span_line}",
+                color=color, fontsize=8.5, fontweight='semibold',
+                ha='center', va='center',
+                bbox=dict(
+                    boxstyle='round,pad=0.3',
+                    facecolor=_t['popover'],
+                    edgecolor=color,
+                    linewidth=0.8,
+                    alpha=0.92,
+                ),
+            ))
 
     try:
         fA = window._fluid_config('A')
-        _draw_fluid(fA, 'A', Lzmm * 0.15)
+        _draw_fluid(fA, 'A')
     except Exception as _fa_err:
-        try:
-            window.statusBar().showMessage(
-                f"Layout: Fluid A skipped — {_fa_err}", 4000)
-        except Exception:
-            pass
+        if hasattr(window, 'dialogs'):
+            window.dialogs.notify(
+                f"Layout: Fluid A skipped — {_fa_err}", kind="warn", duration_ms=4000
+            )
 
     try:
         fB = window._fluid_config('B')
-        _draw_fluid(fB, 'B', Lzmm * 0.30)
+        _draw_fluid(fB, 'B')
     except Exception as _fb_err:
-        # Non-fatal: Fluid B may be deliberately unset (e.g., single-stream
-        # runs). Log to the status bar so the omission is visible but
-        # doesn't interrupt the rest of the layout render.
-        try:
-            window.statusBar().showMessage(
-                f"Layout: Fluid B skipped — {_fb_err}", 4000)
-        except Exception:
-            pass
+        if hasattr(window, 'dialogs'):
+            window.dialogs.notify(
+                f"Layout: Fluid B skipped — {_fb_err}", kind="warn", duration_ms=4000
+            )
 
     # Origin triad
     triad_len = max(Lmm, Hmm, Lzmm) * 0.06
@@ -112,12 +140,14 @@ def draw_layout_rect_3d(window, ax, L, H, Lz):
         0, 0, 0, 0, 0, triad_len, color=_t['triad_z'],
         arrow_length_ratio=0.3, linewidth=1.8))
 
-    # Axis labels — bold
-    ax.set_xlabel('x [mm]', color=_t['ax_text'], fontsize=11,
+    from .symbols import MPL
+
+    # Axis labels — ISO italic quantities with upright units
+    ax.set_xlabel(MPL["x_mm"], color=_t['ax_text'], fontsize=11,
                   fontweight='bold', labelpad=10)
-    ax.set_ylabel('y [mm]', color=_t['ax_text'], fontsize=11,
+    ax.set_ylabel(MPL["y_mm"], color=_t['ax_text'], fontsize=11,
                   fontweight='bold', labelpad=10)
-    ax.set_zlabel('z [mm]', color=_t['ax_text'], fontsize=11,
+    ax.set_zlabel(MPL["z_mm"], color=_t['ax_text'], fontsize=11,
                   fontweight='bold', labelpad=10)
 
     # Ticks: only endpoints (clean up "115.5" midpoint artefact)
@@ -144,8 +174,7 @@ def draw_layout_rect_3d(window, ax, L, H, Lz):
     except Exception:
         pass
 
-    ax.set_title('3D Computational Domain\ninlet: orange · outlet: blue',
-                 color=_t['ax_text'], fontsize=11, fontweight='bold', pad=10)
+    ax.set_title('计算域', color=_t['ax_text'], fontsize=11, fontweight='bold', pad=10)
 
     # ── Mouse-wheel camera zoom (override canvas_wheel_zoom which scrolls) ──
     # Save original wheelEvent once so 2D mode can restore it.

@@ -106,7 +106,7 @@ class Skeleton(QWidget):
         p.fillRect(self.rect(), QBrush(grad))
 
         # Caption hint text
-        msg = "Volumetric view loads after the first 3D compute."
+        msg = "完成三维计算后加载三维体视图。"
         pen = QPen(QColor(t.get('sub_fg', '#94A3B8')))
         p.setPen(pen)
         f = p.font(); f.setPointSize(9); f.setItalic(True); p.setFont(f)

@@ -91,7 +91,8 @@ def test_converged_outside_range_result_keeps_design_rejection_in_gui_and_export
     assert result.converged and result.metadata['qualification']['design']['eligible'] is False
     win.results.publish(result)
     win.results.refresh_summary()
-    assert win._sb_labels['design'].text().startswith('未通过 ⚠：')
+    assert win._sb_labels['design'].text() == '未通过 ⚠'
+    assert win._sb_labels['design_reason'].text()
     assert '超范围' in win._sb_labels['design'].toolTip()
     assert '允许' in win.results.diagnostic_text()
     assert win._sb_labels['extrap'].text() == '未通过 ⚠'
@@ -136,7 +137,8 @@ def test_extrapolation_watermarks_name_recorded_model_without_constdf(win, mode)
         _real_finalize_plots(win, field='temp')
         texts = [item.get_text() for item in win.canvas_temp.fig.texts]
         assert len(texts) == 1
-        assert 'cfd_full_core_3cell_fixed_v2 (experimental)' in texts[0]
+        assert 'cfd_full_core_3cell_fixed_v2（实验标定）' in texts[0]
+        assert '外推' in texts[0]
         assert 'ConstDF-v1' not in texts[0]
     else:
         seen = {}
@@ -146,10 +148,12 @@ def test_extrapolation_watermarks_name_recorded_model_without_constdf(win, mode)
             set_watermark=lambda text: seen.__setitem__('watermark', text),
         )
         assert _real_finalize_plots_3d(win)
-        assert 'cfd_full_core_3cell_fixed_v2 (experimental)' in seen['watermark']
+        assert 'cfd_full_core_3cell_fixed_v2（实验标定）' in seen['watermark']
+        assert '外推' in seen['watermark']
         assert 'ConstDF-v1' not in seen['watermark']
         _real_render_2d_slices_from_3d(win, result, field='temp')
         texts = [item.get_text() for item in win.canvas_temp.fig.texts]
         assert len(texts) == 1
-        assert 'cfd_full_core_3cell_fixed_v2 (experimental)' in texts[0]
+        assert 'cfd_full_core_3cell_fixed_v2（实验标定）' in texts[0]
+        assert '外推' in texts[0]
         assert 'ConstDF-v1' not in texts[0]

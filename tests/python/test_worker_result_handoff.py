@@ -32,19 +32,23 @@ def test_2d_tout_displays_result_scalars_across_units_and_direction_drafts(win):
         win.combo_dirA.setCurrentIndex(direction)
         win.combo_dirB.setCurrentIndex(3-direction)
         win._update_tout(-1)
-        assert float(win._sb_labels['tout'].text().split(' / ')[0]) == 341.25
-        assert float(win._sb_labels['tout'].text().split(' / ')[1]) == 312.75
+        items = win.readout_strip.items()
+        assert float(items[3].value) == 341.25
+        assert float(items[4].value) == 312.75
     win._toggle_temp_unit()
-    assert '[°C]' in win._lbl_sidebar_tout_unit.text()
-    assert win._sb_labels['tout'].text() == '68.10 / 39.60'
+    items = win.readout_strip.items()
+    assert items[3].unit == '°C' and items[4].unit == '°C'
+    assert f'{items[3].value} / {items[4].value}' == '68.10 / 39.60'
     win._update_tout(0)
-    assert float(win._sb_labels['tout'].text().split(' / ')[0]) == pytest.approx(68.10)
-    assert float(win._sb_labels['tout'].text().split(' / ')[1]) == pytest.approx(39.60)
+    items = win.readout_strip.items()
+    assert float(items[3].value) == pytest.approx(68.10)
+    assert float(items[4].value) == pytest.approx(39.60)
     win._toggle_temp_unit()
-    assert '[K]' in win._lbl_sidebar_tout_unit.text()
-    assert win._sb_labels['tout'].text() == '341.25 / 312.75'
-    assert float(win._sb_labels['tout'].text().split(' / ')[0]) == 341.25
-    assert float(win._sb_labels['tout'].text().split(' / ')[1]) == 312.75
+    items = win.readout_strip.items()
+    assert items[3].unit == 'K' and items[4].unit == 'K'
+    assert f'{items[3].value} / {items[4].value}' == '341.25 / 312.75'
+    assert float(items[3].value) == 341.25
+    assert float(items[4].value) == 312.75
     assert win.cache.get_result('2d').Q_W == result.Q_W == 123.
 
 
@@ -382,7 +386,7 @@ def test_display_timing_reaches_result_and_export_cache(win, monkeypatch, mode):
     monkeypatch.setattr(win.results, 'render', render)
     monkeypatch.setattr(win.single_run, '_finish', end)
     monkeypatch.setattr(win._run_status_card, 'finish', finish)
-    monkeypatch.setattr(win, '_stamp_result_provenance', provenance_elapsed.append)
+    monkeypatch.setattr(win.history, 'stamp_result_provenance', provenance_elapsed.append)
     win.single_run.submit()
     _wait_for(win.single_run.is_idle)
 
@@ -391,8 +395,10 @@ def test_display_timing_reaches_result_and_export_cache(win, monkeypatch, mode):
     cached = win.cache.get_result(mode)
     assert cached.metadata['timings_s'] == expected
     assert win.results.summary()['timings_s'] == expected
-    assert card_elapsed == provenance_elapsed == [25.0]
-    assert win._last_elapsed_s == 25.0
+    assert card_elapsed == [6.0]
+    assert provenance_elapsed == [25.0]
+    assert win._last_elapsed_s == 6.0
+    assert win._last_total_elapsed_s == 25.0
     assert win.results.summary()['warnings'] == ['retained warning']
     assert result.Q_W == 123.5
 
@@ -593,7 +599,7 @@ def test_workspace_switch_waits_for_worker_publication_and_exit(win, monkeypatch
         assert entered.wait(5)
         win.le_Nx.setText('37')  # Ordinary draft edits remain available.
         draft = win.case_files.capture_current_preset('Current draft')
-        win._workspace_menu.actions()[1].trigger()
+        next(a for a in win.history.build_load_menu().actions() if '工作区 B' in a.text()).trigger()
         assert win.case_files.active_workspace == 'A'
         assert win.case_files.capture_current_preset('Current draft') == draft
         assert win.cache.get_result(mode) is cached
@@ -608,7 +614,7 @@ def test_workspace_switch_waits_for_worker_publication_and_exit(win, monkeypatch
         assert not win.single_run.compute.is_idle(), 'terminal delivery is not worker exit'
         published = win.cache.get_result(mode)
         assert published.Q_W == 456.
-        win._workspace_menu.actions()[1].trigger()
+        next(a for a in win.history.build_load_menu().actions() if '工作区 B' in a.text()).trigger()
         assert win.case_files.active_workspace == 'A'
         assert win.case_files.capture_current_preset('Current draft') == draft
         assert win.cache.get_result(mode) is published
@@ -618,7 +624,7 @@ def test_workspace_switch_waits_for_worker_publication_and_exit(win, monkeypatch
         exit_worker.set()
         _wait_for(win.single_run.is_idle)
 
-    win._workspace_menu.actions()[1].trigger()
+    next(a for a in win.history.build_load_menu().actions() if '工作区 B' in a.text()).trigger()
     assert win.case_files.active_workspace == 'B'
     assert saves == [True]
     assert not win.cache.has_any_results()
@@ -652,7 +658,7 @@ def test_close_cancels_live_pipeline_without_destroying_its_callbacks(win, monke
         assert win._close_pending
         assert not win.single_run._ticker.isActive()
         win.single_run._ticker.timeout.emit()
-        assert '正在关闭' in win.statusBar().currentMessage()
+        assert '正在关闭' in win.dialogs.last_notice
     finally:
         release.set()
     _wait_for(lambda: not isValid(win))
@@ -745,7 +751,7 @@ def test_quick_design_page_keeps_its_job_across_navigation(win, monkeypatch):
     try:
         _wait_for(entered.is_set)
         win.workbench.switch_tab('layout')
-        assert win.page_stack.currentWidget() is win._splitter
+        assert win.page_stack.currentWidget() is win._workbench_canvas
         assert not page.is_idle() and not page._worker.isInterruptionRequested()
         win.btn_quick_design.click()
         assert win.page_stack.currentWidget() is page

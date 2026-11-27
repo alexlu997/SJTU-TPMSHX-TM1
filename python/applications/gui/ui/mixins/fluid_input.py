@@ -12,6 +12,9 @@ Fluid status labels resolve their styles from the current theme at call time.
 
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
+import math
+
 from PySide6.QtWidgets import QMessageBox
 
 from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
@@ -79,7 +82,11 @@ class FluidInputMixin:
             re_style = _re_styles['VAL_WARN']
             re_tag = f"  (> {re_hi:g}!)"
 
-        self.statusBar().showMessage(f"Fluid {fluid} filled.  Re={Re:.0f}{re_tag}  Nu={r['Nu']:.2f}  dP/L={r['dP_per_L']:.1f} Pa/m", TOAST_MS_MED)
+        self.dialogs.notify(
+            f"Fluid {fluid} filled.  Re={Re:.0f}{re_tag}  Nu={r['Nu']:.2f}  dP/L={r['dP_per_L']:.1f} Pa/m",
+            kind="info",
+            duration_ms=TOAST_MS_MED,
+        )
         if fluid == 'A':
             self._v_rhoA.setText(f"{r['rho']:.4f}")
             self._v_ReA.setText(f"{Re:.1f}{re_tag}")
@@ -138,9 +145,12 @@ class FluidInputMixin:
                     ul[attr] = txt
             except Exception:
                 continue
-        self.statusBar().showMessage(
-            f"Fluid {side} → {name}: applied u={defaults['u']:.3g} m/s · "
-            f"T={defaults['T']:.1f} K · P={defaults['P']:.0f} Pa.", 5000)
+        self.dialogs.notify(
+            f"流体 {side} → {name}：u={defaults['u']:.3g} m/s · "
+            f"T={defaults['T']:.1f} K · P={defaults['P']:.0f} Pa",
+            kind="info",
+            duration_ms=4000,
+        )
 
     def _wire_fluid_defaults(self):
         for side in ('A', 'B'):
@@ -156,10 +166,14 @@ class FluidInputMixin:
         compute path should go through this rather than `float(le.text())`
         so the K/°C toggle stays sound.
         """
-        v = float(le.text())
+        raw = str(le.text()).strip()
+        try:
+            value = Decimal(raw)
+        except InvalidOperation as exc:
+            raise ValueError(f"could not convert string to float: {raw!r}") from exc
         if getattr(self, '_temp_unit', 'K') == 'C':
-            v += CELSIUS_ZERO_K
-        return v
+            value += Decimal(str(CELSIUS_ZERO_K))
+        return float(value)
 
     def _set_temp_K(self, le, kelvin_value, fmt='{:.17g}'):
         """Write the selected temperature unit without rounding the input."""
@@ -182,13 +196,11 @@ class FluidInputMixin:
         Called after a menu toggle, preset load, or session restore.
         """
         unit_display = "°C" if getattr(self, '_temp_unit', 'K') == 'C' else "K"
-        # Swap the trailing " [K]"/" [°C]" on each label. The label text uses
-        # QLabel rich-text HTML so we replace both variants.
-        # 2026-05-20 UI sweep: extended the label list with the result-row
-        # outlet temperature labels (`_lbl_ToutA_unit`, `_lbl_ToutB_unit`)
-        # captured by ui_builders. Previously these stayed `[K]` after a
-        # K/°C toggle, mismatching the converted value.
-        for attr in ('_lbl_TinA_unit', '_lbl_TinB_unit', '_lbl_sidebar_tout_unit'):
+        for field_name in ('le_TinA', 'le_TinB'):
+            le = getattr(self, field_name, None)
+            if le is not None and hasattr(le, 'set_unit'):
+                le.set_unit(unit_display)
+        for attr in ('_lbl_TinA_unit', '_lbl_TinB_unit'):
             lbl = getattr(self, attr, None)
             if lbl is None:
                 continue
@@ -212,42 +224,51 @@ class FluidInputMixin:
         label suffixes (`[K]` ↔ `[°C]`) so the UI is self-consistent.
         """
         from sjtu_tpmshx.applications.gui.ui.expr_eval import eval_expr, is_expression
+        from sjtu_tpmshx.applications.gui.ui.field_factory import _format_decimal_exact
         self._refresh_field_validation()
+        offset = Decimal(str(CELSIUS_ZERO_K))
         if getattr(self, '_temp_unit', 'K') == 'K':
-            new_unit, offset = 'C', -CELSIUS_ZERO_K
+            new_unit, offset = 'C', -offset
         else:
-            new_unit, offset = 'K', CELSIUS_ZERO_K
+            new_unit = 'K'
         for name in ('le_TinA', 'le_TinB'):
             field = getattr(self, name, None)
             if field is None:
                 continue
-            text = field.text()
+            text = field.text().strip()
             try:
-                value = float(text)
-            except ValueError:
-                # A rejected expression still uses its original display unit.
-                value = eval_expr(text) if is_expression(text) else None
-                if value is None:
+                value = Decimal(text)
+                if not value.is_finite():
                     continue
-            field.setText(format(value + offset, '.17g'))
+            except InvalidOperation:
+                # A rejected expression still uses its original display unit.
+                expr_val = eval_expr(text) if is_expression(text) else None
+                if expr_val is None or not math.isfinite(expr_val):
+                    continue
+                value = Decimal(repr(expr_val))
+            field.setText(_format_decimal_exact(value + offset))
         self._temp_unit = new_unit
         self._sync_temp_unit_labels()
         self._refresh_field_validation()
         self._discard_temperature_history()
         self.case_files.resync_undo_baseline()
         self.results.refresh_summary()
+        from sjtu_tpmshx.applications.gui.ui.layout_drawer import refresh_last_2d_thumbnail
         from sjtu_tpmshx.applications.gui.ui.plot_2d_results import redraw_result_fields
         redraw_result_fields(self)
-        self.statusBar().showMessage(
-            f"Temperature display switched to {self._temp_unit}.", 3000)
+        refresh_last_2d_thumbnail(self)
+        self.dialogs.notify(
+            f"温度显示单位已切换为 {'°C' if self._temp_unit == 'C' else 'K'}。",
+            kind="info",
+            duration_ms=3000,
+        )
 
     def _update_tout(self, t_idx: int):
         """Render this run's result scalars in the selected temperature unit."""
         self.results.refresh_summary()
 
     def _on_dir_changed(self):
-        """Show the actual transverse axis and unit for each port coordinate."""
-        from sjtu_tpmshx.applications.gui.ui.window_config import LINE_EDITS
+        """Show the actual transverse axis for each port pair row under Rule A."""
         from sjtu_tpmshx.data_types.validator import cross_axes_for_dir
         for combo, prefix in [(self.combo_dirA, 'pipeA'),
                               (self.combo_dirB, 'pipeB')]:
@@ -257,12 +278,9 @@ class FluidInputMixin:
                 c1, c2 = 'Y', 'Z'
             for end, port in (('in', '入口'), ('out', '出口')):
                 for key, axis in (('', c1), ('z_', c2)):
-                    for kind, title in (('ctr', '中心'), ('w', '宽度')):
-                        name = f'{prefix}_{end}_{key}{kind}'
-                        label = getattr(self, f'_lbl_{name}', None)
-                        if label is not None:
-                            text, _ = LINE_EDITS['le_' + name].editor_text(f'{port} {axis} 向{title}')
-                            label.setText(text)
+                    row_lbl = getattr(self, f'_lbl_{prefix}_{end}_{key}row', None)
+                    if row_lbl is not None:
+                        row_lbl.setText(f'{port} {axis.lower()}')
 
     def _dir_int(self, combo):
         # 0=+x 1=-x 2=+y 3=-y 4=+z 5=-z (z-dirs: 3D only)

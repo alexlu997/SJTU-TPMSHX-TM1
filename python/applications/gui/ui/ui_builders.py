@@ -1,673 +1,692 @@
-"""UI construction helpers for SJTU-TPMSHX Main_Menu.
+"""Style P2 desktop shell assembly, inspector drawer, and zone configuration."""
+from __future__ import annotations
 
-Extracted from main.py (Task B.6). All functions take `window` (Main_Menu
-instance) as first argument. Widget attributes are stored directly on
-`window` (`window.combo_tpms = ...`), preserving the original access pattern.
-
-Batch-2 split (2026-06-10): the page builders now live in sibling modules —
-``builders_base`` (menu controls and collapsible sections),
-``field_factory`` (themed rows and result labels),
-``builders_domain`` (Geometry page + _on_dim_changed),
-``builders_fluids`` (Boundary Conditions page),
-``builders_canvas`` (canvas cards, tab toolbar, zoom helpers).
-This module keeps the top-level assembly (build_ui / build_param_tabs)
-and the zone page; page builders and row helpers live in the sibling
-``builders_*`` modules and must be imported from there.
-
-Intra-module calls use top-level function names (e.g., `build_param_tabs(window)`
-instead of `window._build_param_tabs()`) so the wiring within this module is
-direct. Calls to methods that remain in main_window.py use `window.xxx()` so Python's
-dynamic dispatch resolves them on the Main_Menu instance.
-"""
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QRectF, QSize, Qt
+from PySide6.QtGui import QBrush, QColor, QPainter, QPen
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
-    QPushButton, QToolButton, QComboBox, QScrollArea, QSplitter,
-    QFrame, QSizePolicy,
-    QCheckBox, QTableWidget, QTableWidgetItem,
-    QHeaderView,
     QAbstractItemView,
+    QCheckBox,
+    QComboBox,
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QMenu,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QStackedWidget,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
 )
-from .theme import get_theme, get_theme_name, glass_surface, RADIUS_BTN, RADIUS_CARD
-from .icons import icon
 
-# Internal imports only — the Batch-2 re-export shim was removed in
-# refactor B1 (2026-06-12); import page builders from their source
-# modules (builders_base / builders_domain / builders_fluids /
-# builders_canvas) directly.
+from .builders_canvas import build_canvas_area
 from .builders_domain import build_domain_sections
 from .builders_fluids import build_fluid_sections
-from .builders_canvas import build_canvas_area
+from .builders_sidebar import (
+    build_result_drawer_content,
+    refresh_header_status,
+    refresh_stale_indicator,
+)
+from .icons import icon
+from .inspector_drawer import CollapsibleBand, InspectorDrawer
+from .nav_rail import ExpandedNavRail, NavRail
+from .readout_strip import ReadoutStrip
+from .run_info_popover import RunInfoPopover
+from .theme import RADIUS_CARD, get_theme
+
+
+class _WorkbenchSheet(QFrame):
+    """Rounded canvas sheet container hosting the active page and bottom readout strip."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("workbenchSheet")
+        self.setStyleSheet("QFrame#workbenchSheet { background: transparent; border: none; }")
+
+    def paintEvent(self, event) -> None:
+        theme = get_theme()
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = QRectF(0.5, 0.5, self.width() - 1.0, self.height() - 1.0)
+        painter.setBrush(QColor(theme["canvas"]))
+        painter.setPen(QPen(QColor(theme["border"]), 0.5))
+        painter.drawRoundedRect(rect, float(RADIUS_CARD), float(RADIUS_CARD))
+        painter.end()
+
+
+class _RailScrim(QWidget):
+    """Translucent backdrop behind the 232 px expanded navigation rail overlay."""
+
+    def __init__(self, on_click, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._on_click = on_click
+        self.hide()
+
+    def paintEvent(self, event) -> None:
+        scrim_rgba = get_theme()["scrim"]
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor(*scrim_rgba))
+        painter.end()
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._on_click()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+
+def _open_run_info_popover(window) -> None:
+    """Open the floating RunInfoPopover below the header status pill."""
+    scope = window.dialogs.run_info_directory_scope()
+    folder = window.dialogs.resolve_output_directory(scope=scope)
+    data = window.history.build_run_info_data(folder_path=folder)
+    pop = getattr(window, "_run_info_popover", None)
+    if pop is None:
+        pop = RunInfoPopover(data, parent=window)
+        pop._folder_path = folder
+        pop.log_requested.connect(window.dialogs.show_solve_log)
+        pop.diagnostics_requested.connect(window.results.show_diag_dialog)
+        pop.open_folder_requested.connect(
+            lambda: pop._folder_path is not None
+            and window.dialogs.open_output_folder(pop._folder_path)
+        )
+        window._run_info_popover = pop
+    else:
+        pop._folder_path = folder
+        pop.apply_theme(get_theme())
+        pop.set_data(data)
+    pop.popup_below(window.btn_run_info)
 
 
 def build_ui(window):
-    """Build the engineering workbench around the existing input widgets."""
-    from PySide6.QtCore import QSize, QPoint
-    from PySide6.QtWidgets import QMenu, QStackedWidget
+    """Build the Style P2 desktop workbench shell."""
     from .field_factory import default_factory
-    from .responsive import ResponsiveRow
-    from .builders_base import MenuToolButton
+    from .optimize_panel import OptimizationPage
+    from .quick_design_panel import QuickDesignPage
 
     t = default_factory().theme
     theme = get_theme()
     cw = window.centralWidget()
-    cw.setStyleSheet(f"background:{theme['bg']}; color:{theme['fg']};")
-    root = QVBoxLayout(cw)
-    root.setContentsMargins(0, 0, 0, 0)
-    root.setSpacing(0)
+    cw.setStyleSheet(f"background: {theme['window']}; color: {theme['fg']};")
 
-    # Construct inputs first: the canvas builders consume their widget references.
-    from .optimize_panel import OptimizationPage
-    from .quick_design_panel import QuickDesignPage
-    params = build_param_tabs(window)
+    outer = QHBoxLayout(cw)
+    outer.setContentsMargins(0, 0, 0, 0)
+    outer.setSpacing(0)
+
+    # 1. Left navigation rail (64 px collapsed + 232 px expanded overlay)
+    nav_rail = NavRail(active_page="run", parent=cw)
+    window.nav_rail = nav_rail
+    outer.addWidget(nav_rail)
+
+    # Alias real NavRail page buttons so existing tests, pulse_glow, and accessibility
+    # target the actual visible controls without hidden duplicate buttons.
+    window.btn_tab_layout = nav_rail.page_button("run")
+    window.btn_tab_result = nav_rail.page_button("result")
+    window.btn_tab_pareto = nav_rail.page_button("opt")
+    window.btn_quick_design = nav_rail.page_button("qd")
+    window.btn_command_search = nav_rail.action_button("search")
+    window.btn_recent = nav_rail.action_button("open")
+    window.btn_save = nav_rail.action_button("save")
+    window.btn_more = nav_rail.action_button("more")
+    nav_rail.set_page_enabled("result", False)
+
+    # Build inputs first so canvas and optimization pages can read their references.
+    drawer = build_param_tabs(window)
     window.optimization = OptimizationPage(window)
     window.quick_design = QuickDesignPage(window)
     canvas = build_canvas_area(window)
-    window._param_panel = params
     window._workbench_canvas = canvas
 
-    header = ResponsiveRow(threshold=1120, spacing=4)
-    header.setObjectName('workbenchHeader')
-    header.setStyleSheet(
-        f"QWidget#workbenchHeader{{{glass_surface(theme)}"
-        "border:0; border-radius:0;"
-        f"border-bottom:1px solid {theme['card_border']};}}")
-    header.layout().setContentsMargins(16, 8, 16, 8)
-    navigation = QWidget()
-    row = QHBoxLayout(navigation)
-    row.setContentsMargins(0, 0, 0, 0)
-    row.setSpacing(8)
-    title = QLabel('SJTU · TPMSHX')
-    title.setStyleSheet(
-        f"color:{theme['fg']}; background:transparent; border:none;"
-        f"font-family:{theme['sans_family']}; font-size:15pt; font-weight:600;")
-    row.addWidget(title)
-    row.addSpacing(12)
-    # Reparent these existing buttons; routing, shortcuts and Shift-click survive.
-    window.btn_tab_layout.setText('工况设置')
-    window.btn_tab_result.setText('场图结果')
-    window.btn_tab_pareto.setText('优化设计')
-    for button, name in ((window.btn_tab_layout, 'sliders'),
-                         (window.btn_tab_result, 'layers'),
-                         (window.btn_tab_pareto, 'box')):
-        button.setFixedHeight(36)
-        button.setIcon(icon(name, theme['sub_fg']))
-        button.setIconSize(QSize(18, 18))
-        row.addWidget(button)
-    quick = QPushButton('快速设计')
-    quick.setStyleSheet(window._PTAB_OFF)
-    quick.setFixedHeight(36)
-    quick.setIcon(icon('activity', theme['sub_fg']))
-    quick.setIconSize(QSize(18, 18))
-    window.btn_quick_design = quick
-    quick.clicked.connect(window.workbench.show_quick_design)
-    row.addWidget(quick)
-    row.addStretch(1)
-    header.addWidget(navigation)
-    actions = QWidget()
-    action_row = QHBoxLayout(actions)
-    action_row.setContentsMargins(0, 0, 0, 0)
-    action_row.setSpacing(6)
-    action_row.addStretch(1)
-    header.addWidget(actions)
+    # Wire NavRail page switching, Shift+click split, right-click detach, and actions.
+    def _on_nav_page(key: str) -> None:
+        if window.appearance.is_rail_expanded():
+            window.appearance.set_rail_expanded(False)
+        if key == "run":
+            window.workbench.switch_tab("layout")
+        elif key == "result":
+            window.workbench.switch_tab("result")
+        elif key == "opt":
+            window.workbench.switch_tab("pareto")
+        elif key == "qd":
+            window.workbench.show_quick_design()
 
-    menu_style = (
-        f"QMenu{{{glass_surface(theme)} color:{theme['fg']}; padding:5px;}}"
-        f"QMenu::item{{padding:7px 18px; border-radius:{RADIUS_BTN}px;}}"
-        f"QMenu::item:selected{{background:{theme['accent_primary']}; color:white;}}")
+    def _on_nav_split(key: str) -> None:
+        mapping = {"run": "layout", "result": "result", "opt": "pareto"}
+        target = mapping.get(key)
+        if target is not None:
+            window.workbench.split_with_current(target)
 
-    def menu_button(text, name):
-        button = MenuToolButton(t.style('BTN_TERTIARY'))
-        button.setText(text)
-        button.setIcon(icon(name, theme['sub_fg']))
-        menu = QMenu(button)
-        menu.setStyleSheet(menu_style)
-        button.setMenu(menu)
-        action_row.addWidget(button, 0, Qt.AlignmentFlag.AlignVCenter)
-        return button, menu
+    def _on_nav_action(key: str) -> None:
+        if key == "search":
+            if window.appearance.is_rail_expanded():
+                window.appearance.set_rail_expanded(False)
+            window.dialogs.open_command_palette()
+        elif key == "open":
+            window.history.show_load_menu()
+        elif key == "save":
+            window.history.show_save_menu()
+        elif key == "more":
+            window.appearance.show_settings_popover()
+        elif key == "expand":
+            window.appearance.toggle_rail()
 
-    window.btn_recent, _ = menu_button('载入', 'folder-open')
-    window.btn_recent.setToolTip('载入配置、预设或最近运行')
-    window._rebuild_recent_menu()
-    window.btn_save, save_menu = menu_button('保存', 'save')
-    save_menu.addAction('保存配置文件…', window.case_files.save_config)
-    save_menu.addAction('保存为预设…', window.case_files.save_current_as_preset)
-    action_row.addWidget(window.btn_export, 0, Qt.AlignmentFlag.AlignVCenter)
-    window.btn_more, more_menu = menu_button('更多', 'more-horizontal')
-    search = QToolButton()
-    search.setIcon(icon('search', theme['sub_fg']))
-    search.setIconSize(QSize(20, 20))
-    search.setFixedSize(36, 36)
-    search.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-    search.setAccessibleName('搜索命令')
-    search.setToolTip('搜索命令 (Ctrl+K)')
-    search.setStyleSheet(
-        t.style('BTN_TERTIARY').replace('QPushButton', 'QToolButton')
-        + 'QToolButton, QToolButton:focus{padding:0;}')
-    search.clicked.connect(lambda: window._command_palette_shortcut.activated.emit())
-    window.btn_command_search = search
-    action_row.addWidget(search, 0, Qt.AlignmentFlag.AlignVCenter)
+    nav_rail.page_selected.connect(_on_nav_page)
+    nav_rail.page_split_requested.connect(_on_nav_split)
+    nav_rail.action_triggered.connect(_on_nav_action)
 
-    window._workspace_menu = QMenu(window.btn_more)
-    window.case_files.rebuild_workspace_menu()
-    theme_action = more_menu.addAction('', window._toggle_theme)
-    theme_action.setToolTip('切换浅色或深色主题')
-    unit_action = more_menu.addAction('', window._toggle_temp_unit)
-    unit_action.setToolTip('在开尔文与摄氏度之间切换温度显示')
-    more_menu.addAction('切换工作区…', lambda: window._workspace_menu.exec(
-        window.btn_more.mapToGlobal(QPoint(0, window.btn_more.height()))))
-    more_menu.addSeparator()
-    more_menu.addAction('收起 / 展开参数栏', window._toggle_left_panel)
-    more_menu.addAction('计算日志…', window._show_solve_log)
-    more_menu.addAction('诊断详情…', window.results.show_diag_dialog)
-    more_menu.addAction('重置参数', window._reset_defaults)
-    help_action = more_menu.addAction(
-        '帮助与快捷键', lambda: window._show_help_menu(window.btn_more))
-    help_action.setToolTip('查看软件说明、快捷键和快速上手引导')
+    # Context menu for detaching layout / pareto canvases from rail page buttons
+    for page_key, tab_key in (("run", "layout"), ("opt", "pareto")):
+        btn = nav_rail.page_button(page_key)
+        btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
 
-    def refresh_more_menu():
-        theme_action.setText('切换到浅色主题' if get_theme_name() == 'dark' else '切换到深色主题')
-        unit = '°C' if window._temp_unit == 'C' else 'K'
-        unit_action.setText(f'温度单位：{unit}（点击切换）')
-    more_menu.aboutToShow.connect(refresh_more_menu)
-    refresh_more_menu()
-    root.addWidget(header)
+        def _ctx_menu(pos, b=btn, k=tab_key):
+            menu = QMenu(b)
+            if window.workbench.detached_canvases.get(k) is not None:
+                act = menu.addAction("放回主窗口")
+                act.triggered.connect(lambda _c=False, key=k: window.workbench.reattach_canvas(key))
+            else:
+                act = menu.addAction("在新窗口中打开")
+                act.triggered.connect(lambda _c=False, key=k: window.workbench.detach_canvas(key))
+            menu.exec(b.mapToGlobal(pos))
 
-    body = QHBoxLayout()
-    body.setContentsMargins(0, 0, 0, 0)
-    body.setSpacing(0)
-    rail = QFrame()
-    rail.setFixedWidth(56)
-    rail.setStyleSheet(
-        f"QFrame{{background:{theme['surface_raised']};"
-        f"border:none; border-radius:{RADIUS_CARD}px;}}")
-    rail_layout = QVBoxLayout(rail)
-    rail_layout.setContentsMargins(4, 8, 4, 8)
-    rail_layout.setSpacing(6)
-    rail_qss = (
-        f"QToolButton{{background:transparent; color:{theme['sub_fg']};"
-        f"border:1px solid transparent; border-radius:{RADIUS_BTN}px; font-size:9pt;}}"
-        f"QToolButton:checked{{background:{theme['btn_sec_hover_bg']};"
-        f"color:{theme['fg']}; border-color:{theme['card_border']};}}"
-        f"QToolButton:hover{{background:{theme['surface_elevated']};}}"
-        f"QToolButton:focus{{border:1px solid {theme['inp_focus']};}}"
-        f"QToolButton:disabled{{color:{theme['tab_disabled_fg']};}}")
+        btn.customContextMenuRequested.connect(_ctx_menu)
 
-    def nav_button(text, name, action):
-        button = QToolButton()
-        button.setText(text)
-        button.setIcon(icon(name, theme['sub_fg']))
-        button.setIconSize(QSize(20, 20))
-        button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
-        button.setFixedSize(48, 52)
-        button.setAccessibleName(text)
-        button.setToolTip(text)
-        button.setStyleSheet(rail_qss)
-        button.clicked.connect(action)
-        rail_layout.addWidget(button)
-        return button
+    # 2. Right column: Header bar + [Sheet | Push InspectorDrawer]
+    right_col = QVBoxLayout()
+    right_col.setContentsMargins(0, 8, 8, 8)
+    right_col.setSpacing(8)
 
-    window.btn_expand_parameters = nav_button('展开', 'panel-left-open', window._toggle_left_panel)
-    window._param_rail_btns = []
-    for i, (caption, name) in enumerate((('几何', 'box'), ('边界', 'arrow-right-left'),
-                                        ('求解', 'sliders'))):
-        def show_page(_checked=False, index=i):
-            window._toggle_left_panel()
-            window._select_param_page(index)
-        button = nav_button(caption, name, show_page)
-        button.setCheckable(True)
-        window._param_rail_btns.append(button)
-    rail_layout.addStretch(1)
-    window.btn_rail_diagnostics = nav_button(
-        '诊断', 'activity', lambda: window.results.show_diag_dialog())
-    rail.hide()
-    window._param_rail = rail
+    header = QWidget()
+    header.setObjectName("workbenchHeader")
+    header.setFixedHeight(36)
+    header.setStyleSheet("QWidget#workbenchHeader { background: transparent; border: none; }")
+    h_lay = QHBoxLayout(header)
+    h_lay.setContentsMargins(4, 0, 4, 0)
+    h_lay.setSpacing(8)
+
+    page_title = QLabel("算例计算")
+    page_title.setStyleSheet(
+        f"color: {theme['fg']}; font-size: 13pt; font-weight: 600; "
+        "background: transparent; border: none;"
+    )
+    window._page_title = page_title
+    h_lay.addWidget(page_title)
+
+    btn_run_info = QPushButton("●  尚未计算  ▾")
+    btn_run_info.setFixedHeight(28)
+    btn_run_info.setCursor(Qt.CursorShape.PointingHandCursor)
+    btn_run_info.setToolTip("查看当前运行信息、求解状态、日志、诊断与运行目录")
+    btn_run_info.clicked.connect(lambda: _open_run_info_popover(window))
+    window.btn_run_info = btn_run_info
+    h_lay.addWidget(btn_run_info)
+    refresh_header_status(window)
+
+    h_lay.addStretch(1)
+
+    window.btn_update_geometry = QPushButton("更新几何")
+    window.btn_update_geometry.setFixedHeight(30)
+    window.btn_update_geometry.setCursor(Qt.CursorShape.PointingHandCursor)
+    window.btn_update_geometry.setStyleSheet(t.style("BTN_SECONDARY"))
+    window.btn_update_geometry.setIcon(icon("box", theme["sub"]))
+    window.btn_update_geometry.setIconSize(QSize(15, 15))
+    window.btn_update_geometry.setToolTip("按当前参数重绘芯体外形和进出口位置")
+    window.btn_update_geometry.clicked.connect(window._draw_layout)
+    h_lay.addWidget(window.btn_update_geometry)
+
+    btn_run = QPushButton("开始计算")
+    btn_run.setIcon(icon("play", theme["primary_fg"]))
+    btn_run.setIconSize(QSize(14, 14))
+    btn_run.setFixedHeight(30)
+    btn_run.setCursor(Qt.CursorShape.PointingHandCursor)
+    btn_run.setStyleSheet(t.style("BTN_PRIMARY"))
+    btn_run.setToolTip("开始算例计算 (Ctrl+R)")
+    btn_run.clicked.connect(window.single_run.toggle)
+    window.btn_compute = btn_run
+    h_lay.addWidget(btn_run)
+
+    window.btn_export.setFixedHeight(30)
+    window.btn_export.apply_button_style(t.style("BTN_SECONDARY"))
+    window.btn_export.hide()
+    h_lay.addWidget(window.btn_export)
+
+    btn_drawer = QPushButton("检查器")
+    btn_drawer.setCheckable(True)
+    btn_drawer.setChecked(True)
+    btn_drawer.setFixedHeight(30)
+    btn_drawer.setCursor(Qt.CursorShape.PointingHandCursor)
+    btn_drawer.setIcon(icon("panel-left-close", theme["sub"]))
+    btn_drawer.setIconSize(QSize(15, 15))
+    btn_drawer.setStyleSheet(t.style("BTN_TERTIARY"))
+    btn_drawer.setToolTip("收起检查器  Ctrl+]")
+    btn_drawer.clicked.connect(window.appearance.toggle_drawer)
+    window.btn_toggle_drawer = btn_drawer
+    window.btn_collapse_parameters = btn_drawer
+    h_lay.addWidget(btn_drawer)
+
+    right_col.addWidget(header)
+
+    # Workspace row: rounded Sheet (left, expanding) + push InspectorDrawer (right)
+    workspace_row = QHBoxLayout()
+    workspace_row.setContentsMargins(0, 0, 0, 0)
+    workspace_row.setSpacing(8)
+
+    sheet = _WorkbenchSheet()
+    sheet_lay = QVBoxLayout(sheet)
+    sheet_lay.setContentsMargins(1, 1, 1, 1)
+    sheet_lay.setSpacing(0)
+
+    window.page_stack = QStackedWidget()
+    window.page_stack.addWidget(canvas)
+    window.page_stack.addWidget(window.quick_design)
+    sheet_lay.addWidget(window.page_stack, 1)
+
+    window.readout_strip = ReadoutStrip()
+    window.readout_strip.hide()
+    sheet_lay.addWidget(window.readout_strip, 0)
+    window._workbench_sheet = sheet
+
+    workspace_row.addWidget(sheet, 1)
+    workspace_row.addWidget(drawer, 0)
+    right_col.addLayout(workspace_row, 1)
+    outer.addLayout(right_col, 1)
+
+    # 3. Overlay 232 px expanded rail + scrim (children of centralWidget)
+    scrim = _RailScrim(lambda: window.appearance.set_rail_expanded(False), parent=cw)
+    expanded = ExpandedNavRail(
+        active_page="run",
+        workspaces=window.case_files.WORKSPACES,
+        active_workspace=window.case_files.active_workspace,
+        parent=cw,
+    )
+    expanded.set_page_enabled("result", False)
+    expanded.hide()
+    expanded.page_selected.connect(_on_nav_page)
+    expanded.action_triggered.connect(_on_nav_action)
+    expanded.workspace_selected.connect(
+        lambda name: (
+            window.appearance.set_rail_expanded(False),
+            window.case_files.switch_workspace(name),
+        )
+    )
+    expanded.recent_run_selected.connect(
+        lambda rid: (
+            window.appearance.set_rail_expanded(False),
+            window.history.load_recent_by_index(rid),
+        )
+    )
+    expanded.collapse_requested.connect(lambda: window.appearance.set_rail_expanded(False))
+    window._rail_scrim = scrim
+    window.expanded_nav_rail = expanded
 
     def refresh_navigation():
-        for i, button in enumerate(window._param_rail_btns):
-            selected = i == getattr(window, '_param_page', 0)
-            button.setChecked(selected)
+        in_qd = window.page_stack.currentWidget() is window.quick_design
+        if in_qd:
+            active_key = "qd"
+        elif window.workbench.active_tab == "pareto":
+            active_key = "opt"
+        elif window.workbench.active_tab in ("temp", "pres", "vel", "3d"):
+            active_key = "result"
+        else:
+            active_key = "run"
+        nav_rail.set_active_page(active_key)
+        expanded.set_active_page(active_key)
+        expanded.set_workspaces(window.case_files.WORKSPACES, window.case_files.active_workspace)
+
+        has_result = window.cache.has_any_results()
+        d = window.results.summary() if has_result else {}
+        dots: dict[str, str | None] = {}
+        if not window.single_run.is_idle():
+            dots["run"] = "run"
+        elif has_result:
+            if d.get("converged") is False:
+                dots["result"] = "err"
+            elif d.get("warnings") or d.get("extrap"):
+                dots["result"] = "warn"
+            else:
+                dots["result"] = "ok"
+        nav_rail.set_status_dots(dots)
+
+        page_meta: dict[str, tuple[str | None, str]] = {}
+        if dots.get("run") == "run":
+            page_meta["run"] = ("run", "求解中")
+        if has_result:
+            page_meta["result"] = (
+                dots.get("result"),
+                str(d.get("mode", "")).upper(),
+            )
+        opt_rep = getattr(window.optimization, "report", None)
+        if not window.optimization.is_idle():
+            page_meta["opt"] = ("run", "搜索中")
+        elif isinstance(opt_rep, dict):
+            n_feas = opt_rep.get("n_feasible")
+            n_tot = len(opt_rep.get("history") or ())
+            if isinstance(n_feas, int) and n_feas > 0:
+                page_meta["opt"] = ("ok", f"{n_feas} 可行")
+            elif n_tot > 0:
+                page_meta["opt"] = ("warn", f"{n_tot} 方案")
+        if not window.quick_design.is_idle():
+            page_meta["qd"] = ("run", "筛选中")
+        else:
+            qd_res = getattr(window.quick_design, "last_result", None)
+            if isinstance(qd_res, dict):
+                feasible = qd_res.get("feasible") or ()
+                all_cands = qd_res.get("all") or ()
+                if feasible:
+                    page_meta["qd"] = ("ok", f"{len(feasible)} 可行")
+                elif all_cands:
+                    page_meta["qd"] = ("warn", "0 可行")
+        expanded.set_page_meta(page_meta)
+
     window._refresh_workbench_navigation = refresh_navigation
     refresh_navigation()
 
-    parameter_host = QWidget()
-    parameter_host.setMinimumWidth(320)
-    parameter_host.setMaximumWidth(520)
-    parameter_layout = QHBoxLayout(parameter_host)
-    parameter_layout.setContentsMargins(0, 0, 0, 0)
-    parameter_layout.setSpacing(0)
-    parameter_layout.addWidget(params)
-    parameter_layout.addWidget(rail)
-    window._parameter_host = parameter_host
-    window._param_width = 360
-
-    splitter = QSplitter(Qt.Orientation.Horizontal)
-    splitter.setHandleWidth(6)
-    splitter.setStyleSheet(
-        f"QSplitter::handle{{background:{theme['bg']}; border-left:1px solid {theme['card_border']};}}"
-        f"QSplitter::handle:hover{{background:{theme['splitter_hover']};}}")
-    splitter.setOpaqueResize(False)
-    splitter.setChildrenCollapsible(False)
-    splitter.addWidget(parameter_host)
-    splitter.addWidget(canvas)
-    splitter.setStretchFactor(0, 0)
-    splitter.setStretchFactor(1, 1)
-    splitter.setSizes([360, 960])
-    window._splitter = splitter
-    window.page_stack = QStackedWidget()
-    window.page_stack.addWidget(splitter)
-    window.page_stack.addWidget(window.quick_design)
-    body.addWidget(window.page_stack, 1)
-    root.addLayout(body, 1)
-
-
-def _group_title_text(window, title):
-    """Accordion group title: chevron + name + `⚠N` invalid-field badge.
-
-    Single renderer for both the toggle handler and refresh_group_badges —
-    a separate chevron-only path would wipe the badge on expand/collapse.
-    """
-    grp = window._accordion_groups.get(title)
-    chev = "▾" if (grp is not None and grp.isChecked()) else "▸"
-    n = getattr(window, '_group_badge_counts', {}).get(title, 0)
-    return f"{chev}  {title}" + (f"     ⚠ {n}" if n else "")
-
 
 def refresh_group_badges(window):
-    """Update error counts for active inputs in each parameter group.
-
-    Count field errors and required blanks. Complete blank second transverse
-    spans are valid. ``isVisibleTo(content)`` excludes fields hidden by the
-    dimension setting, while fields in a collapsed group still count.
-    """
+    """Update validation error badge counts on collapsible bands and drawer tabs."""
     from .window_config import blank_second_span, inlet_input_active
 
-    contents = getattr(window, '_accordion_contents', None)
-    if not contents:
+    bands = getattr(window, "_drawer_bands", None)
+    if not bands:
         return
-    counts = {}
-    for title, content in contents.items():
+
+    tab_totals = {0: 0, 1: 0, 2: 0}
+    counts: dict[str, int] = {}
+    for key, (tab_idx, band) in bands.items():
+        body = band._body
         n = 0
         for name in window.case_files.SESSION_LINE_EDITS:
             if not inlet_input_active(window, name):
                 continue
             le = getattr(window, name, None)
-            if le is None or not content.isAncestorOf(le):
+            if le is None or not body.isAncestorOf(le):
                 continue
-            if not le.isVisibleTo(content):
+            if not le.isVisibleTo(body):
                 continue
-            if (le.property('inpError') == 'true'
-                    or (not le.text().strip() and not blank_second_span(window, name))):
+            if le.property("inpError") == "true" or (
+                not le.text().strip() and not blank_second_span(window, name)
+            ):
                 n += 1
-        counts[title] = n
+        counts[key] = n
+        band.set_badge_count(n)
+        tab_totals[tab_idx] = tab_totals.get(tab_idx, 0) + n
+
     window._group_badge_counts = counts
-    for title, grp in window._accordion_groups.items():
-        txt = _group_title_text(window, title)
-        if grp.title() != txt:
-            grp.setTitle(txt)
+    drawer = getattr(window, "inspector_drawer", None)
+    if drawer is not None:
+        for idx, total in tab_totals.items():
+            drawer.tab_strip.set_tab_badge(idx, total)
+
+    refresh_stale_indicator(window)
 
 
-def build_param_tabs(window):
-    """Left inspector, with three pages sharing the original input widgets."""
-    # Phase 5 follow-up: styles via FieldFactory + ThemeManager DI.
-    from .field_factory import default_factory
-    f = default_factory()
-    t = f.theme
-    _BG = t.style('BG')
+def build_param_tabs(window) -> InspectorDrawer:
+    """Build the Style P2 push InspectorDrawer with 几何, 边界, 求解, and 结果 tabs."""
+    staging = QWidget()
+    staging_lay = QVBoxLayout(staging)
+    staging_lay.setContentsMargins(0, 0, 0, 0)
+    staging_lay.setSpacing(0)
 
-    # Shared navigation chrome; identical box metrics prevent a tab or its
-    # neighbour moving when hover, keyboard focus or selection changes.
-    _ts = get_theme()
-    _accent = _ts['tab_on_bg']
-    window._PTAB_ON  = (
-        f"QPushButton{{background:{_ts['surface_elevated']}; color:{_accent};"
-        f"border:1px solid {_ts['card_border']};"
-        f"border-radius:{RADIUS_BTN}px;"
-        "font-weight:600; font-size:11pt; padding:5px 11px;}"
-        f"QPushButton:focus{{border:2px solid {_ts['inp_focus']}; padding:4px 10px;}}")
-    window._PTAB_OFF = (
-        f"QPushButton{{color:{_ts['tab_off_fg']};"
-        f"background:transparent; border:1px solid transparent; border-radius:{RADIUS_BTN}px;"
-        "font-size:11pt; font-weight:400; padding:5px 11px;}"
-        f"QPushButton:hover{{background:{_ts['surface_raised']}; color:{_ts['fg']};"
-        f"border-radius:{RADIUS_BTN}px;}}"
-        f"QPushButton:focus{{color:{_ts['fg']};"
-        f"border:2px solid {_ts['inp_focus']}; padding:4px 10px;}}")
-    # ★ fix #3 (2026-05-09) — disabled tabs explicitly drop bold + use a dimmer
-    # foreground so the global QApplication Bold (Phase 3) doesn't make
-    # disabled and enabled tabs visually identical.
-    # 2026-06-03 — was hardcoded rgba(255,255,255,40): a faint *white* that
-    # vanished on the light theme's near-white tab strip (disabled 2D/3D View
-    # rendered invisible). Use the per-theme disabled token so it stays dim
-    # yet legible on both palettes.
-    window._PTAB_DISABLED = (
-        f"QPushButton{{color:{_ts['tab_disabled_fg']};"
-        f"background:transparent; border:1px solid transparent; border-radius:{RADIUS_BTN}px;"
-        "font-size:11pt; font-weight:400; padding:5px 11px;}")
+    build_domain_sections(window, staging_lay)
+    build_fluid_sections(window, staging_lay)
+    window._zone_panel = build_page_zones(window)
 
-    scroll = QScrollArea()
-    scroll.setWidgetResizable(True)
-    # ui-layout-fixes: the left panel must never scroll horizontally —
-    # row labels word-wrap (FieldFactory.label) instead of widening cards.
-    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-    # 8px track, semi-transparent handle — quieter than the old 10px slab but
-    # still grabbable. Codex review 2026-04-22: "rgba(0.1)/0.2 on hover".
-    scroll.setStyleSheet(
-        f"QScrollArea{{background:{_BG}; border:none;}}"
-        f"QScrollBar:vertical{{background:transparent; width:8px; border:none; margin:2px;}}"
-        f"QScrollBar::handle:vertical{{background:{_ts['scroll_handle']};"
-        f"border-radius:4px; min-height:30px;}}"
-        f"QScrollBar::handle:vertical:hover{{background:{_ts['scroll_handle_hover']};}}"
-        f"QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical{{height:0;}}")
-    scroll.setMinimumWidth(240)
-
-    # Top-level accordion group: 12pt + 3px left accent bar, gray title strip
-    _GRP_QSS = (
-        "QGroupBox {"
-        f"  font-size:11pt; font-weight:600; color:{_ts['fg']};"
-        f"  background:transparent; border:none;"
-        "  margin-top:4px; padding-top:28px;"
-        "}"
-        "QGroupBox::title {"
-        f"  subcontrol-origin:margin; subcontrol-position:top left;"
-        f"  left:0px; right:0px;"
-        f"  background:transparent; color:{_ts['fg']};"
-        f"  border-bottom:1px solid {_ts['card_border']};"
-        f"  border-top-left-radius:4px; border-top-right-radius:4px;"
-        "  padding:6px 8px; min-height:20px;"
-        "}"
-        "QGroupBox::indicator {"
-        "  width:0px; height:0px; margin:0px; padding:0px;"
-        "  border:none; image:none;"
-        "}"
-        "QGroupBox::indicator:checked { image:none; }"
-        "QGroupBox::indicator:unchecked { image:none; }"
-    )
-
-    container = QWidget()
-    container.setStyleSheet(f"background:{_BG};")
-    vlay = QVBoxLayout(container)
-    # Accordion: 8px outer padding + 12px gap between top-level groups.
-    # Group's own margin-top:12px pushes total inter-group spacing to ~24px.
-    vlay.setContentsMargins(6, 4, 6, 4)
-    vlay.setSpacing(8)
-
-    build_domain_sections(window, vlay)
-    build_fluid_sections(window, vlay)
-    # Zone configuration now lives inside the Optimize tab (QSplitter on
-    # the left side). The builder still runs here so the attached widgets
-    # (zone_table, chk_zones, +Row/-Row, combo_zone_axis, etc.) exist on
-    # the window before other builders reference them; `build_canvas_area`
-    # then lifts the returned panel into the Optimize card.
-    page_zone_layout = build_page_zones(window)
-    window._zone_panel = page_zone_layout
-    # Optimization UI now lives in its own top canvas tab (Plan D).
-
-    from PySide6.QtWidgets import QGroupBox
-
-    # Each group belongs to one geometry/boundary/solver page. Ordinary
-    # groups start expanded; boundary details remain individually collapsible.
     sec = window._ia_sections
-    _GROUPS = [
-        ("几何与结构", True,
-         ['domain_geometry', 'tpms_structure', 'tpms_computed']),
-        ("流体", True,
-         ['fluids_row']),
-        ("网格与求解器", True,
-         ['grid_rect', 'df_method', 'sco2_nu', 'correlation_policy', 'compute_resources']),
-        ("进出口边界", False,
-         ['pipe_a', 'pipe_b', 'preview_btn']),
-    ]
 
-    window._accordion_groups = {}
-    window._accordion_contents = {}
-    for title, default_open, keys in _GROUPS:
-        grp = QGroupBox()
-        grp.setCheckable(True)
-        grp.setChecked(default_open)
-        grp.setStyleSheet(_GRP_QSS)
-        grp_lay = QVBoxLayout(grp)
-        grp_lay.setContentsMargins(2, 4, 2, 4)
-        grp_lay.setSpacing(8)
-        content = QWidget()
-        content.setStyleSheet("background:transparent;")
-        c_lay = QVBoxLayout(content)
-        c_lay.setContentsMargins(0, 0, 0, 0)
-        c_lay.setSpacing(8)
+    def _pack_page(keys: list[str]) -> QWidget:
+        page = QWidget()
+        page.setStyleSheet("background: transparent;")
+        lay = QVBoxLayout(page)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
         for k in keys:
             w = sec.get(k)
             if w is not None:
-                c_lay.addWidget(w)
-        grp_lay.addWidget(content)
-        content.setVisible(default_open)
+                lay.addWidget(w)
+        lay.addStretch(1)
+        return page
 
-        def _on_toggled(checked, p=content, t=title, g=grp):
-            p.setVisible(checked)
-            g.setTitle(_group_title_text(window, t))
-            # Re-assert per-widget mode gates: QWidget.setVisible(True)
-            # blanket-shows children, which would resurrect widgets a 2D/3D
-            # gate had hidden.
-            if checked:
+    geo_page = _pack_page(["domain_geometry", "tpms_structure", "tpms_computed"])
+    boundary_page = _pack_page(["fluids_row"])
+    solver_page = _pack_page(
+        ["grid_rect", "df_method", "sco2_nu", "correlation_policy", "compute_resources"]
+    )
+    result_page = build_result_drawer_content(window)
+
+    # Register collapsible bands for validation badge counting & reveal_parameter.
+    window._drawer_bands = {}
+    band_pages = (
+        (0, ("domain_geometry", "tpms_structure", "tpms_computed")),
+        (1, ("fluid_a", "pipe_a", "fluid_b", "pipe_b")),
+        (2, ("grid_rect", "df_method", "sco2_nu", "correlation_policy", "compute_resources")),
+    )
+    for tab_idx, keys in band_pages:
+        for key in keys:
+            w = sec.get(key)
+            if isinstance(w, CollapsibleBand):
+                window._drawer_bands[key] = (tab_idx, w)
+
+    # Re-assert 2D/3D visibility when a band expands.
+    for _key, (_tab_idx, band) in window._drawer_bands.items():
+        def _on_band_toggled(expanded: bool):
+            if expanded:
                 try:
-                    from .builders_domain import _on_dim_changed as _dim_gate
-                    _dim_gate(window)
+                    from .builders_domain import _on_dim_changed
+
+                    _on_dim_changed(window)
                 except Exception:
                     pass
-            # Gate re-assertion may flip field visibility → recount badges.
             refresh_group_badges(window)
-        grp.toggled.connect(_on_toggled)
-        vlay.addWidget(grp)
-        window._accordion_groups[title] = grp
-        window._accordion_contents[title] = content
-    # Initial titles + badge counts (empty-field only at this point —
-    # validators attach later in Main_Menu.__init__ and re-trigger).
-    refresh_group_badges(window)
 
-    vlay.addStretch(1)
-    scroll.setWidget(container)
+        band.toggled.connect(_on_band_toggled)
 
-    window._param_btns = []
+    drawer = InspectorDrawer(
+        tabs=(
+            ("几何", geo_page),
+            ("边界", boundary_page),
+            ("求解", solver_page),
+            ("结果", result_page),
+        ),
+        current_index=0,
+        opened=window.appearance.is_drawer_open("run"),
+    )
+    window.inspector_drawer = drawer
+    window._param_panel = drawer
+    window._param_page = window.appearance.drawer_tab_for("run")
 
-    # Keep the single-run button at the bottom of the parameter panel.
-    panel = QWidget()
-    panel.setObjectName('parameterInspector')
-    panel.setMinimumWidth(320)
-    panel.setMaximumWidth(520)
-    panel.setStyleSheet(f"background:{_BG};")
-    p_lay = QVBoxLayout(panel)
-    p_lay.setContentsMargins(0, 0, 0, 0)
-    p_lay.setSpacing(0)
-    panel_header = QHBoxLayout()
-    panel_header.setContentsMargins(16, 16, 12, 8)
-    title = QLabel('工况参数')
-    title.setStyleSheet(
-        f"color:{_ts['fg']}; font-size:14pt; font-weight:600;"
-        "background:transparent; border:none;")
-    panel_header.addWidget(title, 1)
-    collapse = QPushButton('收起')
-    collapse.setIcon(icon('panel-left-close', _ts['sub_fg']))
-    collapse.setStyleSheet(t.style('BTN_TERTIARY'))
-    collapse.setToolTip('收起参数栏 (Ctrl+\\)')
-    collapse.clicked.connect(window._toggle_left_panel)
-    window.btn_collapse_parameters = collapse
-    panel_header.addWidget(collapse)
-    p_lay.addLayout(panel_header)
-    tabs = QHBoxLayout()
-    tabs.setContentsMargins(8, 0, 8, 8)
-    tabs.setSpacing(4)
-    window._param_page_by_group = {
-        '几何与结构': 0, '流体': 1, '进出口边界': 1, '网格与求解器': 2,
-    }
+    # Compact parameter sub-bar shown only when inspecting 参数 from the 结果 page.
+    theme = get_theme()
+    subbar = QWidget()
+    subbar.setStyleSheet(f"background: {theme['panel']}; border: none;")
+    sb_lay = QHBoxLayout(subbar)
+    sb_lay.setContentsMargins(16, 6, 16, 6)
+    sb_lay.setSpacing(4)
+    sub_on = (
+        f"QPushButton {{ background: {theme['seg_on']}; color: {theme['fg']}; "
+        f"border: 1px solid {theme['border']}; border-radius: 5px; "
+        "font-size: 11px; font-weight: 600; padding: 2px 10px; }"
+    )
+    sub_off = (
+        f"QPushButton {{ background: transparent; color: {theme['sub']}; "
+        "border: none; border-radius: 5px; font-size: 11px; font-weight: 400; "
+        "padding: 2px 10px; }"
+        f"QPushButton:hover {{ color: {theme['fg']}; }}"
+    )
+    sub_btns: list[QPushButton] = []
 
-    window._param_page_scroll = {}
-    def select_page(index):
-        previous = getattr(window, '_param_page', None)
-        if previous is not None:
-            window._param_page_scroll[previous] = scroll.verticalScrollBar().value()
-        window._param_page = index
-        for name, group in window._accordion_groups.items():
-            group.setVisible(window._param_page_by_group[name] == index)
-        for i, button in enumerate(window._param_btns):
-            button.setStyleSheet(window._PTAB_ON if i == index else window._PTAB_OFF)
-            button.setChecked(i == index)
-        from PySide6.QtCore import QTimer
-        QTimer.singleShot(0, scroll, lambda: scroll.verticalScrollBar().setValue(
-            window._param_page_scroll.get(index, 0)) if window._param_page == index else None)
-        if hasattr(window, '_refresh_workbench_navigation'):
+    def _sync_result_param_btns() -> None:
+        cur = getattr(window, "_param_page", 0)
+        for j, b in enumerate(sub_btns):
+            b.setChecked(j == cur)
+            b.setStyleSheet(sub_on if j == cur else sub_off)
+
+    def _pick_result_param(idx: int) -> None:
+        window._param_page = idx
+        drawer.set_stack_index(idx)
+        _sync_result_param_btns()
+
+    for idx, cap in enumerate(("几何", "边界", "求解")):
+        btn = QPushButton(cap)
+        btn.setCheckable(True)
+        btn.setFixedHeight(22)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.clicked.connect(lambda _c=False, i=idx: _pick_result_param(i))
+        sb_lay.addWidget(btn)
+        sub_btns.append(btn)
+    sb_lay.addStretch(1)
+    subbar.hide()
+    drawer.layout().insertWidget(2, subbar)
+    window._result_param_subbar = subbar
+    window._sync_result_param_btns = _sync_result_param_btns
+    _sync_result_param_btns()
+
+    drawer.tab_changed.connect(window.appearance.record_drawer_tab)
+    drawer.close_requested.connect(lambda: window.appearance.set_drawer_open(False))
+
+    def select_param_page(index: int) -> None:
+        idx = max(0, min(2, int(index)))
+        window._param_page = idx
+        if window.workbench.active_tab in ("temp", "pres", "vel", "3d"):
+            drawer.set_strip_entries([("结果", 3), ("参数", idx)], active_strip_index=1)
+            window.appearance.record_drawer_tab(1)
+            _sync_result_param_btns()
+        else:
+            drawer.set_current_index(idx)
+            window.appearance.record_drawer_tab(idx)
+        if hasattr(window, "_refresh_workbench_navigation"):
             window._refresh_workbench_navigation()
-        if previous is not None and previous != index:
-            from .microanim import reveal
-            reveal(scroll.viewport())
 
-    window._select_param_page = select_page
-    window._param_scroll = scroll
-    for index, caption in enumerate(('几何', '边界', '求解')):
-        button = QPushButton(caption)
-        button.setCheckable(True)
-        button.setFixedHeight(36)
-        button.clicked.connect(lambda _checked=False, i=index: select_page(i))
-        window._param_btns.append(button)
-        tabs.addWidget(button)
-    p_lay.addLayout(tabs)
-    p_lay.addWidget(scroll, 1)
-    select_page(0)
-
-    cta_bar = QWidget()
-    cta_bar.setStyleSheet(
-        f"background:{_ts.get('surface_raised', _ts['card_bg'])};"
-        f"border-top:1px solid {_ts['card_border']};")
-    cta_lay = QVBoxLayout(cta_bar)
-    cta_lay.setContentsMargins(10, 8, 10, 8)
-    diagnostics = QPushButton('诊断详情')
-    diagnostics.setIcon(icon('activity', _ts['sub_fg']))
-    diagnostics.setStyleSheet(t.style('BTN_TERTIARY'))
-    diagnostics.setToolTip('查看求解收敛、能量闭合与模型适用范围')
-    diagnostics.clicked.connect(lambda: window.results.show_diag_dialog())
-    window.btn_parameter_diagnostics = diagnostics
-    cta_lay.addWidget(diagnostics, 0, Qt.AlignmentFlag.AlignRight)
-    # CJK mnemonics are useless — no '&'; Ctrl+R stays the shortcut.
-    btn_run = QPushButton("开始计算")
-    btn_run.setIcon(icon('play', 'white'))
-    btn_run.setMinimumHeight(48)
-    btn_run.setStyleSheet(t.style('BTN_PRIMARY'))
-    btn_run.setToolTip("运行单点计算 (Ctrl+R)")
-    btn_run.clicked.connect(window.single_run.toggle)
-    window.btn_compute = btn_run
-    cta_lay.addWidget(btn_run)
-    p_lay.addWidget(cta_bar, 0)
-    window._cta_bar = cta_bar
-
-    return panel
+    window._select_param_page = select_param_page
+    window.appearance.sync_drawer_visibility()
+    refresh_group_badges(window)
+    return drawer
 
 
 def reveal_parameter(window, widget):
-    """Reveal the page and collapsed group before focusing an invalid input."""
-    for name, content in window._accordion_contents.items():
-        if content.isAncestorOf(widget):
-            if getattr(window, '_left_collapsed', False):
-                window._toggle_left_panel()
-            window._select_param_page(window._param_page_by_group[name])
-            window._accordion_groups[name].setChecked(True)
-            window._param_scroll.ensureWidgetVisible(widget)
+    """Open the inspector drawer, switch to the owning tab/side, and expand the band."""
+    drawer = getattr(window, "inspector_drawer", None)
+    if drawer is None:
+        return
+    if not window.appearance.is_drawer_open():
+        window.appearance.set_drawer_open(True)
+
+    # Switch [流体 A | 流体 B] if the widget belongs to one of the fluid side pages.
+    side_pages = getattr(window, "_fluid_side_pages", {})
+    for idx, side in enumerate(("A", "B")):
+        page = side_pages.get(side)
+        if page is not None and page.isAncestorOf(widget):
+            window._select_fluid_side(idx)
+            break
+
+    for _key, (tab_idx, band) in getattr(window, "_drawer_bands", {}).items():
+        if band.isAncestorOf(widget):
+            window._select_param_page(tab_idx)
+            band.set_expanded(True)
+            scroll = drawer._stack.widget(tab_idx)
+            if isinstance(scroll, QScrollArea):
+                scroll.ensureWidgetVisible(widget)
             break
 
 
 def build_page_zones(window):
-    """Ex-Main_Menu._build_page_zones(self) -> QScrollArea.
-
-    Note: post 2026-04-22 restructure this page hosts "Zone Layout" only
-    (config + table + Preview) — it feeds the COMPUTE path's zone feature.
-    The optimizer trigger + status live in the Optimize-tab wizard built in
-    builders_canvas (M0 2026-07-09: this panel mounts there under its own
-    "分区定义 (Compute 路径)" card, separate from the optimizer 搜索空间).
-    """
-    # Phase 5 follow-up: styles via FieldFactory + ThemeManager DI.
+    """Build the Zone Layout configuration panel mounted inside the Optimize page."""
     from .field_factory import default_factory
+
     f = default_factory()
     t = f.theme
     _t = get_theme()
 
     scroll = QScrollArea()
     scroll.setWidgetResizable(True)
-    # ui-layout-fixes: no horizontal scroll on param pages (labels wrap).
     scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-    scroll.setStyleSheet("border:none; background:transparent;")
+    scroll.setStyleSheet("border: none; background: transparent;")
 
-    w = QWidget(); w.setStyleSheet(f"background:{t.style('BG')};")
+    w = QWidget()
+    w.setStyleSheet(f"background: {t.style('BG')};")
     lay = QVBoxLayout(w)
-    lay.setSpacing(12); lay.setContentsMargins(6, 4, 8, 6)
+    lay.setSpacing(12)
+    lay.setContentsMargins(6, 4, 8, 6)
 
-    # ── Zone Configuration ── (title-less frame: panel lives inside the
-    # Optimize tab card which is already labelled "Optimize", so repeating
-    # "Zone Configuration" above the grid would be noise).
     sec_zone = QWidget()
-    sec_zone.setStyleSheet("background:transparent;")
-    _cz_lay = QVBoxLayout(sec_zone)
-    _cz_lay.setContentsMargins(0, 4, 0, 0); _cz_lay.setSpacing(0)
-    _cz_frame = QFrame()
-    _cz_frame.setStyleSheet(t.style('F_NEUTRAL'))
-    g_zone = QGridLayout(_cz_frame)
+    sec_zone.setStyleSheet("background: transparent;")
+    cz_lay = QVBoxLayout(sec_zone)
+    cz_lay.setContentsMargins(0, 4, 0, 0)
+    cz_lay.setSpacing(0)
+    cz_frame = QFrame()
+    cz_frame.setStyleSheet(t.style("F_NEUTRAL"))
+    g_zone = QGridLayout(cz_frame)
     g_zone.setContentsMargins(12, 10, 12, 10)
-    g_zone.setVerticalSpacing(8); g_zone.setHorizontalSpacing(10)
-    g_zone.setColumnStretch(0, 3); g_zone.setColumnStretch(1, 2)
-    _cz_lay.addWidget(_cz_frame)
+    g_zone.setVerticalSpacing(8)
+    g_zone.setHorizontalSpacing(10)
+    g_zone.setColumnStretch(0, 3)
+    g_zone.setColumnStretch(1, 2)
+    cz_lay.addWidget(cz_frame)
     lay.addWidget(sec_zone)
 
     window.chk_zones = QCheckBox("Enable zone partitioning")
-    _tcz = get_theme()
-    # Explicit checkbox-indicator styling — without this, Qt falls back to
-    # the native square which on Windows light is a white box with a thin
-    # gray border that's nearly invisible on a white card_bg.
     window.chk_zones.setStyleSheet(
-        f"QCheckBox{{color:{_tcz['fg']}; font-size:10pt; font-weight:bold;"
-        f"background:transparent; spacing:8px;}}"
-        f"QCheckBox::indicator{{width:16px; height:16px;"
-        f"border:1.5px solid {_tcz['chk_indicator_border']};"
-        f"border-radius:3px; background:{_tcz['chk_bg']};}}"
-        f"QCheckBox::indicator:hover{{border-color:{_tcz['chk_hover_border']};}}"
-        f"QCheckBox::indicator:checked{{background:{_tcz['chk_checked_bg']};"
-        f"border-color:{_tcz['chk_checked_border']};}}"
-        f"QCheckBox:focus{{outline:0;}}")
+        f"QCheckBox {{ color: {_t['fg']}; font-size: 10pt; font-weight: bold; "
+        "background: transparent; spacing: 8px; }"
+        f"QCheckBox::indicator {{ width: 16px; height: 16px; "
+        f"border: 1.5px solid {_t['chk_indicator_border']}; "
+        f"border-radius: 3px; background: {_t['chk_bg']}; }}"
+        f"QCheckBox::indicator:hover {{ border-color: {_t['chk_hover_border']}; }}"
+        f"QCheckBox::indicator:checked {{ background: {_t['chk_checked_bg']}; "
+        f"border-color: {_t['chk_checked_border']}; }}"
+        "QCheckBox:focus { outline: 0; }"
+    )
     window.chk_zones.setChecked(False)
-    # Hide zone table + controls when unchecked (saves vertical space on small screens)
+
     def _toggle_zone_table(checked):
         for w_z in (window.zone_table, nz_row, window.combo_zone_axis):
             try:
                 w_z.setVisible(checked)
             except Exception:
                 pass
+
     window.chk_zones.toggled.connect(_toggle_zone_table)
     window.combo_zone_axis = QComboBox()
     window.combo_zone_axis.addItems(["Along Y", "Along X", "Grid Y×X"])
     window.combo_zone_axis.setFixedHeight(32)
-    window.combo_zone_axis.setStyleSheet(t.style('INP'))
+    window.combo_zone_axis.setStyleSheet(t.style("INP"))
     window.combo_zone_axis.currentIndexChanged.connect(window._zone_mode_changed)
     g_zone.addWidget(window.chk_zones, 0, 0)
     g_zone.addWidget(window.combo_zone_axis, 0, 1)
 
-    # Zone +/- buttons row
     nz_row = QWidget()
     nz_lay = QHBoxLayout(nz_row)
-    nz_lay.setContentsMargins(0, 0, 0, 0); nz_lay.setSpacing(4)
-    btn_add = QPushButton("+Row"); btn_rm = QPushButton("-Row")
-    _btn_tert = t.style('BTN_TERTIARY')
+    nz_lay.setContentsMargins(0, 0, 0, 0)
+    nz_lay.setSpacing(4)
+    btn_add = QPushButton("+Row")
+    btn_rm = QPushButton("-Row")
+    btn_tert = t.style("BTN_TERTIARY")
     for b in (btn_add, btn_rm):
-        b.setFixedHeight(32); b.setMinimumWidth(48)
-        b.setStyleSheet(_btn_tert)
+        b.setFixedHeight(32)
+        b.setMinimumWidth(48)
+        b.setStyleSheet(btn_tert)
     btn_add.setToolTip("Add a row (split the last zone in half)")
     btn_rm.setToolTip("Remove the last row")
     btn_add.clicked.connect(window._zone_add_row)
     btn_rm.clicked.connect(window._zone_remove_row)
-    window.lbl_nx = QLabel("Col:"); window.lbl_nx.setStyleSheet(t.style('LBL'))
-    window.btn_add_x = QPushButton("+Col"); window.btn_rm_x = QPushButton("-Col")
+    window.lbl_nx = QLabel("Col:")
+    window.lbl_nx.setStyleSheet(t.style("LBL"))
+    window.btn_add_x = QPushButton("+Col")
+    window.btn_rm_x = QPushButton("-Col")
     for b in (window.btn_add_x, window.btn_rm_x):
-        b.setFixedHeight(32); b.setMinimumWidth(48)
-        b.setStyleSheet(_btn_tert)
+        b.setFixedHeight(32)
+        b.setMinimumWidth(48)
+        b.setStyleSheet(btn_tert)
     window.btn_add_x.setToolTip("Add a column (split the last column in half)")
     window.btn_rm_x.setToolTip("Remove the last column")
     window.btn_add_x.clicked.connect(window._zone_add_col)
     window.btn_rm_x.clicked.connect(window._zone_remove_col)
-    window.lbl_nx.hide(); window.btn_add_x.hide(); window.btn_rm_x.hide()
+    window.lbl_nx.hide()
+    window.btn_add_x.hide()
+    window.btn_rm_x.hide()
     nz_lay.addWidget(btn_add)
     nz_lay.addWidget(btn_rm)
     nz_lay.addStretch()
@@ -675,76 +694,53 @@ def build_page_zones(window):
     nz_lay.addWidget(window.btn_add_x)
     nz_lay.addWidget(window.btn_rm_x)
     g_zone.addWidget(nz_row, 1, 0, 1, 2)
-    window._grid_nx = 2  # track x-column count for grid mode
+    window._grid_nx = 2
 
     window.zone_table = QTableWidget(3, 4)
-    window.zone_table.setHorizontalHeaderLabels(
-        ["START %", "END %", "L [mm]", "t [mm]"])
-    window.zone_table.horizontalHeader().setSectionResizeMode(
-        QHeaderView.ResizeMode.Stretch)
+    window.zone_table.setHorizontalHeaderLabels(["START %", "END %", "L [mm]", "t [mm]"])
+    window.zone_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
     window.zone_table.verticalHeader().setVisible(True)
     window.zone_table.verticalHeader().setDefaultSectionSize(34)
     window.zone_table.verticalHeader().setStyleSheet(
-        f"QHeaderView::section{{background:{_t.get('surface_raised', _t['card_bg'])};"
-        f"color:{_t.get('sub_fg', _t['fg'])};"
-        f"font-family:{_t['mono_family']};"
-        f"font-size:9pt; font-weight:700;"
-        f"border:none; border-right:1px solid {_t.get('border_subtle', _t['card_border'])};"
-        f"padding:0 6px;}}")
-    window.zone_table.setSizePolicy(QSizePolicy.Policy.Expanding,
-                                     QSizePolicy.Policy.Expanding)
+        f"QHeaderView::section {{ background: {_t['sunken']}; color: {_t['sub']}; "
+        f"font-family: {_t['mono_family']}; font-size: 9pt; font-weight: 700; "
+        f"border: none; border-right: 1px solid {_t['border']}; padding: 0 6px; }}"
+    )
+    window.zone_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
     window.zone_table.setMinimumHeight(220)
     window.zone_table.setAlternatingRowColors(True)
     window.zone_table.setShowGrid(False)
     window.zone_table.horizontalHeader().setHighlightSections(False)
     window.zone_table.verticalHeader().setHighlightSections(False)
-    # Per-zone colour palette for the row indicator swatch — rotated by
-    # row index. Uses the shared `canvas_accents` list so the swatch
-    # colour matches anything else keyed off zone index.
-    _zone_swatches = _t.get('canvas_accents', [_t['accent_primary']] * 6)
-    window._zone_swatches = list(_zone_swatches)
+    window._zone_swatches = list(_t["canvas_accents"])
     window.zone_table.setStyleSheet(
-        f"QTableWidget{{background:{_t['card_bg']}; color:{_t['fg']};"
-        f"font-size:10pt; gridline-color:transparent;"
-        f"alternate-background-color:{_t.get('surface_raised', _t['card_bg'])};"
-        f"border:1px solid {_t.get('border_subtle', _t['card_border'])};"
-        f"border-radius:6px;}}"
-        f"QHeaderView::section{{background:transparent;"
-        f"color:{_t.get('sub_fg', _t['fg'])}; font-size:9pt;"
-        f"font-weight:700; letter-spacing:1.2px; padding:8px 6px;"
-        f"border:none;"
-        f"border-bottom:2px solid {_t.get('accent_primary', '#3B82F6')};}}"
-        f"QTableWidget::item{{padding:6px 10px;"
-        f"font-family:{_t['mono_family']};"
-        f"border-right:1px solid {_t.get('border_subtle', _t['card_border'])};}}"
-        f"QTableWidget::item:hover{{background:"
-        f"{_t.get('btn_sec_hover_bg', 'rgba(59,130,246,0.12)')};}}"
-        f"QTableWidget::item:selected{{background:"
-        f"{_t.get('accent_primary', '#3B82F6')}; color:white;}}"
-        f"QTableCornerButton::section{{background:{_t.get('surface_raised', _t['card_bg'])};"
-        f"border:none;}}"
+        f"QTableWidget {{ background: {_t['panel']}; color: {_t['fg']}; "
+        "font-size: 10pt; gridline-color: transparent; "
+        f"alternate-background-color: {_t['sunken']}; "
+        f"border: 1px solid {_t['border']}; border-radius: 6px; }}"
+        f"QHeaderView::section {{ background: transparent; color: {_t['sub']}; font-size: 9pt; "
+        f"font-weight: 700; padding: 8px 6px; border: none; "
+        f"border-bottom: 1px solid {_t['border_strong']}; }}"
+        f"QTableWidget::item {{ padding: 6px 10px; font-family: {_t['mono_family']}; "
+        f"border-right: 1px solid {_t['border']}; }}"
+        f"QTableWidget::item:hover {{ background: {_t['hover']}; }}"
+        f"QTableWidget::item:selected {{ background: {_t['accent_soft']}; color: {_t['accent_fg']}; }}"
+        f"QTableCornerButton::section {{ background: {_t['sunken']}; border: none; }}"
     )
-    # Auto-select-on-edit delegate (Phase 5: moved out of main.py).
     from .delegates import SelectAllDelegate
+
     window.zone_table.setItemDelegate(SelectAllDelegate(window.zone_table))
 
     def _repaint_zone_swatches():
-        """Prefix each row header with a coloured ● from the canvas_accents
-        palette so zone rows have a stable visual identity that matches any
-        per-zone markers in the layout preview."""
-        from PySide6.QtGui import QBrush, QColor
         pal = window._zone_swatches
-        n = window.zone_table.rowCount()
-        for r in range(n):
+        for r in range(window.zone_table.rowCount()):
             col = QColor(pal[r % len(pal)])
             item = QTableWidgetItem(f" ● #{r + 1} ")
             item.setForeground(QBrush(col))
             item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             window.zone_table.setVerticalHeaderItem(r, item)
-    window._repaint_zone_swatches = _repaint_zone_swatches
 
-    # Keep swatches in sync whenever rows are added/removed. Qt emits
-    # rowsInserted / rowsRemoved through the model; connect there.
+    window._repaint_zone_swatches = _repaint_zone_swatches
     model = window.zone_table.model()
     model.rowsInserted.connect(lambda *a: _repaint_zone_swatches())
     model.rowsRemoved.connect(lambda *a: _repaint_zone_swatches())
@@ -753,31 +749,25 @@ def build_page_zones(window):
     _repaint_zone_swatches()
     g_zone.addWidget(window.zone_table, 2, 0, 1, 2)
 
-    # Initially hide zone table (checkbox unchecked)
     window.zone_table.setVisible(False)
     nz_row.setVisible(False)
     window.combo_zone_axis.setVisible(False)
-
-    # Edit triggers: always allow editing (checkbox only controls whether zones are used in solver)
     window.zone_table.setEditTriggers(
-        QAbstractItemView.EditTrigger.DoubleClicked |
-        QAbstractItemView.EditTrigger.SelectedClicked |
-        QAbstractItemView.EditTrigger.EditKeyPressed |
-        QAbstractItemView.EditTrigger.AnyKeyPressed)
+        QAbstractItemView.EditTrigger.DoubleClicked
+        | QAbstractItemView.EditTrigger.SelectedClicked
+        | QAbstractItemView.EditTrigger.EditKeyPressed
+        | QAbstractItemView.EditTrigger.AnyKeyPressed
+    )
 
-    # Cell-level validation: start/end percent in [0, 100]; L/t > 0. Writes
-    # the `cellError` dynamic property which is styled red in the sheet
-    # above. Lets the user spot a bad cell even when the solver hasn't run.
     def _zone_cell_validate(row, col):
         item = window.zone_table.item(row, col)
         if item is None:
             return
         txt = item.text().strip()
-        # E16 — `=expr` cells evaluate via the safe expression parser
-        # so users can type e.g. `=100/3` or `=0.4+0.1`.
-        if txt.startswith('='):
-            from .expr_eval import eval_expr as _ev
-            val = _ev(txt[1:])
+        if txt.startswith("="):
+            from .expr_eval import eval_expr
+
+            val = eval_expr(txt[1:])
             if val is not None:
                 window.zone_table.blockSignals(True)
                 item.setText(f"{val:.6g}")
@@ -790,47 +780,36 @@ def build_page_zones(window):
             if col < percent_columns:
                 if v < 0 or v > 100:
                     bad = True
-            else:  # final columns: L [mm], t [mm]
-                if v <= 0:
-                    bad = True
+            elif v <= 0:
+                bad = True
         except Exception:
             bad = True
-        new = 'true' if bad else 'false'
+        new = "true" if bad else "false"
         if item.data(Qt.ItemDataRole.UserRole + 1) != new:
             item.setData(Qt.ItemDataRole.UserRole + 1, new)
-        # setProperty isn't enough on QTableWidgetItem — use a visual marker
-        # via background brush so the selector fires. Qt has no per-item
-        # dynamic property driving QSS; approximate via background colour.
         if bad:
-            from PySide6.QtGui import QBrush, QColor
-            item.setBackground(QBrush(QColor(220, 38, 38, 70)))
-            item.setToolTip(
-                "Value out of range" if col < percent_columns
-                else "Value must be > 0")
+            item.setBackground(QBrush(QColor(get_theme()["err_soft"])))
+            item.setToolTip("Value out of range" if col < percent_columns else "Value must be > 0")
         else:
-            from PySide6.QtGui import QBrush
             item.setBackground(QBrush())
             item.setToolTip("")
+
     window.zone_table.cellChanged.connect(_zone_cell_validate)
 
-    # Preview Layout trigger — auto-switches to the Layout tab after
-    # drawing so the user actually sees the result (the canvas lives in
-    # a different tab from this Zone panel, which is now embedded in
-    # Optimize; clicking with no tab-switch felt like a broken button).
     btn_preview_z = QPushButton("预览布局  ↗")
     btn_preview_z.setFixedHeight(28)
-    btn_preview_z.setStyleSheet(t.style('BTN_SECONDARY'))
-    btn_preview_z.setToolTip(
-        "Render the zone configuration on the Layout tab and jump to it")
+    btn_preview_z.setStyleSheet(t.style("BTN_SECONDARY"))
+    btn_preview_z.setToolTip("在算例画布上预览分区布局")
+
     def _preview_and_switch():
         window._draw_layout()
         try:
-            window.workbench.switch_tab('layout')
+            window.workbench.switch_tab("layout")
         except Exception:
             pass
+
     btn_preview_z.clicked.connect(_preview_and_switch)
     lay.addWidget(btn_preview_z)
-
     lay.addStretch()
     scroll.setWidget(w)
     return scroll

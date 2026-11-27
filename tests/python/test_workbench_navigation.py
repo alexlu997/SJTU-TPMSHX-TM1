@@ -56,11 +56,11 @@ def test_workbench_teardown_preserves_window_if_close_is_declined(tmp_path, monk
             QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
-def test_layout_preview_follows_both_port_sections(win):
-    content = win._accordion_contents['进出口边界']
-    sections = win._ia_sections
-    assert [content.layout().itemAt(i).widget() for i in range(3)] == [
-        sections['pipe_a'], sections['pipe_b'], sections['preview_btn']]
+def test_unified_boundary_sides_contain_fluid_and_port_bands(win):
+    for side in ('A', 'B'):
+        page = win._fluid_side_pages[side]
+        assert page.isAncestorOf(win._ia_sections[f'fluid_{side.lower()}'])
+        assert page.isAncestorOf(win._ia_sections[f'pipe_{side.lower()}'])
 
 
 def test_fit_view_targets_the_active_optimization_volume(win, monkeypatch):
@@ -109,118 +109,100 @@ def test_window_close_cleans_both_volume_plotters_and_their_popups(win):
         assert panel._popup_dialogs == [] and not popup.isVisible()
 
 
-def test_more_menu_commands_use_current_units_theme_and_help(win, monkeypatch):
+def test_appearance_settings_toggle_units_theme_and_reduced_motion(win, monkeypatch):
+    from sjtu_tpmshx.applications.gui.ui.microanim import is_reduced_motion, set_reduced_motion
     from sjtu_tpmshx.applications.gui.ui.theme import get_theme_name, set_theme
 
-    menu = win.btn_more.menu()
     original_theme = get_theme_name()
-    menu.aboutToShow.emit()
-    theme_action = next(a for a in menu.actions() if '主题' in a.text())
-    unit_action = next(a for a in menu.actions() if a.text().startswith('温度单位'))
-    help_action = next(a for a in menu.actions() if a.text() == '帮助与快捷键')
     original_unit, inlet = win._temp_unit, float(win.le_TinA.text())
-    unit_action.trigger()
-    menu.aboutToShow.emit()
+    win._toggle_temp_unit()
     expected_unit = 'C' if original_unit == 'K' else 'K'
     assert win._temp_unit == expected_unit
-    assert ('°C' if expected_unit == 'C' else 'K') in unit_action.text()
+    assert win.le_TinA.unit() == ('°C' if expected_unit == 'C' else 'K')
     assert float(win.le_TinA.text()) == pytest.approx(
         inlet - 273.15 if expected_unit == 'C' else inlet + 273.15, abs=.005)
-    unit_action.trigger()
+    win._toggle_temp_unit()
     assert float(win.le_TinA.text()) == pytest.approx(inlet, abs=.005)
 
     restart_notices = []
-    monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.mixins.appearance.save_appearance_setting',
+    monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.shell_appearance.save_appearance_setting',
                         lambda *_: True)
-    monkeypatch.setattr(win, '_offer_appearance_restart', restart_notices.append)
+    monkeypatch.setattr(win.appearance, 'offer_restart', restart_notices.append)
     try:
-        theme_action.trigger()
+        win.appearance.toggle_theme()
         assert get_theme_name() != original_theme
-        menu.aboutToShow.emit()
-        assert ('深色' if get_theme_name() == 'light' else '浅色') in theme_action.text()
         assert restart_notices
     finally:
         set_theme(original_theme)
 
-    anchors = []
-    monkeypatch.setattr(win, '_show_help_menu', anchors.append)
-    help_action.trigger()
-    assert anchors == [win.btn_more]
-    assert win.btn_more.accessibleName() == '更多'
-    assert all(action.toolTip() for action in (theme_action, unit_action, help_action))
+    monkeypatch.setattr(
+        'sjtu_tpmshx.applications.gui.controllers.user_storage.save_appearance_setting',
+        lambda *_: True,
+    )
+    prev_motion = is_reduced_motion()
+    try:
+        assert win.appearance.set_reduced_motion(True)
+        assert is_reduced_motion() is True
+        assert win.appearance.set_reduced_motion(False)
+        assert is_reduced_motion() is False
+    finally:
+        set_reduced_motion(prev_motion)
 
 
-def test_more_workspace_menu_preserves_each_workspace_inputs(win, monkeypatch):
-    menu = win._workspace_menu
-    opened = []
-    monkeypatch.setattr(menu, 'exec', opened.append)
-    next(a for a in win.btn_more.menu().actions() if a.text() == '切换工作区…').trigger()
-    assert len(opened) == 1
+def test_load_menu_workspace_switch_preserves_each_workspace_inputs(win):
+    menu = win.history.build_load_menu()
+    ws_b = next(a for a in menu.actions() if '工作区 B' in a.text())
     win.le_Nx.setText('37')
-    menu.actions()[1].trigger()
+    ws_b.trigger()
     assert win.case_files.active_workspace == 'B'
-    assert menu.actions()[1].text().startswith('● ')
     win.le_Nx.setText('45')
-    menu.actions()[0].trigger()
+    menu = win.history.build_load_menu()
+    ws_a = next(a for a in menu.actions() if '工作区 A' in a.text())
+    ws_a.trigger()
     assert win.case_files.active_workspace == 'A'
     assert win.le_Nx.text() == '37'
-    menu.actions()[1].trigger()
+    menu = win.history.build_load_menu()
+    next(a for a in menu.actions() if '工作区 B' in a.text()).trigger()
     assert win.le_Nx.text() == '45'
 
 
-def test_collapse_restore_preserves_fields_page_scroll_and_width(win):
+def test_drawer_collapse_restore_preserves_fields_and_page(win):
     win._select_param_page(1)
-    win._accordion_groups['进出口边界'].setChecked(True)
-    win._splitter.setSizes([426, 850])
     win.le_Nx.setText('37')
     QApplication.processEvents()
-    scroll = win._param_scroll.verticalScrollBar()
-    scroll.setValue(min(120, scroll.maximum()))
-    assert scroll.value() > 0
-    position, width = scroll.value(), win._parameter_host.width()
 
-    win.btn_collapse_parameters.click()
+    win.btn_toggle_drawer.click()
     QApplication.processEvents()
-    assert win._left_collapsed
-    assert win._parameter_host.width() == 56
-    assert win._param_rail.isVisibleTo(win)
-    assert not win._param_panel.isVisibleTo(win)
-    win.btn_expand_parameters.click()
+    assert not win.appearance.is_drawer_open()
+    assert not win.inspector_drawer.isVisibleTo(win)
+    win.btn_toggle_drawer.click()
     QApplication.processEvents()
-    assert not win._left_collapsed
-    assert win._parameter_host.width() == width
+    assert win.appearance.is_drawer_open()
+    assert win.inspector_drawer.isVisibleTo(win)
     assert win._param_page == 1
-    assert scroll.value() == position
     assert win.le_Nx.text() == '37'
 
-    win._toggle_left_panel()
-    win._param_rail_btns[0].click()
-    assert not win._left_collapsed
-    assert win._param_page == 0
+    win.appearance.toggle_drawer()
+    assert not win.appearance.is_drawer_open()
+    win.appearance.toggle_drawer()
+    assert win.appearance.is_drawer_open()
 
 
 @pytest.mark.parametrize('collapsed', [False, True])
-def test_optimization_space_restores_parameter_state_and_keeps_active_cancel(win, collapsed, monkeypatch):
+def test_optimization_space_restores_drawer_state_and_keeps_active_cancel(win, collapsed, monkeypatch):
     win._select_param_page(1)
-    win._accordion_groups['进出口边界'].setChecked(True)
-    win._splitter.setSizes([426, 850])
     win.le_Nx.setText('37')
+    win.appearance.set_drawer_open(not collapsed)
     QApplication.processEvents()
-    scroll = win._param_scroll.verticalScrollBar()
-    scroll.setValue(min(120, scroll.maximum()))
-    position = scroll.value()
-    win._set_parameter_panel_collapsed(collapsed)
-    QApplication.processEvents()
-    width = win._parameter_host.width()
     win.workbench.switch_tab('pareto')
     QApplication.processEvents()
-    assert not win._parameter_host.isVisibleTo(win)
+    assert not win.inspector_drawer.isVisibleTo(win)
     assert not win._run_status_card.isVisibleTo(win)
     assert not win._result_view_switch.isVisibleTo(win)
     assert win.btn_focus_view.isVisibleTo(win)
-    win._toggle_3d_immersive()
-    win._toggle_3d_immersive()
-    assert not win._parameter_host.isVisibleTo(win)
+    win.appearance.toggle_focus()
+    win.appearance.toggle_focus()
+    assert not win.inspector_drawer.isVisibleTo(win)
     with monkeypatch.context() as running:
         running.setattr(win.single_run, 'is_idle', lambda: False)
         win._run_status_card.start('2d')
@@ -229,17 +211,16 @@ def test_optimization_space_restores_parameter_state_and_keeps_active_cancel(win
     win._run_status_card.finish('cancelled', 0.)
     win.workbench.switch_tab('layout')
     QApplication.processEvents()
-    assert win._parameter_host.isVisibleTo(win)
-    assert win._parameter_host.width() == width
-    assert win._left_collapsed == collapsed and win._param_page == 1
-    assert scroll.value() == position and win.le_Nx.text() == '37'
+    assert win.inspector_drawer.isVisibleTo(win) == (not collapsed)
+    assert win.appearance.is_drawer_open() == (not collapsed) and win._param_page == 1
+    assert win.le_Nx.text() == '37'
 
 
 def test_optimization_page_buttons_work_by_keyboard_and_public_edit_keeps_values(win):
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
     win.le_Nx.setText('37')
-    win._set_parameter_panel_collapsed(True)
+    win.appearance.set_drawer_open(False)
     win.workbench.switch_tab('pareto')
     for index, key in enumerate(('config', 'running', 'result')):
         button = win.optimization.stage_pills[key]
@@ -248,44 +229,30 @@ def test_optimization_page_buttons_work_by_keyboard_and_public_edit_keeps_values
         QTest.keyClick(button, Qt.Key.Key_Space)
         assert win.optimization.stack.currentIndex() == index
     win.optimization.stack.setCurrentIndex(0)
-    win._toggle_3d_immersive()
+    win.appearance.toggle_focus()
     win.optimization.edit_common_button.click()
     QApplication.processEvents()
-    assert win.workbench.active_tab == 'layout' and not win._3d_immersive
-    assert win._parameter_host.isVisibleTo(win) and not win._left_collapsed
+    assert win.workbench.active_tab == 'layout' and not win.appearance.is_focused()
+    assert win.inspector_drawer.isVisibleTo(win) and win.appearance.is_drawer_open()
     assert win.le_Nx.text() == '37'
 
 
 @pytest.mark.parametrize('collapsed', [False, True])
 @pytest.mark.parametrize('restore_tab', ['layout', 'pareto'])
-def test_optimization_session_restores_saved_parameter_width(win, monkeypatch, collapsed, restore_tab):
-    win._splitter.setSizes([450, 850])
-    QApplication.processEvents()
-    width = win._parameter_host.width()
-    if collapsed:
-        win._set_parameter_panel_collapsed(True)
+def test_optimization_session_restores_saved_drawer_state(win, monkeypatch, collapsed, restore_tab):
+    win.appearance.set_drawer_open(not collapsed, page_key='run')
     win.workbench.switch_tab('pareto')
     QApplication.processEvents()
     saved = {}
     monkeypatch.setattr(win.case_files.store, 'save_session', lambda payload, ws: saved.update(payload) or True)
     assert win.case_files.save_session()
-    assert saved['ui_state']['parameter_width'] == width
     assert saved['ui_state']['left_collapsed'] == collapsed
-    win.workbench.switch_tab('layout')
-    win._set_parameter_panel_collapsed(False)
-    win._splitter.setSizes([320, 980])
     win.workbench.switch_tab(restore_tab)
-    # Keep the test viewport; offscreen screen geometry must not clamp it.
     saved.pop('geometry')
     monkeypatch.setattr(win.case_files.store, 'load_session', lambda ws: saved)
     win.case_files.restore_session()
     QApplication.processEvents()
-    assert win.workbench.active_tab == 'pareto' and win._left_collapsed == collapsed
-    assert win._param_width == width
-    win.workbench.switch_tab('layout')
-    win._set_parameter_panel_collapsed(False)
-    QApplication.processEvents()
-    assert win._parameter_host.width() == width
+    assert win.workbench.active_tab == 'pareto' and win.appearance.is_drawer_open('run') == (not collapsed)
 
 
 def test_optimization_figure_menu_keeps_copy_and_export_reachable(win, monkeypatch):
@@ -313,71 +280,65 @@ def test_focus_restores_preferences_and_does_not_persist_transient_hiding(
         win, monkeypatch, collapsed, summary):
     win.combo_dim.setCurrentIndex(0)
     win.cache.set_result('2d', ComputeResult())
-    win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})  # These layout stubs represent rendered fields.
+    win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})
     win.workbench.update_tab_visibility()
     win.workbench.switch_tab('temp')
-    win._set_parameter_panel_collapsed(collapsed)
+    win.appearance.set_drawer_open(not collapsed)
     win.btn_result_summary.setChecked(summary)
     previous_height = win._canvas_cards['temp'].height()
     saved = {}
     monkeypatch.setattr(win.case_files.store, 'save_session', lambda payload, ws: saved.update(payload) or True)
 
-    win._toggle_3d_immersive()
+    win.appearance.toggle_focus()
     QApplication.processEvents()
     assert win.btn_focus_view.isChecked()
-    assert win._parameter_host.isHidden()
+    assert win.inspector_drawer.isHidden()
     assert win._run_status_card.isHidden()
-    assert win._result_sidebar.isHidden()
+    assert win.readout_strip.isHidden()
     assert previous_height <= win._canvas_cards['temp'].height() <= win._canvas_scroll.viewport().height()
     win.case_files.save_session()
     assert saved['ui_state']['left_collapsed'] == collapsed
     assert saved['ui_state']['result_summary_visible'] == summary
     win.workbench.switch_tab('pres')
-    assert win._result_sidebar.isHidden()
+    assert win.readout_strip.isHidden()
 
-    win._toggle_3d_immersive()
+    win.appearance.toggle_focus()
     QApplication.processEvents()
     assert not win.btn_focus_view.isChecked()
-    assert win._parameter_host.isVisibleTo(win)
-    assert win._left_collapsed == collapsed
+    assert win.inspector_drawer.isVisibleTo(win) == (not collapsed)
+    assert win.appearance.is_drawer_open() == (not collapsed)
     assert win.btn_result_summary.isChecked() == summary
-    assert win._result_sidebar.isVisibleTo(win) == summary
+    assert win.readout_strip.isVisibleTo(win) == summary
 
 
-def test_session_restores_width_page_and_legacy_defaults(win, monkeypatch):
-    win._splitter.setSizes([450, 850])
+def test_session_restores_drawer_page_and_legacy_defaults(win, monkeypatch):
     win._select_param_page(2)
     win.btn_result_summary.setChecked(False)
+    win.appearance.set_drawer_open(False, page_key='run')
+    win.appearance.set_drawer_open(True, page_key='result')
     QApplication.processEvents()
-    width = win._parameter_host.width()
-    win._toggle_left_panel()
     saved = {}
     monkeypatch.setattr(win.case_files.store, 'save_session', lambda payload, ws: saved.update(payload) or True)
     win.case_files.save_session()
-    win._toggle_left_panel()
-    win._splitter.setSizes([320, 980])
-    win._select_param_page(0)
     win.btn_result_summary.setChecked(True)
-    # Keep this sidebar-state test at its 1300 px viewport. Qt otherwise
-    # clamps restored window geometry to the offscreen backend's small screen,
-    # where the chart's minimum width prevents a 450 px parameter panel.
     saved.pop('geometry')
+    # Legacy global left_collapsed in session must not overwrite per-page inspector state.
+    saved['ui_state']['left_collapsed'] = False
+    saved['ui_state']['parameter_page'] = 0
     monkeypatch.setattr(win.case_files.store, 'load_session', lambda ws: saved)
     win.case_files.restore_session()
     QApplication.processEvents()
-    assert win._left_collapsed
-    assert win._param_width == width
+    assert not win.appearance.is_drawer_open('run')
+    assert win.appearance.is_drawer_open('result')
     assert win._param_page == 2
     assert not win.btn_result_summary.isChecked()
-    win._toggle_left_panel()
-    QApplication.processEvents()
-    assert win._parameter_host.width() == width
 
     saved.pop('ui_state')
     win.case_files.restore_session()
     QApplication.processEvents()
-    assert not win._left_collapsed
-    assert win._param_page == 0
+    assert not win.appearance.is_drawer_open('run')
+    assert win.appearance.is_drawer_open('result')
+    assert win._param_page == 2
     assert win.btn_result_summary.isChecked()
 
 
@@ -393,7 +354,7 @@ def test_palette_field_selection_updates_visible_buttons(win):
     selected, unselected = buttons[0].styleSheet(), buttons[1].styleSheet()
     assert selected != unselected
     actions = {action.keywords[0]: action for action in build_actions(win)
-               if action.category == 'Tabs'}
+               if action.category == '页面'}
 
     for field, index in (('pres', 2), ('vel', 1), ('temp', 0)):
         actions[field].callback()
@@ -413,7 +374,7 @@ def test_palette_enter_runs_selected_command_once(win, monkeypatch):
     monkeypatch.setattr(win.result_export, 'export_results', lambda: calls.append('export'))
     palette = CommandPalette(win)
     palette.open_palette()
-    palette._input.setText('Export results to CSV')
+    palette._input.setText('导出计算结果')
     QApplication.processEvents()
     QTest.keyClick(palette._input, Qt.Key.Key_Return)
     assert calls == ['export']
@@ -423,10 +384,10 @@ def test_quick_design_keeps_its_page_and_valid_result_route(win):
     from tests.python.gui_workbench_support import _result
 
     win.btn_quick_design.click()
-    assert win.btn_tab_result.styleSheet() == win._PTAB_DISABLED
+    assert not win.btn_tab_result.isEnabled()
     assert win.results.present(_result('2d'), mode='2d', provenance=None, elapsed=1)
     assert win.page_stack.currentWidget() is win.quick_design
-    assert win.btn_tab_result.isEnabled() and win.btn_tab_result.styleSheet() == win._PTAB_OFF
+    assert win.btn_tab_result.isEnabled()
 
     win.btn_tab_result.click()
     win.btn_quick_design.click()
@@ -450,7 +411,7 @@ def test_volume_only_result_enables_the_result_tab(win):
     win.workbench.update_tab_visibility()
     assert not win.workbench.rendered_slices
     assert win.workbench.result_view == '3d'
-    assert win.btn_tab_result.isEnabled() and win.btn_tab_result.styleSheet() == win._PTAB_OFF
+    assert win.btn_tab_result.isEnabled()
 
 
 def test_same_field_refreshes_result_dimension_and_slice_controls(win):
@@ -469,17 +430,24 @@ def test_same_field_refreshes_result_dimension_and_slice_controls(win):
         win.workbench.update_tab_visibility()
         win.workbench.switch_tab('temp')
         QApplication.processEvents()
-        assert win._result_heading.text() == f'本次结果 · {mode.upper()}'
+        assert win._page_title.text() == '计算结果'
         assert win._slice_controls.isVisibleTo(win) == (mode == '3d')
 
 
-def test_parameter_shortcut_is_bound_to_the_same_toggle(win):
-    shortcut = next(item for item in win.findChildren(QShortcut)
-                    if item.key() == QKeySequence('Ctrl+\\'))
-    shortcut.activated.emit()
-    assert win._left_collapsed
-    shortcut.activated.emit()
-    assert not win._left_collapsed
+def test_rail_and_drawer_shortcuts_are_bound_to_appearance_toggles(win):
+    rail_sc = next(item for item in win.findChildren(QShortcut)
+                   if item.key() == QKeySequence('Ctrl+\\'))
+    rail_sc.activated.emit()
+    assert win.appearance.is_rail_expanded()
+    rail_sc.activated.emit()
+    assert not win.appearance.is_rail_expanded()
+
+    drawer_sc = next(item for item in win.findChildren(QShortcut)
+                     if item.key() == QKeySequence('Ctrl+]'))
+    drawer_sc.activated.emit()
+    assert not win.appearance.is_drawer_open()
+    drawer_sc.activated.emit()
+    assert win.appearance.is_drawer_open()
 
 
 def test_current_solver_controls_are_visible_and_roundtrip(win):
@@ -511,28 +479,14 @@ def test_current_solver_controls_are_visible_and_roundtrip(win):
     assert after.extrap == before.extrap
 
 
-def test_fast_parameter_switches_keep_latest_page_and_editable_fields(win):
-    from PySide6.QtCore import QPropertyAnimation
-    from shiboken6 import isValid
-
+def test_fast_drawer_tab_switches_keep_latest_page_and_editable_fields(win):
     win.le_Nx.setText('37')
-    win._param_btns[1].click()
-    old_effect = win._param_scroll.viewport().graphicsEffect()
-    win._param_btns[2].click()
-    assert not isValid(old_effect)
+    win.inspector_drawer.tab_strip._buttons[1].click()
+    win.inspector_drawer.tab_strip._buttons[2].click()
     assert win._param_page == 2
-    assert win._accordion_groups['网格与求解器'].isVisibleTo(win)
-    assert win._accordion_groups['流体'].isHidden()
-    assert win._accordion_groups['几何与结构'].isHidden()
+    assert win.inspector_drawer.current_index() == 2
     assert win.le_Nx.isEnabled()
-    win.le_Nx.setText('41')  # transition does not lock editing
-    effect = win._param_scroll.viewport().graphicsEffect()
-    win._param_btns[2].click()
-    assert win._param_scroll.viewport().graphicsEffect() is effect
-    animation = effect.findChild(QPropertyAnimation)
-    animation.pause()
-    animation.setCurrentTime(animation.duration())
-    assert win._param_scroll.viewport().graphicsEffect() is None
+    win.le_Nx.setText('41')
     assert win.le_Nx.text() == '41'
 
 
@@ -542,13 +496,53 @@ def test_first_show_reveal_is_once_and_keeps_restored_page_and_values(win, monke
     win.hide()
     QApplication.processEvents()
     calls = []
-    monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.microanim.reveal', calls.append)
-    win._initial_reveal_scheduled = False
+    monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.shell_appearance.reveal', calls.append)
+    win.appearance._initial_reveal_scheduled = False
     win.show()
     QApplication.processEvents()
-    assert calls == [win._param_scroll.viewport()]
+    assert calls == [win.inspector_drawer]
     assert win._param_page == 2 and win.le_Nx.text() == '41'
     win.hide()
     win.show()
     QApplication.processEvents()
     assert len(calls) == 1
+
+
+def test_stale_readout_badge_and_co2_run_info_provenance(win):
+    from tests.python.gui_workbench_support import _result
+
+    win.combo_dim.setCurrentIndex(0)
+    preset = win.case_files.capture_current_preset('Run inputs')
+    result = _result('2d')
+    result.metadata['run_provenance'] = dict(
+        preset=preset, preset_source='Shanghai (2D Gyroid)', mode='2d',
+        input_grid=['20', '20'], actual_grid=[4, 3],
+    )
+    win.results.publish(result)
+    win.results.refresh_summary()
+    assert not win.readout_strip.is_stale()
+
+    # Editing inputs updates stale badge via actual widget signals (no manual refresh).
+    win.chk_allow_extrap.setChecked(not win.chk_allow_extrap.isChecked())
+    assert win.readout_strip.is_stale()
+    win.chk_allow_extrap.setChecked(not win.chk_allow_extrap.isChecked())
+    assert not win.readout_strip.is_stale()
+    win.le_L.setText('0.25')
+    assert win.readout_strip.is_stale()
+
+    # Non-CO2 accepted result must NOT show CO2 CFD source when draft is changed to CO2.
+    win.combo_fluidA.setCurrentIndex(3)
+    info_air = win.history.build_run_info_data(folder_path=None)
+    assert not any('CO₂ CFD 查表' in row.value for row in info_air.info_rows)
+
+    # Accepted CO2 result shows CO2 CFD source even if draft is switched back to Air.
+    co2_result = _result('2d')
+    co2_result.metadata['run_provenance'] = dict(
+        preset=preset, preset_source='Shanghai (2D Gyroid)', mode='2d',
+        input_grid=['20', '20'], actual_grid=[4, 3],
+    )
+    co2_result.metadata['co2'] = dict(sides=['A'], common_geometry='co2_cfd')
+    win.results.publish(co2_result)
+    win.combo_fluidA.setCurrentIndex(0)
+    info_co2 = win.history.build_run_info_data(folder_path=None)
+    assert any('CO₂ CFD 查表' in row.value for row in info_co2.info_rows)

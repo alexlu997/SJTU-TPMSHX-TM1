@@ -327,7 +327,7 @@ def test_import_changes_only_operating_conditions(window, tmp_path, monkeypatch)
     page.import_conditions()
     assert len(page.conditions) == 2
     page.use_current_condition()
-    assert page.conditions is None and '单工况' in page.condition_summary.text()
+    assert page.conditions is None and '当前工况' in page.condition_summary.text()
 
 
 @pytest.mark.parametrize('dimension', [0, 1])

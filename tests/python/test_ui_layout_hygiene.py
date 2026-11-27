@@ -22,6 +22,7 @@ from PySide6.QtWidgets import QApplication, QBoxLayout, QScrollArea  # noqa: E40
 @pytest.fixture(scope="module")
 def win(tmp_path_factory):
     import sjtu_tpmshx.applications.gui.controllers.session_manager as sm_mod
+    import sjtu_tpmshx.applications.gui.controllers.user_storage as storage_mod
 
     session_dir = tmp_path_factory.mktemp("ui-layout-session")
     original_init = sm_mod.SessionManager.__init__
@@ -35,6 +36,7 @@ def win(tmp_path_factory):
         )
 
     patch.setattr(sm_mod.SessionManager, '__init__', _init)
+    patch.setattr(storage_mod, '_appearance_dir', lambda: session_dir)
     app = QApplication.instance() or QApplication([])
     from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
     w = Main_Menu()
@@ -61,9 +63,10 @@ def test_param_pages_have_no_horizontal_scroll(win):
     assert not offenders, f"horizontal scroll present in: {offenders}"
 
 
-def test_fluids_row_is_responsive(win):
-    from sjtu_tpmshx.applications.gui.ui.responsive import ResponsiveRow
-    assert isinstance(getattr(win, "_fluids_row", None), ResponsiveRow)
+def test_fluids_row_has_unified_side_switch(win):
+    assert len(win._fluid_side_btns) == 2
+    assert [b.text() for b in win._fluid_side_btns] == ["流体 A", "流体 B"]
+    assert win._fluid_side_stack.count() == 2
 
 
 def test_responsive_row_direction_flips():
@@ -124,8 +127,7 @@ def test_empty_state_preset_button_applies_shanghai(win):
 
 
 def test_sticky_cta_outside_scroll(win):
-    """btn_compute lives in the fixed bottom bar, not inside the scroll —
-    it stays visible however far the params scroll."""
+    """btn_compute lives in the fixed header bar, not inside a scroll area."""
     from PySide6.QtWidgets import QScrollArea
     assert win.btn_compute.isVisibleTo(win)
     p = win.btn_compute.parentWidget()
@@ -136,115 +138,127 @@ def test_sticky_cta_outside_scroll(win):
             break
         p = p.parentWidget()
     assert not inside_scroll
-    assert getattr(win, "_cta_bar", None) is not None
 
 
-# ── ui-ia-batch1: four workflow accordion groups ─────────────────────
-
-_EXPECTED_GROUPS = {
-    "几何与结构": True,
-    "流体": True,
-    "网格与求解器": True,
-    "进出口边界": False,
+_EXPECTED_BANDS = {
+    "domain_geometry": True,
+    "tpms_structure": True,
+    "tpms_computed": True,
+    "fluid_a": True,
+    "pipe_a": True,
+    "fluid_b": True,
+    "pipe_b": True,
+    "grid_rect": True,
+    "df_method": True,
+    "sco2_nu": True,
+    "correlation_policy": True,
+    "compute_resources": True,
 }
 
 
-def test_four_workflow_groups_with_default_states(win):
-    groups = getattr(win, "_accordion_groups", {})
-    assert set(groups) == set(_EXPECTED_GROUPS)
-    for name, open_ in _EXPECTED_GROUPS.items():
-        assert groups[name].isChecked() == open_, name
+def test_drawer_bands_with_default_states(win):
+    bands = getattr(win, "_drawer_bands", {})
+    assert set(bands) == set(_EXPECTED_BANDS)
+    for name, open_ in _EXPECTED_BANDS.items():
+        _tab_idx, band = bands[name]
+        assert band.is_expanded() == open_, name
 
 
-def test_parameter_inspector_has_single_scroll_area(win):
-    """Nested page scroll shells were dropped — one outer scroll only."""
-    outer = win._param_panel
+def test_parameter_inspector_has_single_visible_scroll_area(win):
+    outer = win.inspector_drawer
     assert outer is not None
     scrolls = [s for s in outer.findChildren(QScrollArea) if s.isVisible()]
     assert len(scrolls) <= 1, [s.objectName() or repr(s) for s in scrolls]
 
 
 def test_tpms_computed_is_visible_before_and_after_calculation(win):
-    from PySide6.QtWidgets import QLabel
-
     app = QApplication.instance()
     win._select_param_page(0)
     sec = win._ia_sections["tpms_computed"]
-    assert isinstance(sec.layout().itemAt(0).widget(), QLabel)
-    frame = sec.layout().itemAt(1).widget()
-    assert frame.isVisibleTo(win)
-    assert win.compute_tpms()             # default inputs are valid
+    assert sec.is_expanded()
+    assert sec._body.isVisibleTo(win)
+    assert win.compute_tpms()
     app.processEvents()
-    assert frame.isVisibleTo(win)
+    assert sec._body.isVisibleTo(win)
     assert win._v_eps.text() not in ("—", "")
     win._select_param_page(1)
 
 
-def test_diagnostics_reachable_with_expanded_or_collapsed_sidebar(win, monkeypatch):
+def test_diagnostics_reachable_via_run_info_and_dialogs(win, monkeypatch):
+    from PySide6.QtWidgets import QLabel, QPushButton
+    from sjtu_tpmshx.data_types.compute_result import ComputeResult
+
     calls = []
     monkeypatch.setattr(win.results, 'show_diag_dialog', lambda: calls.append(True))
-    try:
-        if getattr(win, '_left_collapsed', False):
-            win._toggle_left_panel()
-        assert win.btn_parameter_diagnostics.isVisibleTo(win)
-        win.btn_parameter_diagnostics.click()
-        win._toggle_left_panel()
-        assert win.btn_rail_diagnostics.isVisibleTo(win)
-        win.btn_rail_diagnostics.click()
-        assert len(calls) == 2
-    finally:
-        if getattr(win, '_left_collapsed', False):
-            win._toggle_left_panel()
+    win.results.publish(ComputeResult(Q_W=42.0, converged=True, diagnostics={'mode': '2d'}))
+    win.results.refresh_summary()
+    app = QApplication.instance()
+
+    for drawer_open in (True, False):
+        win.appearance.set_drawer_open(drawer_open)
+        app.processEvents()
+        assert win.btn_run_info.isVisibleTo(win)
+        win.btn_run_info.click()
+        app.processEvents()
+        pop = win._run_info_popover
+        assert pop.isVisible()
+        diag_btn = next(
+            b for b in pop.findChildren(QPushButton)
+            if any(lbl.text() == "诊断详情…" for lbl in b.findChildren(QLabel))
+        )
+        assert diag_btn.isEnabled()
+        diag_btn.click()
+        app.processEvents()
+        pop.close()
+    assert len(calls) == 2
+    win.appearance.set_drawer_open(True)
 
 
 def test_group_badge_counts_empty_field(win):
-    """ui-batch3 IA-4: clearing a field inside a collapsed group surfaces
-    a ⚠N badge in that group's title; fixing it clears the badge."""
     from sjtu_tpmshx.applications.gui.ui.ui_builders import refresh_group_badges
-    grp = win._accordion_groups["网格与求解器"]
+    _tab_idx, band = win._drawer_bands["grid_rect"]
     old = win.le_Nx.text()
     win.le_Nx.setText("")
     refresh_group_badges(win)
-    assert "⚠" in grp.title(), grp.title()
-    assert win._group_badge_counts["网格与求解器"] >= 1
+    assert band.header._badge_label.isVisibleTo(band.header)
+    assert "⚠" in band.header._badge_label.text()
+    assert win._group_badge_counts["grid_rect"] >= 1
     win.le_Nx.setText(old or "40")
     refresh_group_badges(win)
-    assert "⚠" not in grp.title(), grp.title()
+    assert not band.header._badge_label.isVisibleTo(band.header)
 
 
 def test_group_badge_updates_via_validator_debounce(win):
-    """End-to-end: editingFinished → validator cb → debounce timer →
-    badge repaint, without calling refresh directly. Uses le_L — it has a
-    validator handler attached (positive+unit field); le_Nx does not."""
     import time
     app = QApplication.instance()
-    grp = win._accordion_groups["几何与结构"]
+    _tab_idx, band = win._drawer_bands["domain_geometry"]
     old = win.le_L.text()
     win.le_L.setText("")
     win.le_L.editingFinished.emit()
     deadline = time.monotonic() + 2.0
-    while "⚠" not in grp.title() and time.monotonic() < deadline:
+    while win._group_badge_counts.get("domain_geometry", 0) == 0 and time.monotonic() < deadline:
         app.processEvents()
-    assert "⚠" in grp.title(), grp.title()
+    assert win._group_badge_counts["domain_geometry"] >= 1
+    assert "⚠" in band.header._badge_label.text()
     win.le_L.setText(old or "0.182")
     win.le_L.editingFinished.emit()
     deadline = time.monotonic() + 2.0
-    while "⚠" in grp.title() and time.monotonic() < deadline:
+    while win._group_badge_counts.get("domain_geometry", 0) > 0 and time.monotonic() < deadline:
         app.processEvents()
-    assert "⚠" not in grp.title(), grp.title()
+    assert win._group_badge_counts["domain_geometry"] == 0
 
 
 def test_group_badge_survives_toggle(win):
     from sjtu_tpmshx.applications.gui.ui.ui_builders import refresh_group_badges
-    grp = win._accordion_groups["网格与求解器"]
+    _tab_idx, band = win._drawer_bands["grid_rect"]
     old = win.le_Nx.text()
     win.le_Nx.setText("")
     refresh_group_badges(win)
-    assert "⚠" in grp.title()
-    grp.setChecked(True)     # expand — toggle handler re-renders title
-    assert "⚠" in grp.title(), "badge wiped by expand"
-    grp.setChecked(False)
-    assert "⚠" in grp.title(), "badge wiped by collapse"
+    assert "⚠" in band.header._badge_label.text()
+    band.set_expanded(False)
+    assert "⚠" in band.header._badge_label.text(), "badge wiped by collapse"
+    band.set_expanded(True)
+    assert "⚠" in band.header._badge_label.text(), "badge wiped by expand"
     win.le_Nx.setText(old or "40")
     refresh_group_badges(win)
 
@@ -283,17 +297,17 @@ def test_workbench_toolbar_visible_set(win):
 
 
 def test_temperature_card_selects_the_2d_result_button(win):
-    """A request for the temperature card selects the result button and its 2D view."""
+    """A request for the temperature card selects the result page and its 2D view."""
     win.combo_dim.setCurrentIndex(0)
     win.cache.set_result('2d', ComputeResult())
-    win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})  # These layout stubs represent rendered fields.
+    win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})
     win.workbench.update_tab_visibility()
     win.workbench.switch_tab('temp')
     assert win.workbench.active_tab == 'temp'
     assert win.workbench.result_view == '2d'
-    assert win.btn_tab_result.styleSheet() == win._PTAB_ON
+    assert win.nav_rail.active_page() == 'result'
     win.workbench.switch_tab('layout')
-    win.cache.clear('2d')       # setter clears the cached result
+    win.cache.clear('2d')
     win.workbench.update_tab_visibility()
 
 
@@ -324,19 +338,19 @@ def test_result_summary_toggle_keeps_values_and_tab_choice(win):
     win.workbench.update_tab_visibility()
     win.workbench.switch_tab('temp')
     assert win.btn_result_summary.isVisibleTo(win)
-    assert win._result_sidebar.isVisibleTo(win)
+    assert win.readout_strip.isVisibleTo(win)
     before = {key: label.text() for key, label in win._sb_labels.items()}
     win.btn_result_summary.click()
-    assert win._result_sidebar.isHidden()
+    assert win.readout_strip.isHidden()
     win.workbench.switch_tab('layout')
     assert win.btn_result_summary.isHidden()
     win.workbench.switch_tab('temp')
-    assert win._result_sidebar.isHidden()
+    assert win.readout_strip.isHidden()
     assert {key: label.text() for key, label in win._sb_labels.items()} == before
     win.btn_result_summary.click()
-    assert win._result_sidebar.isVisibleTo(win)
+    assert win.readout_strip.isVisibleTo(win)
     win.case_files.invalidate_results_for_preset_load()
-    assert win._result_sidebar.isHidden()
+    assert win.readout_strip.isHidden()
     assert win.btn_result_summary.isHidden()
 
 
@@ -437,39 +451,107 @@ def test_no_raw_hex_outside_theme():
     assert not bad, "raw hex outside theme:\n" + "\n".join(bad)
 
 
-def test_numeric_inputs_right_aligned(win):
+def test_numeric_inputs_rule_a_left_aligned_with_unit_suffix(win):
     from PySide6.QtCore import Qt as _Qt
-    assert win.le_L.alignment() & _Qt.AlignmentFlag.AlignRight
-    assert win.le_Nx.alignment() & _Qt.AlignmentFlag.AlignRight
+    from sjtu_tpmshx.applications.gui.ui.field_factory import UnitLineEdit
+    assert isinstance(win.le_L, UnitLineEdit)
+    assert win.le_L.alignment() & _Qt.AlignmentFlag.AlignLeft
+    assert win.le_L.unit() == 'm'
+    assert win.le_Nx.alignment() & _Qt.AlignmentFlag.AlignLeft
+
+    # B09: expressions and high-precision decimals edit in the displayed unit (kPa / mm)
+    # and convert once to canonical SI without premature 15-digit storage rounding.
+    orig_pin = win.le_PinA.text()
+    orig_ctr = win.le_pipeA_in_ctr.text()
+    orig_tin = win.le_TinA.text()
+    orig_ua = win.le_uA.text()
+    try:
+        from PySide6.QtWidgets import QLineEdit
+        QLineEdit.setText(win.le_PinA, '100+2')
+        win.le_PinA.editingFinished.emit()
+        assert win.le_PinA.text() == '102000'
+        assert win.le_PinA.raw_display_text() == '102'
+
+        QLineEdit.setText(win.le_PinA, '101.123456789012345')
+        win.le_PinA.editingFinished.emit()
+        assert win.le_PinA.text() == '101123.456789012345'
+        assert win.le_PinA.formatted_display_text() == '101.123'
+
+        QLineEdit.setText(win.le_PinA, '101.123456789012345 kPa')
+        win.le_PinA.editingFinished.emit()
+        assert win.le_PinA.text() == '101123.456789012345'
+        assert win.le_PinA.formatted_display_text() == '101.123'
+
+        QLineEdit.setText(win.le_pipeA_in_ctr, '20+22')
+        win.le_pipeA_in_ctr.editingFinished.emit()
+        assert win.le_pipeA_in_ctr.text() == '0.042'
+        assert win.le_pipeA_in_ctr.raw_display_text() == '42'
+
+        QLineEdit.setText(win.le_pipeA_in_ctr, '41.23456789')
+        win.le_pipeA_in_ctr.editingFinished.emit()
+        assert win.le_pipeA_in_ctr.text() == '0.04123456789'
+
+        QLineEdit.setText(win.le_pipeA_in_ctr, '41.23456789 mm')
+        win.le_pipeA_in_ctr.editingFinished.emit()
+        assert win.le_pipeA_in_ctr.text() == '0.04123456789'
+        assert win.le_pipeA_in_ctr.formatted_display_text() == '41.2346'
+
+        QLineEdit.setText(win.le_TinA, '300.123456789012345 K')
+        win.le_TinA.editingFinished.emit()
+        assert win.le_TinA.text() == '300.123456789012345'
+        assert win.le_TinA.formatted_display_text() == '300.123'
+
+        QLineEdit.setText(win.le_uA, '1.08 km/h')
+        win.le_uA.editingFinished.emit()
+        assert win.le_uA.text() == '0.3'
+
+        from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+        QLineEdit.setText(win.le_TinA, '70 F')
+        win.le_TinA.editingFinished.emit()
+        t_in_k_from_k = config_from_window(win, strict=True).fluid_A.T_in_K
+        win._toggle_temp_unit()
+        try:
+            assert win._temp_unit == 'C'
+            QLineEdit.setText(win.le_TinA, '70 F')
+            win.le_TinA.editingFinished.emit()
+            t_in_k_from_c = config_from_window(win, strict=True).fluid_A.T_in_K
+        finally:
+            win._toggle_temp_unit()
+        assert t_in_k_from_k == t_in_k_from_c
+    finally:
+        win.le_PinA.setText(orig_pin)
+        win.le_pipeA_in_ctr.setText(orig_ctr)
+        win.le_TinA.setText(orig_tin)
+        win.le_uA.setText(orig_ua)
 
 
 def test_dialog_theme_applies_first_and_changed_styles_only(monkeypatch):
     from unittest.mock import Mock
-    from sjtu_tpmshx.applications.gui.ui.mixins.dialogs import DialogsMixin
+    from sjtu_tpmshx.applications.gui.ui.shell_dialogs import ShellDialogs
     from sjtu_tpmshx.applications.gui.ui.theme import get_theme, get_theme_name, set_theme
 
     app = QApplication.instance() or QApplication([])
     previous_style, previous_theme = app.styleSheet(), get_theme_name()
-    dialogs = DialogsMixin()
+    dialogs = ShellDialogs(None)
     try:
         app.setStyleSheet('')
         set_theme('light')
         with monkeypatch.context() as patch:
             setter = Mock(wraps=app.setStyleSheet)
             patch.setattr(app, 'setStyleSheet', setter)
-            dialogs._install_dialog_theme()
+            dialogs.install_dialog_theme()
             assert setter.call_count == 1
-            assert f"QMessageBox{{background:{get_theme()['bg']};}}" in app.styleSheet()
+            assert f"QMessageBox{{background:{get_theme()['window']};}}" in app.styleSheet()
             light_style = app.styleSheet()
-            dialogs._install_dialog_theme()
+            dialogs.install_dialog_theme()
             assert setter.call_count == 1
 
             set_theme('dark')
-            dialogs._install_dialog_theme()
+            dialogs.install_dialog_theme()
             assert setter.call_count == 2
             assert app.styleSheet() != light_style
-            assert f"QMessageBox{{background:{get_theme()['bg']};}}" in app.styleSheet()
-            dialogs._install_dialog_theme()
+            assert f"QMessageBox{{background:{get_theme()['window']};}}" in app.styleSheet()
+            dialogs.install_dialog_theme()
             assert setter.call_count == 2
     finally:
         set_theme(previous_theme)
@@ -554,18 +636,16 @@ def test_result_label_state_and_unit_hint():
 
 
 def test_mode_gates_survive_group_toggle(win):
-    """Expanding a collapsed group must not resurrect 3D-only widgets in
-    2D mode (blanket-show + re-assert)."""
+    """Expanding a collapsed band must not resurrect 3D-only widgets in 2D mode."""
     app = QApplication.instance()
     win._select_param_page(2)
-    win.combo_dim.setCurrentIndex(0)      # force 2D
+    win.combo_dim.setCurrentIndex(0)
     app.processEvents()
-    grp = win._accordion_groups["网格与求解器"]
-    grp.setChecked(True)
+    _tab_idx, band = win._drawer_bands["grid_rect"]
+    band.set_expanded(False)
+    band.set_expanded(True)
     app.processEvents()
     assert not win.le_Nz.isVisibleTo(win), "3D-only Nz visible in 2D mode"
-    grp.setChecked(False)
-    app.processEvents()
     win._select_param_page(1)
 
 
@@ -576,20 +656,18 @@ def test_collapsing_and_resizing_preserves_solver_inputs(win):
     before = asdict(config_from_window(win))
     for width in (900, 1440):
         win.resize(width, 800)
-        for button in win._param_btns:
-            button.click()
+        for idx in (0, 1, 2):
+            win._select_param_page(idx)
             QApplication.processEvents()
             assert asdict(config_from_window(win)) == before
-        for group in win._accordion_groups.values():
-            group.setChecked(False)
+        for _tab_idx, band in win._drawer_bands.values():
+            band.set_expanded(False)
         QApplication.processEvents()
         assert asdict(config_from_window(win)) == before
-        for group in win._accordion_groups.values():
-            group.setChecked(True)
+        for _tab_idx, band in win._drawer_bands.values():
+            band.set_expanded(True)
         QApplication.processEvents()
         assert asdict(config_from_window(win)) == before
-    for name, expanded in _EXPECTED_GROUPS.items():
-        win._accordion_groups[name].setChecked(expanded)
     win._select_param_page(1)
 
 
@@ -597,14 +675,14 @@ def test_reveal_invalid_input_opens_its_page_and_inspector(win):
     from sjtu_tpmshx.applications.gui.ui.ui_builders import reveal_parameter
 
     win._select_param_page(1)
-    win._accordion_groups['网格与求解器'].setChecked(False)
-    win._toggle_left_panel()
-    assert win._param_panel.isHidden()
+    win._drawer_bands['grid_rect'][1].set_expanded(False)
+    win.appearance.toggle_drawer()
+    assert win.inspector_drawer.isHidden()
     reveal_parameter(win, win.le_Nx)
     QApplication.processEvents()
     assert win._param_page == 2
     assert win.le_Nx.isVisibleTo(win)
-    assert win._param_panel.isVisibleTo(win)
+    assert win.inspector_drawer.isVisibleTo(win)
     assert win._workbench_canvas.isVisibleTo(win)
     assert win.btn_compute.isVisibleTo(win)
     win._select_param_page(1)
@@ -662,11 +740,10 @@ def test_property_preview_keyboard_toggle_keeps_inputs(win):
 # ── ui-shortcuts-persist: workbench shortcuts + session ui_state ──────
 
 def test_shortcut_cheatsheet_matches_workbench(win):
-    """Cheat sheet lists the visible 3-tab set; retired 5-tab rows gone."""
-    labels = [label for label, _key in win._SHORTCUT_ROWS]
+    """Cheat sheet lists Style P2 page labels; retired 5-tab rows gone."""
+    labels = [label for label, _key in win.dialogs.SHORTCUT_ROWS]
     joined = " | ".join(labels)
-    for button in (win.btn_tab_layout, win.btn_tab_result, win.btn_tab_pareto):
-        want = button.text()
+    for want in ("算例计算", "计算结果", "优化设计", "快速设计"):
         assert any(want in s for s in labels), f"missing row for {want}"
     for stale in ("Tab — Temperature", "Tab — Pressure",
                   "Tab — Velocity", "Tab — 3D View"):
@@ -674,16 +751,17 @@ def test_shortcut_cheatsheet_matches_workbench(win):
 
 
 def test_cycle_tab_skips_hidden_legacy(win):
-    """Ctrl+↑/↓ walks layout→result→pareto; a result-family current tab
-    maps to 'result' so cycling never lands on hidden legacy buttons."""
+    """Ctrl+↑/↓ walks layout→result→pareto→qd; result family collapses to 'result'."""
     win.combo_dim.setCurrentIndex(0)
     win.cache.set_result('2d', ComputeResult())
-    win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})  # These layout stubs represent rendered fields.
+    win.cache.replace_drawn_tabs({'temp', 'pres', 'vel'})
     win.workbench.update_tab_visibility()
-    win.workbench.switch_tab('temp')               # result family
-    win._cycle_tab(+1)
+    win.workbench.switch_tab('temp')
+    win.shortcuts.cycle_tab(+1)
     assert win.workbench.active_tab == 'pareto'
-    win._cycle_tab(+1)
+    win.shortcuts.cycle_tab(+1)
+    assert win.page_stack.currentWidget() is win.quick_design
+    win.shortcuts.cycle_tab(+1)
     assert win.workbench.active_tab == 'layout'
     win.cache.clear('2d')
     win.workbench.update_tab_visibility()
@@ -716,16 +794,16 @@ def test_field_menu_revert_is_debranded(win):
         menu = QApplication.activePopupWidget()
         try:
             texts.extend(action.text() for action in menu.actions())
-            next(a for a in menu.actions() if a.text() == '恢复算例工况默认值').trigger()
+            next(a for a in menu.actions() if a.text() == '恢复默认算例值').trigger()
         finally:
             menu.close()
 
     win.le_L.setText('0.1')
     QTimer.singleShot(0, choose)
     win.le_L.contextMenuEvent(QContextMenuEvent(QContextMenuEvent.Reason.Mouse, QPoint(), QPoint()))
-    message = win.statusBar().currentMessage()
-    assert '恢复算例工况默认值' in texts
-    assert '已恢复算例工况默认值' in message
+    message = win.dialogs.last_notice
+    assert '恢复默认算例值' in texts
+    assert '已恢复默认算例值' in message
     assert not any('Shanghai' in text for text in [*texts, message])
 
 

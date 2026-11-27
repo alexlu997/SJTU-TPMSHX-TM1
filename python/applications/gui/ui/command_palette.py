@@ -1,51 +1,52 @@
-"""Command palette (Ctrl+K) — fuzzy-search floating modal over all actions.
-
-Inspired by Linear / Raycast / Figma / VSCode patterns. Presents a single
-entry point the user can memorise in place of a dozen menu locations:
-    Ctrl+K → type a few chars → Enter.
-
-Action source is dynamic — `build_actions(window)` walks the current
-Main_Menu state each time the palette opens so disabled items (e.g.,
-"Re-dock 3D panel" when nothing is detached) are omitted rather than
-shown greyed-out and half-working.
-"""
+"""Style P2 command palette (Ctrl+K) with grouped Chinese actions and shortcuts."""
 from __future__ import annotations
 
 from typing import Callable, Iterable
-from PySide6.QtCore import Qt, QAbstractListModel, QModelIndex
-from PySide6.QtGui import QKeySequence, QShortcut
+
+from PySide6.QtCore import QAbstractListModel, QModelIndex, QRect, QRectF, QSize, Qt
+from PySide6.QtGui import QColor, QFont, QKeySequence, QPainter, QPalette, QPen, QShortcut
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLineEdit, QListView, QLabel,
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListView,
+    QMessageBox,
+    QStyle,
+    QStyledItemDelegate,
+    QVBoxLayout,
     QWidget,
 )
 
-from .theme import get_theme
+from .microanim import is_reduced_motion
+from .theme import RADIUS_INPUT, get_theme
+
+_ROLE_IS_HEADER = Qt.ItemDataRole.UserRole + 1
 
 
 class Action:
-    """One row in the palette — cheap pure-data holder."""
-    __slots__ = ('title', 'category', 'keywords', 'callback', 'score')
+    """One row in the command palette."""
 
-    def __init__(self, title: str, category: str, callback: Callable,
-                 keywords: Iterable[str] = ()):
+    __slots__ = ("title", "category", "keywords", "callback", "shortcut", "score")
+
+    def __init__(
+        self,
+        title: str,
+        category: str,
+        callback: Callable,
+        keywords: Iterable[str] = (),
+        shortcut: str = "",
+    ) -> None:
         self.title = title
         self.category = category
         self.keywords = tuple(k.lower() for k in keywords)
         self.callback = callback
+        self.shortcut = shortcut
         self.score = 0.0
 
 
 def _fuzzy_score(query: str, action: Action) -> float:
-    """Simple subsequence scorer. Higher is better.
-
-    Rules:
-      - empty query   → 0.0 (keep insertion order)
-      - exact prefix  → +5.0
-      - contiguous substring → +3.0
-      - each subsequence hit → +1.0
-      - bonus when letters land at word boundaries
-      - category/keyword matches add half weight
-    """
+    """Subsequence and keyword scorer; higher is better."""
     if not query:
         return 0.0
     q = query.lower().strip()
@@ -63,75 +64,203 @@ def _fuzzy_score(query: str, action: Action) -> float:
     if q in kw:
         score += 0.8
 
-    # Subsequence points per letter
-    i = 0
+    idx = 0
     for ch in q:
-        i = title.find(ch, i)
-        if i == -1:
+        idx = title.find(ch, idx)
+        if idx == -1:
             break
         score += 0.3
-        if i == 0 or title[i - 1] in ' -·—()[]/':
+        if idx == 0 or title[idx - 1] in " -·—()[]/":
             score += 0.5
-        i += 1
+        idx += 1
     return score
 
 
-# ────────────────────────────────────────────────────────────────────────
-
 class _ActionListModel(QAbstractListModel):
-    def __init__(self, actions: list[Action]):
+    """List model with non-selectable category header rows and action entries."""
+
+    def __init__(self, actions: list[Action]) -> None:
         super().__init__()
-        self._actions = actions
+        self._rows: list[str | Action] = []
+        self.set_actions(actions, grouped=True)
 
     def rowCount(self, parent=QModelIndex()):
-        return 0 if parent.isValid() else len(self._actions)
+        return 0 if parent.isValid() else len(self._rows)
+
+    def flags(self, index: QModelIndex):
+        if not index.isValid() or index.row() >= len(self._rows):
+            return Qt.ItemFlag.NoItemFlags
+        if isinstance(self._rows[index.row()], str):
+            return Qt.ItemFlag.NoItemFlags
+        return Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
 
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
-        if not index.isValid() or index.row() >= len(self._actions):
+        if not index.isValid() or index.row() >= len(self._rows):
             return None
-        a = self._actions[index.row()]
+        row = self._rows[index.row()]
+        if role == _ROLE_IS_HEADER:
+            return isinstance(row, str)
+        if isinstance(row, str):
+            return row if role == Qt.ItemDataRole.DisplayRole else None
         if role == Qt.ItemDataRole.DisplayRole:
-            return f"{a.title} — {a.category}"
+            return row.title
         if role == Qt.ItemDataRole.UserRole:
-            return a
+            return row
         return None
 
-    def set_actions(self, actions: list[Action]):
+    def first_action_row(self) -> int:
+        for i, row in enumerate(self._rows):
+            if isinstance(row, Action):
+                return i
+        return -1
+
+    def next_action_row(self, start: int, delta: int) -> int:
+        n = len(self._rows)
+        if n == 0:
+            return -1
+        pos = start + delta
+        while 0 <= pos < n:
+            if isinstance(self._rows[pos], Action):
+                return pos
+            pos += delta
+        return start if 0 <= start < n and isinstance(self._rows[start], Action) else self.first_action_row()
+
+    def set_actions(self, actions: list[Action], *, grouped: bool = True) -> None:
         self.beginResetModel()
-        self._actions = actions
+        rows: list[str | Action] = []
+        if grouped:
+            seen_cats: dict[str, list[Action]] = {}
+            for act in actions:
+                seen_cats.setdefault(act.category, []).append(act)
+            for cat, items in seen_cats.items():
+                rows.append(cat)
+                rows.extend(items)
+        else:
+            rows.extend(actions)
+        self._rows = rows
         self.endResetModel()
 
 
-# ────────────────────────────────────────────────────────────────────────
+class _ActionDelegate(QStyledItemDelegate):
+    """Paints grouped category headers and action rows with right-aligned shortcut badges."""
+
+    def sizeHint(self, option, index) -> QSize:
+        if index.data(_ROLE_IS_HEADER):
+            return QSize(0, 24)
+        return QSize(0, 34)
+
+    def paint(self, painter: QPainter, option, index) -> None:
+        t = get_theme()
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = option.rect
+
+        if index.data(_ROLE_IS_HEADER):
+            font = QFont(option.font)
+            font.setPixelSize(11)
+            font.setWeight(QFont.Weight.DemiBold)
+            painter.setFont(font)
+            painter.setPen(QColor(t["tert"]))
+            painter.drawText(
+                rect.adjusted(10, 4, -10, 0),
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                str(index.data(Qt.ItemDataRole.DisplayRole) or ""),
+            )
+            painter.restore()
+            return
+
+        action: Action | None = index.data(Qt.ItemDataRole.UserRole)
+        selected = bool(option.state & QStyle.StateFlag.State_Selected)
+        hovered = bool(option.state & QStyle.StateFlag.State_MouseOver)
+
+        bg = t["accent_soft"] if selected else (t["row_hover"] if hovered else None)
+        if bg is not None:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(bg))
+            painter.drawRoundedRect(
+                QRectF(rect.adjusted(2, 1, -2, -1)), float(RADIUS_INPUT), float(RADIUS_INPUT)
+            )
+
+        right_edge = rect.right() - 10
+        if action is not None and action.shortcut:
+            kbd_font = QFont(option.font)
+            kbd_font.setPixelSize(11)
+            kbd_font.setWeight(QFont.Weight.Normal)
+            painter.setFont(kbd_font)
+            fm = painter.fontMetrics()
+            tw = fm.horizontalAdvance(action.shortcut)
+            pill_w = tw + 12
+            pill_h = 20
+            pill_rect = QRectF(
+                right_edge - pill_w,
+                rect.top() + (rect.height() - pill_h) / 2.0,
+                pill_w,
+                pill_h,
+            )
+            painter.setBrush(QColor(t["sunken"]))
+            painter.setPen(QPen(QColor(t["border"]), 0.5))
+            painter.drawRoundedRect(pill_rect, 4.0, 4.0)
+            painter.setPen(QColor(t["sub"] if hovered or selected else t["tert"]))
+            painter.drawText(pill_rect, Qt.AlignmentFlag.AlignCenter, action.shortcut)
+            right_edge = int(pill_rect.left()) - 8
+
+        title_font = QFont(option.font)
+        title_font.setPixelSize(13)
+        title_font.setWeight(QFont.Weight.DemiBold if selected else QFont.Weight.Normal)
+        painter.setFont(title_font)
+        painter.setPen(QColor(t["accent_fg"] if selected else t["fg"]))
+        title_rect = QRect(rect.left() + 10, rect.top(), max(20, right_edge - rect.left() - 10), rect.height())
+        text = painter.fontMetrics().elidedText(
+            action.title if action is not None else "",
+            Qt.TextElideMode.ElideRight,
+            title_rect.width(),
+        )
+        painter.drawText(title_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, text)
+        painter.restore()
+
+
+class _PaletteSurface(QWidget):
+    """Crisp rounded surface painted with Style P2 popover tokens."""
+
+    def paintEvent(self, event) -> None:
+        t = get_theme()
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = QRectF(0.5, 0.5, self.width() - 1.0, self.height() - 1.0)
+        painter.setBrush(QColor(t["popover"]))
+        painter.setPen(QPen(QColor(t["border_strong"]), 0.5))
+        painter.drawRoundedRect(rect, 11.0, 11.0)
+        painter.end()
+
+
+class _PaletteScrim(QWidget):
+    """Translucent backdrop behind the centered Ctrl+K command palette."""
+
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.hide()
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor(*get_theme()["scrim"]))
+        painter.end()
+
 
 class CommandPalette(QDialog):
-    """Floating Ctrl+K palette.
+    """Floating Ctrl+K palette styled with Style P2 tokens and AA placeholder contrast."""
 
-    Lifecycle: a single instance is cached on `window._command_palette`;
-    reopening resets the query and rebuilds actions against current state.
-    """
-
-    def __init__(self, window):
-        super().__init__(window, Qt.WindowType.Dialog
-                          | Qt.WindowType.FramelessWindowHint)
+    def __init__(self, window) -> None:
+        super().__init__(window, Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
         self._window = window
         self.setModal(True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setFixedWidth(640)
-        self.setMinimumHeight(380)
+        self.setFixedWidth(580)
+        self.setMinimumHeight(400)
+        self._scrim = _PaletteScrim(window.centralWidget() or window)
 
-        _t = get_theme()
-        _surface = _t.get('surface_elevated', _t['card_bg'])
-        _border = _t.get('border_strong', _t['card_border'])
-        _sub = _t.get('sub_fg', _t['fg'])
-
-        # Root frame gets the rounded border — QDialog itself stays
-        # transparent so the corner radius reads cleanly.
-        self._frame = QWidget(self)
+        t = get_theme()
+        self._frame = _PaletteSurface(self)
         self._frame.setObjectName("paletteFrame")
-        self._frame.setStyleSheet(
-            f"#paletteFrame{{background:{_surface};"
-            f"border:1px solid {_border}; border-radius:6px;}}")
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(self._frame)
@@ -141,40 +270,36 @@ class CommandPalette(QDialog):
         lay.setSpacing(8)
 
         self._input = QLineEdit()
-        self._input.setPlaceholderText(
-            "Type to search actions, presets, shortcuts…  (Esc to close)")
+        self._input.setObjectName("search")
+        self._input.setPlaceholderText("搜索命令、页面、预设或快捷键…（Esc 关闭）")
         self._input.setStyleSheet(
-            f"QLineEdit{{background:{_t.get('surface_raised', _t['card_bg'])};"
-            f"color:{_t['fg']}; border:1px solid {_border};"
-            f"border-radius:6px; padding:10px 14px; font-size:12pt;"
-            f"font-family:{_t['sans_family']};}}"
-            f"QLineEdit:focus{{border:1px solid {_t.get('accent_primary', '#3B82F6')};}}")
+            f"QLineEdit {{ background: {t['sunken']}; color: {t['fg']}; "
+            f"border: 1px solid {t['border']}; border-radius: {RADIUS_INPUT}px; "
+            f"padding: 9px 12px; font-size: 11pt; font-family: {t['sans_family']}; }}"
+            f"QLineEdit:focus {{ border: 1px solid {t['accent']}; }}"
+        )
+        self._apply_placeholder_palette(t)
         lay.addWidget(self._input)
 
         self._list = QListView()
         self._list.setEditTriggers(QListView.EditTrigger.NoEditTriggers)
         self._list.setSelectionMode(QListView.SelectionMode.SingleSelection)
-        self._list.setUniformItemSizes(True)
-        self._list.setStyleSheet(
-            f"QListView{{background:transparent; border:none; outline:none;"
-            f"color:{_t['fg']}; font-size:10pt;}}"
-            f"QListView::item{{padding:8px 10px; border-radius:6px;}}"
-            f"QListView::item:selected{{"
-            f"background:{_t.get('accent_primary', '#3B82F6')};"
-            f"color:white;}}"
-            f"QListView::item:hover{{background:{_border};}}")
-        self._list.setMinimumHeight(280)
+        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._list.setMouseTracking(True)
+        self._list.setItemDelegate(_ActionDelegate(self._list))
+        self._list.setMinimumHeight(290)
+        self._apply_theme_styles(t)
         lay.addWidget(self._list, 1)
 
         footer = QHBoxLayout()
         footer.setContentsMargins(4, 0, 4, 0)
         hint_css = (
-            f"color:{_sub}; font-size:8pt; background:transparent;"
-            "border:none; letter-spacing:0.3px;")
-        hint_left = QLabel("↑↓ navigate · Enter to run · Esc to close")
+            f"color: {t['tert']}; font-size: 8.5pt; background: transparent; border: none;"
+        )
+        hint_left = QLabel("↑↓ 选择 · Enter 执行 · Esc 关闭")
         hint_left.setStyleSheet(hint_css)
-        hint_right = QLabel("SJTU-TPMSHX · ⌘K")
-        hint_right.setStyleSheet(hint_css + " font-style:italic;")
+        hint_right = QLabel("SJTU-TPMSHX · Ctrl+K")
+        hint_right.setStyleSheet(hint_css)
         footer.addWidget(hint_left, 0, Qt.AlignmentFlag.AlignLeft)
         footer.addStretch(1)
         footer.addWidget(hint_right, 0, Qt.AlignmentFlag.AlignRight)
@@ -185,30 +310,69 @@ class CommandPalette(QDialog):
         self._all_actions: list[Action] = []
 
         self._input.textChanged.connect(self._on_query_changed)
-        self._list.doubleClicked.connect(lambda _i: self._accept_current())
+        self._list.clicked.connect(lambda _i: self._accept_current())
 
-    # ── Public API ──────────────────────────────────────────────────
-    def open_palette(self):
+    def _apply_theme_styles(self, t: dict) -> None:
+        from sjtu_tpmshx.applications.gui.ui.theme import _build_styles
+
+        scrollbar = _build_styles()["SCROLLBAR"]
+        self._input.setStyleSheet(
+            f"QLineEdit {{ background: {t['sunken']}; color: {t['fg']}; "
+            f"border: 1px solid {t['border']}; border-radius: {RADIUS_INPUT}px; "
+            f"padding: 9px 12px; font-size: 11pt; font-family: {t['sans_family']}; }}"
+            f"QLineEdit:focus {{ border: 1px solid {t['accent']}; }}"
+        )
+        self._list.setStyleSheet(
+            "QListView { background: transparent; border: none; outline: none; }"
+            + scrollbar
+        )
+        self._apply_placeholder_palette(t)
+
+    def _apply_placeholder_palette(self, t: dict) -> None:
+        self._input.ensurePolished()
+        pal = self._input.palette()
+        ph = QColor(t["placeholder"])
+        pal.setColor(QPalette.ColorGroup.Active, QPalette.ColorRole.PlaceholderText, ph)
+        pal.setColor(QPalette.ColorGroup.Inactive, QPalette.ColorRole.PlaceholderText, ph)
+        pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.PlaceholderText, ph)
+        self._input.setPalette(pal)
+
+    def open_palette(self) -> None:
+        self._apply_theme_styles(get_theme())
         self._all_actions = build_actions(self._window)
         self._input.blockSignals(True)
         self._input.clear()
         self._input.blockSignals(False)
-        self._model.set_actions(self._all_actions)
-        if self._all_actions:
-            self._list.setCurrentIndex(self._model.index(0, 0))
-        # Center over the parent window.
+        self._model.set_actions(self._all_actions, grouped=True)
+        first = self._model.first_action_row()
+        if first >= 0:
+            self._list.setCurrentIndex(self._model.index(first, 0))
         par = self.parentWidget()
         if par is not None:
+            cw = par.centralWidget() if hasattr(par, "centralWidget") and par.centralWidget() else par
+            self._scrim.setParent(cw)
+            self._scrim.setGeometry(cw.rect())
+            self._scrim.show()
+            self._scrim.raise_()
             g = par.geometry()
-            self.move(g.x() + (g.width() - self.width()) // 2,
-                      g.y() + 140)
+            self.move(g.x() + (g.width() - self.width()) // 2, g.y() + 120)
+        rail = getattr(self._window, "nav_rail", None)
+        if rail is not None:
+            rail.set_open_action("search")
         self.show()
+        self._apply_placeholder_palette(get_theme())
         self._input.setFocus(Qt.FocusReason.OtherFocusReason)
 
-    # ── Keyboard navigation ─────────────────────────────────────────
-    def keyPressEvent(self, event):
+    def hideEvent(self, event) -> None:
+        self._scrim.hide()
+        rail = getattr(self._window, "nav_rail", None)
+        if rail is not None and not self._window.appearance.is_rail_expanded():
+            rail.set_open_action(None)
+        super().hideEvent(event)
+
+    def keyPressEvent(self, event) -> None:
         key = event.key()
-        if key in (Qt.Key.Key_Escape,):
+        if key == Qt.Key.Key_Escape:
             self.reject()
             return
         if key == Qt.Key.Key_Down:
@@ -222,207 +386,326 @@ class CommandPalette(QDialog):
             return
         super().keyPressEvent(event)
 
-    def _move_selection(self, delta):
-        n = self._model.rowCount()
-        if n == 0:
-            return
+    def _move_selection(self, delta: int) -> None:
         cur = self._list.currentIndex().row()
-        new = max(0, min(n - 1, (cur if cur >= 0 else 0) + delta))
-        self._list.setCurrentIndex(self._model.index(new, 0))
+        nxt = self._model.next_action_row(cur, delta)
+        if nxt >= 0:
+            self._list.setCurrentIndex(self._model.index(nxt, 0))
 
-    def _on_query_changed(self, text):
+    def _on_query_changed(self, text: str) -> None:
         q = text.strip()
         if not q:
-            self._model.set_actions(self._all_actions)
-            if self._all_actions:
-                self._list.setCurrentIndex(self._model.index(0, 0))
-            return
-        scored = []
-        for a in self._all_actions:
-            s = _fuzzy_score(q, a)
-            if s > 0:
-                a.score = s
-                scored.append(a)
-        scored.sort(key=lambda a: a.score, reverse=True)
-        self._model.set_actions(scored[:25])
-        if scored:
-            self._list.setCurrentIndex(self._model.index(0, 0))
+            self._model.set_actions(self._all_actions, grouped=True)
+        else:
+            scored = []
+            for a in self._all_actions:
+                sc = _fuzzy_score(q, a)
+                if sc > 0:
+                    a.score = sc
+                    scored.append(a)
+            scored.sort(key=lambda a: -a.score)
+            self._model.set_actions(scored, grouped=False)
+        first = self._model.first_action_row()
+        if first >= 0:
+            self._list.setCurrentIndex(self._model.index(first, 0))
 
-    def _accept_current(self):
+    def _accept_current(self) -> None:
         idx = self._list.currentIndex()
         if not idx.isValid():
             return
-        a: Action = self._model.data(idx, Qt.ItemDataRole.UserRole)
+        action = self._model.data(idx, Qt.ItemDataRole.UserRole)
+        if not isinstance(action, Action):
+            return
         self.accept()
-        if a is not None:
-            try:
-                a.callback()
-            except Exception as e:
-                from PySide6.QtWidgets import QMessageBox
-                QMessageBox.warning(self._window,
-                                     f"Action failed: {a.title}", str(e))
+        try:
+            action.callback()
+        except Exception as exc:
+            QMessageBox.warning(self._window, f"执行失败：{action.title}", str(exc))
 
-
-# ────────────────────────────────────────────────────────────────────────
-#  Action catalogue — built dynamically each open so it reflects current
-#  state (e.g., "Re-dock 3D panel" only appears when a detached window exists).
-# ────────────────────────────────────────────────────────────────────────
 
 def build_actions(w) -> list[Action]:
+    """Build dynamic command palette actions directly against window owners."""
     acts: list[Action] = []
-    def add(title, cat, cb, **kw):
+
+    def add(title: str, cat: str, cb: Callable, **kw) -> None:
         acts.append(Action(title, cat, cb, **kw))
 
-    # Compute & export
-    add("Run Compute", "Compute", w.single_run.submit,
-        keywords=("solve", "simulate", "run"))
-    add("Reset parameters to preset", "Compute", w._reset_defaults,
-        keywords=("reset", "default", "clear"))
-    add("Export results to CSV…", "Compute", w.result_export.export_results,
-        keywords=("save", "csv", "export"))
-    if hasattr(w, '_copy_inputs_as_python'):
-        add("Copy inputs as Python code", "Compute",
-            w._copy_inputs_as_python,
-            keywords=("python", "reproduce", "bundle", "snippet", "copy"))
-    if hasattr(w, '_copy_reproducible_link'):
-        add("Copy reproducible link (TPMSHX::…)", "Compute",
-            w._copy_reproducible_link,
-            keywords=("share", "link", "reproduce", "token", "copy"))
-    if hasattr(w, '_load_reproducible_link'):
-        add("Load reproducible link…", "Compute",
-            w._load_reproducible_link,
-            keywords=("load", "paste", "token", "share"))
-    if hasattr(w, '_show_full_timeline'):
-        add("Show full session timeline…", "Recent",
-            w._show_full_timeline,
-            keywords=("timeline", "history", "log", "all", "full"))
-    if hasattr(w, '_show_solve_log'):
-        add("Show solve log…", "Compute", w._show_solve_log,
-            keywords=("log", "residual", "stdout", "debug"))
-    if hasattr(w, '_show_overview'):
-        add("Overview dashboard…", "Compute", w._show_overview,
-            keywords=("dashboard", "overview", "summary", "home"))
-    add("Optimize (continuous field)", "Compute", w.optimization.start,
-        keywords=("pareto", "qlognehvi", "bayesian", "optimise", "search"))
-    def _open_sens():
+    # 计算与导出
+    add(
+        "开始计算",
+        "计算",
+        w.single_run.submit,
+        keywords=("run", "compute", "solve", "simulate"),
+        shortcut="Ctrl+R",
+    )
+    add(
+        "继续已有任务…",
+        "计算",
+        w.optimization.resume,
+        keywords=("resume", "optimization", "continue", "优化", "继续"),
+    )
+    add(
+        "继续已保存的计算…",
+        "计算",
+        lambda: w.single_run.resume(),
+        keywords=("resume", "checkpoint", "single", "继续"),
+    )
+    add(
+        "重置为默认算例",
+        "计算",
+        w._reset_defaults,
+        keywords=("reset", "default", "clear", "预设", "算例"),
+        shortcut="Ctrl+Shift+R",
+    )
+    add(
+        "导出计算结果…",
+        "计算",
+        w.result_export.export_results,
+        keywords=("save", "csv", "export", "npz"),
+    )
+    add(
+        "导出当前图像…",
+        "计算",
+        w.result_export.export_figure,
+        keywords=("figure", "png", "svg", "pdf", "export"),
+    )
+    add(
+        "打开运行目录",
+        "计算",
+        lambda: w.dialogs.open_output_folder(scope="auto"),
+        keywords=("folder", "directory", "output", "open"),
+    )
+    add(
+        "查看计算日志…",
+        "计算",
+        w.dialogs.show_solve_log,
+        keywords=("log", "residual", "stdout", "debug"),
+    )
+    add(
+        "查看诊断详情…",
+        "计算",
+        w.results.show_diag_dialog,
+        keywords=("diagnostics", "warning", "closure"),
+    )
+    add(
+        "会话总览…",
+        "计算",
+        w.dialogs.show_overview,
+        keywords=("dashboard", "overview", "summary"),
+        shortcut="Ctrl+D",
+    )
+    add(
+        "复制输入为 Python 脚本",
+        "计算",
+        w.history.copy_inputs_as_python,
+        keywords=("python", "reproduce", "snippet", "copy"),
+    )
+    add(
+        "复制复现链接（TPMSHX::…）",
+        "计算",
+        w.history.copy_reproducible_link,
+        keywords=("share", "link", "reproduce", "token", "copy"),
+    )
+    add(
+        "载入可复现链接…",
+        "计算",
+        w.history.load_reproducible_link,
+        keywords=("load", "paste", "token", "share"),
+    )
+    add(
+        "开始连续场优化",
+        "计算",
+        w.optimization.start,
+        keywords=("pareto", "qlognehvi", "bayesian", "optimize", "search"),
+        shortcut="Ctrl+Enter",
+    )
+
+    def _open_sens() -> None:
         from sjtu_tpmshx.applications.gui.ui.sensitivity import open_sensitivity
+
         open_sensitivity(w)
-    add("Sensitivity sweep (2-param heatmap)…", "Compute", _open_sens,
-        keywords=("sweep", "sensitivity", "heatmap", "parametric"))
 
-    # Theme / units / panels
-    add("Toggle theme (light / dark)", "Appearance", w._toggle_theme,
-        keywords=("dark", "light", "mode"))
-    for dens in ("compact", "cozy", "comfortable"):
-        add(f"Density: {dens.capitalize()}", "Appearance",
-            (lambda name=dens: w._set_density(name)),
-            keywords=("density", "spacing", "compact", "comfortable", dens))
-    if hasattr(w, '_pick_accent_color'):
-        add("Pick accent colour…", "Appearance", w._pick_accent_color,
-            keywords=("accent", "color", "brand", "palette"))
-    add("Toggle Kelvin / Celsius", "Appearance", w._toggle_temp_unit,
-        keywords=("kelvin", "celsius", "degc", "temperature", "unit"))
-    add("Collapse / expand parameter panel", "Appearance",
-        w._toggle_left_panel, keywords=("sidebar", "hide", "focus"))
-    if hasattr(w, '_toggle_coord_inspector'):
-        add("Toggle coordinate inspector", "Appearance",
+    add(
+        "双参数灵敏度扫描…",
+        "计算",
+        _open_sens,
+        keywords=("sweep", "sensitivity", "heatmap", "parametric"),
+    )
+
+    # 页面与视图
+    available_tabs = w.workbench.canvas_tab_availability()
+    for tab, key, desc, sc in (
+        ("layout", "layout", "切换到 算例计算", "Ctrl+1"),
+        ("temp", "temp", "切换到 计算结果（温度）", "Ctrl+2"),
+        ("pres", "pres", "切换到 计算结果（压力）", ""),
+        ("vel", "vel", "切换到 计算结果（速度）", ""),
+        ("3d", "3d", "切换到 计算结果（三维）", "Ctrl+4"),
+        ("pareto", "pareto", "切换到 优化设计", "Ctrl+3"),
+    ):
+        if available_tabs.get(tab, False):
+            add(
+                desc,
+                "页面",
+                lambda t=tab: w.workbench.switch_tab(t),
+                keywords=(key, "tab", "view"),
+                shortcut=sc,
+            )
+    add(
+        "切换到 快速设计",
+        "页面",
+        w.workbench.show_quick_design,
+        keywords=("qd", "quick", "design"),
+        shortcut="Ctrl+5",
+    )
+
+    add(
+        "专注当前画布",
+        "视图",
+        w.appearance.toggle_focus,
+        keywords=("focus", "immersive", "专注"),
+        shortcut="F",
+    )
+    add(
+        "收起 / 展开导航栏",
+        "视图",
+        w.appearance.toggle_rail,
+        keywords=("rail", "nav", "navigation", "sidebar"),
+        shortcut="Ctrl+\\",
+    )
+    add(
+        "收起 / 展开检查器",
+        "视图",
+        w.appearance.toggle_drawer,
+        keywords=("drawer", "inspector", "panel", "sidebar"),
+        shortcut="Ctrl+]",
+    )
+    if hasattr(w, "_toggle_coord_inspector"):
+        add(
+            "切换坐标探针",
+            "视图",
             w._toggle_coord_inspector,
-            keywords=("inspector", "probe", "hover", "values"))
+            keywords=("inspector", "probe", "hover", "values"),
+            shortcut="Ctrl+I",
+        )
 
-    # Tabs: list only views backed by currently available result state.
-    _available_tabs = w.workbench.canvas_tab_availability()
-    # ui-shortcuts-persist: labels in Chinese to match the toolbar chrome;
-    # the English keywords stay so "temp"/"pareto" still find the entries.
-    for tab, key, desc in [
-        ('layout', 'layout', '显示 工况设置 页签'),
-        ('temp',   'temp',   '显示 温度 视图（场图结果）'),
-        ('pres',   'pres',   '显示 压力 视图（场图结果）'),
-        ('vel',    'vel',    '显示 速度 视图（场图结果）'),
-        ('3d',     '3d',     '显示 3D 视图（场图结果）'),
-        ('pareto', 'pareto', '显示 优化设计 页签'),
-    ]:
-        if not _available_tabs.get(tab, False):
-            continue
-        add(desc, "Tabs",
-            (lambda t=tab: w.workbench.switch_tab(t)),
-            keywords=(key, "tab", "view"))
+    # 外观与偏好
+    add(
+        "切换浅色 / 深色主题",
+        "外观",
+        w.appearance.toggle_theme,
+        keywords=("dark", "light", "theme", "mode"),
+    )
+    for dens, label in (("compact", "紧凑"), ("cozy", "适中"), ("comfortable", "宽松")):
+        add(
+            f"界面密度：{label}",
+            "外观",
+            lambda name=dens: w.appearance.set_density(name),
+            keywords=("density", "spacing", dens),
+        )
+    add(
+        "关闭减少动态效果" if is_reduced_motion() else "开启减少动态效果",
+        "外观",
+        w.appearance.toggle_reduced_motion,
+        keywords=("motion", "animation", "reduced", "动态"),
+    )
+    add(
+        "切换温度单位（K / °C）",
+        "外观",
+        w._toggle_temp_unit,
+        keywords=("kelvin", "celsius", "temperature", "unit"),
+    )
+    add(
+        "选择强调色…",
+        "外观",
+        w.appearance.pick_accent_color,
+        keywords=("accent", "color", "palette"),
+    )
 
-    # Show the display name and pass the stored key to CaseFiles.
-    from sjtu_tpmshx.applications.gui.ui.fmt import preset_display as _pd
+    # 预设
+    from sjtu_tpmshx.applications.gui.ui.fmt import preset_display
+
     for name in w.case_files.BUILTIN_PRESETS:
-        add(f"Preset: {_pd(name)}", "Preset",
-            (lambda n=name: w.case_files.load_named_preset(n)),
-            keywords=("preset", "load", "算例", name.lower()))
+        add(
+            f"载入预设：{preset_display(name)}",
+            "预设",
+            lambda n=name: w.case_files.load_named_preset(n),
+            keywords=("preset", "load", "算例", name.lower()),
+        )
 
-    # Fluid type switches
-    if hasattr(w, 'combo_fluidA'):
+    # 流体切换
+    if hasattr(w, "combo_fluidA"):
         for fluid_name in ("Air", "Water", "sCO₂", "CO₂"):
-            def _set_fluid(side, n=fluid_name):
-                combo = getattr(w, f'combo_fluid{side}', None)
-                if combo is None:
-                    return
-                idx = combo.findText(n)
-                if idx >= 0:
-                    combo.setCurrentIndex(idx)
-            add(f"Fluid A → {fluid_name}", "Fluids",
-                (lambda n=fluid_name: _set_fluid('A', n)),
-                keywords=("fluid", "a", fluid_name.lower()))
-            add(f"Fluid B → {fluid_name}", "Fluids",
-                (lambda n=fluid_name: _set_fluid('B', n)),
-                keywords=("fluid", "b", fluid_name.lower()))
+            add(
+                f"流体 A → {fluid_name}",
+                "流体",
+                lambda n=fluid_name: w.shortcuts.set_fluid("A", n),
+                keywords=("fluid", "a", fluid_name.lower()),
+            )
+            add(
+                f"流体 B → {fluid_name}",
+                "流体",
+                lambda n=fluid_name: w.shortcuts.set_fluid("B", n),
+                keywords=("fluid", "b", fluid_name.lower()),
+            )
 
-    # Workspaces
+    # 工作区
     for ws in w.case_files.WORKSPACES:
-        add(f"Switch to workspace {ws}", "Workspace",
-            (lambda name=ws: w.case_files.switch_workspace(name)),
-            keywords=("workspace", "ws", ws.lower()))
+        add(
+            f"切换到工作区 {ws}",
+            "工作区",
+            lambda name=ws: w.case_files.switch_workspace(name),
+            keywords=("workspace", "ws", ws.lower()),
+        )
 
-    # Help surface
-    if hasattr(w, '_show_about'):
-        add("About SJTU-TPMSHX", "Help", w._show_about,
-            keywords=("version", "credits", "info"))
-    if hasattr(w, '_show_shortcuts'):
-        add("Keyboard shortcuts cheat sheet", "Help", w._show_shortcuts,
-            keywords=("keys", "shortcut", "hotkey"))
-    if hasattr(w, '_show_quick_tour'):
-        add("Show quick tour", "Help", w._show_quick_tour,
-            keywords=("onboarding", "guide"))
-
-    add("Toggle canvas focus", "View", w._toggle_3d_immersive,
-        keywords=("focus", "immersive", "专注"))
-    # 3D commands require both an available result and an initialized panel.
-    _3d_tab_ready = _available_tabs.get('3d', False)
-    _3d_panel_ready = getattr(w, 'canvas_3d', None) is not None
-    if _3d_tab_ready and _3d_panel_ready:
+    # 3D 分离窗口
+    if available_tabs.get("3d", False) and getattr(w, "canvas_3d", None) is not None:
         if w.workbench.detached_volume is None:
-            add("Open 3D in new window", "3D", w.workbench.detach_3d_window,
-                keywords=("detach", "window", "multi-monitor"))
+            add(
+                "在新窗口中打开三维视图",
+                "三维",
+                w.workbench.detach_3d_window,
+                keywords=("detach", "window", "3d"),
+            )
         else:
-            add("Re-dock 3D panel", "3D", w.workbench.reattach_3d_window,
-                keywords=("redock", "reattach"))
+            add(
+                "将三维视图放回主窗口",
+                "三维",
+                w.workbench.reattach_3d_window,
+                keywords=("redock", "reattach", "3d"),
+            )
 
-    # Recent runs (top 5)
-    recents = list(getattr(w, '_recent_runs', []) or [])[:5]
-    for i, e in enumerate(recents):
-        def _load_run(entry=e):
-            w._load_recent_run(entry)
-        add(f"Restore recent run #{i+1} — {e.get('label','?')}  "
-            f"(Q={e.get('Q','?')}, ΔP={e.get('dP_A','?')})",
-            "Recent", _load_run,
-            keywords=("recent", "history", "restore", str(i+1)))
+    # 历史
+    add(
+        "历史记录…",
+        "历史",
+        w.history.show_full_timeline,
+        keywords=("timeline", "history", "log", "recent"),
+    )
+    for i, entry in enumerate(list(w.history.recent_runs)[:5]):
+        add(
+            f"恢复最近运行 #{i + 1} — {entry.get('label', '?')}  "
+            f"(Q={entry.get('Q', '?')}, ΔP={entry.get('dP_A', '?')})",
+            "历史",
+            lambda e=entry: w.history.load_recent_run(e),
+            keywords=("recent", "history", "restore", str(i + 1)),
+        )
 
+    # 帮助
+    add(
+        "快捷键列表…",
+        "帮助",
+        w.dialogs.show_shortcuts,
+        keywords=("keys", "shortcut", "hotkey"),
+        shortcut="Ctrl+?",
+    )
+    add("快速上手", "帮助", w.dialogs.show_quick_tour, keywords=("onboarding", "guide", "tour"))
+    add("关于 SJTU-TPMSHX…", "帮助", w.dialogs.show_about, keywords=("about", "version", "info"))
     return acts
 
 
-def install_command_palette(window):
-    """Wire the Ctrl+K shortcut on the given main window. Palette is lazy
-    — constructed on first open, cached for reuse."""
-    def _open():
-        pal = getattr(window, '_command_palette', None)
-        if pal is None:
-            pal = CommandPalette(window)
-            window._command_palette = pal
-        pal.open_palette()
+def install_command_palette(window) -> None:
+    """Wire Ctrl+K to open the lazily-constructed command palette."""
     sh = QShortcut(QKeySequence("Ctrl+K"), window)
-    sh.activated.connect(_open)
+    sh.activated.connect(window.dialogs.open_command_palette)
+    window.signals.adopt(sh.activated, window.dialogs.open_command_palette, sender=sh)
     window._command_palette_shortcut = sh

@@ -219,7 +219,7 @@ class SensitivityDialog(QDialog):
                 return
             self._hint.setText(_SCOPE_NOTE)
             if key_x == key_y:
-                self._window.statusBar().showMessage("Sweep axes must differ.", 5000)
+                self._window.dialogs.notify("扫描轴不能相同。", kind="warn", duration_ms=5000)
                 return
             fixed = self._collect_fixed_params((key_x, key_y))
         except ValueError as exc:
@@ -262,8 +262,7 @@ class SensitivityDialog(QDialog):
                 # Pump the event loop after each row so the dialog repaints
                 # and stays responsive on large N.
                 try:
-                    self._window.statusBar().showMessage(
-                        f"Sensitivity sweep … row {i + 1}/{n}", 2000)
+                    self._hint.setText(f"正在扫描第 {i + 1}/{n} 行…")
                     _QApp.processEvents()
                 except Exception:
                     pass
@@ -283,14 +282,14 @@ class SensitivityDialog(QDialog):
             'fixed': fixed,
         }
         self._plot()
+        self._hint.setText(_SCOPE_NOTE)
         # Surface sweep failures explicitly (#4).
         if _fail_n:
-            try:
-                self._window.statusBar().showMessage(
-                    f"Sensitivity sweep: {_fail_n}/{n * n} points failed "
-                    f"(shown as blank cells). First error: {_fail_msg}", 10000)
-            except Exception:
-                pass
+            self._window.dialogs.notify(
+                f"参数扫描有 {_fail_n}/{n * n} 个点失败（以空白显示）：{_fail_msg}",
+                kind="warn",
+                duration_ms=8000,
+            )
 
     def _plot(self):
         if self._grid_params is None:
@@ -378,9 +377,11 @@ class SensitivityDialog(QDialog):
                     le.editingFinished.emit()
                 except Exception:
                     pass
-        self._window.statusBar().showMessage(
-            f"Loaded {gp['key_x']}={vx:.3g}, {gp['key_y']}={vy:.3g}. "
-            "Close this dialog and click Compute.", 6000)
+        self._window.dialogs.notify(
+            f"已载入 {gp['key_x']}={vx:.3g}, {gp['key_y']}={vy:.3g}，关闭弹窗后即可计算。",
+            kind="info",
+            duration_ms=6000,
+        )
 
 
 def open_sensitivity(window):

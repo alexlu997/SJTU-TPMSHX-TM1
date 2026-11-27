@@ -369,8 +369,9 @@ class CoordInspector(QDockWidget):
         txt = "\n".join(f"{lbl:<10s} {val:>12s}  {unit}"
                          for lbl, val, unit in self._last_rows)
         QApplication.clipboard().setText(txt)
-        self._window.statusBar().showMessage(
-            "Inspector readout copied to clipboard.", 3000)
+        self._window.dialogs.notify(
+            "已复制坐标探针读数到剪贴板。", kind="success", duration_ms=3000
+        )
 
 
 # ────────────────────────────────────────────────────────────────────

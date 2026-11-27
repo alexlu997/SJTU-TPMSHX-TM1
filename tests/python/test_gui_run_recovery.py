@@ -167,9 +167,9 @@ def test_resume_uses_saved_inputs_and_provenance_without_changing_draft(
     assert win.le_Nx.text() == '123' and win.le_uA.text() == '7.77'
     assert win.single_run.active_directory is None
     if from_gui:
-        assert win._recent_runs[0]['preset']['line_edits']['le_Nx'] == '4'
+        assert win.history.recent_runs[0]['preset']['line_edits']['le_Nx'] == '4'
     else:
-        assert win._recent_runs[0]['preset'] is None
+        assert win.history.recent_runs[0]['preset'] is None
     action = next(action for action in win.btn_recent.menu().actions()
                   if action.text().strip().startswith('#1'))
     assert action.isEnabled() is from_gui

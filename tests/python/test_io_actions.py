@@ -26,7 +26,7 @@ def test_figure_export_records_current_source_and_version(tmp_path, monkeypatch,
     from sjtu_tpmshx.applications.gui.ui import result_export
 
     path = tmp_path / 'figure.png'
-    choices = iter([('温度', True), ('150 (screen)', True)])
+    choices = iter([('温度', True), ('150（屏幕）', True)])
     monkeypatch.setattr(result_export.QInputDialog, 'getItem', lambda *a, **kw: next(choices))
     monkeypatch.setattr(result_export.QFileDialog, 'getSaveFileName',
                         lambda *a, **kw: (str(path), 'PNG (*.png)'))
@@ -148,10 +148,11 @@ def test_complete_config_menu_roundtrip(tmp_path, monkeypatch, win,
     path = str(tmp_path / 'complete.json')
     monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: (path, ''))
     monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *a: (path, ''))
-    actions = {a.text(): a for a in win.btn_recent.menu().actions()}
-    assert '保存配置文件…' in actions
-    assert '加载配置文件…' in actions
-    actions['保存配置文件…'].trigger()
+    load_actions = {a.text(): a for a in win.btn_recent.menu().actions()}
+    save_actions = {a.text(): a for a in win.btn_save.menu().actions()}
+    assert '保存配置文件…' in save_actions
+    assert '加载配置文件…' in load_actions
+    save_actions['保存配置文件…'].trigger()
     for name in win.case_files.SESSION_LINE_EDITS:
         getattr(win, name).setText('1')
     for name in win.case_files.PRESET_COMBOS:
@@ -165,7 +166,7 @@ def test_complete_config_menu_roundtrip(tmp_path, monkeypatch, win,
     win._pareto_x_decision = [8.0, 0.6] * 18
     win.cache.set_result('2d', ComputeResult())
     win._undo_last = {'le_L': 'old'}
-    actions['加载配置文件…'].trigger()
+    load_actions['加载配置文件…'].trigger()
     assert not errors
     assert win.combo_dim.currentIndex() == dim
     assert win.le_pipeA_in_z_ctr.isHidden() == (dim == 0)
@@ -786,7 +787,7 @@ def test_legacy_session_without_zone_data_disables_and_clears_stale_zones(win, m
 def test_shared_preset_callers_restore_new_inputs(monkeypatch, win, route):
     from types import SimpleNamespace
     from PySide6.QtWidgets import QInputDialog
-    import sjtu_tpmshx.applications.gui.ui.mixins.run_history as history
+    import sjtu_tpmshx.applications.gui.ui.run_history as history
 
     win.chk_allow_extrap.setChecked(True)
     win.combo_zone_axis.setCurrentIndex(1)
@@ -796,16 +797,16 @@ def test_shared_preset_callers_restore_new_inputs(monkeypatch, win, route):
     tokens = []
     monkeypatch.setattr(history, 'QApplication', SimpleNamespace(
         clipboard=lambda: SimpleNamespace(setText=tokens.append)))
-    win._copy_reproducible_link()
+    win.history.copy_reproducible_link()
     win.chk_allow_extrap.setChecked(False)
     win.combo_zone_axis.setCurrentIndex(2)
     if route == 'preset':
-        win._load_user_preset(saved)
+        win.history.load_user_preset(saved)
     elif route == 'recent':
-        win._load_recent_run({'preset': saved, 'ts': 'test'})
+        win.history.load_recent_run({'preset': saved, 'ts': 'test'})
     else:
         monkeypatch.setattr(QInputDialog, 'getText', lambda *a: (tokens[0], True))
-        win._load_reproducible_link()
+        win.history.load_reproducible_link()
     assert win.case_files.capture_current_preset('test') == saved
 
 
@@ -1242,6 +1243,7 @@ def test_pareto_figure_copy_export_survives_field_result_then_clears_on_empty(
     win.btn_export.setEnabled(False)
     win.optimization.show_pareto(front)
     monkeypatch.setattr(win.workbench, 'active_tab', 'pareto')
+    win.result_export.refresh_export_button()
     menu_actions = {action.text(): action for action in win.btn_export.menu().actions()}
     try:
         for state in ('pareto', 'preset-load', 'later-field-result'):
@@ -1254,11 +1256,11 @@ def test_pareto_figure_copy_export_survives_field_result_then_clears_on_empty(
             assert win.btn_export.isEnabled()
             menu_actions['复制当前图像'].trigger()
             assert not QGuiApplication.clipboard().image().isNull()
-            assert '已复制 pareto' in win.statusBar().currentMessage()
+            assert '已复制 pareto' in win.dialogs.last_notice
             calls = []
             def choose(*args):
                 calls.append(args[3])
-                return ('Pareto / 优化', True) if len(calls) == 1 else ('150 (screen)', True)
+                return ('Pareto / 优化', True) if len(calls) == 1 else ('150（屏幕）', True)
             monkeypatch.setattr(result_export.QInputDialog, 'getItem', choose)
             path = tmp_path / f'{state}.png'
             monkeypatch.setattr(result_export.QFileDialog, 'getSaveFileName',
@@ -1267,7 +1269,7 @@ def test_pareto_figure_copy_export_survives_field_result_then_clears_on_empty(
             assert 'Pareto / 优化' in calls[0] and path.is_file()
         win.optimization.show_pareto(dict(front, pareto_indices=[]))
         win.result_export.copy_figure_clipboard()
-        assert '当前无可复制' in win.statusBar().currentMessage()
+        assert '当前无可复制' in win.dialogs.last_notice
         choices = []
         monkeypatch.setattr(result_export.QInputDialog, 'getItem',
                             lambda *a: (choices.append(a[3]) or ('', False)))
@@ -1310,7 +1312,7 @@ def test_continuous_field_preview_button_shows_and_exports_after_preset_load(
         QGuiApplication.clipboard().clear()
         win.result_export.copy_figure_clipboard()
         assert not QGuiApplication.clipboard().image().isNull()
-        assert '已复制 opt_field' in win.statusBar().currentMessage()
+        assert '已复制 opt_field' in win.dialogs.last_notice
         # A later Compute preset is not the source of this retained field figure.
         win.case_files.load_named_preset('Shanghai (3D Gyroid)')
         assert win.optimization.field_ready()
@@ -1318,7 +1320,7 @@ def test_continuous_field_preview_button_shows_and_exports_after_preset_load(
         options = []
         def choose(*args):
             options.append(args[3])
-            return ('优化尺寸/壁厚场', True) if len(options) == 1 else ('150 (screen)', True)
+            return ('优化尺寸/壁厚场', True) if len(options) == 1 else ('150（屏幕）', True)
         monkeypatch.setattr(result_export.QInputDialog, 'getItem', choose)
         monkeypatch.setattr(result_export.QFileDialog, 'getSaveFileName',
                             lambda *a: (str(path), 'PNG (*.png)'))
@@ -1358,7 +1360,7 @@ def test_optimization_copy_uses_selected_result_tab_and_rejects_empty_field(win,
         clipboard.clear()
         win.result_export.copy_figure_clipboard()
         assert clipboard.image().isNull()
-        assert '当前无可复制' in win.statusBar().currentMessage()
+        assert '当前无可复制' in win.dialogs.last_notice
         choices = []
         monkeypatch.setattr(result_export.QInputDialog, 'getItem',
                             lambda *a: (choices.append(a[3]) or ('', False)))
@@ -1400,7 +1402,7 @@ def test_retained_pareto_export_does_not_take_new_compute_preset_name(
     line = win.optimization.pareto_canvas.figure.axes[0].lines[0]
     np.testing.assert_array_equal(line.get_xydata(), [[.8, 1.], [1.1, 2.]])
     path = tmp_path / 'retained-pareto.png'
-    choices = iter([('Pareto / 优化', True), ('150 (screen)', True)])
+    choices = iter([('Pareto / 优化', True), ('150（屏幕）', True)])
     monkeypatch.setattr(result_export.QInputDialog, 'getItem', lambda *a: next(choices))
     monkeypatch.setattr(result_export.QFileDialog, 'getSaveFileName',
                         lambda *a: (str(path), 'PNG (*.png)'))

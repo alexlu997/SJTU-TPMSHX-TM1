@@ -629,12 +629,12 @@ class OptimizationPage(QWidget):
 
     def edit_common_settings(self):
         form = self._form
-        if form.btn_focus_view.isChecked():
-            form._toggle_3d_immersive()
+        if form.appearance.is_focused():
+            form.appearance.toggle_focus()
         form.workbench.switch_tab('layout')
-        if form._param_panel.isHidden():
-            form._set_parameter_panel_collapsed(False)
-        form._param_scroll.setFocus()
+        if not form.appearance.is_drawer_open():
+            form.appearance.set_drawer_open(True)
+        form.inspector_drawer.setFocus()
 
     def _zone_changed(self, enabled):
         if not enabled:
@@ -669,9 +669,10 @@ class OptimizationPage(QWidget):
                                   + ('XYZ' if is_3d else 'XY') + ' 连续场')
         rows, requirements = self.conditions, self.mass_requirements
         n = len(rows) if rows else 1
-        self.condition_summary.setText(f'{n} 个工况 · ' + ('逐项限值：' if requirements else '等权：')
+        self.condition_summary.setText(
+            f'目标：{"逐项达标" if requirements else f"{n} 工况均值"} · '
             + '、'.join(row['condition_id'] for row in rows) if rows else
-            '单工况 · 当前窗口输入；总流量按实际入口速度分布与孔隙率积分换算')
+            '目标：当前工况 · 窗口输入；总流量按实际入口速度分布与孔隙率积分换算')
         params = self.parameters
         budget = params['n_init'].value() + params['n_iter'].value() * params['q_batch'].value()
         objective = (f'目标：芯体质量最小；所有工况满足换热与两侧压降要求\n'

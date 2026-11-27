@@ -202,12 +202,12 @@ def toast(parent, text, kind="success", duration_ms=2200, copy_payload=None):
     from .theme import get_theme
     _tk = get_theme()
     _PALETTE = {
-        'success': (_tk.get('accent_green', '#22C55E'), '#064E3B', '✓'),
-        'info':    (_tk.get('accent_primary', '#3B82F6'), '#1E3A8A', '›'),
-        'warn':    (_tk.get('search_hl', '#F59E0B'), '#78350F', '!'),
-        'error':   (_tk.get('err', '#DC2626'), '#450A0A', '✕'),
+        'success': (_tk['ok'], '✓'),
+        'info':    (_tk['accent'], '›'),
+        'warn':    (_tk['warn'], '!'),
+        'error':   (_tk['err'], '✕'),
     }
-    fg_hint, _dark, glyph = _PALETTE.get(kind, _PALETTE['info'])
+    fg_hint, glyph = _PALETTE.get(kind, _PALETTE['info'])
     # Errors deserve more screen time.
     if kind == 'error' and duration_ms < 5000:
         duration_ms = 5000
@@ -236,6 +236,16 @@ def toast(parent, text, kind="success", duration_ms=2200, copy_payload=None):
     parent_w = parent.width(); parent_h = parent.height()
     x = parent_w - w - margin
     y_off = parent_h - h - margin - 40  # final rest pos
+
+    if is_reduced_motion() or not parent.isVisible():
+        pill.setGeometry(x, y_off, w, h)
+        if parent.isVisible():
+            pill.show()
+            pill.raise_()
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(max(0, duration_ms), pill, pill.deleteLater)
+        return pill
+
     y_start = y_off + 12  # short travel keeps the message easy to track
     pill.setGeometry(x, y_start, w, h)
     pill.show()

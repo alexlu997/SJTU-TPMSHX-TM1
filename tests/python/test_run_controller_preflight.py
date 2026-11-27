@@ -18,7 +18,10 @@ from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
 
 @pytest.fixture
 def run():
+    from sjtu_tpmshx.applications.gui.ui.shell_dialogs import ShellDialogs
+
     window = QMainWindow()
+    window.dialogs = ShellDialogs(window)
     yield SingleRun(window)
     window.deleteLater()
 
@@ -31,26 +34,26 @@ def test_highvel_notice_blank_uB_inherits_uA(run):
     """uA=20 (high velocity), uB blank -> u_B inherits u_A -> notice must fire."""
     cfg = _config_uv("20", "")
     run._maybe_highvel_notice(cfg)
-    assert run.window.statusBar().currentMessage(), "blank u_B zeroed the high-velocity check (notice suppressed)"
-    assert "请关注收敛与压降" in run.window.statusBar().currentMessage()
+    assert run.window.dialogs.last_notice, "blank u_B zeroed the high-velocity check (notice suppressed)"
+    assert "请关注收敛与压降" in run.window.dialogs.last_notice
 
 
 def test_highvel_notice_below_threshold_silent(run):
     cfg = _config_uv("5", "")
     run._maybe_highvel_notice(cfg)
-    assert not run.window.statusBar().currentMessage()
+    assert not run.window.dialogs.last_notice
 
 
 def test_highvel_notice_both_blank_silent(run):
     cfg = _config_uv("", "")
     run._maybe_highvel_notice(cfg)
-    assert not run.window.statusBar().currentMessage()
+    assert not run.window.dialogs.last_notice
 
 
 def test_highvel_notice_high_uB_only(run):
     cfg = _config_uv("5", "20")
     run._maybe_highvel_notice(cfg)
-    assert run.window.statusBar().currentMessage()
+    assert run.window.dialogs.last_notice
 
 
 @pytest.mark.parametrize('mass_sides', ['A', 'B', 'AB'])
@@ -60,9 +63,9 @@ def test_highvel_notice_excludes_mass_flow_speeds(run, mass_sides):
         getattr(cfg, 'fluid_' + side).mass_flow_kg_s = .003
     run._maybe_highvel_notice(cfg)
     if mass_sides == 'AB':
-        assert not run.window.statusBar().currentMessage()
+        assert not run.window.dialogs.last_notice
     else:
-        message = run.window.statusBar().currentMessage()
+        message = run.window.dialogs.last_notice
         assert f'u_{mass_sides}=' not in message
         assert f'u_{"B" if mass_sides == "A" else "A"}=20.0' in message
 
@@ -71,7 +74,7 @@ def test_stored_high_speed_does_not_warn_for_low_prescribed_speed(run):
     cfg = _config_uv('20', '5')
     cfg.fluid_A.mass_flow_kg_s = .003
     run._maybe_highvel_notice(cfg)
-    assert not run.window.statusBar().currentMessage()
+    assert not run.window.dialogs.last_notice
 
 
 # ── U4: Large-grid confirm reflects the actual refine setting ───────────────

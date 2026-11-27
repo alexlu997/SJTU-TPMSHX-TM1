@@ -1,9 +1,9 @@
-"""Theme system for SJTU-TPMSHX GUI — light and charcoal workbenches.
+"""Style P2 OKLCH theme system and per-quantity colormaps for the TM1 GUI."""
+from __future__ import annotations
 
-Design tokens follow an 8dp spacing rhythm.
-Typography: modular scale 9 / 10 / 11 / 12 / 14 pt.
-"""
+import math
 from pathlib import Path
+from typing import Any
 
 from sjtu_tpmshx.applications.gui.ui.typography import FONT_STACK
 from sjtu_tpmshx.postprocess.result_display import (
@@ -42,19 +42,21 @@ def set_cmap(quantity: str, cmap: str | None, *, persist: bool = False) -> bool:
     """
     if quantity not in COLORMAP_QUANTITIES:
         raise ValueError(
-            f"Unknown colormap quantity {quantity!r}, expected {COLORMAP_QUANTITIES}")
+            f"Unknown colormap quantity {quantity!r}, expected {COLORMAP_QUANTITIES}"
+        )
     if cmap is None:
         resolved = DEFAULT_COLORMAPS[quantity]
     else:
         if cmap not in COLORMAP_CHOICES:
             raise ValueError(
-                f"Unknown colormap {cmap!r}, expected {COLORMAP_CHOICES}")
+                f"Unknown colormap {cmap!r}, expected {COLORMAP_CHOICES}"
+            )
         resolved = cmap
     if persist:
         from sjtu_tpmshx.applications.gui.controllers.user_storage import (
             save_appearance_setting,
         )
-        if not save_appearance_setting(f'cmap_{quantity}', resolved):
+        if not save_appearance_setting(f"cmap_{quantity}", resolved):
             return False
     if resolved == DEFAULT_COLORMAPS[quantity]:
         _cmap_overrides.pop(quantity, None)
@@ -66,504 +68,540 @@ def set_cmap(quantity: str, cmap: str | None, *, persist: bool = False) -> bool:
 def apply_saved_colormaps(saved: dict[str, str]) -> None:
     """Apply validated per-quantity colormap preferences from appearance storage."""
     for quantity in COLORMAP_QUANTITIES:
-        value = saved.get(f'cmap_{quantity}')
+        value = saved.get(f"cmap_{quantity}")
         if value in COLORMAP_CHOICES:
             set_cmap(quantity, value)
 
-# ── Typography — modular scale (pt), smallest → largest ──────
-# One coherent hierarchy. Section titles (FONT_SECTION) now sit one step
-# above field labels (was equal at 10pt) so panel groups read as headings
-# rather than just bold rows.
-FONT_STATUS = 9      # status bar text
-FONT_BTN = 10        # secondary / tertiary button text
-FONT_LABEL = 10      # field labels
-FONT_INPUT = 11      # input + value text
-FONT_SECTION = 11    # second-level section titles (panel groups)
-FONT_BTN_RUN = 12    # primary CTA (Compute)
 
-# ── Spacing — 4dp rhythm, single source ─────────────────────
+# ── Typography & spacing constants ─────────────────────────────────────────
+FONT_STATUS = 9
+FONT_BTN = 10
+FONT_LABEL = 10
+FONT_INPUT = 11
+FONT_SECTION = 11
+FONT_BTN_RUN = 11
+
 SPACE_XS = 4
 SPACE_SM = 6
 SPACE_MD = 10
 SPACE_LG = 16
 
-# ── Sizing ──────────────────────────────────────────────────
-
-# Nested controls have tighter corners than their enclosing cards.
-# Pills and micro-controls retain radii proportional to their dimensions.
-RADIUS_INPUT = 8
-RADIUS_BTN = 8
+RADIUS_INPUT = 6
+RADIUS_BTN = 7
 RADIUS_CARD = 12
 
-# ── Theme colour definitions ────────────────────────────────
-_THEMES = {
-    'light': dict(
-        # Light theme 4-tier elevation — subtler than dark since contrast
-        # is driven by shadows rather than tonal lightening.
-        surface_base="#eef1f5", surface_raised="#ffffff",
-        surface_elevated="#f8fafc", surface_overlay="#ffffff",
-        border_subtle="#dce2e9", border_strong="#bac5d2",
-        bg="#eef1f5", fg="#243140", val="#1e609b", warn="#a35d11",
-        card_bg="#ffffff", card_border="#dce2e9",
-        scroll_bg="#f8fafc",
-        inp_bg="#ffffff", inp_fg="#111827", inp_border="#d1d5db",
-        inp_focus="#2c5282",
 
-        t_neutral="37,99,235",
-        t_a="79,70,229",
-        t_b="13,148,136",
-        btn_tpms=("68,114,196","100,150,220"),
-        btn_run=("34,197,94","74,222,128"),
-        combo_list_bg="#ffffff", combo_list_fg="#333333",
-        combo_sel="rgba(68,114,196,100)", combo_border="rgba(0,0,0,20)",
-        combo_hover_border="rgba(68,114,196,180)",
-        fig_bg="#ffffff", ax_bg="#ffffff",
-        ax_text="#333333", ax_spine="#cccccc", zone_line="#666666",
-        zone_fill="#4472c4",
-        splitter="rgba(0,0,0,25)", splitter_hover="#2c5282",
+# ── Style P2 OKLCH surface & contrast palette ──────────────────────────────
+def oklch_to_hex(L: float, C: float, H_deg: float) -> str:
+    """Convert an OKLCH color triple to an uppercase sRGB hex string."""
+    h = math.radians(H_deg)
+    a = C * math.cos(h)
+    b = C * math.sin(h)
+    l_ = L + 0.3963377774 * a + 0.2158037573 * b
+    m_ = L - 0.1055613458 * a - 0.0638541728 * b
+    s_ = L - 0.0894841775 * a - 1.2914855480 * b
+    l, m, s = l_ ** 3, m_ ** 3, s_ ** 3
+    r = +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s
+    g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s
+    b_ = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
 
-        tab_on_bg="#2c5282", tab_on_fg="white",
-         tab_off_fg="#6b7280", tab_off_border="#d1d5db",
-        tab_off_hover="#eef0f3",
-        tab_disabled_fg="#c0c4cc",
-        prog_chunk="#4472c4",
+    def _enc(u: float) -> float:
+        u = max(0.0, min(1.0, u))
+        return 12.92 * u if u <= 0.0031308 else 1.055 * (u ** (1.0 / 2.4)) - 0.055
 
-        scroll_handle="#9ca3af", scroll_handle_hover="#6b7280",
-        accent_primary="#2c5282", accent_green="#548235", accent_orange="#c55a11",
-        # Semantic state colors (ui-plan3a) — darker pair for the white ground.
-        err="#B91C1C", err_soft="#B91C1C", search_hl="#B45309",
-        # Section-title fg: forced near-black so titles stay legible on white
-        # card_bg regardless of parent QGroupBox color cascades.
-        title_fg="#020617",
-        mpl_subtitle="#6b7280",
-        sub_fg="#6b7280",              # secondary/caption gray (WCAG AA on white)
-        val_empty_fg="#6b7280",
+    return "#{:02x}{:02x}{:02x}".format(
+        *(int(round(_enc(x) * 255)) for x in (r, g, b_))
+    )
 
-        inlet_color="#e8751a", outlet_color="#1e5a9e",
-        triad_x="#d13b3b", triad_y="#3bbd3b", triad_z="#3b68d1",
-        wireframe="#3c4758", pane_edge="#e0e0e0", pane_grid="#cfd4d9",
-        # 3D viewport background — pure white on light theme reads fine.
-        vp_bg_3d="#ffffff",
-        mono_family=FONT_STACK,
-        sans_family=FONT_STACK,
-        glass_top="#ffffff", glass_bottom="#f0f4f9",
-        glass_edge_light="rgba(255,255,255,245)",
-        glass_edge_shade="rgba(133,157,183,125)",
-        chk_bg="#ffffff", chk_border="#aeb4ba", chk_hover_border="#2c5282",
-        chk_hover_bg="#eef2f6", chk_checked_bg="#2c5282", chk_checked_border="#1e3a5f",
-        chk_indicator_border="#606870",
-        # Chart series begin with the workbench's blue accent.
-        canvas_accents=["#2c5282", "#0EA5E9", "#0D9488", "#7C3AED", "#D97706", "#64748B"],
-        # 4-tier button semantics
-        btn_primary_rgb="44,82,130",       # blue filled (Compute)
-        btn_long_rgb="197,90,17",          # orange filled (qNEHVI)
-        btn_sec_fg="#2C5282", btn_sec_border="#2C5282",
-        btn_sec_hover_bg="rgba(44,82,130,25)",
-        btn_tert_fg="#4B5563", btn_tert_border="#d1d5db",
-        btn_tert_hover_bg="rgba(107,114,128,20)",
-        ),
-    'dark': dict(
-        # 4-tier surface elevation (Linear pattern). Use these for new
-        # components; the legacy `bg`/`card_bg`/`scroll_bg` tokens remain
-        # as aliases so existing call sites keep working.
-        #   surface_base:     app window background (deepest)
-        #   surface_raised:   param panels, result cards
-        #   surface_elevated: menus, popups, tooltips, command palette
-        #   surface_overlay:  modal dialogs, highest layer
-        surface_base="#181d25", surface_raised="#262e3a",
-        surface_elevated="#303a48", surface_overlay="#3b4757",
-        border_subtle="#465366", border_strong="#65788f",
-        bg="#181d25", fg="#e8edf3", val="#85b9e9", warn="#f2bd64",
-        card_bg="#262e3a", card_border="#465366",
-        scroll_bg="#1d242e",
-        inp_bg="#1d2530", inp_fg="#e8edf3",
-        inp_border="#526176",
-        inp_focus="#3B82F6",
 
-        t_neutral="148,163,184",
-        t_a="79,70,229",
-        t_b="13,148,136",
-        btn_tpms=("59,130,246","96,165,250"),
-        btn_run=("34,197,94","74,222,128"),
-        combo_list_bg="#303a48", combo_list_fg="#e8edf3",
-        combo_sel="rgba(59,130,246,120)", combo_border="#526176",
-        combo_hover_border="#3B82F6",
-        fig_bg="#181d25", ax_bg="#181d25",
-        ax_text="#d4dce6", ax_spine="#48515e", zone_line="#a5b1c1",
-        zone_fill="#3B82F6",
-        splitter="#465366", splitter_hover="#3B82F6",
-
-        tab_on_bg="#3B82F6", tab_on_fg="#FFFFFF",
-         tab_off_fg="#94A3B8",
-        tab_off_border="#475569",
-        tab_off_hover="#323740",
-        tab_disabled_fg="#7b8797",
-        prog_chunk="#3B82F6",
-
-        scroll_handle="#64748B", scroll_handle_hover="#94A3B8",
-        accent_primary="#3B82F6", accent_green="#22C55E", accent_orange="#F97316",
-        # Semantic state colors (ui-plan3a): error border + Ctrl+F highlight.
-        # err_soft = readable light red for error TEXT on the dark ground
-        # (residual diagnostics); err stays the border/badge red.
-        err="#DC2626", err_soft="#F87171", search_hl="#F59E0B",
-        # Section-title fg: near-white counterpart of the light theme's
-        # forced near-black (see that token's comment).
-        title_fg="#F8FAFC",
-        mpl_subtitle="#94A3B8",
-        sub_fg="#a5b1c1",
-        val_empty_fg="#94a0b1",
-
-        inlet_color="#F97316", outlet_color="#38BDF8",
-        triad_x="#F87171", triad_y="#4ADE80", triad_z="#60A5FA",
-        wireframe="#7b8797", pane_edge="#48515e", pane_grid="#3b424d",
-        vp_bg_3d="#181d25",
-        mono_family=FONT_STACK,
-        sans_family=FONT_STACK,
-        glass_top="#343c48", glass_bottom="#272d36",
-        glass_edge_light="rgba(217,235,255,100)",
-        glass_edge_shade="rgba(126,155,187,35)",
-        chk_bg="#24282f", chk_border="#566171",
-        chk_hover_border="#3B82F6", chk_hover_bg="#323740",
-        chk_checked_bg="#3B82F6", chk_checked_border="#2563EB",
-        chk_indicator_border="#64748B",
-        # Perceptually ordered series palette (blue→sky→emerald→violet→amber→
-        # slate). Primary stays #3B82F6 so single-series plots are unchanged;
-        # harsh orange softened to amber, neutral slate moved last.
-        canvas_accents=["#3B82F6", "#38BDF8", "#34D399", "#A78BFA", "#FBBF24", "#94A3B8"],
-        # 4-tier button semantics
-        btn_primary_rgb="59,130,246",      # blue filled (Compute)
-        btn_long_rgb="249,115,22",         # orange filled (qNEHVI)
-        btn_sec_fg="#60A5FA", btn_sec_border="#3B82F6",
-        btn_sec_hover_bg="rgba(59,130,246,30)",
-        btn_tert_fg="#a5b1c1", btn_tert_border="#48515e",
-        btn_tert_hover_bg="rgba(148,163,184,25)",
-        ),
+OKLCH_SPEC: dict[str, dict[str, tuple[float, float, float]]] = {
+    "light": {
+        "window":          (0.924, 0.006, 90),
+        "sunken":          (0.948, 0.005, 90),
+        "canvas":          (0.975, 0.004, 90),
+        "panel":           (0.989, 0.003, 90),
+        "popover":         (1.000, 0.000, 0),
+        "hover":           (0.912, 0.006, 90),
+        "seg_on":          (1.000, 0.000, 0),
+        "border":          (0.882, 0.006, 90),
+        "border_strong":   (0.806, 0.008, 90),
+        "inp_border":      (0.595, 0.008, 90),
+        "label_primary":   (0.205, 0.004, 90),
+        "label_secondary": (0.395, 0.006, 90),
+        "label_tertiary":  (0.512, 0.006, 90),
+    },
+    "dark": {
+        "window":          (0.146, 0.005, 258),
+        "sunken":          (0.171, 0.006, 258),
+        "canvas":          (0.198, 0.006, 258),
+        "panel":           (0.226, 0.007, 258),
+        "popover":         (0.258, 0.008, 258),
+        "hover":           (0.246, 0.008, 258),
+        "seg_on":          (0.292, 0.009, 258),
+        "border":          (0.282, 0.008, 258),
+        "border_strong":   (0.362, 0.010, 258),
+        "inp_border":      (0.562, 0.011, 258),
+        "label_primary":   (0.945, 0.004, 90),
+        "label_secondary": (0.778, 0.006, 258),
+        "label_tertiary":  (0.648, 0.007, 258),
+    },
 }
 
-# ── Active theme state ───────────────────────────────────────
-_active_theme = 'dark'
 
-# Display density — multiplier applied to input padding, label/value font
-# size, and layout spacing inside `_build_styles`. Compact packs more
-# fields on screen for parameter sweeps; Comfortable widens touch targets
-# for presentation / demo machines.
+def _build_p2_theme(mode: str, extras: dict[str, Any]) -> dict[str, Any]:
+    d: dict[str, Any] = {k: oklch_to_hex(*v) for k, v in OKLCH_SPEC[mode].items()}
+    d["sheet"] = d["canvas"]
+    d["drawer"] = d["panel"]
+    d["island"] = d["popover"]
+    d["fg"] = d["label_primary"]
+    d["sub"] = d["label_secondary"]
+    d["tert"] = d["label_tertiary"]
+    d["muted"] = d["label_tertiary"]
+    d["placeholder"] = d["label_tertiary"]
+    d["row_hover"] = d["hover"] if mode == "light" else d["seg_on"]
+    d.update(extras)
+
+    # Map existing widget and panel keys onto the Style P2 tokens.
+    d.update(
+        surface_base=d["window"],
+        surface_raised=d["panel"],
+        surface_elevated=d["popover"],
+        surface_overlay=d["popover"],
+        border_subtle=d["border"],
+        bg=d["window"],
+        val=d["accent_fg"],
+        card_bg=d["panel"],
+        card_border=d["border"],
+        scroll_bg=d["sunken"],
+        inp_bg=d["popover"],
+        inp_fg=d["fg"],
+        inp_focus=d["accent"],
+        combo_list_bg=d["popover"],
+        combo_list_fg=d["fg"],
+        combo_sel=d["accent_soft"],
+        combo_border=d["border_strong"],
+        combo_hover_border=d["accent"],
+        fig_bg=d["canvas"],
+        ax_bg=d["canvas"],
+        ax_text=d["fg"],
+        ax_spine=d["border_strong"],
+        zone_line=d["sub"],
+        zone_fill=d["accent"],
+        splitter=d["border"],
+        splitter_hover=d["accent"],
+        tab_on_bg=d["accent_fg"],
+        tab_on_fg=d["on_accent"],
+        tab_off_fg=d["sub"],
+        tab_off_border=d["border"],
+        tab_off_hover=d["hover"],
+        tab_disabled_fg=d["tert"],
+        prog_chunk=d["accent"],
+        scroll_handle=d["border_strong"],
+        scroll_handle_hover=d["inp_border"],
+        accent_primary=d["accent"],
+        accent_green=d["ok"],
+        accent_orange=d["data_b"],
+        search_hl=d["warn"],
+        title_fg=d["fg"],
+        mpl_subtitle=d["sub"],
+        sub_fg=d["sub"],
+        val_empty_fg=d["tert"],
+        inlet_color=d["inlet_a"],
+        outlet_color=d["inlet_b"],
+        wireframe=d["sub"],
+        pane_edge=d["border"],
+        pane_grid=d["border"],
+        vp_bg_3d=d["canvas"],
+        mono_family=FONT_STACK,
+        sans_family=FONT_STACK,
+        glass_top=d["panel"],
+        glass_bottom=d["panel"],
+        glass_edge_light=d["border"],
+        glass_edge_shade=d["border"],
+        chk_bg=d["popover"],
+        chk_border=d["inp_border"],
+        chk_hover_border=d["accent"],
+        chk_hover_bg=d["hover"],
+        chk_checked_bg=d["accent"],
+        chk_checked_border=d["accent"],
+        chk_indicator_border=d["inp_border"],
+        btn_sec_fg=d["fg"],
+        btn_sec_border=d["border_strong"],
+        btn_sec_hover_bg=d["hover"],
+        btn_tert_fg=d["sub"],
+        btn_tert_border=d["border"],
+        btn_tert_hover_bg=d["hover"],
+        switch_thumb="#FFFFFF",
+    )
+    return d
+
+
+_THEMES: dict[str, dict[str, Any]] = {
+    "light": _build_p2_theme(
+        "light",
+        dict(
+            primary_bg="#1B1B19",
+            primary_fg="#FAF9F6",
+            primary_hover="#2B2B28",
+            accent="#0E6275",
+            accent_fg="#0B5161",
+            accent_soft="#E5F0F2",
+            on_accent="#FFFFFF",
+            ok="#176B3E",
+            warn="#96530C",
+            err="#B43025",
+            ok_soft="#E7F2EB",
+            warn_soft="#F6EEE2",
+            err_soft="#F7E9E7",
+            data_a="#0E6275",
+            data_b="#B65419",
+            inlet_a="#C85A17",
+            inlet_b="#1B5E9E",
+            triad_x="#C23B3B",
+            triad_y="#2E8F43",
+            triad_z="#2B62B8",
+            t_neutral="14,98,117",
+            t_a="14,98,117",
+            t_b="182,84,25",
+            btn_primary_rgb="27,27,25",
+            btn_long_rgb="182,84,25",
+            canvas_accents=["#0E6275", "#B65419", "#176B3E", "#6E56CF", "#96530C", "#686663"],
+            shadow_ambient=(20, 19, 16, 15),
+            shadow_key=(20, 19, 16, 24),
+            shadow_drawer_ambient=(20, 19, 16, 22),
+            shadow_drawer_key=(20, 19, 16, 34),
+            scrim=(18, 18, 16, 40),
+        ),
+    ),
+    "dark": _build_p2_theme(
+        "dark",
+        dict(
+            primary_bg="#ECECE7",
+            primary_fg="#141618",
+            primary_hover="#FFFFFF",
+            accent="#3DA8BD",
+            accent_fg="#75D2E3",
+            accent_soft="#152A30",
+            on_accent="#0D1518",
+            ok="#4CC385",
+            warn="#E2A449",
+            err="#EF7A72",
+            ok_soft="#13261C",
+            warn_soft="#2A2115",
+            err_soft="#301B1B",
+            data_a="#52C1D6",
+            data_b="#E39256",
+            inlet_a="#F08C42",
+            inlet_b="#4BA8F0",
+            triad_x="#F07474",
+            triad_y="#56C870",
+            triad_z="#6AA6F8",
+            t_neutral="61,168,189",
+            t_a="82,193,214",
+            t_b="227,146,86",
+            btn_primary_rgb="236,236,231",
+            btn_long_rgb="227,146,86",
+            canvas_accents=["#52C1D6", "#E39256", "#4CC385", "#A78BFA", "#E2A449", "#8C8F93"],
+            shadow_ambient=(0, 0, 0, 88),
+            shadow_key=(0, 0, 0, 130),
+            shadow_drawer_ambient=(0, 0, 0, 118),
+            shadow_drawer_key=(0, 0, 0, 168),
+            scrim=(0, 0, 0, 72),
+        ),
+    ),
+}
+
+# ── Active theme & density state ───────────────────────────────────────────
+_active_theme = "light"
+
 _DENSITY_PROFILES = {
-    'compact':     {'pad_scale': 0.55, 'font_bump': -1},
-    'cozy':        {'pad_scale': 1.00, 'font_bump':  0},
-    'comfortable': {'pad_scale': 1.40, 'font_bump':  1},
+    "compact":     {"pad_scale": 0.55, "font_bump": -1},
+    "cozy":        {"pad_scale": 1.00, "font_bump":  0},
+    "comfortable": {"pad_scale": 1.40, "font_bump":  1},
 }
-_active_density = 'cozy'
+_active_density = "cozy"
 
 
-def get_theme():
+def get_theme() -> dict[str, Any]:
     return _THEMES[_active_theme]
 
 
-def get_theme_name():
+def get_theme_name() -> str:
     return _active_theme
 
 
-def set_theme(name):
+def set_theme(name: str) -> None:
     global _active_theme
     if name not in _THEMES:
         raise ValueError(f"Unknown theme {name!r}, expected {list(_THEMES)}")
     _active_theme = name
 
 
-def set_accent_override(hex_color):
-    """Set a non-empty accent colour for both themes in this process.
-
-    None leaves the current tokens unchanged.
-    """
+def set_accent_override(hex_color: str | None) -> None:
+    """Set a custom accent color for both themes in this process."""
+    if not hex_color:
+        return
     for t in _THEMES.values():
-        if hex_color:
-            t['accent_primary'] = hex_color
-        # Reset is handled by re-importing module; don't bother tracking
-        # original values here.
+        t["accent"] = hex_color
+        t["accent_primary"] = hex_color
+        t["inp_focus"] = hex_color
+        t["chk_checked_bg"] = hex_color
+        t["chk_checked_border"] = hex_color
+        t["prog_chunk"] = hex_color
 
 
-def get_density():
+def get_density() -> str:
     return _active_density
 
 
-def set_density(name):
+def set_density(name: str) -> None:
     global _active_density
     if name not in _DENSITY_PROFILES:
         raise ValueError(
-            f"Unknown density {name!r}, expected {list(_DENSITY_PROFILES)}")
+            f"Unknown density {name!r}, expected {list(_DENSITY_PROFILES)}"
+        )
     _active_density = name
 
 
-def _density_profile():
+def _density_profile() -> dict[str, float]:
     return _DENSITY_PROFILES[_active_density]
 
 
-def glass_surface(t):
-    """Static glass highlight for card chrome; no blur of scientific plots."""
+def glass_surface(t: dict[str, Any]) -> str:
+    """Neutral Style P2 surface card with crisp border."""
     return (
-        "background:qlineargradient(x1:0,y1:0,x2:0.4,y2:1,"
-        f"stop:0 {t['glass_top']}, stop:1 {t['glass_bottom']});"
-        "border:1px solid qlineargradient(x1:0,y1:0,x2:1,y2:1,"
-        f"stop:0 {t['glass_edge_light']}, stop:0.5 {t['glass_edge_shade']},"
-        f"stop:1 {t['glass_edge_light']});"
+        f"background:{t['panel']};"
+        f"border:1px solid {t['border']};"
         f"border-radius:{RADIUS_CARD}px;"
     )
 
 
-# ── Style builder ────────────────────────────────────────────
-
-def _build_styles(theme_name=None):
-    """Build all Qt stylesheet tokens for the given theme."""
+# ── Style builder ──────────────────────────────────────────────────────────
+def _build_styles(theme_name: str | None = None) -> dict[str, str]:
+    """Build Qt stylesheet tokens for the active Style P2 theme."""
     if theme_name is None:
         theme_name = _active_theme
     t = _THEMES[theme_name]
     dp = _density_profile()
-    pad_scale = dp['pad_scale']
-    font_bump = dp['font_bump']
-    # Clamp font scaling so Compact doesn't render unreadable 8pt text.
-    _fi = max(8, FONT_INPUT + font_bump)
-    _fl = max(8, FONT_LABEL + font_bump)
-    _fsec = max(9, FONT_SECTION + font_bump)   # section titles, one step up
-    _fs = max(7, FONT_STATUS + font_bump)
+    pad_scale = dp["pad_scale"]
+    font_bump = int(dp["font_bump"])
+    _fi = max(9, 13 + font_bump)
+    _fl = max(9, 12 + font_bump)
+    _fsec = max(9, 12 + font_bump)
+    _fs = max(8, 11 + font_bump)
 
-    def _px(base):
-        """Scale a base pixel value by the active density's pad_scale.
-        Rounds up so tiny values don't collapse to zero under Compact."""
+    def _px(base: int) -> int:
         return max(1, int(round(base * pad_scale)))
 
-    s = {}
-    s['BG'] = t['bg']
-    s['LBL'] = (f"color:{t['fg']}; font-size:{_fl}pt; font-weight:400;"
-                "border:none; background:transparent;")
-    s['SUB'] = (f"color:{t['sub_fg']}; font-size:{_fs}pt; font-weight:400;"
-                "border:none; background:transparent;")
-    # res_row value label: two dynamic states via Qt property `valState`.
-    # empty  → muted italic  |  filled → bold accent
-    # Keep numeric controls in the same native sans-serif face as their labels.
-    _MONO_STACK = t['mono_family']
-    _pad_v = _px(5); _pad_h = _px(10)
-    _focus_v = max(1, _pad_v - 1); _focus_h = max(1, _pad_h - 1)
-    s['VAL'] = (
-        f"QLabel{{color:{t['val']}; font-family:{_MONO_STACK};"
-        f"font-size:{_fi}pt; font-weight:600;"
-        "border:none; background:transparent;}"
-        f"QLabel[valState=\"empty\"]{{color:{t['val_empty_fg']}; font-style:italic;"
-        "font-weight:normal;}"
-        f"QLabel[valState=\"filled\"]{{color:{t['val']}; font-weight:600;"
-        " font-style:normal;}"
+    s: dict[str, str] = {}
+    s["BG"] = t["window"]
+    s["LBL"] = (
+        f"color:{t['sub']}; font-size:{_fl}px; font-weight:400;"
+        "border:none; background:transparent;"
     )
-    s['VAL_WARN'] = (f"color:{t['warn']}; font-family:{_MONO_STACK};"
-                     f"font-size:{_fi}pt; font-weight:600;"
-                     "border:none; background:transparent;")
-    s['INP'] = (
-        f"QLineEdit{{background:{t['inp_bg']}; color:{t['inp_fg']};"
-        f"font-family:{_MONO_STACK};"
+    s["SUB"] = (
+        f"color:{t['tert']}; font-size:{_fs}px; font-weight:400;"
+        "border:none; background:transparent;"
+    )
+    _mono = t["mono_family"]
+    _pad_v = _px(3)
+    _pad_h = _px(8)
+    _focus_v = max(1, _pad_v - 1)
+    _focus_h = max(1, _pad_h - 1)
+    s["VAL"] = (
+        f"QLabel{{color:{t['fg']}; font-family:{_mono};"
+        f"font-size:{_fi}px; font-weight:500;"
+        "border:none; background:transparent;}"
+        f"QLabel[valState=\"empty\"]{{color:{t['tert']}; font-weight:400;}}"
+        f"QLabel[valState=\"filled\"]{{color:{t['fg']}; font-weight:500;}}"
+    )
+    s["VAL_WARN"] = (
+        f"color:{t['warn']}; font-family:{_mono};"
+        f"font-size:{_fi}px; font-weight:600;"
+        "border:none; background:transparent;"
+    )
+    s["INP"] = (
+        f"QLineEdit{{background:{t['popover']}; color:{t['fg']};"
+        f"font-family:{_mono};"
         f"border:1px solid {t['inp_border']}; border-radius:{RADIUS_INPUT}px;"
-        f"font-size:{_fi}pt; font-weight:400;"
-        f"padding:{_pad_v}px {_pad_h}px; min-width:60px;"
-        f"selection-background-color:rgba(44,82,130,0.15);}}"
-        f"QLineEdit:hover{{border:1px solid {t['combo_hover_border']};}}"
-        f"QLineEdit:focus{{border:2px solid {t['inp_focus']}; padding:{_focus_v}px {_focus_h}px;}}"
+        f"font-size:{_fi}px; font-weight:400;"
+        f"min-height:24px; padding:{_pad_v}px {_pad_h}px; min-width:56px;"
+        f"selection-background-color:{t['accent_soft']}; selection-color:{t['fg']};}}"
+        f"QLineEdit:hover{{border:1px solid {t['accent']};}}"
+        f"QLineEdit:focus{{border:2px solid {t['accent']}; padding:{_focus_v}px {_focus_h}px;}}"
         f"QLineEdit[inpError=\"true\"]{{border:2px solid {t['err']}; padding:{_focus_v}px {_focus_h}px;}}"
         f"QLineEdit[inpError=\"true\"]:focus{{border:2px solid {t['err']};}}"
-        # Ctrl+F param-search highlight: amber outline for fields matching
-        # the current query. Does not steal focus; outline reads over the
-        # field's own border so searchable fields stay legible.
-        f"QLineEdit[searchMatch=\"true\"]{{border:2px solid {t['search_hl']};"
+        f"QLineEdit[searchMatch=\"true\"]{{border:2px solid {t['warn']};"
         f"padding:{_focus_v}px {_focus_h}px;}}"
-        f"QLineEdit:disabled{{color:{t['val_empty_fg']};"
-        f"background:{t['scroll_bg']}; border-color:{t['card_border']};}}"
+        f"QLineEdit:disabled{{color:{t['tert']};"
+        f"background:{t['sunken']}; border-color:{t['border']};}}"
     )
 
-    # Section-title text color — per-theme `title_fg` token (near-black on
-    # light / near-white on dark) to guarantee legibility on card_bg
-    # regardless of any parent QGroupBox stylesheet color inheritance.
-    _title_fg = t['title_fg']
+    def _title() -> str:
+        return (
+            f"QLabel, QLabel#secTitle{{background:{t['sunken']}; color:{t['sub']};"
+            f"border:none; border-top:1px solid {t['border']}; border-bottom:1px solid {t['border']};"
+            f"font-weight:600; font-size:{_fsec}px; padding:6px 14px;"
+            "qproperty-alignment: AlignLeft | AlignVCenter;}"
+        )
 
-    def _title(rgb):
-        # One flat label above each input group; avoid nested title boxes.
-        return (f"QLabel, QLabel#secTitle{{background:transparent; color:{_title_fg};"
-                "border:none; border-radius:0;"
-                f"border-bottom:1px solid rgba({rgb},100);"
-                f"font-weight:600; font-size:{_fsec}pt; padding:6px 2px;"
-                "qproperty-alignment: AlignLeft | AlignVCenter;}")
+    frame = (
+        "QFrame{background:transparent; border:none; border-radius:0px; padding:0px;}"
+    )
 
-    frame = (f"QFrame{{background:{t['card_bg']};"
-             f"border:1px solid {t['card_border']};"
-             f"border-radius:{RADIUS_CARD}px; padding:3px;}}")
+    s["T_NEUTRAL"] = _title()
+    s["T_A"] = _title()
+    s["T_B"] = _title()
+    s["F_NEUTRAL"] = frame
+    s["F_A"] = frame
+    s["F_B"] = frame
 
-    s['T_NEUTRAL'] = _title(t['t_neutral'])
-    s['T_A'] = _title(t['t_a'])
-    s['T_B'] = _title(t['t_b'])
-    s['F_NEUTRAL'] = frame
-    s['F_A'] = frame
-    s['F_B'] = frame
+    _focus_ring = t["accent"]
+    s["BTN_PRIMARY"] = (
+        f"QPushButton{{border-radius:{RADIUS_BTN}px; color:{t['primary_fg']};"
+        f"font-weight:600; font-size:13px; padding:0 14px; min-height:30px;"
+        f"background:{t['primary_bg']}; border:none;}}"
+        f"QPushButton:hover{{background:{t['primary_hover']};}}"
+        f"QPushButton:pressed{{background:{t['primary_bg']};}}"
+        f"QPushButton:focus{{border:2px solid {_focus_ring}; padding:0 12px;}}"
+        f"QPushButton:disabled{{background:{t['sunken']}; color:{t['tert']};"
+        f"border:1px solid {t['border']};}}"
+    )
 
-    _btn = (f"border-radius:{RADIUS_BTN}px; color:white; font-weight:600;"
-            f"font-size:{FONT_BTN}pt; padding:{SPACE_XS}px {SPACE_MD}px;")
+    s["BTN_LONG"] = s["BTN_PRIMARY"]
 
-    # ── 4-tier button semantics (Primary/Secondary/Tertiary/Long-running) ──
-    # `:focus` selector on every tier draws a thick accent ring when the user
-    # lands on a button via Tab — a hard requirement for WCAG 2.4.7
-    # Focus Visible. Qt's default focus rect is OS-dependent and often
-    # invisible against our themed backgrounds.
-    _focus_ring = t.get('inp_focus', '#3B82F6')
+    s["BTN_SECONDARY"] = (
+        f"QPushButton{{border-radius:{RADIUS_BTN}px;"
+        f"color:{t['fg']}; font-weight:500; font-size:13px;"
+        f"padding:0 12px; min-height:30px;"
+        f"background:{t['panel']}; border:1px solid {t['border']};}}"
+        f"QPushButton:hover{{background:{t['hover']}; border-color:{t['border_strong']};}}"
+        f"QPushButton:pressed{{background:{t['sunken']};}}"
+        f"QPushButton:focus{{border:2px solid {_focus_ring}; padding:0 11px;}}"
+        f"QPushButton:disabled{{color:{t['tert']}; background:{t['sunken']};"
+        f"border-color:{t['border']};}}"
+    )
 
-    # Primary: blue filled, big padding — main CTA (Compute)
-    _rp = t['btn_primary_rgb']
-    s['BTN_PRIMARY'] = (f"QPushButton{{border-radius:{RADIUS_CARD}px; color:white;"
-                        f"font-weight:600; font-size:{FONT_BTN_RUN}pt; padding:{SPACE_SM}px {SPACE_LG}px;"
-                        f"background:qlineargradient(x1:0,y1:0,x2:0,y2:1,"
-                        f"stop:0 rgba({_rp},230), stop:1 rgba({_rp},190));"
-                        f"border:1px solid rgba({_rp},210);}}"
-                        f"QPushButton:hover{{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,"
-                        f"stop:0 rgba({_rp},250), stop:1 rgba({_rp},215));}}"
-                        f"QPushButton:pressed{{background:rgba({_rp},255);}}"
-                        f"QPushButton:focus{{border:2px solid #FFFFFF; padding:5px 15px;}}"
-                        f"QPushButton:disabled{{background:rgba({_rp},80);"
-                        f"color:rgba(255,255,255,0.4); border-color:rgba({_rp},110);}}")
+    s["BTN_TERTIARY"] = (
+        f"QPushButton{{border-radius:{RADIUS_INPUT}px;"
+        f"color:{t['fg']}; font-weight:400; font-size:12px;"
+        f"padding:0 10px; min-height:26px;"
+        f"background:{t['panel']}; border:1px solid {t['border_strong']};}}"
+        f"QPushButton:hover{{background:{t['hover']};}}"
+        f"QPushButton:pressed{{background:{t['sunken']};}}"
+        f"QPushButton:focus{{border:2px solid {_focus_ring}; padding:0 9px;}}"
+        f"QPushButton:disabled{{color:{t['tert']}; border-color:{t['border']};"
+        f"background:transparent;}}"
+    )
 
-    # Long-running: orange filled — qNEHVI / multi-minute tasks
-    _rl = t['btn_long_rgb']
-    s['BTN_LONG'] = (f"QPushButton{{{_btn}"
-                     f"background:qlineargradient(x1:0,y1:0,x2:0,y2:1,"
-                     f"stop:0 rgba({_rl},220), stop:1 rgba({_rl},180));"
-                     f"border:1px solid rgba({_rl},200);}}"
-                     f"QPushButton:hover{{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,"
-                     f"stop:0 rgba({_rl},245), stop:1 rgba({_rl},205));}}"
-                     f"QPushButton:pressed{{background:rgba({_rl},255);}}"
-                     f"QPushButton:focus{{border:2px solid #FFFFFF; padding:3px 9px;}}"
-                     f"QPushButton:disabled{{background:rgba({_rl},80);"
-                     f"color:rgba(255,255,255,0.4);}}")
+    s["BTN_GHOST"] = (
+        f"QPushButton{{border-radius:{RADIUS_INPUT}px;"
+        f"color:{t['sub']}; font-weight:400; font-size:12px;"
+        f"padding:0 8px; min-height:24px;"
+        "background:transparent; border:none;}"
+        f"QPushButton:hover{{background:{t['hover']}; color:{t['fg']};}}"
+        f"QPushButton:checked{{background:{t['sunken']}; border:1px solid {t['border']};"
+        f"color:{t['fg']}; font-weight:600;}}"
+        f"QPushButton:disabled{{color:{t['tert']};}}"
+    )
 
-    # Secondary: blue outlined — Preview, Export, Auto-fill, Compute-TPMS
-    s['BTN_SECONDARY'] = (f"QPushButton{{border-radius:{RADIUS_BTN}px;"
-                          f"color:{t['btn_sec_fg']}; font-weight:500;"
-                          f"font-size:{FONT_BTN}pt; padding:{SPACE_XS}px {SPACE_MD}px;"
-                          f"background:transparent; border:1px solid {t['btn_sec_border']};}}"
-                          f"QPushButton:hover{{background:{t['btn_sec_hover_bg']};"
-                          f"color:{t['btn_sec_fg']};}}"
-                          f"QPushButton:pressed{{background:rgba(59,130,246,70);"
-                          f"color:#FFFFFF;}}"
-                          f"QPushButton:focus{{border:2px solid {_focus_ring}; padding:3px 9px;}}"
-                          f"QPushButton:disabled{{color:rgba(148,163,184,0.45);"
-                          f"border-color:rgba(148,163,184,0.25);}}")
+    s["BTN_ACTION"] = (
+        f"QPushButton{{background:transparent; border:none; color:{t['accent_fg']};"
+        "min-height:20px; max-height:20px; padding:0 4px;"
+        "font-size:12px; font-weight:500; border-radius:5px;}"
+        f"QPushButton:hover{{background:{t['hover']};}}"
+        f"QPushButton:disabled{{color:{t['tert']};}}"
+    )
 
-    # Tertiary: gray outlined — Reset, +/-, zone row ops
-    s['BTN_TERTIARY'] = (f"QPushButton{{border-radius:{RADIUS_BTN}px;"
-                         f"color:{t['btn_tert_fg']}; font-weight:400;"
-                         f"font-size:{FONT_BTN}pt; padding:{SPACE_XS}px {SPACE_MD}px;"
-                         f"background:transparent; border:1px solid {t['btn_tert_border']};}}"
-                         f"QPushButton:hover{{background:{t['btn_tert_hover_bg']};"
-                         f"color:{t['fg']};}}"
-                         f"QPushButton:pressed{{background:rgba(148,163,184,60);}}"
-                         f"QPushButton:focus{{border:2px solid {_focus_ring}; color:{t['fg']}; padding:3px 9px;}}"
-                         f"QPushButton:disabled{{color:rgba(148,163,184,0.35);"
-                         f"border-color:rgba(148,163,184,0.15);}}")
-
-    # Explicit SVGs remain visible when macOS delegates the control to QSS.
-    arrow = (Path(__file__).with_name('assets') / 'icons'
-             / f'chevron-down-{theme_name}.svg').as_posix()
-    s['SCROLLBAR'] = (
-        f"QScrollBar:vertical{{background:{t['scroll_bg']}; width:10px; margin:2px; border:none;}}"
-        f"QScrollBar::handle:vertical{{background:{t['scroll_handle']}; border:none;"
-        "border-radius:3px; min-height:28px;}"
-        f"QScrollBar::handle:vertical:hover{{background:{t['scroll_handle_hover']};}}"
+    arrow = (
+        Path(__file__).with_name("assets") / "icons" / f"chevron-down-{theme_name}.svg"
+    ).as_posix()
+    s["SCROLLBAR"] = (
+        "QScrollBar:vertical{background:transparent; width:5px; margin:4px 1px; border:none;}"
+        f"QScrollBar::handle:vertical{{background:{t['border_strong']}; border:none;"
+        "border-radius:2px; min-height:36px;}"
+        f"QScrollBar::handle:vertical:hover{{background:{t['inp_border']};}}"
         "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical{"
         "height:0; width:0; border:none; background:transparent;}"
         "QScrollBar::up-arrow:vertical, QScrollBar::down-arrow:vertical{"
         "image:none; width:0; height:0; border:none;}"
         "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical{"
         "background:transparent; border:none;}"
-        f"QAbstractScrollArea::corner{{background:{t['scroll_bg']}; border:none;}}")
-    s['COMBO'] = (
-        f"QComboBox{{color:{t['inp_fg']}; background:{t['inp_bg']};"
+        "QAbstractScrollArea::corner{background:transparent; border:none;}"
+    )
+    s["COMBO"] = (
+        f"QComboBox{{color:{t['fg']}; background:{t['popover']};"
         f"border:1px solid {t['inp_border']}; border-radius:{RADIUS_INPUT}px;"
-        f"font-size:{_fi}pt; font-weight:400; padding:4px 28px 4px 8px;"
+        f"font-size:{_fi}px; font-weight:400; min-height:24px; padding:2px 24px 2px 8px;"
         "combobox-popup:0;}"
-        f"QComboBox:hover{{border:1px solid {t['combo_hover_border']};}}"
-        f"QComboBox:focus{{border:2px solid {t['inp_focus']}; padding:3px 27px 3px 7px;}}"
-        # Editable value fields already exclude the arrow subcontrol. Extra
-        # right padding would leave right-aligned text in the control's middle.
-        "QComboBox:editable{padding:4px 1px 4px 8px;}"
-        "QComboBox:editable:focus{padding:3px 0px 3px 7px;}"
-        f"QComboBox::drop-down{{subcontrol-origin:border; subcontrol-position:top right;"
-        "width:24px; margin:1px; border:none;"
-        f"border-top-right-radius:{RADIUS_INPUT - 1}px; border-bottom-right-radius:{RADIUS_INPUT - 1}px;"
-        "background:transparent;}"
-        f'QComboBox::down-arrow{{image:url("{arrow}"); width:12px; height:12px;}}'
-        # Disabled combo (e.g. the 2D-field selector before a result exists):
-        # flatten to a quiet ghost — transparent fill + muted text + subtle
-        # border — so it blends with the flat tab strip instead of reading as
-        # a solid white box on the light theme.
-        f"QComboBox:disabled{{color:{t['val_empty_fg']}; background:transparent;"
-        f"border:1px solid {t['border_subtle']};}}"
+        f"QComboBox:hover{{border:1px solid {t['accent']};}}"
+        f"QComboBox:focus{{border:2px solid {t['accent']}; padding:1px 23px 1px 7px;}}"
+        "QComboBox:editable{padding:2px 1px 2px 8px;}"
+        "QComboBox:editable:focus{padding:1px 0px 1px 7px;}"
+        "QComboBox::drop-down{subcontrol-origin:border; subcontrol-position:top right;"
+        "width:22px; margin:1px; border:none; background:transparent;}"
+        f'QComboBox::down-arrow{{image:url("{arrow}"); width:11px; height:11px;}}'
+        f"QComboBox:disabled{{color:{t['tert']}; background:{t['sunken']};"
+        f"border:1px solid {t['border']};}}"
         "QComboBox::drop-down:disabled{background:transparent;}"
         f"QComboBox QAbstractItemView{{"
-        f"background:{t['combo_list_bg']}; color:{t['combo_list_fg']};"
-        f"font-size:{_fi}pt; font-weight:400;"
-        f"selection-background-color:{t['combo_sel']};"
-        f"selection-color:{t['combo_list_fg']};"
-        f"border:1px solid {t['combo_border']};"
-        "border-radius:4px; padding:4px; outline:none;}"
+        f"background:{t['popover']}; color:{t['fg']};"
+        f"font-size:{_fi}px; font-weight:400;"
+        f"selection-background-color:{t['accent_soft']};"
+        f"selection-color:{t['fg']};"
+        f"border:1px solid {t['border_strong']};"
+        "border-radius:6px; padding:4px; outline:none;}"
         "QComboBox QAbstractItemView::item{min-height:26px; padding:3px 8px;}"
-        + s['SCROLLBAR'])
-
+        + s["SCROLLBAR"]
+    )
     return s
 
 
-def apply_mpl_theme():
-    """Set matplotlib colors, fonts and screen-oriented path simplification."""
+def apply_mpl_theme() -> None:
+    """Set Matplotlib colors and sans UI fonts for the active Style P2 theme."""
     import matplotlib as mpl
-    from sjtu_tpmshx.applications.gui.ui.typography import matplotlib_font_families
+    from sjtu_tpmshx.applications.gui.ui.typography import screen_matplotlib_font_families
+
     t = get_theme()
-    mpl.rcParams['figure.facecolor'] = t['fig_bg']
-    mpl.rcParams['axes.facecolor'] = t['ax_bg']
-    mpl.rcParams['text.color'] = t['ax_text']
-    mpl.rcParams['axes.labelcolor'] = t['ax_text']
-    mpl.rcParams['xtick.color'] = t['ax_text']
-    mpl.rcParams['ytick.color'] = t['ax_text']
-    mpl.rcParams['axes.edgecolor'] = t['ax_spine']
-    mpl.rcParams['figure.edgecolor'] = t['fig_bg']
-    # Performance — path simplification drops invisibly-close polyline
-    # vertices before rasterising. Safe for scientific charts at screen
-    # resolution.
-    mpl.rcParams['path.simplify'] = True
-    mpl.rcParams['path.simplify_threshold'] = 1.0
-    mpl.rcParams['agg.path.chunksize'] = 10000
-    # Chart/export font families are independent of the interface font.
-    families = list(matplotlib_font_families())
-    mpl.rcParams['font.family'] = families
-    mpl.rcParams['font.sans-serif'] = families
-    mpl.rcParams['font.serif'] = families
-    mpl.rcParams['font.monospace'] = families
-    mpl.rcParams['font.weight'] = 'normal'
-    mpl.rcParams['axes.titleweight'] = 'normal'
-    mpl.rcParams['figure.titleweight'] = 'normal'
-    mpl.rcParams['axes.titlelocation'] = 'left'
-    mpl.rcParams['axes.titlesize'] = 12
-    mpl.rcParams['axes.labelweight'] = 'normal'
-    mpl.rcParams['xtick.labelsize'] = 9
-    mpl.rcParams['ytick.labelsize'] = 9
-    mpl.rcParams['mathtext.fontset'] = 'custom'
-    mpl.rcParams['mathtext.rm'] = families[0]
-    mpl.rcParams['mathtext.it'] = f'{families[0]}:italic'
-    mpl.rcParams['mathtext.bf'] = f'{families[0]}:bold'
-    mpl.rcParams['mathtext.bfit'] = f'{families[0]}:italic:bold'
-    mpl.rcParams['mathtext.sf'] = families[0]
-    mpl.rcParams['mathtext.tt'] = families[0]
-    mpl.rcParams['mathtext.cal'] = families[0]
-    mpl.rcParams['mathtext.default'] = 'it'
-    mpl.rcParams['mathtext.fallback'] = 'stix'
-    mpl.rcParams['legend.frameon'] = True
-    mpl.rcParams['legend.framealpha'] = 0.9
+    mpl.rcParams["figure.facecolor"] = t["fig_bg"]
+    mpl.rcParams["axes.facecolor"] = t["ax_bg"]
+    mpl.rcParams["text.color"] = t["fg"]
+    mpl.rcParams["axes.labelcolor"] = t["sub"]
+    mpl.rcParams["xtick.color"] = t["tert"]
+    mpl.rcParams["ytick.color"] = t["tert"]
+    mpl.rcParams["axes.edgecolor"] = t["border_strong"]
+    mpl.rcParams["figure.edgecolor"] = t["fig_bg"]
+    mpl.rcParams["axes.unicode_minus"] = True
+    mpl.rcParams["path.simplify"] = True
+    mpl.rcParams["path.simplify_threshold"] = 1.0
+    mpl.rcParams["agg.path.chunksize"] = 10000
+    families = list(screen_matplotlib_font_families())
+    mpl.rcParams["font.family"] = families
+    mpl.rcParams["font.sans-serif"] = families
+    mpl.rcParams["font.serif"] = families
+    mpl.rcParams["font.monospace"] = families
+    mpl.rcParams["font.weight"] = "normal"
+    mpl.rcParams["axes.titleweight"] = "normal"
+    mpl.rcParams["figure.titleweight"] = "normal"
+    mpl.rcParams["axes.titlesize"] = 12
+    mpl.rcParams["axes.labelweight"] = "normal"
+    mpl.rcParams["xtick.labelsize"] = 9
+    mpl.rcParams["ytick.labelsize"] = 9
+    mpl.rcParams["mathtext.fontset"] = "custom"
+    mpl.rcParams["mathtext.rm"] = families[0]
+    mpl.rcParams["mathtext.it"] = f"{families[0]}:italic"
+    mpl.rcParams["mathtext.bf"] = f"{families[0]}:bold"
+    mpl.rcParams["mathtext.bfit"] = f"{families[0]}:italic:bold"
+    mpl.rcParams["mathtext.sf"] = families[0]
+    mpl.rcParams["mathtext.tt"] = families[0]
+    mpl.rcParams["mathtext.cal"] = families[0]
+    mpl.rcParams["mathtext.default"] = "it"
+    mpl.rcParams["mathtext.fallback"] = "stix"
+    mpl.rcParams["legend.frameon"] = True
+    mpl.rcParams["legend.framealpha"] = 0.95
 
 
-def _btn_styles() -> dict:
+def _btn_styles() -> dict[str, str]:
     """Resolve dialog button styles from the current theme at call time."""
-    try:
-        s = _build_styles()
-        return {"tertiary": s.get("BTN_TERTIARY", ""),
-                "secondary": s.get("BTN_SECONDARY", "")}
-    except Exception:
-        return {"tertiary": "", "secondary": ""}
+    s = _build_styles()
+    return {"tertiary": s["BTN_TERTIARY"], "secondary": s["BTN_SECONDARY"]}

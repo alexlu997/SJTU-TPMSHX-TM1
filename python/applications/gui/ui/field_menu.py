@@ -45,7 +45,7 @@ def _attach_context_menu(window, le, attr):
             f"QMenu::item:disabled{{color:{theme['sub_fg']};}}")
         menu.addSeparator()
 
-        act_revert = menu.addAction("恢复算例工况默认值")
+        act_revert = menu.addAction("恢复默认算例值")
         act_revert.triggered.connect(
             lambda: _revert_field_to_default(window, le, attr))
 
@@ -107,8 +107,7 @@ def _revert_field_to_default(window, le, attr):
     defaults = shanghai_field_defaults(is_3d=window.combo_dim.currentIndex() == 1)
     val = defaults.get(attr)
     if val is None:
-        window.statusBar().showMessage(
-            f"No preset default for {attr}.", 3000)
+        window.dialogs.notify(f"{attr} 无默认算例值。", kind="info", duration_ms=3000)
         return
     if attr in ('le_TinA', 'le_TinB'):
         window._set_temp_K(le, val)
@@ -121,8 +120,7 @@ def _revert_field_to_default(window, le, attr):
         le.editingFinished.emit()
     except Exception:
         pass
-    window.statusBar().showMessage(
-        f"{attr} 已恢复算例工况默认值（{val}）。", 4000)
+    window.dialogs.notify(f"{attr} 已恢复默认算例值（{val}）。", kind="info", duration_ms=4000)
 
 
 def _copy_with_unit(le, unit_txt):
