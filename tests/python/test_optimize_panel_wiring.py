@@ -122,13 +122,15 @@ def archive_candidate(window, study, output_dir):
 
 
 def pick_front(page, point=0):
-    from matplotlib.backend_bases import MouseEvent, PickEvent
+    from matplotlib.backend_bases import MouseEvent
 
-    canvas = page.pareto_canvas
-    front = canvas.figure.axes[0].lines[0]
-    mouse = MouseEvent('button_press_event', canvas, 0, 0)
-    event = PickEvent('pick_event', canvas, mouse, front, ind=[point])
-    canvas.callbacks.process('pick_event', event)
+    canvas = page.pareto_view.canvas
+    ax = canvas.figure.axes[0]
+    front = sorted((pt for pt in page.pareto_view._points if pt.on_front), key=lambda pt: pt.x)
+    target = front[point]
+    px, py = ax.transData.transform((target.x, target.y))
+    mouse = MouseEvent('button_press_event', canvas, px, py, button=1)
+    canvas.callbacks.process('button_press_event', mouse)
 
 
 def test_export_button_uses_archived_objectives_after_ui_edits(window, tmp_path, monkeypatch):
@@ -314,6 +316,7 @@ def test_import_changes_only_operating_conditions(window, tmp_path, monkeypatch)
     path.write_text(json.dumps({'conditions': [condition('a'), condition('b')]}))
     monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *a: (str(path), ''))
     page.import_conditions()
+    assert page._objective_val.text() == '2 工况均值'
     current = page.capture_case()
     rows = job_input.condition_inputs(current, page.conditions)
     assert [r[0] for r in rows] == ['a', 'b']
@@ -328,6 +331,7 @@ def test_import_changes_only_operating_conditions(window, tmp_path, monkeypatch)
     assert len(page.conditions) == 2
     page.use_current_condition()
     assert page.conditions is None and '当前工况' in page.condition_summary.text()
+    assert page._objective_val.text() == '当前工况'
 
 
 @pytest.mark.parametrize('dimension', [0, 1])
@@ -608,6 +612,9 @@ def test_thread_terminal_state_retained_until_actual_exit(window, tmp_path, monk
         if status == 'failed':
             assert '均匀基准失败' in page.summary_banner.text()
             assert 'one：inlet pressure outside range' in page.status.text()
+            assert page._result_body_stack.currentWidget() is page._failed_card_host
+            assert 'one' in page._fail_cond_val.text()
+            assert 'inlet pressure outside range' in page._fail_reason_val.text()
             assert not page.pareto_ready() and not page.load_button.isEnabled()
     finally:
         release.set()
@@ -732,11 +739,13 @@ def test_pareto_keeps_relative_objectives_and_full_field_through_save_replay(win
     archived_case, _ = archive_candidate(window, study, tmp_path)
     page.report = deepcopy(study)
     page.show_pareto(study)
+    from sjtu_tpmshx.applications.gui.ui.symbols import MPL
     ax = page.pareto_canvas.figure.axes[0]
-    assert ax.get_xlabel() == 'Mean relative pressure drop [1]'
-    assert ax.get_ylabel() == 'Mean useful heat gain [%]'
-    np.testing.assert_array_equal(ax.lines[0].get_xdata(), [.25])
-    np.testing.assert_array_equal(ax.lines[0].get_ydata(), [-2.])
+    assert ax.get_xlabel() == MPL['pr_ratio']
+    assert ax.get_ylabel() == MPL['hg_pct']
+    front = [pt for pt in page.pareto_view._points if pt.on_front]
+    np.testing.assert_array_equal([pt.x for pt in front], [.25])
+    np.testing.assert_array_equal([pt.y for pt in front], [-2.])
     anchor = (window.le_Lcell.text(), window.le_t.text())
     original = window.case_files.capture_current_preset('before-pick')
     case_result = ComputeResult(Q_W=1.)
@@ -1126,6 +1135,7 @@ def test_mass_requirements_import_and_current_condition_reset(window, tmp_path, 
     page.import_conditions()
     assert page.method.currentData() == 'qlognei'
     assert page.mass_requirements == payload['mass_requirements']
+    assert page._objective_val.text() == '逐项达标'
     assert 'Nu-Re' in page.eval_preview.text()
     assert '芯体质量最小' in page.eval_preview.text()
     page.use_current_condition()
@@ -1162,8 +1172,9 @@ def test_mass_result_display_and_exports_keep_feasibility(window, tmp_path, feas
             mass_kg=.25, geometry_model='tpms_geometry', x_decision=row['x_decision']))
     page.report = study
     assert page.show_pareto(study) is None
-    assert page.pareto_canvas.figure.axes[0].get_ylabel() == 'Core mass [kg]'
-    assert ('Nu Re extrapolation allowed' in page.pareto_canvas.figure.axes[0].get_title()) == allow_extrapolation
+    assert '芯体质量' in page.pareto_canvas.figure.axes[0].get_ylabel()
+    assert '[kg]' in page.pareto_canvas.figure.axes[0].get_ylabel()
+    assert ('允许 Nu-Re 外推' in page.pareto_canvas.figure.axes[0].get_title(loc='right')) == allow_extrapolation
     assert ('Nu-Re' in page.kpi_q_caption.text()) == allow_extrapolation
     assert ('Nu-Re' in panel._termination_label(study)) == allow_extrapolation
     assert ('达到模型质量下界' in panel._termination_label(study)) == attained

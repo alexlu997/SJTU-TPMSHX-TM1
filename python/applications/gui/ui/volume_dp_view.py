@@ -15,6 +15,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from sjtu_tpmshx.applications.gui.ui.symbols import MPL, mpl_qd_row, val_unit
+from sjtu_tpmshx.applications.gui.ui.theme import get_theme
 
 _PT = 72.0 / 100.0
 _LIMIT_TOL = 1e-9
@@ -27,24 +28,6 @@ _TAG_LABELS: dict[str, str] = {
     "min-V": "最小体积",
     "min-wt": "最轻",
     "min-dP": "最小压损",
-}
-
-_DEFAULT_TOKENS: dict[str, Any] = {
-    "canvas": "#F8F7F4",
-    "popover": "#FFFFFF",
-    "border": "#D9D8D4",
-    "border_strong": "#C1BFBA",
-    "fg": "#181715",
-    "sub": "#474643",
-    "tert": "#686663",
-    "accent": "#0E6275",
-    "accent_fg": "#0B5161",
-    "accent_soft": "#E5F0F2",
-    "warn": "#96530C",
-    "err": "#B43025",
-    "err_soft": "#F7E9E7",
-    "data_a": "#0E6275",
-    "data_b": "#B65419",
 }
 
 
@@ -183,7 +166,7 @@ class VolumeDpView(QWidget):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self._tokens: dict[str, Any] = dict(_DEFAULT_TOKENS)
+        self._tokens: dict[str, Any] = dict(get_theme())
         if tokens is not None:
             self._tokens.update(tokens)
         self._bottom_pad = int(bottom_pad)

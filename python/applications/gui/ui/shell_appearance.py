@@ -316,13 +316,15 @@ class ShellAppearance:
         self._page_drawer: dict[str, dict[str, Any]] = {
             "run": {"open": True, "tab": 0},
             "result": {"open": True, "tab": 0},
+            "opt": {"open": True, "tab": 0},
+            "qd": {"open": False, "tab": 0},
         }
         raw = load_appearance_settings().get("inspector")
         if raw:
             try:
                 parsed = json.loads(raw)
                 if isinstance(parsed, dict):
-                    for key in ("run", "result"):
+                    for key in ("run", "result", "opt", "qd"):
                         entry = parsed.get(key)
                         if isinstance(entry, dict):
                             if isinstance(entry.get("open"), bool):
@@ -342,10 +344,10 @@ class ShellAppearance:
         window = self.window
         if getattr(window, "page_stack", None) is not None:
             if window.page_stack.currentWidget() is window.quick_design:
-                return None
+                return "qd"
         tab = window.workbench.active_tab
         if tab == "pareto":
-            return None
+            return "opt"
         if tab in ("temp", "pres", "vel", "3d"):
             return "result"
         return "run"
@@ -535,9 +537,15 @@ class ShellAppearance:
                     entries = [("几何", 0), ("边界", 1), ("求解", 2)]
                     saved_tab = max(0, min(saved_tab, 2))
                     window._param_page = saved_tab
-                else:
+                elif page == "result":
                     param_idx = max(0, min(int(getattr(window, "_param_page", 0)), 2))
                     entries = [("结果", 3), ("参数", param_idx)]
+                    saved_tab = max(0, min(saved_tab, 1))
+                elif page == "opt":
+                    entries = [("搜索配置", 4), ("所选方案", 5)]
+                    saved_tab = max(0, min(saved_tab, 1))
+                else:
+                    entries = [("输入", 6), ("所选设计", 7)]
                     saved_tab = max(0, min(saved_tab, 1))
                 drawer.set_strip_entries(entries, active_strip_index=saved_tab)
                 self._active_drawer_page = page
@@ -552,6 +560,28 @@ class ShellAppearance:
             btn.setVisible(not self._focused)
             btn.setToolTip("收起检查器  Ctrl+]" if show_drawer else "展开检查器  Ctrl+]")
             btn.setChecked(show_drawer)
+        if page == "qd" and hasattr(window, "quick_design"):
+            window.quick_design.on_drawer_visibility_changed(show_drawer)
+
+    def select_drawer_tab(
+        self,
+        page_key: str,
+        strip_index: int,
+        *,
+        open_drawer: bool | None = None,
+    ) -> None:
+        """Select a drawer tab for ``page_key`` and optionally open or close it."""
+        if page_key not in self._page_drawer:
+            return
+        limit = 2 if page_key == "run" else 1
+        clamped = max(0, min(int(strip_index), limit))
+        self._page_drawer[page_key]["tab"] = clamped
+        if open_drawer is not None:
+            self._page_drawer[page_key]["open"] = bool(open_drawer)
+        self._save_inspector_prefs()
+        if self._current_drawer_page() == page_key:
+            self._active_drawer_page = None
+            self.sync_drawer_visibility()
 
     def set_drawer_open(self, opened: bool, page_key: str | None = None) -> None:
         """Open or close the push inspector drawer for the active or named page."""
@@ -630,7 +660,7 @@ class ShellAppearance:
             show_card = not window.single_run.is_idle() or (
                 card.state in ("running", "cancelling", "error", "cancelled", "paused")
                 and not focused
-                and self._page_uses_drawer()
+                and self._current_drawer_page() in ("run", "result")
             )
             card.setVisible(show_card)
         update_result_sidebar_visibility(window)
@@ -650,6 +680,12 @@ class ShellAppearance:
         strip = getattr(window, "readout_strip", None)
         if strip is not None:
             strip.set_compact(compact)
+        opt = getattr(window, "optimization", None)
+        if opt is not None and hasattr(opt, "set_compact"):
+            opt.set_compact(compact)
+        qd = getattr(window, "quick_design", None)
+        if qd is not None and hasattr(qd, "set_compact"):
+            qd.set_compact(compact)
         self._sync_overlay_geometry()
 
     def _sync_overlay_geometry(self) -> None:

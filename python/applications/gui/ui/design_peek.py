@@ -19,32 +19,10 @@ from PySide6.QtWidgets import (
 )
 
 from sjtu_tpmshx.applications.gui.ui.symbols import SYM, val_unit
+from sjtu_tpmshx.applications.gui.ui.theme import get_theme
 
 _FIELD_WIDTH_DESKTOP = 168
 _FIELD_WIDTH_COMPACT = 150
-
-_DEFAULT_TOKENS: dict[str, Any] = {
-    "sunken": "#EFEEEA",
-    "canvas": "#F8F7F4",
-    "panel": "#FCFBF9",
-    "popover": "#FFFFFF",
-    "hover": "#E3E2DD",
-    "row_hover": "#E3E2DD",
-    "border": "#D9D8D4",
-    "border_strong": "#C1BFBA",
-    "fg": "#181715",
-    "sub": "#474643",
-    "tert": "#686663",
-    "accent": "#0E6275",
-    "accent_fg": "#0B5161",
-    "accent_soft": "#E5F0F2",
-    "ok": "#176B3E",
-    "ok_soft": "#E7F2EB",
-    "warn": "#96530C",
-    "err": "#B43025",
-    "shadow_ambient": (20, 19, 16, 15),
-    "shadow_key": (20, 19, 16, 24),
-}
 
 _STATUS_COLOR_KEY: dict[str, str] = {
     "ok": "ok",
@@ -127,9 +105,23 @@ class ConditionCell:
     """Single operating condition entry in the condition grid."""
 
     condition_id: str
-    mass_flow_a_kg_s: float
-    mass_flow_b_kg_s: float
+    mass_flow_a_kg_s: float | None = None
+    mass_flow_b_kg_s: float | None = None
     detail_text: str = ""
+
+
+@dataclass(frozen=True)
+class SelectedQuickDesignData:
+    """Plain-value Quick Design snapshot shown in the ``所选设计`` drawer tab."""
+
+    title_html: str
+    tags: Sequence[str] = ()
+    objectives: tuple[ObjectiveCell, ObjectiveCell] = (
+        ObjectiveCell("芯体体积", "—"),
+        ObjectiveCell("重量", "—"),
+    )
+    spec_rows: Sequence[SpecRow] = ()
+    case_rows: Sequence[tuple[str, str]] = ()
 
 
 @dataclass(frozen=True)
@@ -330,7 +322,7 @@ class MinimalDotTrack(QWidget):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self._tokens: dict[str, Any] = dict(_DEFAULT_TOKENS)
+        self._tokens: dict[str, Any] = dict(get_theme())
         if tokens is not None:
             self._tokens.update(tokens)
         self._fraction = max(0.0, min(1.0, float(fraction)))
@@ -514,7 +506,7 @@ class DesignPeekCard(QWidget):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self._tokens: dict[str, Any] = dict(_DEFAULT_TOKENS)
+        self._tokens: dict[str, Any] = dict(get_theme())
         if tokens is not None:
             self._tokens.update(tokens)
         self._data: PeekDesignData | None = data
@@ -544,6 +536,8 @@ class DesignPeekCard(QWidget):
             item = self._outer.takeAt(0)
             widget = item.widget()
             if widget is not None:
+                widget.hide()
+                widget.setParent(None)
                 widget.deleteLater()
 
     def _rebuild(self) -> None:
@@ -655,7 +649,7 @@ class SelectedDesignPanel(QWidget):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self._tokens: dict[str, Any] = dict(_DEFAULT_TOKENS)
+        self._tokens: dict[str, Any] = dict(get_theme())
         if tokens is not None:
             self._tokens.update(tokens)
         self._compact = compact
@@ -690,6 +684,8 @@ class SelectedDesignPanel(QWidget):
             item = self._layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
+                widget.hide()
+                widget.setParent(None)
                 widget.deleteLater()
 
     def _rebuild(self) -> None:
@@ -907,17 +903,167 @@ class SelectedDesignPanel(QWidget):
                     if idx < n_cond:
                         c = conds[idx]
                         cl.addWidget(_make_label(c.condition_id, 12.0, t["fg"], weight=600))
-                        detail = (
-                            c.detail_text
-                            if c.detail_text
-                            else f"A {c.mass_flow_a_kg_s:.4f} · B {c.mass_flow_b_kg_s:.4f}"
-                        )
+                        detail = c.detail_text
+                        if not detail:
+                            ma = "—" if c.mass_flow_a_kg_s is None else f"{c.mass_flow_a_kg_s:.4f}"
+                            mb = "—" if c.mass_flow_b_kg_s is None else f"{c.mass_flow_b_kg_s:.4f}"
+                            detail = f"A {ma} · B {mb}"
                         cl.addWidget(_make_label(detail, 11.0, t["tert"], weight=400))
                     rl.addWidget(cell, 1)
                 cgv.addWidget(rw)
 
             cw.addWidget(cgrid)
             self._layout.addWidget(cwrap)
+
+
+class SelectedQuickDesignPanel(QWidget):
+    """Selected-design drawer content for Quick Design in Style P2."""
+
+    def __init__(
+        self,
+        data: SelectedQuickDesignData | None = None,
+        *,
+        compact: bool = False,
+        tokens: Mapping[str, Any] | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._tokens: dict[str, Any] = dict(get_theme())
+        if tokens is not None:
+            self._tokens.update(tokens)
+        self._compact = compact
+        self._data: SelectedQuickDesignData | None = data
+
+        self.setStyleSheet("background: transparent;")
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(0)
+        self._rebuild()
+
+    def set_data(self, data: SelectedQuickDesignData | None) -> None:
+        """Replace the selected Quick Design snapshot and rebuild."""
+        self._data = data
+        self._rebuild()
+
+    def set_compact(self, compact: bool) -> None:
+        """Adjust value column width for compact viewports."""
+        if self._compact == compact:
+            return
+        self._compact = compact
+        self._rebuild()
+
+    def apply_theme(self, tokens: Mapping[str, Any]) -> None:
+        """Apply Style P2 theme tokens and rebuild."""
+        self._tokens.update(tokens)
+        self._rebuild()
+
+    def _clear_layout(self) -> None:
+        while self._layout.count():
+            item = self._layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.hide()
+                widget.setParent(None)
+                widget.deleteLater()
+
+    def _rebuild(self) -> None:
+        self._clear_layout()
+        d = self._data
+        t = self._tokens
+
+        if d is None:
+            empty = QWidget()
+            empty.setStyleSheet("background: transparent;")
+            el = QVBoxLayout(empty)
+            el.setContentsMargins(16, 28, 16, 28)
+            el.addWidget(
+                _make_label(
+                    "尚未选择可行设计",
+                    12.5,
+                    t["sub"],
+                    align=Qt.AlignmentFlag.AlignCenter,
+                )
+            )
+            self._layout.addWidget(empty)
+            return
+
+        first_tag = _TAG_LABELS.get(d.tags[0], d.tags[0]) if d.tags else None
+        self._layout.addWidget(_band_header(d.title_html, t, first=True, tag=first_tag))
+
+        obj_bar = QWidget()
+        obj_bar.setStyleSheet("background: transparent;")
+        obj_bar.setFixedHeight(52)
+        ol = QHBoxLayout(obj_bar)
+        ol.setContentsMargins(0, 0, 0, 0)
+        ol.setSpacing(0)
+        for pos, cell in enumerate(d.objectives):
+            if pos:
+                ol.addWidget(_Hairline(t["border"], vertical=True))
+            col = QWidget()
+            col.setStyleSheet("background: transparent;")
+            cl = QVBoxLayout(col)
+            cl.setContentsMargins(16, 6, 12, 6)
+            cl.setSpacing(1)
+            cl.addWidget(_make_label(cell.label, 11.0, t["sub"], weight=400))
+            val_color = t.get(cell.tone, t["fg"])
+            cl.addWidget(_make_label(cell.value, 15.0, val_color, weight=600))
+            ol.addWidget(col, 1)
+        self._layout.addWidget(obj_bar)
+        self._layout.addWidget(_Hairline(t["border"]))
+
+        field_w = _FIELD_WIDTH_COMPACT if self._compact else _FIELD_WIDTH_DESKTOP
+        if d.spec_rows:
+            spec_block = QWidget()
+            spec_block.setStyleSheet("background: transparent;")
+            sv = QVBoxLayout(spec_block)
+            sv.setContentsMargins(0, 0, 0, 0)
+            sv.setSpacing(0)
+            for idx, row in enumerate(d.spec_rows):
+                if idx:
+                    sv.addWidget(_inset_hairline(t["border"], left=16, right=0))
+                rw = QWidget()
+                rw.setStyleSheet("background: transparent;")
+                rw.setFixedHeight(28)
+                rl = QHBoxLayout(rw)
+                rl.setContentsMargins(16, 0, 16, 0)
+                rl.setSpacing(8)
+                rl.addWidget(_make_label(row.label, 12.5, t["sub"], weight=400), 1)
+
+                holder = QWidget()
+                holder.setStyleSheet("background: transparent;")
+                holder.setFixedWidth(field_w)
+                hl = QHBoxLayout(holder)
+                hl.setContentsMargins(8, 0, 0, 0)
+                hl.setSpacing(6)
+                if row.status_kind is not None:
+                    hl.addWidget(_status_mark(row.status_kind, t, size=6.5))
+                val_color = t.get(row.tone, t["fg"])
+                weight = 500 if row.status_kind is not None else 400
+                hl.addWidget(_make_label(row.value, 12.5, val_color, weight=weight))
+                hl.addStretch(1)
+                rl.addWidget(holder)
+                sv.addWidget(rw)
+            self._layout.addWidget(spec_block)
+
+        if d.case_rows:
+            self._layout.addWidget(_band_header("逐工况记录", t, count=len(d.case_rows)))
+            cblock = QWidget()
+            cblock.setStyleSheet("background: transparent;")
+            cv = QVBoxLayout(cblock)
+            cv.setContentsMargins(0, 0, 0, 8)
+            cv.setSpacing(0)
+            for idx, (cid, summary) in enumerate(d.case_rows):
+                if idx:
+                    cv.addWidget(_inset_hairline(t["border"], left=16, right=0))
+                rw = QWidget()
+                rw.setStyleSheet("background: transparent;")
+                rl = QVBoxLayout(rw)
+                rl.setContentsMargins(16, 6, 16, 6)
+                rl.setSpacing(2)
+                rl.addWidget(_make_label(cid, 12.0, t["fg"], weight=600))
+                rl.addWidget(_make_label(summary, 11.0, t["sub"], weight=400))
+                cv.addWidget(rw)
+            self._layout.addWidget(cblock)
 
 
 __all__ = [
@@ -929,6 +1075,8 @@ __all__ = [
     "PeekDesignData",
     "SelectedDesignData",
     "SelectedDesignPanel",
+    "SelectedQuickDesignData",
+    "SelectedQuickDesignPanel",
     "SpecRow",
     "format_objective_summary",
 ]

@@ -203,3 +203,82 @@ def baseline_failure_reasons(baseline, output_dir):
                 if row['reason']:
                     reasons.append(f'{row["condition_id"]}：{row["reason"]}')
     return reasons
+
+
+def baseline_failure_details(baseline, output_dir):
+    """Return structured recorded failure details for the failed-baseline card."""
+    stage_names = {
+        'input': '输入准备',
+        'prepare': '前处理',
+        'solve': '原生求解',
+        'validate_result': '结果核查',
+        'postprocess': '后处理',
+        'qualification': '资格检查',
+    }
+    gate_names = {
+        'execution': '运行状态',
+        'convergence': '收敛检查',
+        'physical': '物理守恒',
+        'applicability': '适用范围',
+        'metrics': '性能指标',
+        'model_scope': '模型适用域',
+        'full_solve': '完整求解',
+    }
+    fluid_names = {'water': '水', 'air': '空气', 'sco2': 'sCO₂', 'co2': 'CO₂'}
+
+    condition_label = '—'
+    stage_parts = ['均匀基准']
+    checks_out: list[str] = []
+    raw_reasons: list[str] = []
+
+    if output_dir is not None and baseline.get('directory'):
+        path = Path(output_dir) / baseline['directory'] / 'batch.json'
+        if path.is_file():
+            with path.open(encoding='utf-8') as source:
+                batch = json.load(source)
+            failed_rows = [row for row in batch.get('conditions', []) if row.get('status') == 'failed' or row.get('reason')]
+            if failed_rows:
+                cond_ids = [
+                    '当前工况' if row.get('condition_id') == 'current' else str(row.get('condition_id', '—'))
+                    for row in failed_rows
+                ]
+                condition_label = '、'.join(dict.fromkeys(cond_ids))
+                first = failed_rows[0]
+                stage_key = first.get('stage')
+                if stage_key:
+                    stage_parts.append(stage_names.get(stage_key, str(stage_key)))
+                qual = first.get('qualification') if isinstance(first.get('qualification'), dict) else {}
+                opt_gate = qual.get('optimization') if isinstance(qual.get('optimization'), dict) else {}
+                gate_reasons = opt_gate.get('reasons') or []
+                for g in gate_reasons:
+                    mapped = gate_names.get(g, str(g))
+                    if mapped not in stage_parts:
+                        stage_parts.append(mapped)
+                for row in failed_rows:
+                    q_row = row.get('qualification') if isinstance(row.get('qualification'), dict) else {}
+                    app = q_row.get('applicability') if isinstance(q_row.get('applicability'), dict) else {}
+                    for check in app.get('checks') or []:
+                        if check.get('passed') is False:
+                            side = check.get('side', '')
+                            qty = check.get('quantity', '')
+                            src = check.get('source') or []
+                            if len(src) >= 3 and str(src[0]).startswith('nu'):
+                                fl = fluid_names.get(str(src[1]).lower(), str(src[1]))
+                                checks_out.append(f'{side} 侧 {qty} 超出 Nu 关联式（{fl} · {src[2]}）范围')
+                            elif side and qty:
+                                checks_out.append(f'{side} 侧 {qty} 超出适用范围')
+                    if row.get('reason'):
+                        cid = '当前工况' if row.get('condition_id') == 'current' else str(row.get('condition_id', ''))
+                        raw_reasons.append(f'{cid}：{row["reason"]}' if cid else str(row['reason']))
+
+    unique_checks = list(dict.fromkeys(checks_out))
+    unique_raw = list(dict.fromkeys(raw_reasons))
+    if not unique_checks and not unique_raw and baseline.get('reason'):
+        unique_raw.append(str(baseline['reason']))
+
+    return {
+        'condition': condition_label,
+        'stage': ' · '.join(stage_parts),
+        'checks': unique_checks,
+        'reasons': unique_raw,
+    }

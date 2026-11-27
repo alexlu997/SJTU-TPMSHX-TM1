@@ -16,6 +16,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from sjtu_tpmshx.applications.gui.ui.symbols import MPL, signed, val_unit
+from sjtu_tpmshx.applications.gui.ui.theme import get_theme
 
 _PT = 72.0 / 100.0
 _PICK_RADIUS_PX = 16.0
@@ -32,23 +33,6 @@ _PHASE_LABELS: dict[str, str] = {
 
 _MASS_X_LABEL = r"← 可行     最大归一化约束残差 $\mathrm{[\%]}$"
 _MASS_Y_LABEL = r"← 更轻     芯体质量 $\mathit{m}\ \mathrm{[kg]}$"
-
-_DEFAULT_TOKENS: dict[str, Any] = {
-    "canvas": "#F8F7F4",
-    "popover": "#FFFFFF",
-    "border": "#D9D8D4",
-    "border_strong": "#C1BFBA",
-    "inp_border": "#807F79",
-    "fg": "#181715",
-    "sub": "#474643",
-    "tert": "#686663",
-    "accent": "#0E6275",
-    "accent_fg": "#0B5161",
-    "accent_soft": "#E5F0F2",
-    "ok": "#176B3E",
-    "ok_soft": "#E7F2EB",
-    "err": "#B43025",
-}
 
 
 @dataclass(frozen=True)
@@ -144,6 +128,11 @@ class _ScopedFigureCanvas(FigureCanvasQTAgg):
         super().__init__(figure)
         self.setStyleSheet("background: transparent;")
 
+    @property
+    def fig(self) -> Figure:
+        """Expose MatplotlibCanvas-compatible ``fig`` attribute for export helpers."""
+        return self.figure
+
     def draw(self) -> None:
         with mpl.rc_context(_mpl_rc_overrides(self._owner._tokens)):
             super().draw()
@@ -176,13 +165,15 @@ class ParetoView(QWidget):
         if mode not in _VALID_MODES:
             raise ValueError(f"Unknown ParetoView mode {mode!r}; expected {_VALID_MODES}")
         self._mode = mode
-        self._tokens: dict[str, Any] = dict(_DEFAULT_TOKENS)
+        self._tokens: dict[str, Any] = dict(get_theme())
         if tokens is not None:
             self._tokens.update(tokens)
         self._compact = compact
         self._points: list[ParetoPoint] = []
         self._selected_index: int | None = None
         self._hovered_index: int | None = None
+        self._interactive = True
+        self._title_note = ""
         self._ax = None
         self._hover_annot = None
 
@@ -205,9 +196,22 @@ class ParetoView(QWidget):
         return self._figure
 
     @property
+    def fig(self) -> Figure:
+        """Alias for ``figure`` matching MatplotlibCanvas export contracts."""
+        return self._figure
+
+    @property
     def canvas(self) -> FigureCanvasQTAgg:
         """Return the embedded Qt Matplotlib canvas."""
         return self._canvas
+
+    def draw(self) -> None:
+        """Render the embedded Matplotlib figure synchronously."""
+        self._canvas.draw()
+
+    def draw_idle(self) -> None:
+        """Schedule an asynchronous redraw of the embedded Matplotlib figure."""
+        self._canvas.draw_idle()
 
     @property
     def mode(self) -> str:
@@ -224,6 +228,9 @@ class ParetoView(QWidget):
         *,
         selected_index: int | None = None,
         mode: str | None = None,
+        interactive: bool = True,
+        title_note: str = "",
+        draw_now: bool = False,
     ) -> None:
         """Replace plotted history records and redraw the chart."""
         if mode is not None:
@@ -231,10 +238,20 @@ class ParetoView(QWidget):
                 raise ValueError(f"Unknown ParetoView mode {mode!r}; expected {_VALID_MODES}")
             self._mode = mode
         self._points = list(points)
+        self._interactive = bool(interactive)
+        self._title_note = str(title_note or "")
         valid_ids = {pt.index for pt in self._points}
         self._selected_index = selected_index if selected_index in valid_ids else None
         self._hovered_index = None
-        self._redraw()
+        self._redraw(draw_now=draw_now)
+
+    def is_interactive(self) -> bool:
+        """Return True when clicking points on the plot is enabled."""
+        return self._interactive and bool(self._points)
+
+    def set_interactive(self, enabled: bool) -> None:
+        """Enable or disable point picking (disabled while an optimization runs)."""
+        self._interactive = bool(enabled)
 
     def set_mode(self, mode: str) -> None:
         """Switch between ``heat_pressure`` and ``mass`` modes."""
@@ -328,7 +345,13 @@ class ParetoView(QWidget):
             f"换热 {val_unit(signed(pt.y, '+.3f'), '%')}"
         )
 
-    def _redraw(self, width: int | None = None, height: int | None = None) -> None:
+    def _redraw(
+        self,
+        width: int | None = None,
+        height: int | None = None,
+        *,
+        draw_now: bool = False,
+    ) -> None:
         t = self._tokens
         wp, hp = self._effective_size(width, height)
         compact = self._compact or wp < 860
@@ -352,7 +375,10 @@ class ParetoView(QWidget):
                     fontsize=13 * _PT,
                     color=t["sub"],
                 )
-                self._canvas.draw_idle()
+                if draw_now:
+                    self._canvas.draw()
+                else:
+                    self._canvas.draw_idle()
                 return
 
             left, right, top, bottom = (76, 26, 62, 52) if compact else (82, 30, 68, 56)
@@ -366,8 +392,20 @@ class ParetoView(QWidget):
             else:
                 self._draw_heat_pressure(ax, compact=compact)
 
+            if self._title_note:
+                ax.set_title(
+                    self._title_note,
+                    loc="right",
+                    fontsize=10.5 * _PT,
+                    color=t["sub"],
+                    pad=8,
+                )
+
             self._style_axes(ax)
-            self._canvas.draw_idle()
+            if draw_now:
+                self.draw()
+            else:
+                self.draw_idle()
 
     def _draw_heat_pressure(self, ax, *, compact: bool) -> None:
         t = self._tokens
@@ -944,7 +982,7 @@ class ParetoView(QWidget):
         return None
 
     def _on_press(self, event) -> None:
-        if event.button != 1:
+        if event.button != 1 or not self._interactive:
             return
         pt = self._nearest_point(event, _PICK_RADIUS_PX)
         if pt is None:

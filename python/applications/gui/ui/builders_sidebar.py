@@ -541,7 +541,8 @@ def refresh_stale_indicator(window) -> None:
     strip = getattr(window, "readout_strip", None)
     if strip is None:
         return
-    strip.set_stale(is_result_stale(window))
+    if _active_shell_page(window) in ("run", "result"):
+        strip.set_stale(is_result_stale(window))
 
 
 def refresh_result_sidebar(window) -> None:
@@ -704,50 +705,41 @@ def refresh_result_sidebar(window) -> None:
                 notice = ReadoutNotice("外推提示", first_reason, kind="warn")
             elif status_kind == "warn":
                 notice = ReadoutNotice("运行提示", warning_strip_summary(d), kind="warn")
-        strip.set_items(items)
-        strip.set_notice(notice)
-        strip.set_stale(is_result_stale(window))
+        window._single_run_readout_cache = (items, notice)
+        if _active_shell_page(window) in ("run", "result"):
+            strip.set_items(items)
+            strip.set_notice(notice)
+            strip.set_stale(is_result_stale(window))
+            window._readout_owner_page = _active_shell_page(window)
 
     refresh_header_status(window)
 
 
-def refresh_header_status(window) -> None:
-    """Update the header run-info trigger text and painted status dot."""
-    btn = getattr(window, "btn_run_info", None)
-    if btn is None:
-        return
+def _active_shell_page(window) -> str:
+    if (
+        getattr(window, "page_stack", None) is not None
+        and window.page_stack.currentWidget() is getattr(window, "quick_design", None)
+    ):
+        return "qd"
+    tab = window.workbench.active_tab
+    if tab == "pareto":
+        return "opt"
+    if tab in ("temp", "pres", "vel", "3d"):
+        return "result"
+    return "run"
 
+
+def _style_status_pill(btn: QPushButton, kind: str, label: str, *, menu_arrow: bool = True) -> None:
     theme = get_theme()
-    result = window.cache.get_result()
-    d = window.results.summary() if result is not None else {}
-    elapsed = recorded_elapsed_s(result)
-    dur = fmt_duration(elapsed) if isinstance(elapsed, (int, float)) else ""
-
-    if not window.single_run.is_idle():
-        dot_color = theme["accent_fg"]
-        text = "正在求解…"
-    else:
-        status_kind, _ = evaluate_result_status(result, d)
-        if status_kind == "idle" and result is None:
-            dot_color = theme["tert"]
-            text = "尚未计算"
-        elif status_kind == "err":
-            dot_color = theme["err"]
-            text = f"未收敛 · {dur}" if dur else "未收敛"
-        elif status_kind == "warn":
-            dot_color = theme["warn"]
-            prefix = "上次结果" if window.workbench.active_tab == "layout" else "完成"
-            text = f"{prefix} · 有提示 · {dur}" if dur else f"{prefix} · 有提示"
-        elif status_kind == "ok":
-            dot_color = theme["ok"]
-            prefix = "上次结果" if window.workbench.active_tab == "layout" else "完成"
-            text = f"{prefix} · {dur}" if dur else prefix
-        else:
-            dot_color = theme["tert"]
-            text = "状态未知"
-
-    btn.setIcon(_status_dot_icon(dot_color))
-    btn.setText(f"{text}  ▾")
+    color_key = {
+        "ok": "ok",
+        "warn": "warn",
+        "err": "err",
+        "run": "accent_fg",
+        "idle": "tert",
+    }.get(kind, "tert")
+    btn.setIcon(_status_dot_icon(theme[color_key]))
+    btn.setText(f"{label}  ▾" if menu_arrow else label)
     btn.setStyleSheet(
         f"QPushButton {{ background: {theme['panel']}; color: {theme['fg']}; "
         f"border: 1px solid {theme['border']}; border-radius: {RADIUS_BTN}px; "
@@ -756,22 +748,118 @@ def refresh_header_status(window) -> None:
     )
 
 
+def refresh_header_status(window) -> None:
+    """Update the header status pill and page-scoped header action buttons."""
+    page = _active_shell_page(window)
+    btn = getattr(window, "btn_run_info", None)
+    if btn is not None:
+        theme = get_theme()
+        result = window.cache.get_result()
+        d = window.results.summary() if result is not None else {}
+        elapsed = recorded_elapsed_s(result)
+        dur = fmt_duration(elapsed) if isinstance(elapsed, (int, float)) else ""
+
+        if not window.single_run.is_idle():
+            dot_color = theme["accent_fg"]
+            text = "正在求解…"
+        else:
+            status_kind, _ = evaluate_result_status(result, d)
+            if status_kind == "idle" and result is None:
+                dot_color = theme["tert"]
+                text = "尚未计算"
+            elif status_kind == "err":
+                dot_color = theme["err"]
+                text = f"未收敛 · {dur}" if dur else "未收敛"
+            elif status_kind == "warn":
+                dot_color = theme["warn"]
+                prefix = "上次结果" if window.workbench.active_tab == "layout" else "完成"
+                text = f"{prefix} · 有提示 · {dur}" if dur else f"{prefix} · 有提示"
+            elif status_kind == "ok":
+                dot_color = theme["ok"]
+                prefix = "上次结果" if window.workbench.active_tab == "layout" else "完成"
+                text = f"{prefix} · {dur}" if dur else prefix
+            else:
+                dot_color = theme["tert"]
+                text = "状态未知"
+
+        btn.setIcon(_status_dot_icon(dot_color))
+        btn.setText(f"{text}  ▾")
+        btn.setStyleSheet(
+            f"QPushButton {{ background: {theme['panel']}; color: {theme['fg']}; "
+            f"border: 1px solid {theme['border']}; border-radius: {RADIUS_BTN}px; "
+            "padding: 0 10px; font-size: 9.5pt; font-weight: 500; }"
+            f"QPushButton:hover {{ background: {theme['hover']}; border-color: {theme['border_strong']}; }}"
+        )
+
+    opt = getattr(window, "optimization", None)
+    if opt is not None and hasattr(opt, "header_widgets"):
+        opt_badge, opt_resume, opt_pause, opt_cancel, opt_start = opt.header_widgets()
+        on_opt = page == "opt"
+        opt_running = not opt.is_idle()
+        kind, label = opt.status_badge_spec()
+        _style_status_pill(opt_badge, kind, label, menu_arrow=True)
+        opt_badge.setVisible(on_opt)
+        opt_resume.setVisible(on_opt)
+        opt_start.setVisible(on_opt and not opt_running)
+        opt_pause.setVisible(on_opt and opt_running)
+        opt_cancel.setVisible(on_opt and opt_running)
+        if on_opt and hasattr(window, "btn_export"):
+            window.btn_export.setVisible(opt.has_exportable_result())
+
+    qd = getattr(window, "quick_design", None)
+    if qd is not None and hasattr(qd, "header_widgets"):
+        qd_badge, qd_export, qd_cancel, qd_run = qd.header_widgets()
+        on_qd = page == "qd"
+        qd_running = not qd.is_idle()
+        kind, label = qd.status_badge_spec()
+        _style_status_pill(qd_badge, kind, label, menu_arrow=False)
+        qd_badge.setVisible(on_qd)
+        qd_export.setVisible(on_qd)
+        qd_run.setVisible(on_qd and not qd_running)
+        qd_cancel.setVisible(on_qd and qd_running)
+
+
 def update_result_sidebar_visibility(window) -> None:
-    """Show the bottom readout strip on case and result sheets when results exist."""
+    """Show the bottom readout strip on case, result, optimization, and Quick Design pages."""
     strip = getattr(window, "readout_strip", None)
     if strip is None:
         return
-    in_qd = (
-        getattr(window, "page_stack", None) is not None
-        and window.page_stack.currentWidget() is window.quick_design
-    )
-    tab = window.workbench.active_tab
-    on_case_or_result = (not in_qd) and tab in ("layout", "temp", "pres", "vel", "3d")
-    has_result = window.cache.has_any_results()
+    page = _active_shell_page(window)
+    focused = window.appearance.is_focused()
+
     toggle = getattr(window, "btn_result_summary", None)
+    has_result = window.cache.has_any_results()
     if toggle is not None:
-        toggle.setVisible(bool(tab in ("temp", "pres", "vel", "3d") and has_result and not in_qd))
+        toggle.setVisible(bool(page == "result" and has_result))
+
+    if page == "opt":
+        opt = getattr(window, "optimization", None)
+        items, notice = opt.readout_spec() if opt is not None else ([], None)
+        strip.set_items(items)
+        strip.set_notice(notice)
+        strip.set_stale(False)
+        window._readout_owner_page = "opt"
+        strip.setVisible(bool(items) and not focused)
+        return
+
+    if page == "qd":
+        qd = getattr(window, "quick_design", None)
+        items, notice = qd.readout_spec() if qd is not None else ([], None)
+        strip.set_items(items)
+        strip.set_notice(notice)
+        strip.set_stale(False)
+        window._readout_owner_page = "qd"
+        strip.setVisible(bool(items) and not focused)
+        return
+
+    if getattr(window, "_readout_owner_page", "run") in ("opt", "qd"):
+        cached = getattr(window, "_single_run_readout_cache", None)
+        if cached is not None:
+            items, notice = cached
+            strip.set_items(items)
+            strip.set_notice(notice)
+            strip.set_stale(is_result_stale(window))
+        window._readout_owner_page = page
+
     summary_on = True if toggle is None else toggle.isChecked()
-    strip.setVisible(
-        bool(on_case_or_result and has_result and summary_on and not window.appearance.is_focused())
-    )
+    strip.setVisible(bool(has_result and summary_on and not focused))

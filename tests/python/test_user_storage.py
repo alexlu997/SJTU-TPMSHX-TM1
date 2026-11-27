@@ -67,6 +67,19 @@ def test_appearance_uses_user_read_write_location_without_legacy_scan(user_locat
     assert not (legacy / '.density').exists()
     assert not (legacy / 'ui' / 'mixins' / '.accent').exists()
 
+    inspector_payload = json.dumps({
+        'run': {'open': True, 'tab': 0},
+        'result': {'open': False, 'tab': 0},
+        'opt': {'open': True, 'tab': 1},
+        'qd': {'open': False, 'tab': 0},
+    }, sort_keys=True)
+    assert user_storage.save_appearance_setting('inspector', inspector_payload)
+    assert user_storage.load_appearance_settings()['inspector'] == inspector_payload
+    with pytest.raises(ValueError):
+        user_storage.save_appearance_setting(
+            'inspector', json.dumps({'unknown': {'open': True, 'tab': 0}})
+        )
+
 
 def test_colormap_and_reduced_motion_preferences_roundtrip_and_validate(user_locations):
     from sjtu_tpmshx.applications.gui.ui.microanim import (

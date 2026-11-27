@@ -42,6 +42,24 @@ def test_page_reads_launch_control_and_keeps_results_between_visits(win, monkeyp
         assert page.last_result is result and page._qd_table.rowCount() == 1
     assert limits == [1, None]
 
+    # Style P2 Quick Design: drawer closed by default, peek card visible on chart view when closed.
+    from PySide6.QtWidgets import QApplication, QPushButton
+    win.btn_quick_design.click()
+    QApplication.processEvents()
+    assert not win.appearance.is_drawer_open('qd')
+    assert not win.inspector_drawer.isVisibleTo(win)
+    page.select_view_tab(1)
+    QApplication.processEvents()
+    assert page.peek_card.isVisibleTo(page)
+    detail_btn = next(b for b in page.peek_card.findChildren(QPushButton) if '详情' in b.text())
+    detail_btn.click()
+    QApplication.processEvents()
+    assert win.appearance.is_drawer_open('qd')
+    assert win.inspector_drawer.strip_index() == 1
+    assert not page.peek_card.isVisibleTo(page)
+    win.appearance.set_drawer_open(False, page_key='qd')
+    page.select_view_tab(0)
+
 
 @pytest.mark.parametrize('frozen', [False, True])
 def test_worker_auto_calls_backend_and_emits(make_page, monkeypatch, frozen):
