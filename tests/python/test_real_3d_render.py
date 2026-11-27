@@ -1,4 +1,4 @@
-"""Check the actual 3D panel and PNG export in a separate Qt process."""
+"""Check the actual 3D panel and unified overlay PNG export in a separate Qt process."""
 from pathlib import Path
 import os
 import subprocess
@@ -15,7 +15,7 @@ def _render_panel(destination):
     from PIL import Image
     import pyvista as pv
     from PySide6.QtCore import QCoreApplication, QEvent, QEventLoop, QTimer
-    from PySide6.QtWidgets import QApplication, QFileDialog
+    from PySide6.QtWidgets import QApplication
 
     platform = 'cocoa' if sys.platform == 'darwin' else 'windows'
     app = QApplication(['render-check', '-platform', platform])
@@ -33,10 +33,11 @@ def _render_panel(destination):
         panel.show()
         print('3D panel shown', flush=True)
         x, y, z = np.indices((8, 6, 4), dtype=float)
-        panel.set_fields(Ta=300 + x + 2*y + 3*z, Ts=340 - 2*x + y - z,
+        panel.set_fields(Ta=300 + x + 2 * y + 3 * z, Ts=340 - 2 * x + y - z,
                          dx=np.full(8, .001), dy=np.full(6, .001), dz=np.full(4, .001))
+        assert panel.display_mode() == 'surface'
         assert panel._volume_actor is not None
-        print('Volume ready', flush=True)
+        print('Outer-surface 3D scene ready', flush=True)
         context = {'qt_platform': platform,
                    'render_window': panel.plotter.ren_win.GetClassName(),
                    'capabilities': panel.plotter.ren_win.ReportCapabilities()}
@@ -57,36 +58,87 @@ def _render_panel(destination):
             print(f'Screenshot scale {scale}', flush=True)
             path = output / f'volume-{scale}.png'
             pixels = panel.plotter.screenshot(str(path), return_img=True, scale=scale)
-            assert pixels.shape == (height*scale, width*scale, 3)
+            assert pixels.shape == (height * scale, width * scale, 3)
             assert pixels.dtype == np.uint8
             with Image.open(path) as decoded:
                 np.testing.assert_array_equal(np.asarray(decoded), pixels)
-            # A nonblank image alone can pass when the framebuffer contains noise.
             assert np.max(np.abs(pixels[:10, :10].astype(float) - background)) <= 2
-            center = pixels[height*scale//4:3*height*scale//4,
-                            width*scale//4:3*width*scale//4]
+            center = pixels[height * scale // 4:3 * height * scale // 4,
+                            width * scale // 4:3 * width * scale // 4]
             assert float(center.std()) > 5
             assert np.max(np.abs(center.astype(float) - background)) > 20
             report['images'][str(scale)] = {'shape': list(pixels.shape),
-                                           'decoded_pixels_match': True}
+                                            'decoded_pixels_match': True}
             if scale == 1:
                 first = pixels
-        panel.combo_field.setCurrentIndex(panel.combo_field.findData('Ts'))
-        assert panel._field == 'Ts'
+        assert panel.select_field('Ts')
+        assert panel.active_field() == 'Ts'
         QTimer.singleShot(100, loop.quit)
         loop.exec()
         changed = panel.plotter.screenshot(str(output / 'solid.png'), return_img=True)
-        center = np.s_[height//4:3*height//4, width//4:3*width//4]
+        center = np.s_[height // 4:3 * height // 4, width // 4:3 * width // 4]
         difference = int(np.count_nonzero(first[center] != changed[center]))
         assert difference > 100
         report['changed_center_values'] = difference
+
+        # Unified capture composites VTK pixels with StudioColorbarCard and port chips
+        # through the formal ResultExport.export_figure() path.
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from sjtu_tpmshx.applications.gui.ui import result_export
+        from sjtu_tpmshx.applications.gui.ui.theme import set_cmap
+
+        captured = panel.capture_image()
         export = output / 'application-export.png'
-        with patch.object(QFileDialog, 'getSaveFileName',
-                          return_value=(str(export), 'PNG images (*.png)')):
-            panel._on_screenshot()
+        fake_window = SimpleNamespace(
+            canvas_temp=None, canvas_pres=None, canvas_vel=None, canvas_layout=None,
+            canvas_3d=panel,
+            cache=SimpleNamespace(get_drawn_tabs=lambda: set(), get_result=lambda _k: None),
+            workbench=SimpleNamespace(volume_ready=True, active_tab='3d'),
+            optimization=SimpleNamespace(
+                pareto_canvas=None, field_canvas=None, volume_panel=None,
+                pareto_ready=lambda: False, field_ready=lambda: False, volume_ready=lambda: False,
+            ),
+            dialogs=SimpleNamespace(notify=Mock()),
+        )
+        exporter = result_export.ResultExport(fake_window)
+        with patch.object(result_export.QInputDialog, 'getItem', return_value=('三维视图', True)), \
+             patch.object(result_export.QFileDialog, 'getSaveFileName',
+                          return_value=(str(export), 'PNG 图像 (*.png)')):
+            exporter.export_figure()
         with Image.open(export) as decoded:
-            np.testing.assert_array_equal(np.asarray(decoded), changed)
+            exported_arr = np.asarray(decoded)
+        captured_ref = output / 'captured-ref.png'
+        assert captured.save(str(captured_ref), 'PNG')
+        with Image.open(captured_ref) as decoded_ref:
+            np.testing.assert_array_equal(exported_arr, np.asarray(decoded_ref))
+        assert exported_arr.shape == changed.shape
+        assert int(np.count_nonzero(exported_arr != changed)) > 100
+        # Exported axes triad uses Times New Roman and differs from the on-screen sans-serif triad.
+        triad_box = np.s_[int(height * 0.72):, :int(width * 0.16)]
+        triad_diff = int(np.count_nonzero(exported_arr[triad_box] != changed[triad_box]))
+        assert triad_diff > 20
+        report['export_triad_pixel_diff'] = triad_diff
         report['application_export_pixels_match'] = True
+
+        # B01 regression: hidden-panel colormap update must render synchronously before capture.
+        panel.hide()
+        QTimer.singleShot(50, loop.quit)
+        loop.exec()
+        assert panel.plotter.suppress_rendering is True
+        try:
+            set_cmap('temperature', 'cividis')
+            panel.refresh_colormaps()
+            hidden_export = output / 'hidden-cividis.png'
+            assert panel.capture_image().save(str(hidden_export), 'PNG')
+            assert panel.plotter.suppress_rendering is True
+            with Image.open(hidden_export) as decoded_hidden:
+                hidden_arr = np.asarray(decoded_hidden)
+            hidden_center_diff = int(np.count_nonzero(hidden_arr[center] != exported_arr[center]))
+            assert hidden_center_diff > 100
+            report['hidden_colormap_center_diff'] = hidden_center_diff
+        finally:
+            set_cmap('temperature', None)
     finally:
         print('Close 3D panel', flush=True)
         panel.cleanup()

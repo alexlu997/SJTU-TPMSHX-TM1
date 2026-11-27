@@ -1,27 +1,44 @@
 """Floating colormap and scale popover (色阶) in Style P2."""
 from __future__ import annotations
 
+from math import isfinite
 from typing import Any, Mapping, Sequence
 
 import matplotlib as mpl
 from PySide6.QtCore import QByteArray, QPoint, QPointF, QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QIcon, QLinearGradient, QPainter, QPen, QPixmap
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QDoubleValidator,
+    QFont,
+    QIcon,
+    QLinearGradient,
+    QPainter,
+    QPen,
+    QPixmap,
+)
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QAbstractButton,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
-from sjtu_tpmshx.applications.gui.ui.theme import get_theme
+from sjtu_tpmshx.applications.gui.ui.theme import RADIUS_BTN, get_theme
 
 POPOVER_WIDTH = 298
 CURATED_COLORMAPS: tuple[str, ...] = ("coolwarm", "turbo", "viridis", "cividis")
+_RANGE_MODE_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("global", "全场"),
+    ("local", "截面"),
+    ("custom", "自定义"),
+)
 
 _ICON_PATHS: dict[str, str] = {
     "check": '<path d="M20 6 9 17l-5-5"/>',
@@ -123,11 +140,13 @@ class ToggleSwitch(QAbstractButton):
 
 
 class ColormapPopover(QFrame):
-    """Floating popover for selecting a curated colormap and scale sharing options."""
+    """Floating popover for selecting a curated colormap and scale options."""
 
     colormap_selected = Signal(str)
     sync_temp_scale_changed = Signal(bool)
     shared_pressure_scale_changed = Signal(bool)
+    range_mode_changed = Signal(str)
+    custom_range_changed = Signal(float, float)
     reset_requested = Signal()
 
     def __init__(
@@ -150,6 +169,15 @@ class ColormapPopover(QFrame):
         self._current_colormap = current_colormap
         self._sync_temp_scale = sync_temp_scale
         self._shared_pressure_scale = shared_pressure_scale
+        self._show_range_controls = False
+        self._range_mode = "global"
+        self._custom_range: tuple[float, float] = (0.0, 1.0)
+        self._unit_label = ""
+        self._range_mode_btns: dict[str, QPushButton] = {}
+        self._range_min_edit: QLineEdit | None = None
+        self._range_max_edit: QLineEdit | None = None
+        self._range_unit_label: QLabel | None = None
+        self._reset_btn: QPushButton | None = None
 
         self.setObjectName("colormapPopover")
         self.setFixedWidth(POPOVER_WIDTH)
@@ -190,6 +218,25 @@ class ColormapPopover(QFrame):
     def set_shared_pressure_scale(self, enabled: bool) -> None:
         """Set the shared pressure scale switch state."""
         self._shared_pressure_scale = enabled
+        self._rebuild()
+
+    def range_mode(self) -> str:
+        """Return the active 3D color-range mode (``'global'``, ``'local'``, or ``'custom'``)."""
+        return self._range_mode
+
+    def set_range_controls(
+        self,
+        *,
+        visible: bool,
+        mode: str = "global",
+        limits: tuple[float, float] = (0.0, 1.0),
+        unit: str = "",
+    ) -> None:
+        """Configure the 3D color-range selector and custom Min/Max inputs."""
+        self._show_range_controls = bool(visible)
+        self._range_mode = mode
+        self._custom_range = (float(limits[0]), float(limits[1]))
+        self._unit_label = unit
         self._rebuild()
 
     def apply_theme(self, tokens: Mapping[str, Any]) -> None:
@@ -259,6 +306,133 @@ class ColormapPopover(QFrame):
     def _on_reset_clicked(self) -> None:
         self.reset_requested.emit()
 
+    def _on_range_mode_clicked(self, mode: str) -> None:
+        if mode == self._range_mode:
+            return
+        self._range_mode = mode
+        self._rebuild()
+        self.range_mode_changed.emit(mode)
+
+    def _on_custom_range_edited(self) -> None:
+        if self._range_min_edit is None or self._range_max_edit is None:
+            return
+        try:
+            lo = float(self._range_min_edit.text())
+            hi = float(self._range_max_edit.text())
+        except ValueError:
+            self._write_custom_range_edits()
+            return
+        if not (isfinite(lo) and isfinite(hi) and hi > lo):
+            self._write_custom_range_edits()
+            return
+        self._custom_range = (lo, hi)
+        self._write_custom_range_edits()
+        self.custom_range_changed.emit(lo, hi)
+
+    def _write_custom_range_edits(self) -> None:
+        if self._range_min_edit is None or self._range_max_edit is None:
+            return
+        for edit, val in (
+            (self._range_min_edit, self._custom_range[0]),
+            (self._range_max_edit, self._custom_range[1]),
+        ):
+            edit.blockSignals(True)
+            edit.setText(f"{val:.6g}")
+            edit.blockSignals(False)
+
+    def _add_range_mode_row(self) -> None:
+        t = self._tokens
+        row = QFrame()
+        row.setFixedHeight(34)
+        row.setStyleSheet("background: transparent; border: none;")
+        hl = QHBoxLayout(row)
+        hl.setContentsMargins(10, 0, 8, 0)
+        hl.setSpacing(8)
+
+        lbl = QLabel("范围")
+        lbl.setStyleSheet(
+            f"color: {t['fg']}; font-size: 12px; font-weight: 400; background: transparent;"
+        )
+        hl.addWidget(lbl)
+        hl.addStretch(1)
+
+        seg = QFrame()
+        seg.setStyleSheet(
+            f"QFrame {{ background: {t['sunken']}; border: none; border-radius: {RADIUS_BTN}px; }}"
+        )
+        sl = QHBoxLayout(seg)
+        sl.setContentsMargins(2, 2, 2, 2)
+        sl.setSpacing(2)
+        for key, text in _RANGE_MODE_OPTIONS:
+            btn = QPushButton(text)
+            btn.setObjectName(f"rangeMode_{key}")
+            btn.setFixedHeight(22)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            if key == self._range_mode:
+                btn.setStyleSheet(
+                    f"QPushButton {{ background: {t['seg_on']}; color: {t['fg']}; "
+                    f"border: 1px solid {t['border']}; border-radius: 5px; "
+                    "padding: 0 8px; font-size: 12px; font-weight: 600; }"
+                )
+            else:
+                btn.setStyleSheet(
+                    f"QPushButton {{ background: transparent; color: {t['sub']}; "
+                    "border: none; border-radius: 5px; padding: 0 8px; "
+                    "font-size: 12px; font-weight: 400; }"
+                    f"QPushButton:hover {{ color: {t['fg']}; }}"
+                )
+            btn.clicked.connect(lambda _=False, mode_key=key: self._on_range_mode_clicked(mode_key))
+            sl.addWidget(btn)
+            self._range_mode_btns[key] = btn
+        hl.addWidget(seg)
+        self._layout.addWidget(row)
+
+    def _add_custom_range_row(self) -> None:
+        t = self._tokens
+        row = QFrame()
+        row.setFixedHeight(32)
+        row.setStyleSheet("background: transparent; border: none;")
+        hl = QHBoxLayout(row)
+        hl.setContentsMargins(10, 0, 8, 2)
+        hl.setSpacing(6)
+
+        edit_qss = (
+            f"QLineEdit {{ background: {t['canvas']}; border: 1px solid {t['inp_border']}; "
+            f"border-radius: 5px; min-height: 24px; max-height: 24px; padding: 0 6px; "
+            f"font-size: 12px; color: {t['fg']}; }}"
+            f"QLineEdit:focus {{ border: 1px solid {t['accent']}; }}"
+        )
+
+        def _make_edit(name: str, val: float) -> QLineEdit:
+            edit = QLineEdit(f"{val:.6g}")
+            edit.setObjectName(name)
+            edit.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            edit.setValidator(QDoubleValidator(-1e12, 1e12, 6, edit))
+            font = edit.font()
+            font.setFeature(QFont.Tag("tnum"), 1)
+            edit.setFont(font)
+            edit.setStyleSheet(edit_qss)
+            edit.editingFinished.connect(self._on_custom_range_edited)
+            return edit
+
+        self._range_min_edit = _make_edit("rangeMinInput", self._custom_range[0])
+        self._range_max_edit = _make_edit("rangeMaxInput", self._custom_range[1])
+
+        dash = QLabel("–")
+        dash.setStyleSheet(f"color: {t['tert']}; font-size: 12px; background: transparent;")
+
+        hl.addWidget(self._range_min_edit, 1)
+        hl.addWidget(dash)
+        hl.addWidget(self._range_max_edit, 1)
+        if self._unit_label:
+            unit = QLabel(self._unit_label)
+            unit.setStyleSheet(
+                f"color: {t['tert']}; font-size: 11.5px; background: transparent;"
+            )
+            hl.addWidget(unit)
+            self._range_unit_label = unit
+        self._layout.addWidget(row)
+
     def _add_toggle_row(self, text: str, checked: bool, slot) -> None:
         t = self._tokens
         row = QFrame()
@@ -288,6 +462,11 @@ class ColormapPopover(QFrame):
 
     def _rebuild(self) -> None:
         self._clear_layout()
+        self._range_mode_btns = {}
+        self._range_min_edit = None
+        self._range_max_edit = None
+        self._range_unit_label = None
+        self._reset_btn = None
         t = self._tokens
 
         header = f"色阶 · {self._quantity_label}" if self._quantity_label else "色阶"
@@ -344,6 +523,10 @@ class ColormapPopover(QFrame):
         self._add_toggle_row(
             "压力共用色阶", self._shared_pressure_scale, self._on_shared_pressure_toggled
         )
+        if self._show_range_controls:
+            self._add_range_mode_row()
+            if self._range_mode == "custom":
+                self._add_custom_range_row()
 
         self._add_separator()
         reset_btn = QPushButton()
@@ -371,6 +554,7 @@ class ColormapPopover(QFrame):
         rhl.addWidget(rlbl)
         rhl.addStretch(1)
         reset_btn.clicked.connect(self._on_reset_clicked)
+        self._reset_btn = reset_btn
         self._layout.addWidget(reset_btn)
 
         self.adjustSize()

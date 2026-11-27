@@ -144,6 +144,7 @@ def test_extrapolation_watermarks_name_recorded_model_without_constdf(win, mode)
         seen = {}
         win.canvas_3d = SimpleNamespace(
             cleanup=lambda: None, color_range_state=lambda: {},
+            set_scale_sharing=lambda **kw: None,
             set_fields=lambda **kw: seen.update(kw),
             set_watermark=lambda text: seen.__setitem__('watermark', text),
         )

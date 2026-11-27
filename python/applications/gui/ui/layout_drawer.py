@@ -174,7 +174,7 @@ def draw_layout(window, *, switch_tab: bool = True):
             canvas.wheelEvent = canvas._orig_wheel_event
         ax = canvas.fig.add_subplot(111)
         window.canvas_layout.axes = [[ax]]
-        draw_layout_rect(window, ax, L, H, Lmm, Hmm)
+        draw_layout_rect(window, ax, Lmm, Hmm)
         ax.set_xlabel(MPL["x_mm"], color=theme["ax_text"])
         ax.set_ylabel(MPL["y_mm"], color=theme["ax_text"])
         ax.set_aspect("equal")
@@ -195,17 +195,10 @@ def draw_layout(window, *, switch_tab: bool = True):
     QTimer.singleShot(0, window.canvas_layout, window.canvas_layout.draw_idle)
 
 
-def draw_layout_rect(window, ax, L, H, Lmm, Hmm):
+def draw_layout_rect(window, ax, Lmm, Hmm):
     """Draw the 2D computational domain, ports, arrows, and optional zones."""
     theme = get_theme()
     from matplotlib.patches import Rectangle
-
-    try:
-        cfgA = window._fluid_config("A")
-        cfgB = window._fluid_config("B")
-    except ValueError:
-        cfgA = dict(dir=0, in_ctr=H / 2, in_w=H, out_ctr=H / 2, out_w=H)
-        cfgB = dict(dir=3, in_ctr=L / 2, in_w=L, out_ctr=L / 2, out_w=L)
 
     ax.add_patch(Rectangle((0, 0), Lmm, Hmm, fill=False, ec=theme["ax_text"], lw=1.8))
 
@@ -237,11 +230,6 @@ def draw_layout_rect(window, ax, L, H, Lmm, Hmm):
                 tag, xy=(ctr, Hmm + 3.5), fontsize=8, color=color, ha="center", va="bottom", fontweight="bold"
             )
 
-    _draw_pipe(cfgA, "A", theme["inlet_color"], True)
-    _draw_pipe(cfgA, "A", theme["inlet_color"], False)
-    _draw_pipe(cfgB, "B", theme["outlet_color"], True)
-    _draw_pipe(cfgB, "B", theme["outlet_color"], False)
-
     cx, cy = Lmm / 2, Hmm / 2
 
     def _arrow(d, color):
@@ -256,8 +244,14 @@ def draw_layout_rect(window, ax, L, H, Lmm, Hmm):
         x0, y0, x1, y1 = arrows[d]
         ax.annotate("", xy=(x1, y1), xytext=(x0, y0), arrowprops=dict(arrowstyle="->", color=color, lw=1.5))
 
-    _arrow(cfgA["dir"], theme["inlet_color"])
-    _arrow(cfgB["dir"], theme["outlet_color"])
+    for side, color in (("A", theme["inlet_color"]), ("B", theme["outlet_color"])):
+        try:
+            cfg = window._fluid_config(side)
+        except ValueError:
+            continue
+        _draw_pipe(cfg, side, color, True)
+        _draw_pipe(cfg, side, color, False)
+        _arrow(cfg["dir"], color)
 
     if window.chk_zones.isChecked():
         z_ax = window._zone_axis()

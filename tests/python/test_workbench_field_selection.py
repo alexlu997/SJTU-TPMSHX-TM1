@@ -89,6 +89,8 @@ def test_frozen_b_temperature_remains_selectable_in_real_phase_controls():
         _field_phase_seg=host,
         _field_phase_btns=buttons,
         _phase_styles=('', ''),
+        _3d_design_field_btn=QPushButton('胞元 L', host),
+        _3d_wall_field_btn=QPushButton('壁厚 t', host),
         _result_view_switch=QFrame(host),
         btn_colormap=QPushButton('色阶', host),
         btn_view_result=QPushButton('查看计算结果', host),
