@@ -367,11 +367,9 @@ def convert_temp_decimal(value: Decimal, from_unit: TempUnit, to_unit: TempUnit)
 def temp_text_to_kelvin(text: str, unit: TempUnit) -> Decimal:
     """Read one inlet temperature text in the given unit and return kelvin."""
     raw = str(text).strip()
-    try:
-        # A signaling NaN passes Decimal() but raises InvalidOperation in the addition.
-        return convert_temp_decimal(Decimal(raw), unit, 'K')
-    except InvalidOperation as exc:
-        raise ValueError(f"could not convert string to float: {raw!r}") from exc
+    # Compute and Save read this text with float(). Accept the same syntax, then convert the exact Decimal.
+    float(raw)
+    return convert_temp_decimal(Decimal(raw), unit, 'K')
 
 
 def kelvin_to_display(kelvin, unit: TempUnit):

@@ -61,7 +61,7 @@ def _render_2d_thumbnail_axes(window, fig) -> bool:
     else:
         lo, hi = field_color_limits([Ta], shared=True)[0]
     lo, hi = kelvin_to_display(lo, u), kelvin_to_display(hi, u)
-    data = kelvin_to_display(np.asarray(Ta, dtype=float), u)
+    data = kelvin_to_display(Ta, u)
 
     theme = get_theme()
     inset = fig.add_axes([0.11, 0.10, 0.76, 0.27])

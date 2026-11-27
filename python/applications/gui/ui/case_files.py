@@ -55,6 +55,14 @@ def shanghai_field_defaults(*, is_3d: bool) -> dict[str, str]:
     return values
 
 
+def _converted_temp_text(text: str, from_unit, to_unit) -> str:
+    """Convert inlet text exactly. Keep a nonfinite text for preset validation, which names the field."""
+    kelvin = temp_text_to_kelvin(text, from_unit)
+    if not kelvin.is_finite():
+        return text
+    return _format_decimal_exact(convert_temp_decimal(kelvin, 'K', to_unit))
+
+
 class CaseFiles:
     def __init__(self, window):
         self.window = window
@@ -159,8 +167,8 @@ class CaseFiles:
             if unit != window._temp_unit:
                 for name in ('le_TinA', 'le_TinB'):
                     if name not in preset.get('line_edits', {}) and getattr(window, name).text().strip():
-                        merged['line_edits'][name] = _format_decimal_exact(convert_temp_decimal(
-                            temp_text_to_kelvin(getattr(window, name).text(), window._temp_unit), 'K', unit))
+                        merged['line_edits'][name] = _converted_temp_text(
+                            getattr(window, name).text(), window._temp_unit, unit)
             for name, value in preset.items():
                 if name in ('line_edits', 'combos', 'checks'):
                     merged[name].update(value)
@@ -733,10 +741,9 @@ class CaseFiles:
         edits = restored.setdefault('line_edits', {})
         for name in ('le_TinA', 'le_TinB'):
             if name not in edits:
-                edits[name] = _format_decimal_exact(
-                    temp_text_to_kelvin(getattr(window, name).text(), window._temp_unit))
+                edits[name] = _converted_temp_text(getattr(window, name).text(), window._temp_unit, 'K')
             elif saved_unit == 'C' and str(edits[name]).strip():
-                edits[name] = _format_decimal_exact(temp_text_to_kelvin(str(edits[name]), 'C'))
+                edits[name] = _converted_temp_text(str(edits[name]), 'C', 'K')
         restored['temp_unit'] = 'K'
         notice = self.apply_user_preset(
             restored, show_notice=False, source_name=payload.get('preset_source') or '')
