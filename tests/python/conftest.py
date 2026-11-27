@@ -43,10 +43,12 @@ import sjtu_tpmshx  # noqa: F401 — verify the current checkout is importable
 # Skipped silently when PySide6 is unavailable (rare; sentinel CI envs).
 _app = None
 try:
+    import gc as _gc
+    _gc.disable()
     from PySide6.QtWidgets import QApplication as _QApp
     _app = _QApp.instance() or _QApp(['pytest', '-platform', 'offscreen'])
 except Exception:
-    pass
+    _gc.enable()
 if _app is not None:
     from sjtu_tpmshx.applications.gui.controllers import main_thread_gc as _main_thread_gc
     _main_thread_gc.install(_app)

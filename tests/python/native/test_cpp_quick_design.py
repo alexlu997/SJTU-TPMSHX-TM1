@@ -768,6 +768,7 @@ def test_real_qt_worker_native_sizing_and_terminal_signals(native_control, tmp_p
         '1,air,688.23,1088.7,0.2855,water,320,200,0.5,0.03,0.00002,0.05\n')
     # Check the real worker in a fresh process to audit its imports.
     code = '''
+import gc
 import json
 import math
 import sys
@@ -777,11 +778,13 @@ from unittest.mock import patch
 
 from PySide6.QtCore import QObject, Slot
 from PySide6.QtWidgets import QApplication
+from sjtu_tpmshx.applications.gui.controllers import main_thread_gc
 from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.solvers import api
 from sjtu_tpmshx.applications.gui.ui.quick_design_job import QuickDesignJob
 
 app = QApplication(['native-qd-worker', '-platform', 'offscreen'])
+main_thread_gc.install(app)
 source, library, termination = sys.argv[1:]
 main_thread = get_ident()
 progress, callback_threads, calls, native_results = [], [], [], []
@@ -849,6 +852,7 @@ def traced_run(case, control):
 
 # Use the fixed production Quick grid for real worker completion.
 with patch.object(api, 'run_case', traced_run):
+    assert not gc.isenabled()
     started = time.monotonic()
     worker.start()
     # The fixed production grid can exceed 50 seconds on Windows CI.

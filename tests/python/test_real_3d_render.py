@@ -19,6 +19,8 @@ def _render_panel(destination):
 
     platform = 'cocoa' if sys.platform == 'darwin' else 'windows'
     app = QApplication(['render-check', '-platform', platform])
+    from sjtu_tpmshx.applications.gui.controllers import main_thread_gc
+    main_thread_gc.install(app)
     from sjtu_tpmshx.applications.gui.ui.panel_vis_3d import ThreeDVisPanel
 
     assert app.platformName() == platform
