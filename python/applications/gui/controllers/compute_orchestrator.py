@@ -23,8 +23,7 @@ import traceback
 from collections import deque
 from typing import Callable, Optional
 
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Qt, Signal, Slot
-from sjtu_tpmshx.applications.gui.controllers import main_thread_gc
+from PySide6.QtCore import QObject, QRunnable, QThreadPool, Qt, Signal, Slot
 from sjtu_tpmshx.run_control.cancellation import CancelledError as _CancelledError
 from sjtu_tpmshx.run_control.paused_run import PausedRun
 from sjtu_tpmshx.run_control.logutil import capture_output
@@ -239,7 +238,6 @@ class ComputeOrchestrator(QObject):
         self._cancel_token: Optional[CancelToken] = None
         self._mode: Optional[str] = None
         self._is_running = False
-        self._gc_acquired = False
         # Latest run snapshot — populated when worker finishes / errors.
         self._last_result: object = None
         self._last_log: str = ""
@@ -292,9 +290,6 @@ class ComputeOrchestrator(QObject):
 
         runnable = _ComputeRunnable(self, worker_fn, cfg, self._cancel_token)
         self.started.emit(mode)
-        if not self._gc_acquired:
-            main_thread_gc.acquire()
-            self._gc_acquired = True
         self._pool.start(runnable)
         return True
 
@@ -309,22 +304,12 @@ class ComputeOrchestrator(QObject):
             self._cancel_token.cancel()
 
     def is_idle(self) -> bool:
-        """Publication is complete, every runnable has returned, and GC is released.
+        """Publication is complete and every runnable has actually returned.
 
         A terminal signal can arrive just before QRunnable.run() returns.
         Window teardown must wait for both without blocking the event loop.
         """
-        return not self._is_running and not self._gc_acquired and self._pool.waitForDone(0)
-
-    @Slot()
-    def _release_gc_if_idle(self) -> None:
-        if not self._gc_acquired or self._is_running:
-            return
-        if not self._pool.waitForDone(0):
-            QTimer.singleShot(10, self, self._release_gc_if_idle)
-            return
-        self._gc_acquired = False
-        main_thread_gc.release()
+        return not self._is_running and self._pool.waitForDone(0)
 
     def pause(self) -> None:
         """Request a saved pause at the next complete numerical boundary."""
@@ -342,7 +327,6 @@ class ComputeOrchestrator(QObject):
             self.finished.emit(result)
         finally:
             self._is_running = False
-            self._release_gc_if_idle()
 
     @Slot(str, str)
     def _on_worker_error(self, message: str, log: str):
@@ -351,7 +335,6 @@ class ComputeOrchestrator(QObject):
             self.error.emit(message, log)
         finally:
             self._is_running = False
-            self._release_gc_if_idle()
 
     @Slot(str, float)
     def _on_worker_cancelled(self, log: str, elapsed: float):
@@ -361,7 +344,6 @@ class ComputeOrchestrator(QObject):
             self.cancelled.emit(log)
         finally:
             self._is_running = False
-            self._release_gc_if_idle()
 
     @Slot(str, str, float)
     def _on_worker_paused(self, checkpoint_file: str, log: str, elapsed: float):
@@ -371,4 +353,3 @@ class ComputeOrchestrator(QObject):
             self.paused.emit(checkpoint_file, log)
         finally:
             self._is_running = False
-            self._release_gc_if_idle()

@@ -48,28 +48,21 @@ def enumerate_select(cases, arrangement="cross", nodes=None, rho_s=RHO_S,
                                                rho_s=rho_s, k_s=k_s, prop_model=prop_model,
                                                height=height, control=control))
         else:
-            from joblib import effective_n_jobs
-            from joblib.externals.loky import ProcessPoolExecutor
+            from joblib import Parallel, delayed, effective_n_jobs
             # Finish the active wave before honouring cancellation. Qt callbacks
             # remain in this process; no queued candidates launch after that wave.
             worker_control = RunControl(
                 backend=control.backend, native_library=control.native_library,
                 native_table_directory=control.native_table_directory, cpu_threads=control.cpu_threads)
             width = min(effective_n_jobs(n_jobs), len(combos))
-            # Shut down and join this search's executor before returning so no
-            # loky helper threads stay alive after a GUI Quick Design job exits.
-            with ProcessPoolExecutor(max_workers=width) as executor:
+            with Parallel(n_jobs=n_jobs, backend="loky") as parallel:
                 for start in range(0, len(combos), width):
                     control.check_cancelled()
-                    wave = [
-                        executor.submit(
-                            size_fixed_cell, cases, topo, l, t, arrangement,
-                            rho_s=rho_s, k_s=k_s, prop_model=prop_model,
-                            height=height, control=worker_control,
-                        )
-                        for topo, l, t in combos[start:start + width]
-                    ]
-                    results.extend([future.result() for future in wave])
+                    results.extend(parallel(
+                        delayed(size_fixed_cell)(cases, topo, l, t, arrangement,
+                                                 rho_s=rho_s, k_s=k_s, prop_model=prop_model,
+                                                 height=height, control=worker_control)
+                        for topo, l, t in combos[start:start + width]))
         control.check_cancelled()
     except CancelledError as exc:
         raise SelectionCancelled(results) from exc

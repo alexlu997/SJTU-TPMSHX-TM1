@@ -7,9 +7,7 @@ from threading import Event
 
 import numpy as np
 import pyvista as pv
-from PySide6.QtCore import QObject, QThreadPool, QTimer, Qt, Signal, Slot
-
-from sjtu_tpmshx.applications.gui.controllers import main_thread_gc
+from PySide6.QtCore import QObject, QThreadPool, Qt, Signal, Slot
 from scipy.interpolate import RegularGridInterpolator
 from vtkmodules.vtkFiltersCore import vtkStaticCleanPolyData
 
@@ -236,7 +234,6 @@ class LatticeBuilder(QObject):
         self._pool.setMaxThreadCount(1)
         self._generation = 0
         self._cancel = None
-        self._gc_acquired = False
         self._finished.connect(self._deliver, Qt.ConnectionType.QueuedConnection)
 
     def submit(self, request: LatticeRequest) -> int:
@@ -250,37 +247,24 @@ class LatticeBuilder(QObject):
                 mesh, retained = self.cache.build(
                     request, cancel, lambda i, name: self.progress.emit(generation, i, name))
             except CancelledError:
-                self._finished.emit(generation, None, False, '')
+                return
             except Exception as exc:
                 self._finished.emit(generation, None, False, str(exc))
             else:
                 self._finished.emit(generation, mesh, retained, '')
 
-        if not self._gc_acquired:
-            main_thread_gc.acquire()
-            self._gc_acquired = True
         self._pool.start(run)
         return generation
 
-    @Slot()
-    def _release_gc_if_idle(self):
-        if not self._gc_acquired or self._cancel is not None:
-            return
-        if not self._pool.waitForDone(0):
-            QTimer.singleShot(10, self, self._release_gc_if_idle)
-            return
-        self._gc_acquired = False
-        main_thread_gc.release()
-
     @Slot(int, object, bool, str)
     def _deliver(self, generation, mesh, retained, error):
-        if generation == self._generation and self._cancel is not None:
-            self._cancel = None
-            if mesh is None:
-                self.failed.emit(generation, error)
-            else:
-                self.ready.emit(generation, mesh, retained)
-        self._release_gc_if_idle()
+        if generation != self._generation or self._cancel is None:
+            return
+        self._cancel = None
+        if mesh is None:
+            self.failed.emit(generation, error)
+        else:
+            self.ready.emit(generation, mesh, retained)
 
     def cancel(self):
         if self._cancel is not None:
@@ -288,11 +272,9 @@ class LatticeBuilder(QObject):
             self._cancel = None
             self._pool.clear()
             self.cancelled.emit(self._generation)
-        self._release_gc_if_idle()
 
     def close(self):
         """Stop pending work before the panel releases the worker and its cache."""
         self.cancel()
         self._pool.waitForDone()
-        self._release_gc_if_idle()
         self.cache.clear()

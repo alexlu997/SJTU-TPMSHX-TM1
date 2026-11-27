@@ -1,7 +1,6 @@
 """Real Qt pool/window regressions; only expensive numerical work is stubbed."""
 from __future__ import annotations
 
-import gc
 from types import SimpleNamespace
 import threading
 import time
@@ -550,7 +549,6 @@ def test_close_waits_for_terminal_delivery_and_runnable_exit(win, monkeypatch, o
         assert win._close_pending and not win.isEnabled()
         _wait_for(lambda: not orch.is_running())
         assert not orch.is_idle(), 'terminal signal is not runnable completion'
-        assert not gc.isenabled()
         assert not win.close()
         assert isValid(win) and not writes
         assert not win._test_error_dialogs
@@ -558,7 +556,6 @@ def test_close_waits_for_terminal_delivery_and_runnable_exit(win, monkeypatch, o
         release.set()
     _wait_for(lambda: not isValid(win))
     assert not isValid(orch) and not isValid(cache)
-    assert gc.isenabled()
     assert not tail_errors, 'worker accessed a deleted QObject'
     assert len(saves) == 1 and len(dialogs) == (0 if save_ok else 1)
 
@@ -729,13 +726,11 @@ def test_auxiliary_task_close_keeps_thread_until_run_returns(win, monkeypatch, t
         _wait_for(lambda: worker.isInterruptionRequested())
         QApplication.processEvents()
         assert getattr(owner, attr) is worker and worker.isRunning()
-        assert not gc.isenabled()
         assert isValid(win) and isValid(worker)
         assert not win.close()
     finally:
         release.set()
     _wait_for(lambda: not isValid(win))
-    assert gc.isenabled()
 
 
 def test_quick_design_page_keeps_its_job_across_navigation(win, monkeypatch):

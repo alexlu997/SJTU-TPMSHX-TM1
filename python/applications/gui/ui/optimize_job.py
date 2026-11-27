@@ -7,8 +7,6 @@ from traceback import format_exception_only
 
 from PySide6.QtCore import QThread, QTimer, Qt, Signal, Slot
 
-from sjtu_tpmshx.applications.gui.controllers import main_thread_gc
-
 
 class OptimizationJob(QThread):
     progress = Signal(int)
@@ -26,10 +24,6 @@ class OptimizationJob(QThread):
         self._delivered = False
         self._terminal.connect(self._deliver, Qt.ConnectionType.QueuedConnection)
         self.finished.connect(self._release, Qt.ConnectionType.QueuedConnection)
-
-    def start(self, priority=QThread.Priority.InheritPriority):
-        main_thread_gc.acquire()
-        super().start(priority)
 
     def request_pause(self):
         self._pause.set()
@@ -70,6 +64,5 @@ class OptimizationJob(QThread):
         if not self._delivered or not self.wait(0):
             QTimer.singleShot(10, self, self._release)
             return
-        main_thread_gc.release()
         self.settled.emit()
         self.deleteLater()

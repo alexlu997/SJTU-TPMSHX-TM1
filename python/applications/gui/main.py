@@ -25,6 +25,8 @@ def main(argv=None):
     import os as _os_main
     _os_main.environ.setdefault('QT_ENABLE_HIGHDPI_SCALING', '1')
     app = QApplication.instance() or QApplication([sys.argv[0], *qt_args])
+    from sjtu_tpmshx.applications.gui.controllers import main_thread_gc
+    main_thread_gc.install(app)
 
     from sjtu_tpmshx.applications.gui.controllers.user_storage import load_appearance_settings
     from sjtu_tpmshx.applications.gui.ui.microanim import apply_saved_reduced_motion

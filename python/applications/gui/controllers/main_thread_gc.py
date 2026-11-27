@@ -1,4 +1,4 @@
-"""Keep cyclic garbage collection on the Qt main thread during worker runs.
+"""Keep cyclic garbage collection on the Qt main thread for the GUI process.
 
 Workaround for a PySide6/Shiboken6 6.12.0 defect: worker-thread cyclic GC can
 finalize main-thread wrappers and queue BindingManager::deleteInMainThread
@@ -11,36 +11,29 @@ import gc
 
 from PySide6.QtCore import QCoreApplication, QTimer
 
-_INTERVAL_MS = 5000
-_active = 0
+_TICK_MS = 1000
+_FULL_EVERY = 30
 _timer: QTimer | None = None
+_ticks = 0
 
 
-def acquire() -> None:
-    """Disable automatic cyclic GC on the first active worker and poll on the main thread."""
-    global _active, _timer
-    if _active == 0:
+def _collect() -> None:
+    global _ticks
+    _ticks += 1
+    if _ticks % _FULL_EVERY == 0:
         gc.collect()
-        gc.disable()
-        timer = QTimer(QCoreApplication.instance())
-        timer.setInterval(_INTERVAL_MS)
-        timer.timeout.connect(gc.collect)
-        timer.start()
-        _timer = timer
-    _active += 1
+    else:
+        gc.collect(1)
 
 
-def release() -> None:
-    """Stop the main-thread timer and re-enable automatic cyclic GC on the last worker."""
-    global _active, _timer
-    if _active == 0:
-        raise RuntimeError('main_thread_gc.release() called without matching acquire()')
-    _active -= 1
-    if _active == 0:
-        assert _timer is not None
-        timer = _timer
-        _timer = None
-        timer.stop()
-        timer.deleteLater()
-        gc.collect()
-        gc.enable()
+def install(app: QCoreApplication) -> None:
+    """Disable automatic cyclic GC and schedule periodic main-thread collection."""
+    global _timer
+    if _timer is not None:
+        return
+    gc.disable()
+    timer = QTimer(app)
+    timer.setInterval(_TICK_MS)
+    timer.timeout.connect(_collect)
+    timer.start()
+    _timer = timer

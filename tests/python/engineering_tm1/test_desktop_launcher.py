@@ -71,6 +71,20 @@ def test_desktop_gui_forwards_backend_and_qt_arguments(monkeypatch):
     assert calls == [args]
 
 
+def test_gui_app_disables_automatic_gc_with_main_thread_timer():
+    import gc
+    from PySide6.QtWidgets import QApplication
+    from sjtu_tpmshx.applications.gui.controllers import main_thread_gc
+
+    app = QApplication.instance()
+    assert app is not None
+    assert not gc.isenabled()
+    timer = main_thread_gc._timer
+    assert timer is not None and timer.isActive()
+    assert timer.interval() == 1000
+    assert timer.thread() is app.thread()
+
+
 def test_desktop_build_lock_covers_declared_builder():
     from pathlib import Path
     import tomllib

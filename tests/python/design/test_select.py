@@ -40,11 +40,6 @@ def test_failed_selection_preserves_completed_candidates(monkeypatch, tmp_path, 
         assert any(frame.name == 'candidate' for frame in caught.traceback)
     else:
         assert caught.value.__cause__ is not None  # Original loky remote traceback.
-        import threading
-        assert not any(
-            t.name in ('ExecutorManagerThread', 'QueueFeederThread')
-            for t in threading.enumerate()
-        )
 
 
 def test_selection_completed_buffer_belongs_to_one_run(monkeypatch):
