@@ -13,8 +13,8 @@ from sjtu_tpmshx.data_types.metric_spec import MetricSpec
 from sjtu_tpmshx.data_types.portable_data import mutable_data
 from sjtu_tpmshx.file_io.result_io import load_result, save_result
 from tests.python.result_stage_fixture import native_report, python_report, thaw
-from tests.python.test_conservative_energy_results import result_fixture
-from tests.python.test_temperature_face_results import temperature_fixture
+from tests.python.postprocess_tm1.test_conservative_energy_results import result_fixture
+from tests.python.postprocess_tm1.test_temperature_face_results import temperature_fixture
 
 
 @pytest.fixture(scope='module')

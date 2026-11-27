@@ -5,7 +5,7 @@
 runs/demo_output/
 runs/production_output/
 
-# Test-run artefact: regenerated every `pytest tests/test_shanghai_regression.py`
+# Historical output from the predecessor of tests/python/validation_tm1/test_shanghai_regression.py.
 validation/shanghai_3d_baseline_pytest_h3.csv
 
 # Retired local profiler flag; use TPMSHX_PROFILE_3D=1.

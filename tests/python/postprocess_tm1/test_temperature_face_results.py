@@ -7,7 +7,7 @@ import pytest
 from sjtu_tpmshx.data_types.portable_data import mutable_data
 from sjtu_tpmshx.file_io.result_io import load_result, save_result
 from sjtu_tpmshx.postprocess.api import evaluate
-from tests.python.test_conservative_energy_results import result_fixture
+from tests.python.postprocess_tm1.test_conservative_energy_results import result_fixture
 
 
 def temperature_fixture(dimension):
