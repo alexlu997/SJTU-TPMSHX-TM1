@@ -78,7 +78,7 @@ jobs:
           python-version: '3.13'
       - name: Identify the hosted image, Python, compilers, and SDK
         id: host
-        run: python engineering/scripts/ci_scope.py native-toolchain --os ${{ matrix.os }}
+        run: python -m engineering.scripts.ci_scope native-toolchain --os ${{ matrix.os }}
 
   native-runtime:
     needs: [scope, native-toolchains]
