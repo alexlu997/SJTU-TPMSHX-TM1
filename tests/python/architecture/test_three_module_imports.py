@@ -1,6 +1,6 @@
 """Check import boundaries, layer policy, and published module identity."""
 import ast
-from graphlib import CycleError, TopologicalSorter
+from graphlib import CycleError
 from pathlib import Path
 import subprocess
 import sys
@@ -90,43 +90,32 @@ def test_module_import_boundaries(source, forbidden):
             assert module != forbidden and not module.startswith(forbidden + '.'), f'{path}:{node.lineno}'
 
 
-def check_cycles(modules):
-    graph = {}
-    for module, path in modules.items():
-        package = module if path.name == '__init__.py' else module.rsplit('.', 1)[0]
-        graph[module] = {
-            target
-            for node in ast.walk(ast.parse(path.read_text(encoding='utf-8')))
-            for target in import_targets(node, package)
-            if target in modules
-        }
-    TopologicalSorter(graph).prepare()
-
-
-@pytest.mark.parametrize('owner', ['solvers', 'ui'])
+@pytest.mark.parametrize('owner', audit.CYCLE_OWNERS)
 def test_implementation_imports_have_no_cycles(owner):
-    modules = {
-        '.'.join(('sjtu_tpmshx', *path.relative_to(ROOT).with_suffix('').parts)).removesuffix('.__init__'): path
-        for path in ROOT.rglob('*.py') if unit_of(path) == owner
-    }
+    modules = audit.owner_modules(owner)
     assert modules, owner
-    check_cycles(modules)
+    audit.check_cycles(modules)
 
 
 def test_configuration_and_native_properties_have_no_import_cycle():
     names = ('data_types.compute_config', 'file_io.config_io', 'file_io.text_file',
              'cpp_interface._native_df', 'cpp_interface._native_properties')
-    check_cycles({'sjtu_tpmshx.' + name: ROOT.joinpath(*name.split('.')).with_suffix('.py')
+    audit.check_cycles({'sjtu_tpmshx.' + name: ROOT.joinpath(*name.split('.')).with_suffix('.py')
                   for name in names})
 
 
 def test_checker_detects_cycle_across_solver_directories(tmp_path):
-    api, stage = 'sjtu_tpmshx.solvers.api', 'sjtu_tpmshx.cpp_interface.full_2d_stage'
-    modules = {api: tmp_path / 'api.py', stage: tmp_path / 'full_2d_stage.py'}
-    modules[api].write_text(f'import {stage}', encoding='utf-8')
-    modules[stage].write_text(f'import {api}', encoding='utf-8')
-    with pytest.raises(CycleError):
-        check_cycles(modules)
+    api, stage, host = ('sjtu_tpmshx.solvers.api', 'sjtu_tpmshx.cpp_interface.full_2d_stage',
+                        'sjtu_tpmshx.solvers.full_2d')
+    imports = {(api, stage), (stage, host), (host, api)}
+    modules = {name: tmp_path / f'{name.rsplit(".", 1)[1]}.py' for name in (api, stage, host)}
+    for source, target in imports:
+        modules[source].write_text(f'import {target}', encoding='utf-8')
+    with pytest.raises(CycleError, match='cycle') as error:
+        audit.check_cycles(modules)
+    path = error.value.args[1]
+    # The reported path follows the import direction.
+    assert len(path) == 4 and set(zip(path, path[1:])) == imports
 
 
 # Each probe runs in a new interpreter so that this module's imports cannot fill sys.modules.

@@ -21,6 +21,7 @@ export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_TH
 "$PYTHON" -m ruff check .
 "$PYTHON" -m engineering.scripts.check_types --platform darwin
 "$PYTHON" -m engineering.scripts.check_types --platform win32
+"$PYTHON" -m sjtu_tpmshx.development.runs.tools.audit_import_graph --fail-on-violations
 "$PYTHON" -m pytest tests/python -q -ra -m "not slow and not heavy" --ignore=tests/python/integration_tm1 -n 2 --dist worksteal --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/fast.xml
 "$PYTHON" -m pytest tests/python/integration_tm1 -q -ra --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/integration.xml
 # 完整本地验收：没有 -m 过滤；按本机 CPU/内存可将 auto 换为固定 worker 数。
@@ -106,8 +107,9 @@ main 推送中仅纯文档变更使用 `docs`，手动触发始终使用 `full`�
 mypy 检查 envelope、三个阶段 API 及前处理 API 导入的 `_metadata` 模块中的无注解函数体。
 结果评估宿主、原生查询和证据打包模块也使用这项检查。
 `.github/workflows/ci.yml` 的 `scope` 作业对每个非 `docs` 层级的变更执行一次 `ruff check .`，
-并以 `--platform darwin` 和 `--platform win32` 执行 `engineering.scripts.check_types`。
-pytest 分片不执行 ruff 或 mypy。本地检查使用上面的命令。
+以 `--platform darwin` 和 `--platform win32` 执行 `engineering.scripts.check_types`，
+并执行 `audit_import_graph --fail-on-violations`。该审计也拒绝 `ui` 和 `solvers` 归属内的导入环，并输出环路径。
+pytest 分片不执行 ruff 或 mypy。本地检查使用上面的命令。审查和推送前，运行[轻量推送前检查](collaboration.zh-CN.md#同步与审查)。
 
 第一条 pytest 排除了 slow/heavy 和 `integration_tm1`，第二条单独完整执行该集成目录，
 避免重复执行其中的快测成员；两者不能代替第三条完整本地验收。

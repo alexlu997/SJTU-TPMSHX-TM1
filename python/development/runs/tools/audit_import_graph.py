@@ -9,6 +9,9 @@ Usage (from repo root):
     python -m sjtu_tpmshx.development.runs.tools.audit_import_graph
     python -m sjtu_tpmshx.development.runs.tools.audit_import_graph --fail-on-violations
 
+The audit also rejects import cycles between the modules of each owner in
+``CYCLE_OWNERS`` and prints the cycle path.
+
 The layer model below encodes the INTENDED dependency direction (lower may
 never import higher). validation/runs/tests are "free" consumers: they may
 import anything, but nothing outside their tier may import them.
@@ -18,6 +21,7 @@ from __future__ import annotations
 import ast
 import sys
 from collections import Counter, defaultdict
+from graphlib import CycleError, TopologicalSorter
 from importlib.util import resolve_name
 from pathlib import Path
 
@@ -551,6 +555,31 @@ def _stage_boundary_violations(path, tree, package):
         yield f"{path.relative_to(REPO)}:{line}: {label} boundary -> {target}"
 
 
+# Owners whose modules must have no import cycle. Module-level edges, not owner edges.
+CYCLE_OWNERS = ("solvers", "ui")
+
+
+def owner_modules(owner: str) -> dict[str, Path]:
+    return {'.'.join(('sjtu_tpmshx', *path.relative_to(PKG).with_suffix('').parts)).removesuffix('.__init__'): path
+            for path in PKG.rglob('*.py') if unit_of(path) == owner}
+
+
+def check_cycles(modules: dict[str, Path]) -> None:
+    """Raise CycleError when the modules import each other in a cycle.
+
+    args[1] is the cycle path in import order: each module imports the next one.
+    """
+    # Each module maps to its importers, so that TopologicalSorter reports the path in import order.
+    graph: dict[str, set[str]] = {module: set() for module in modules}
+    for module, path in modules.items():
+        package = module if path.name == '__init__.py' else module.rsplit('.', 1)[0]
+        for node in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
+            for target in import_targets(node, package):
+                if target in modules:
+                    graph[target].add(module)
+    TopologicalSorter(graph).prepare()
+
+
 def _is_sanctioned(edge: tuple[str, str], path: Path, node: ast.AST, module: str) -> bool:
     if edge != _SOLVER_DF_EDGE:
         return edge in SANCTIONED
@@ -591,6 +620,12 @@ def main() -> int:
                         sanctioned[edge] += 1
                     else:
                         edge_files[edge].add(py.relative_to(REPO).as_posix())
+
+    for owner in CYCLE_OWNERS:
+        try:
+            check_cycles(owner_modules(owner))
+        except CycleError as error:
+            violations.append(f"import cycle in {owner}: {' -> '.join(error.args[1])}")
 
     core_edges = {e: n for e, n in edges.items()
                   if e[0] not in FREE and e[1] not in FREE}
