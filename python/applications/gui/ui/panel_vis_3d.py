@@ -5,6 +5,7 @@ Provides ``ThreeDVisPanel(QWidget)`` hosting a ``pyvistaqt.QtInteractor`` with:
 - ``外表面`` (outer surface) as the default simplified display mode.
 - Three orthogonal slices (``截面``) with snapped physical cell coordinates.
 - Ray-cast volume rendering (``体渲染``) with debounced opacity control.
+- Closed lattice phase domains (``晶格``) built on a worker thread.
 - Floating Qt ``StudioColorbarCard`` and camera-projected ``PortChipOverlay``.
 - One ``capture_image()`` path compositing VTK pixels and scientific overlays
   for both Copy and Save exports.
@@ -22,7 +23,7 @@ from PySide6.QtGui import QImage, QKeySequence, QPainter, QRegion, QShortcut
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 from sjtu_tpmshx.applications.gui.ui.microanim import is_reduced_motion, start_animation
-from sjtu_tpmshx.applications.gui.ui.symbols import SYM, qsym
+from sjtu_tpmshx.applications.gui.ui.symbols import MINUS, SYM, qsym
 from sjtu_tpmshx.applications.gui.ui.theme import get_theme, get_theme_name, resolve_cmap
 from sjtu_tpmshx.applications.gui.ui.typography import (
     FONT_FAMILIES,
@@ -35,9 +36,12 @@ from sjtu_tpmshx.applications.gui.ui.vis3d_constants import (
     field_color_limits,
     validate_color_range_state,
 )
+from sjtu_tpmshx.applications.gui.ui.vis3d_lattice_worker import LatticeBuilder, LatticeRequest
 from sjtu_tpmshx.applications.gui.ui.volume_overlays import (
     COLORBAR_HEIGHT,
     COLORBAR_WIDTH,
+    LatticeDomainCard,
+    LatticeProgressCard,
     PortAnchor,
     PortChipOverlay,
     StudioColorbarCard,
@@ -47,6 +51,7 @@ from sjtu_tpmshx.applications.gui.ui.volume_toolbar import (
     DISPLAY_MODES,
     VolumeToolbar,
 )
+from sjtu_tpmshx.physical_models.tpms_geometry import lattice_cell_size
 from sjtu_tpmshx.postprocess.result_display import PANEL_FIELD_SPECS
 
 _CAMERA_UPDATE_RATE = 120.0  # Adaptive motion budget, not a guaranteed FPS.
@@ -65,6 +70,7 @@ _FIELD_SYMBOL_HTML: dict[str, str] = {
 
 _DATA_ACTOR_NAMES: tuple[str, ...] = (
     "main_surface",
+    "main_lattice",
     "main_volume",
     "slice_x",
     "slice_y",
@@ -90,6 +96,28 @@ _PORT_ACTOR_PREFIXES: tuple[str, ...] = (
     "_flow_inlet_B",
     "_flow_outlet_B",
 )
+
+
+# The lattice shows the phase domain of the active field. Design fields L and t use the solid wall.
+_LATTICE_PHASE: dict[str, str] = {"A": "A", "B": "B", "solid": "S", "geometry": "S"}
+_LATTICE_DOMAIN_NAME: dict[str, str] = {"A": "流体 A 域", "B": "流体 B 域", "S": "固体域"}
+_LATTICE_STAGE_COUNT = 5
+_NO_LATTICE_SOURCE = "此三维视图不提供晶格"
+_GRADED_L_REASON = "梯度胞元 L 的晶格相规则尚未确定"
+
+
+def _lattice_rule_html(phase: str, delta: float) -> str:
+    """Return the phase rule of one domain. A zero level-set offset gives the short form."""
+    phi, c, d = "<i>φ</i>", "<i>C</i>", "<i>δ</i>"
+    if delta == 0.0:
+        rules = {"A": f"{phi} &lt; {MINUS}{c}", "B": f"{phi} &gt; +{c}", "S": f"|{phi}| ≤ {c}"}
+    else:
+        rules = {
+            "A": f"{phi} &lt; {d} {MINUS} {c}",
+            "B": f"{phi} &gt; {d} + {c}",
+            "S": f"|{phi} {MINUS} {d}| ≤ {c}",
+        }
+    return rules[phase]
 
 
 def _hex_to_rgb01(hex_color: str) -> tuple[float, float, float]:
@@ -168,16 +196,29 @@ class ThreeDVisPanel(QWidget):
             opacity=opacity_default / 100.0,
             camera_preset="iso",
             lattice_enabled=False,
-            lattice_disabled_reason="晶格曲面将在后续版本提供",
+            lattice_disabled_reason=_NO_LATTICE_SOURCE,
             tokens=tokens,
             parent=self._viewport_host,
         )
+        self.toolbar.geometry_mode_changed.connect(self._on_toolbar_geometry_changed)
+        self.toolbar.detail_level_changed.connect(self._on_toolbar_detail_changed)
         self.toolbar.display_mode_changed.connect(self._on_toolbar_display_mode_changed)
         self.toolbar.slice_position_changed.connect(self._on_toolbar_slice_changed)
         self.toolbar.opacity_changed.connect(self._on_toolbar_opacity_changed)
         self.toolbar.camera_preset_requested.connect(self.set_view)
         self.toolbar.layout_changed.connect(self._layout_overlays)
         self.toolbar.hide()
+
+        self.lattice_progress = LatticeProgressCard(tokens=tokens, parent=self._viewport_host)
+        self.lattice_progress.cancel_requested.connect(self._cancel_lattice)
+        self.lattice_progress.hide()
+        self.lattice_card = LatticeDomainCard(tokens=tokens, parent=self._viewport_host)
+        self.lattice_card.hide()
+
+        self._lattice = LatticeBuilder(self)
+        self._lattice.progress.connect(self._on_lattice_progress)
+        self._lattice.ready.connect(self._on_lattice_ready)
+        self._lattice.failed.connect(self._on_lattice_failed)
 
         self._apply_overlay_styles(tokens)
 
@@ -190,6 +231,7 @@ class ThreeDVisPanel(QWidget):
         self._vol_min_cell_mm: float = 0.0
         self._arrays: dict[str, np.ndarray] = {}
         self._available_fields: tuple[str, ...] = ()
+        self._widths_m: Optional[tuple[np.ndarray, np.ndarray, np.ndarray]] = None
         self._dx_mm: Optional[np.ndarray] = None
         self._dy_mm: Optional[np.ndarray] = None
         self._dz_mm: Optional[np.ndarray] = None
@@ -206,6 +248,15 @@ class ThreeDVisPanel(QWidget):
         self._shared_pressure_scale: bool = True
         self._display_mode: str = "surface"
         self._slice_xyz_mm: tuple[float, float, float] = (0.0, 0.0, 0.0)
+        # The scene shows ``_geometry`` and ``_detail``. The toolbar holds a pending lattice request.
+        self._geometry: str = "simple"
+        self._detail: str = "medium"
+        self._lattice_source: Optional[tuple[str, float, str]] = None
+        # Pending build: (generation, phase, detail, field key).
+        self._lattice_pending: Optional[tuple[int, str, str, str]] = None
+        self._lattice_mesh: Optional[pv.PolyData] = None
+        self._lattice_phase: str = "A"
+        self._lattice_retained: bool = False
         self._volume_actor = None
         self._data_actors: set[Any] = set()
         self._last_hover_text: str = ""
@@ -389,9 +440,11 @@ class ThreeDVisPanel(QWidget):
 
         ``dx``, ``dy``, ``dz`` are 1-D grid spacings in metres.
         ``flow_dir=None`` hides Fluid A arrows; omitting it keeps ``+x`` arrows.
+        New fields show the simplified geometry. Call ``set_lattice_geometry`` to enable ``晶格``.
         """
         if dx is None or dy is None or dz is None:
             raise ValueError("set_fields: dx/dy/dz are required")
+        self._reset_lattice(_NO_LATTICE_SOURCE)
 
         self._flow_dir = None if flow_dir is None else str(flow_dir or "+x")
         self._flow_dir_B = str(flow_dir_B) if flow_dir_B else None
@@ -431,6 +484,7 @@ class ThreeDVisPanel(QWidget):
             raise ValueError(
                 f"set_fields: field shape {field_shape} != grid ({dx_m.size}, {dy_m.size}, {dz_m.size})"
             )
+        self._widths_m = (dx_m, dy_m, dz_m)
         self._dx_mm = dx_m * 1000.0
         self._dy_mm = dy_m * 1000.0
         self._dz_mm = dz_m * 1000.0
@@ -491,6 +545,22 @@ class ThreeDVisPanel(QWidget):
         self._update_port_chips()
         self.field_changed.emit(self._field)
 
+    def set_lattice_geometry(self, topology: str, delta_levelset: float, result_id: str) -> None:
+        """Enable ``晶格`` for the loaded fields with the recorded topology and level-set offset.
+
+        Graded L keeps ``晶格`` disabled with its reason, because its phase rule is not defined.
+        """
+        _cell, reason = lattice_cell_size(self._arrays["L_mm"])
+        if reason:
+            self._reset_lattice(_GRADED_L_REASON)
+            return
+        self._lattice_source = (topology, float(delta_levelset), result_id)
+        self.toolbar.set_lattice_enabled(True)
+
+    def geometry_mode(self) -> str:
+        """Return the geometry that the scene shows (``'simple'`` or ``'lattice'``)."""
+        return self._geometry
+
     def set_watermark(self, text: Optional[str]) -> None:
         """Show or clear an extrapolation warning watermark over the 3D viewport."""
         self._watermark_text = str(text).strip() if text else None
@@ -549,6 +619,8 @@ class ThreeDVisPanel(QWidget):
         self.toolbar.apply_theme(theme)
         self.colorbar.apply_theme(theme)
         self.port_overlay.apply_theme(theme)
+        self.lattice_progress.apply_theme(theme)
+        self.lattice_card.apply_theme(theme)
         self._apply_overlay_styles(theme)
         if self._grid is not None:
             self._render_initial_scene()
@@ -636,6 +708,7 @@ class ThreeDVisPanel(QWidget):
             return
         self._cleaned_up = True
         self._stop_camera_tween()
+        self._lattice.close()
         if getattr(self, "_camera_observer_tag", None) is not None:
             cam = self.plotter.renderer.GetActiveCamera()
             if cam is not None:
@@ -684,27 +757,27 @@ class ThreeDVisPanel(QWidget):
             tb_y = max(12, h - tb_h - 14)
             self.toolbar.setGeometry(tb_x, tb_y, tb_w, tb_h)
             obstacles.append(self.toolbar.geometry().adjusted(-8, -8, 8, 8))
-        if not self._watermark_label.isHidden():
-            self._watermark_label.adjustSize()
-            wm_sz = self._watermark_label.sizeHint()
-            wm_w = min(wm_sz.width(), max(120, w - COLORBAR_WIDTH - 48))
-            self._watermark_label.setGeometry(14, 12, wm_w, wm_sz.height())
-            obstacles.append(self._watermark_label.geometry().adjusted(-6, -6, 6, 6))
+        # Stack the top-left cards: lattice build, lattice domain, watermark, then status.
+        top = 12
+        for card in (self.lattice_progress, self.lattice_card, self._watermark_label):
+            if not card.isHidden():
+                card.adjustSize()
+                size = card.sizeHint()
+                card.setGeometry(14, top, min(size.width(), max(120, w - COLORBAR_WIDTH - 48)), size.height())
+                obstacles.append(card.geometry().adjusted(-6, -6, 6, 6))
+                top = card.geometry().bottom() + 6
         if not self.status.isHidden():
             self.status.adjustSize()
             st_sz = self.status.sizeHint()
             st_w = min(st_sz.width(), max(120, w - COLORBAR_WIDTH - 48))
-            st_y = (
-                12
-                if self._watermark_label.isHidden()
-                else self._watermark_label.geometry().bottom() + 6
-            )
-            self.status.setGeometry(14, st_y, st_w, st_sz.height())
+            self.status.setGeometry(14, top, st_w, st_sz.height())
         self.port_overlay.setGeometry(0, 0, w, h)
         self.port_overlay.set_safe_margins(16, 16, 16, 16)
         self.port_overlay.set_obstacles(obstacles)
         self.port_overlay.raise_()
         self.colorbar.raise_()
+        self.lattice_progress.raise_()
+        self.lattice_card.raise_()
         self._watermark_label.raise_()
         self.status.raise_()
         self.toolbar.raise_()
@@ -799,6 +872,23 @@ class ThreeDVisPanel(QWidget):
             self._last_hover_text = hover_text
 
     # ─────────────────────────── toolbar callbacks ────────────────────
+
+    def _on_toolbar_geometry_changed(self, mode: str) -> None:
+        if mode == "lattice":
+            self._request_lattice()
+            return
+        self._lattice.cancel()
+        self._lattice_pending = None
+        self._lattice_mesh = None
+        self._geometry = "simple"
+        self.lattice_progress.hide()
+        self.lattice_card.hide()
+        self.toolbar.set_detail_level(self._detail)
+        self._rebuild_scene_for_ui()
+        self._layout_overlays()
+
+    def _on_toolbar_detail_changed(self, _level: str) -> None:
+        self._request_lattice()
 
     def _on_toolbar_display_mode_changed(self, mode: str) -> None:
         self._display_mode = mode
@@ -1002,6 +1092,7 @@ class ThreeDVisPanel(QWidget):
             self._scale_mode == "global"
             or fkey not in self._arrays
             or self._display_mode != "slice"
+            or self._geometry == "lattice"
         ):
             return self._global_clim.get(fkey, (0.0, 1.0))
         arr = self._arrays[fkey]
@@ -1177,7 +1268,7 @@ class ThreeDVisPanel(QWidget):
         self._apply_isometric_pose()
 
     def _faint_port_sides(self) -> tuple[str, ...]:
-        if self._display_mode != "slice":
+        if self._display_mode != "slice" or self._geometry == "lattice":
             return ()
         if self._field in ("Ta", "vmag", "P_kPa"):
             return ("B",)
@@ -1479,6 +1570,109 @@ class ThreeDVisPanel(QWidget):
         self._data_actors.add(actor)
         self._add_domain_edges(0.32 if get_theme_name() == "light" else 0.58, line_width=1.0)
 
+    def _render_lattice_actors(self, cmap: str, clim: tuple[float, float]) -> None:
+        actor = self.plotter.add_mesh(
+            self._lattice_mesh,
+            scalars=self._field,
+            cmap=cmap,
+            clim=clim,
+            ambient=0.30,
+            diffuse=0.75,
+            specular=0.12,
+            specular_power=24.0,
+            show_scalar_bar=False,
+            name="main_lattice",
+            render=False,
+        )
+        self._volume_actor = actor
+        self._data_actors.add(actor)
+        self._add_domain_edges(0.40 if get_theme_name() == "light" else 0.72, line_width=1.2)
+        self.lattice_card.set_domain_info(
+            _LATTICE_DOMAIN_NAME[self._lattice_phase],
+            _lattice_rule_html(self._lattice_phase, self._lattice_source[1]),
+            self._lattice_mesh.n_cells,
+            cached=self._lattice_retained,
+        )
+        self.lattice_card.show()
+
+    # ─────────────────────────── lattice geometry ─────────────────────
+
+    def _reset_lattice(self, reason: str) -> None:
+        """Stop lattice work, show the simplified geometry and disable ``晶格`` with a reason."""
+        self._lattice.cancel()
+        self._lattice_pending = None
+        self._lattice_source = None
+        self._lattice_mesh = None
+        self._geometry = "simple"
+        self.lattice_progress.hide()
+        self.lattice_card.hide()
+        self.toolbar.set_lattice_enabled(False, reason)
+
+    def _request_lattice(self) -> None:
+        """Submit the active field and detail. The current scene stays until the mesh is ready."""
+        topology, delta, result_id = self._lattice_source
+        phase = _LATTICE_PHASE[PANEL_FIELD_SPECS[self._field].phase]
+        dx, dy, dz = self._widths_m
+        detail = self.toolbar.detail_level()
+        request = LatticeRequest(
+            result_id=result_id,
+            field_name=self._field,
+            topology=topology,
+            phase=phase,
+            dx=dx,
+            dy=dy,
+            dz=dz,
+            field=self._arrays[self._field],
+            L_mm=self._arrays["L_mm"],
+            t_mm=self._arrays["t_mm"],
+            delta=delta,
+            detail=detail,
+        )
+        self._lattice_pending = (self._lattice.submit(request), phase, detail, self._field)
+
+    def _on_lattice_progress(self, generation: int, step: int, stage: str) -> None:
+        if self._lattice_pending is None or generation != self._lattice_pending[0]:
+            return
+        domain = _LATTICE_DOMAIN_NAME[self._lattice_pending[1]]
+        self.lattice_progress.set_stage(domain, stage, step, _LATTICE_STAGE_COUNT)
+        self.lattice_progress.show()
+        self._layout_overlays()
+
+    def _on_lattice_ready(self, generation: int, mesh: pv.PolyData, retained: bool) -> None:
+        if self._lattice_pending is None or generation != self._lattice_pending[0]:
+            return
+        _generation, self._lattice_phase, self._detail, _field = self._lattice_pending
+        self._lattice_pending = None
+        self._lattice_mesh = mesh
+        self._lattice_retained = retained
+        self._geometry = "lattice"
+        self.lattice_progress.hide()
+        self._rebuild_scene_for_ui()
+        self._layout_overlays()
+
+    def _on_lattice_failed(self, generation: int, error: str) -> None:
+        if self._lattice_pending is None or generation != self._lattice_pending[0]:
+            return
+        self._restore_shown_lattice()
+        self.status.setText(f"晶格构建失败：{error}")
+        self.status.show()
+        self._layout_overlays()
+
+    def _cancel_lattice(self) -> None:
+        """Stop the pending build. Keep the scene and the field that are on the screen."""
+        self._lattice.cancel()
+        self._restore_shown_lattice()
+        self._layout_overlays()
+
+    def _restore_shown_lattice(self) -> None:
+        self._lattice_pending = None
+        self.lattice_progress.hide()
+        self.toolbar.set_geometry_mode(self._geometry)
+        self.toolbar.set_detail_level(self._detail)
+        if self._geometry == "lattice" and self._lattice_mesh.active_scalars_name != self._field:
+            self._field = self._lattice_mesh.active_scalars_name
+            self.field_changed.emit(self._field)
+
     def _sync_colorbar(self, cmap: str, clim: tuple[float, float]) -> None:
         if self._field not in PANEL_FIELD_SPECS:
             return
@@ -1491,6 +1685,12 @@ class ThreeDVisPanel(QWidget):
         """Rebuild the active simplified 3D actors and colorbar in one render batch."""
         if self._grid is None or self._field is None:
             return
+        if self._lattice_pending is not None or self._geometry == "lattice":
+            wanted = self._lattice_pending[3] if self._lattice_pending else self._lattice_mesh.active_scalars_name
+            if wanted != self._field:
+                self._request_lattice()
+            if self._geometry == "lattice" and self._lattice_mesh.active_scalars_name != self._field:
+                return  # Keep the lattice on the screen until the mesh for the new field is ready.
         self._clear_data_actors()
         if self._field not in PANEL_FIELD_SPECS:
             if render:
@@ -1502,7 +1702,9 @@ class ThreeDVisPanel(QWidget):
         clim = self._clim_for(self._field)
 
         try:
-            if self._display_mode == "surface":
+            if self._geometry == "lattice":
+                self._render_lattice_actors(cmap, clim)
+            elif self._display_mode == "surface":
                 self._render_surface_actors(self._grid_vol, cmap, clim)
             elif self._display_mode == "slice":
                 self._render_slice_actors(self._grid_vol, cmap, clim)
@@ -1549,7 +1751,7 @@ class ThreeDVisPanel(QWidget):
             f"范围：{lo:.2f}–{hi:.2f} {spec.display_unit}",
             f"计算域：{Lx:.0f} × {Ly:.0f} × {Lz:.0f} mm",
         ]
-        if self._display_mode == "slice":
+        if self._display_mode == "slice" and self._geometry == "simple":
             sx, sy, sz = self._slice_xyz_mm
             parts.append(f"截面：({sx:.1f}, {sy:.1f}, {sz:.1f}) mm")
         text = "   •   ".join(parts)

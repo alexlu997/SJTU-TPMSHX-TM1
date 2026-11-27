@@ -138,7 +138,7 @@ def test_lattice_exact_wall_vertices_empty_domain_and_detail(lattice_request):
                 t_mm=.4, delta=_C_from_tL('Gyroid', .4/7.))
     cache = LatticeCache()
     counts = []
-    for detail in ('低', '中', '高'):
+    for detail in ('low', 'medium', 'high'):
         mesh, _ = cache.build(replace(r, detail=detail), threading.Event(), lambda *_: None)
         counts.append(mesh.n_cells)
         assert mesh.n_open_edges == 0
@@ -153,7 +153,7 @@ def test_lattice_solid_normals_face_into_enclosed_fluid_pockets(lattice_request)
     cache = LatticeCache()
     volume = 0.
     for phase in ('A', 'B', 'S'):
-        r = replace(lattice_request, topology='Diamond', phase=phase, detail='低',
+        r = replace(lattice_request, topology='Diamond', phase=phase, detail='low',
                     dx=[.007], dy=[.007], dz=[.007], field=[[[300.]]], t_mm=.25, delta=0.)
         mesh, _ = cache.build(r, threading.Event(), lambda *_: None)
         assert mesh.n_open_edges == 0

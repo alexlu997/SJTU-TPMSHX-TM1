@@ -15,7 +15,8 @@ from sjtu_tpmshx.physical_models.tpms_geometry import lattice_cell_size, signed_
 from sjtu_tpmshx.run_control.cancellation import CancelledError
 
 
-_DETAIL = {'低': 4.5, '中': 8, '高': 12}
+# Samples per cell length L for the 细节 levels 低, 中 and 高.
+_DETAIL = {'low': 4.5, 'medium': 8, 'high': 12}
 _STAGES = ('采样 φ', '壁面', '封口', '法线', '着色')
 
 
@@ -44,7 +45,7 @@ class LatticeRequest:
     L_mm: float | np.ndarray
     t_mm: float | np.ndarray
     delta: float | np.ndarray = 0.
-    detail: str = '中'
+    detail: str = 'medium'
 
     def __post_init__(self):
         for name in ('dx', 'dy', 'dz', 'field', 'L_mm', 't_mm', 'delta'):
@@ -65,7 +66,7 @@ class LatticeRequest:
             if values.ndim and np.all(values == values.flat[0]):
                 object.__setattr__(self, name, values.flat[0])
         if self.phase not in ('A', 'B', 'S') or self.detail not in _DETAIL:
-            raise ValueError('select phase A, B or S and detail 低, 中 or 高')
+            raise ValueError('select phase A, B or S and detail low, medium or high')
 
 
 def _check_cancel(cancel):

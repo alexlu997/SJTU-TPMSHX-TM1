@@ -100,6 +100,8 @@ def finalize_plots_3d(window) -> bool:
                 flow_dir_B=_dir_str_B if _has_B else None,
                 ports_A=f.get('ports_A'), ports_B=f.get('ports_B'),
             )
+            panel.set_lattice_geometry(res.metadata['tpms'], res.metadata['delta_levelset'],
+                                       res.metadata['source_result_id'])
             # Surrogate-extrapolation watermark from the run's recorded model.
             _txt = extrapolation_watermark(
                 res.metadata, res.extrap_reasons, multiline=True)
