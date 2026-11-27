@@ -315,7 +315,7 @@ class ThreeDVisPanel(QWidget):
         self._display_mode = mode
         self.toolbar.set_display_mode(mode)
         if self._grid is not None:
-            self._rebuild_scene(render=True)
+            self._rebuild_scene_for_ui()
 
     def slice_position(self) -> tuple[float, float, float]:
         """Return the snapped orthogonal slice coordinates ``(x_mm, y_mm, z_mm)``."""
@@ -333,7 +333,7 @@ class ThreeDVisPanel(QWidget):
         self._slice_xyz_mm = snapped
         self.toolbar.set_slice_position(*snapped)
         if self._display_mode == "slice":
-            self._rebuild_scene(render=True)
+            self._rebuild_scene_for_ui()
 
     def opacity(self) -> float:
         """Return the volume rendering opacity in ``[0.0, 1.0]``."""
@@ -363,7 +363,7 @@ class ThreeDVisPanel(QWidget):
         if changed and self._arrays:
             self._global_clim = self._build_global_clim()
             if self._grid is not None:
-                self._rebuild_scene(render=True)
+                self._rebuild_scene_for_ui()
 
     def set_fields(
         self,
@@ -538,7 +538,7 @@ class ThreeDVisPanel(QWidget):
         """Re-render active 3D actors and colorbar with the current runtime colormap."""
         if self._grid is None or self._field is None:
             return
-        self._rebuild_scene(render=True)
+        self._rebuild_scene_for_ui()
 
     def apply_theme(self, tokens: Mapping[str, Any] | None = None) -> None:
         """Apply current Style P2 theme tokens to overlays and VTK scene chrome."""
@@ -552,7 +552,7 @@ class ThreeDVisPanel(QWidget):
         self._apply_overlay_styles(theme)
         if self._grid is not None:
             self._render_initial_scene()
-            self._rebuild_scene(render=True)
+            self._rebuild_scene_for_ui()
             self._layout_overlays()
             self._update_port_chips()
 
@@ -568,15 +568,15 @@ class ThreeDVisPanel(QWidget):
 
         Includes the VTK scene, ``PortChipOverlay``, ``StudioColorbarCard``,
         and any active extrapolation watermark. Excludes interactive toolbars.
-        Flushes a hidden viewport before reading pixels so background colormap
-        or field updates are reflected in the captured scene.
+        Forces a synchronous VTK render before reading pixels so hidden-panel
+        updates and export typography reach the captured framebuffer on macOS.
         """
         was_suppressed = bool(self.plotter.suppress_rendering)
         self._set_export_typography(True)
         try:
             if was_suppressed:
                 self.plotter.suppress_rendering = False
-            self.plotter.render()
+            self.plotter.render_window.Render()
             raw = (
                 self.plotter.screenshot(return_img=True)
                 if scale == 1
@@ -628,7 +628,7 @@ class ThreeDVisPanel(QWidget):
             if was_suppressed:
                 self.plotter.suppress_rendering = True
             else:
-                self.plotter.render()
+                self.plotter.render_window.Render()
 
     def cleanup(self) -> None:
         """Release VTK observers and GL context idempotently."""
@@ -803,7 +803,7 @@ class ThreeDVisPanel(QWidget):
     def _on_toolbar_display_mode_changed(self, mode: str) -> None:
         self._display_mode = mode
         if self._grid is not None:
-            self._rebuild_scene(render=True)
+            self._rebuild_scene_for_ui()
         self._layout_overlays()
         self._update_port_chips()
 
@@ -975,7 +975,7 @@ class ThreeDVisPanel(QWidget):
             self._volume_actor.GetProperty().SetScalarOpacity(pw)
             self.plotter.render()
             return
-        self._rebuild_scene(render=True)
+        self._rebuild_scene_for_ui()
 
     def _build_global_clim(self) -> dict[str, tuple[float, float]]:
         """Compute global color limits honoring shared temperature and pressure toggles."""
@@ -1025,7 +1025,14 @@ class ThreeDVisPanel(QWidget):
     def _refresh_clim(self) -> None:
         if self._grid is None:
             return
-        self._rebuild_scene(render=True)
+        self._rebuild_scene_for_ui()
+
+    def _rebuild_scene_for_ui(self) -> None:
+        """Rebuild scene for interactive UI slots; status already shows any failure."""
+        try:
+            self._rebuild_scene(render=True)
+        except Exception:
+            return
 
     # ─────────────────────────── scene rendering ──────────────────────
 
@@ -1099,9 +1106,7 @@ class ThreeDVisPanel(QWidget):
         shadow_actor.SetUseBounds(False)
 
     def _apply_axes_triad_font(self, *, export: bool) -> None:
-        aw = getattr(self.plotter.renderer, "axes_widget", None)
-        if aw is None:
-            return
+        aw = self.plotter.renderer.axes_widget
         ax_actor = aw.GetOrientationMarker()
         for getter in (
             ax_actor.GetXAxisCaptionActor2D,
@@ -1130,9 +1135,7 @@ class ThreeDVisPanel(QWidget):
             z_color=t["triad_z"],
             interactive=False,
         )
-        aw = getattr(pl.renderer, "axes_widget", None)
-        if aw is None:
-            return
+        aw = pl.renderer.axes_widget
         aw.SetViewport(0.010, 0.025, 0.132, 0.228)
         ax_actor = aw.GetOrientationMarker()
         ax_actor.SetNormalizedLabelPosition((1.24, 1.34, 1.26))

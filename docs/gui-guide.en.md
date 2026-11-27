@@ -184,7 +184,7 @@ Camera presets (`xy`, `xz`, `yz`, `等轴`) obey the shared reduced-motion prefe
 Floating Qt overlays show the ISO 80000-1 colorbar card and camera-projected port chips (`A 入口/出口`, `B 入口/出口`).
 Copy and Save PNG in Export use one composited capture of the 3D scene and its visible overlays.
 
-In 3D views, the Colormap (`色阶`) popover provides Range (`全场` / `截面` / `自定义`), showing Min/Max inputs in the displayed unit only when `自定义` is selected; `恢复默认色阶` also resets the range to `全场`.
+In a 3D view, the Colormap (`色阶`) popover shows the row `范围` (`全场` / `截面` / `自定义`). The Min/Max inputs show only for `自定义`. They use the displayed unit. `恢复默认色阶` also sets the range to `全场`.
 Saved per-field 3D color ranges persist with the workspace session and apply to the 3D scene,
 colorbar card, and exported PNG images without changing field data.
 Both limits must be finite and Max must exceed Min.

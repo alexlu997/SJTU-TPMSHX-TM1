@@ -81,13 +81,10 @@ def finalize_plots_3d(window) -> bool:
             _Tb_for_panel = f.get('Tb') if _has_B else None
             _vmag_B_for_panel = f.get('vmag_B') if _has_B else None
             _P_B_for_panel = P_B_kPa if _has_B else None
-            sync_t = getattr(window, 'chk_sync_colorbar_T', None)
-            shared_p = getattr(window, 'chk_shared_pressure_scale', None)
-            if hasattr(panel, 'set_scale_sharing'):
-                panel.set_scale_sharing(
-                    sync_temp=sync_t is None or sync_t.isChecked(),
-                    shared_pressure=shared_p is None or shared_p.isChecked(),
-                )
+            panel.set_scale_sharing(
+                sync_temp=window.chk_sync_colorbar_T.isChecked(),
+                shared_pressure=window.chk_shared_pressure_scale.isChecked(),
+            )
             panel.set_fields(
                 Ta=f['Ta'],
                 Tb=_Tb_for_panel,

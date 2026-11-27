@@ -86,6 +86,7 @@ def _render_panel(destination):
         from types import SimpleNamespace
         from unittest.mock import Mock
         from sjtu_tpmshx.applications.gui.ui import result_export
+        from sjtu_tpmshx.applications.gui.ui.theme import set_cmap
 
         captured = panel.capture_image()
         export = output / 'application-export.png'
@@ -113,7 +114,31 @@ def _render_panel(destination):
             np.testing.assert_array_equal(exported_arr, np.asarray(decoded_ref))
         assert exported_arr.shape == changed.shape
         assert int(np.count_nonzero(exported_arr != changed)) > 100
+        # Exported axes triad uses Times New Roman and differs from the on-screen sans-serif triad.
+        triad_box = np.s_[int(height * 0.72):, :int(width * 0.16)]
+        triad_diff = int(np.count_nonzero(exported_arr[triad_box] != changed[triad_box]))
+        assert triad_diff > 20
+        report['export_triad_pixel_diff'] = triad_diff
         report['application_export_pixels_match'] = True
+
+        # B01 regression: hidden-panel colormap update must render synchronously before capture.
+        panel.hide()
+        QTimer.singleShot(50, loop.quit)
+        loop.exec()
+        assert panel.plotter.suppress_rendering is True
+        try:
+            set_cmap('temperature', 'cividis')
+            panel.refresh_colormaps()
+            hidden_export = output / 'hidden-cividis.png'
+            assert panel.capture_image().save(str(hidden_export), 'PNG')
+            assert panel.plotter.suppress_rendering is True
+            with Image.open(hidden_export) as decoded_hidden:
+                hidden_arr = np.asarray(decoded_hidden)
+            hidden_center_diff = int(np.count_nonzero(hidden_arr[center] != exported_arr[center]))
+            assert hidden_center_diff > 100
+            report['hidden_colormap_center_diff'] = hidden_center_diff
+        finally:
+            set_cmap('temperature', None)
     finally:
         print('Close 3D panel', flush=True)
         panel.cleanup()

@@ -1472,7 +1472,7 @@ def test_optimization_volume_copy_and_export_require_current_render(
         assert win.btn_export.isEnabled()
         win.result_export.copy_figure_clipboard()
         panel.grab.assert_not_called()
-        panel.plotter.render.assert_called_once_with()
+        panel.plotter.render_window.Render.assert_called_once_with()
         assert panel.plotter.suppress_rendering is True
         panel.plotter.screenshot.assert_called_once_with(return_img=True)
         pixels[:] = 0
@@ -1500,10 +1500,10 @@ def test_optimization_volume_copy_and_export_require_current_render(
         monkeypatch.setattr(win.workbench, 'volume_ready', True)
         monkeypatch.setattr(win.workbench, 'active_tab', '3d')
         panel.plotter.screenshot.reset_mock()
-        panel.plotter.render.reset_mock()
+        panel.plotter.render_window.Render.reset_mock()
         clipboard.clear()
         win.result_export.copy_figure_clipboard()
-        panel.plotter.render.assert_called_once_with()
+        panel.plotter.render_window.Render.assert_called_once_with()
         assert panel.plotter.suppress_rendering is True
         panel.plotter.screenshot.assert_called_once_with(return_img=True)
         assert (clipboard.image().width(), clipboard.image().height()) == (3, 2)

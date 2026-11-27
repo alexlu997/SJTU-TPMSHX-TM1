@@ -121,9 +121,7 @@ def _select_3d_header_field(
         return False
     ok = bool(panel.select_field(target_key))
     refresh_field_controls(window)
-    exporter = getattr(window, "result_export", None)
-    if exporter is not None:
-        exporter.refresh_export_button()
+    window.result_export.refresh_export_button()
     return ok
 
 
@@ -373,8 +371,6 @@ def _build_canvas_toolbar(window, vlay, t, theme):
     window._3d_wall_field_btn = btn_wall
 
     def _paint_2d_seg():
-        design_btn = getattr(window, "_3d_design_field_btn", None)
-        wall_btn = getattr(window, "_3d_wall_field_btn", None)
         panel = _active_3d_panel(window)
         if panel is not None:
             active_key = panel.active_field()
@@ -382,18 +378,18 @@ def _build_canvas_toolbar(window, vlay, t, theme):
             cur_qty = spec.quantity if spec is not None else None
             for j, b in enumerate(window._2d_field_btns):
                 b.setStyleSheet(seg_on_qss if _QTY_KEYS[j] == cur_qty else seg_off_qss)
-            if design_btn is not None:
-                design_btn.setStyleSheet(seg_on_qss if active_key == "L_mm" else seg_off_qss)
-            if wall_btn is not None:
-                wall_btn.setStyleSheet(seg_on_qss if active_key == "t_mm" else seg_off_qss)
+            window._3d_design_field_btn.setStyleSheet(
+                seg_on_qss if active_key == "L_mm" else seg_off_qss
+            )
+            window._3d_wall_field_btn.setStyleSheet(
+                seg_on_qss if active_key == "t_mm" else seg_off_qss
+            )
             return
         cur = window.combo_2d_field.currentIndex()
         for j, b in enumerate(window._2d_field_btns):
             b.setStyleSheet(seg_on_qss if j == cur else seg_off_qss)
-        if design_btn is not None:
-            design_btn.setStyleSheet(seg_off_qss)
-        if wall_btn is not None:
-            wall_btn.setStyleSheet(seg_off_qss)
+        window._3d_design_field_btn.setStyleSheet(seg_off_qss)
+        window._3d_wall_field_btn.setStyleSheet(seg_off_qss)
 
     _paint_2d_seg()
     window._2d_field_seg = field_seg
@@ -502,8 +498,8 @@ def _build_canvas_toolbar(window, vlay, t, theme):
         from .plot_2d_results import redraw_result_fields
 
         redraw_result_fields(window)
-        panel_3d = getattr(window, "canvas_3d", None)
-        if panel_3d is not None and hasattr(panel_3d, "set_scale_sharing"):
+        panel_3d = window.canvas_3d
+        if panel_3d is not None:
             panel_3d.set_scale_sharing(shared_pressure=checked)
 
     window.chk_shared_pressure_scale.toggled.connect(_set_pressure_scale)
@@ -514,8 +510,8 @@ def _build_canvas_toolbar(window, vlay, t, theme):
 
     def _set_temp_scale_sync(checked: bool):
         window._redraw_temp_if_ready()
-        panel_3d = getattr(window, "canvas_3d", None)
-        if panel_3d is not None and hasattr(panel_3d, "set_scale_sharing"):
+        panel_3d = window.canvas_3d
+        if panel_3d is not None:
             panel_3d.set_scale_sharing(sync_temp=checked)
 
     window.chk_sync_colorbar_T.toggled.connect(_set_temp_scale_sync)
@@ -664,16 +660,12 @@ def refresh_field_controls(window):
                 qkey = _QTY_KEYS[i]
                 btn.setVisible(not opt_3d_active)
                 btn.setEnabled((not opt_3d_active) and (qkey in avail_qtys))
-        design_btn = getattr(window, "_3d_design_field_btn", None)
-        if design_btn is not None:
-            has_l = "L_mm" in avail
-            design_btn.setVisible(has_l)
-            design_btn.setEnabled(has_l)
-        wall_btn = getattr(window, "_3d_wall_field_btn", None)
-        if wall_btn is not None:
-            has_t = "t_mm" in avail
-            wall_btn.setVisible(has_t)
-            wall_btn.setEnabled(has_t)
+        has_l = "L_mm" in avail
+        window._3d_design_field_btn.setVisible(has_l)
+        window._3d_design_field_btn.setEnabled(has_l)
+        has_t = "t_mm" in avail
+        window._3d_wall_field_btn.setVisible(has_t)
+        window._3d_wall_field_btn.setEnabled(has_t)
         if hasattr(window, "_paint_2d_seg"):
             window._paint_2d_seg()
 
@@ -701,12 +693,8 @@ def refresh_field_controls(window):
             for btn in window._2d_field_btns:
                 btn.setVisible(True)
                 btn.setEnabled(True)
-        design_btn = getattr(window, "_3d_design_field_btn", None)
-        if design_btn is not None:
-            design_btn.setVisible(False)
-        wall_btn = getattr(window, "_3d_wall_field_btn", None)
-        if wall_btn is not None:
-            wall_btn.setVisible(False)
+        window._3d_design_field_btn.setVisible(False)
+        window._3d_wall_field_btn.setVisible(False)
         if hasattr(window, "_paint_2d_seg"):
             window._paint_2d_seg()
 

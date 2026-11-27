@@ -162,7 +162,7 @@ def _make_stub_panel():
             '_build_volume_grid', '_build_surface_mesh', '_build_global_clim',
             '_clear_data_actors', '_box_edge_color', '_add_domain_edges',
             '_render_surface_actors', '_render_slice_actors', '_render_volume_actors',
-            '_sync_colorbar', '_rebuild_scene', '_clim_for', '_opacity_ramp',
+            '_sync_colorbar', '_rebuild_scene', '_rebuild_scene_for_ui', '_clim_for', '_opacity_ramp',
             '_slice_index', '_snap_slice_coord', '_update_status',
             '_faint_port_sides', '_add_flow_glyph',
             'active_field', 'available_fields', 'select_field',
@@ -533,5 +533,7 @@ def test_shared_header_colormap_refresh_updates_main_and_optimization_3d_panels(
         assert stub.colorbar.isHidden()
         assert '三维渲染失败' in stub.status.setText.call_args.args[0]
         stub.status.show.assert_called()
+        # UI-triggered refresh catches render errors without blocking sibling panels.
+        stub.refresh_colormaps()
     finally:
         stub.colorbar.deleteLater()

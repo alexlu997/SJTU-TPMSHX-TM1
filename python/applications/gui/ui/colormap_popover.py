@@ -157,10 +157,6 @@ class ColormapPopover(QFrame):
         colormaps: Sequence[str] = CURATED_COLORMAPS,
         sync_temp_scale: bool = True,
         shared_pressure_scale: bool = True,
-        show_range_controls: bool = False,
-        range_mode: str = "global",
-        custom_range: tuple[float, float] = (0.0, 1.0),
-        unit_label: str = "",
         tokens: Mapping[str, Any] | None = None,
         parent: QWidget | None = None,
     ) -> None:
@@ -173,10 +169,10 @@ class ColormapPopover(QFrame):
         self._current_colormap = current_colormap
         self._sync_temp_scale = sync_temp_scale
         self._shared_pressure_scale = shared_pressure_scale
-        self._show_range_controls = show_range_controls
-        self._range_mode = range_mode
-        self._custom_range: tuple[float, float] = (float(custom_range[0]), float(custom_range[1]))
-        self._unit_label = unit_label
+        self._show_range_controls = False
+        self._range_mode = "global"
+        self._custom_range: tuple[float, float] = (0.0, 1.0)
+        self._unit_label = ""
         self._range_mode_btns: dict[str, QPushButton] = {}
         self._range_min_edit: QLineEdit | None = None
         self._range_max_edit: QLineEdit | None = None

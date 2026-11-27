@@ -41,6 +41,7 @@ def test_first_plot_lazy_switch_and_export_use_current_selection(win, monkeypatc
     if mode == '3d':
         monkeypatch.setattr(win, 'canvas_3d', SimpleNamespace(
             cleanup=lambda: None, set_fields=lambda **kw: None, set_watermark=lambda text: None,
+            set_scale_sharing=lambda **kw: None,
             color_range_state=lambda: {'mode': 'global', 'ranges': {}}))
         assert finalize_plots_3d(win)
         from sjtu_tpmshx.applications.gui.ui.plot_2d_results import ensure_result_plot

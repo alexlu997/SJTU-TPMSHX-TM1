@@ -69,7 +69,11 @@ def test_range_modes_preserve_field_specific_limits_and_reject_bad_values(panel,
     monkeypatch.setattr(layout_drawer, 'refresh_last_2d_thumbnail', Mock())
 
     values = np.arange(27., dtype=float).reshape(3, 3, 3) + 290.
-    panel._arrays = {'Ta': values, 'P_kPa': np.linspace(100., 180., 27).reshape(3, 3, 3)}
+    panel._arrays = {
+        'Ta': values,
+        'P_kPa': np.linspace(135.5, 192.4, 27).reshape(3, 3, 3),
+        'P_B_kPa': np.linspace(99.8, 102.1, 27).reshape(3, 3, 3),
+    }
     panel._cx_mm = panel._cy_mm = panel._cz_mm = np.array([0.5, 1.5, 2.5])
     panel._L_mm = (3.0, 3.0, 3.0)
     panel._grid = pv.RectilinearGrid(
@@ -79,7 +83,7 @@ def test_range_modes_preserve_field_specific_limits_and_reject_bad_values(panel,
     )
     panel._slice_xyz_mm = (1.5, 1.5, 1.5)
     panel._display_mode = 'slice'
-    panel._global_clim = {'Ta': (290., 316.), 'P_kPa': (100., 180.)}
+    panel._global_clim = panel._build_global_clim()
 
     window = QWidget()
     window.workbench = SimpleNamespace(active_tab='3d', resolve_2d_view_card=lambda: 'temp')
@@ -91,11 +95,24 @@ def test_range_modes_preserve_field_specific_limits_and_reject_bad_values(panel,
     window.dialogs = SimpleNamespace(notify=Mock())
     window.chk_sync_colorbar_T.setChecked(True)
     window.chk_shared_pressure_scale.setChecked(True)
+    window.chk_shared_pressure_scale.toggled.connect(
+        lambda on: panel.set_scale_sharing(shared_pressure=on)
+    )
     try:
         _open_colormap_popover(window)
         pop = window._colormap_popover
         assert set(pop._range_mode_btns) == {'global', 'local', 'custom'}
         assert pop._range_min_edit is None and pop._range_max_edit is None
+
+        # Toggling the real 压力共用色阶 switch updates 3D P_B_kPa between shared and own limits.
+        from sjtu_tpmshx.applications.gui.ui.colormap_popover import ToggleSwitch
+        switches = pop.findChildren(ToggleSwitch)
+        assert len(switches) == 2
+        assert panel._clim_for('P_B_kPa') == pytest.approx((99.8, 192.4))
+        switches[1].click()
+        assert panel._clim_for('P_B_kPa') == pytest.approx((99.8, 102.1))
+        switches[1].click()
+        assert panel._clim_for('P_B_kPa') == pytest.approx((99.8, 192.4))
 
         # Switch to 截面 (local) via real popover button.
         pop._range_mode_btns['local'].click()
@@ -111,7 +128,7 @@ def test_range_modes_preserve_field_specific_limits_and_reject_bad_values(panel,
         pop._range_max_edit.setText('350')
         pop._range_max_edit.editingFinished.emit()
         assert panel._clim_for('Ta') == (300., 350.)
-        assert panel._clim_for('P_kPa') == (100., 180.)
+        assert panel._clim_for('P_kPa') == pytest.approx((99.8, 192.4))
         assert panel.colorbar.value_range() == (300., 350.)
 
         # Invalid Min/Max values in the popover inputs are rejected without altering limits.
@@ -195,11 +212,11 @@ def test_custom_limits_and_watermark_reach_scene_colorbar_and_capture(panel, tmp
         )
         assert wm_changed
 
-        # Hidden-panel capture temporarily unsuppresses rendering to flush updates.
+        # Hidden-panel capture renders synchronously via render_window.Render() and restores suppression.
         panel.plotter.suppress_rendering = True
-        panel.plotter.render.reset_mock()
+        panel.plotter.render_window.Render.reset_mock()
         hidden_captured = panel.capture_image()
-        panel.plotter.render.assert_called_once_with()
+        panel.plotter.render_window.Render.assert_called_once_with()
         assert panel.plotter.suppress_rendering is True
         out_path = tmp_path / 'captured_3d.png'
         assert hidden_captured.save(str(out_path), 'PNG')

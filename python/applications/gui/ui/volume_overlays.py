@@ -496,6 +496,7 @@ class PortChip(QFrame):
         _enable_tnum(self._label)
         layout.addWidget(self._label)
 
+        self._export_mode = False
         self.apply_theme(self._tokens)
 
     def set_label(self, text: str) -> None:
@@ -511,7 +512,7 @@ class PortChip(QFrame):
     def apply_theme(self, tokens: Mapping[str, Any]) -> None:
         """Apply Style P2 theme tokens to the port chip."""
         self._tokens.update(tokens)
-        self._apply_label_style(export=getattr(self, "_export_mode", False))
+        self._apply_label_style(export=self._export_mode)
         self._refresh_dot()
         self.adjustSize()
         self.update()
