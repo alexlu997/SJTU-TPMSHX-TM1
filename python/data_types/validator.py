@@ -368,10 +368,10 @@ def temp_text_to_kelvin(text: str, unit: TempUnit) -> Decimal:
     """Read one inlet temperature text in the given unit and return kelvin."""
     raw = str(text).strip()
     try:
-        value = Decimal(raw)
+        # A signaling NaN passes Decimal() but raises InvalidOperation in the addition.
+        return convert_temp_decimal(Decimal(raw), unit, 'K')
     except InvalidOperation as exc:
         raise ValueError(f"could not convert string to float: {raw!r}") from exc
-    return convert_temp_decimal(value, unit, 'K')
 
 
 def kelvin_to_display(kelvin, unit: TempUnit):
@@ -385,7 +385,7 @@ def kelvin_to_display(kelvin, unit: TempUnit):
 
 def parse_unit_decimal(raw_text: str, unit_text: str,
                        family: str, target_unit: Optional[str] = None,
-                       temp_unit: str = 'K') -> Optional[Decimal]:
+                       temp_unit: TempUnit = 'K') -> Optional[Decimal]:
     """Convert ``raw_text [unit_text]`` to ``target_unit`` with exact Decimal factors."""
     try:
         dec = Decimal(str(raw_text).strip())
@@ -433,7 +433,7 @@ def parse_unit_decimal(raw_text: str, unit_text: str,
 
 def parse_unit_value(value: float, unit_text: str,
                      family: str, target_unit: Optional[str] = None,
-                     temp_unit: str = 'K') -> Optional[float]:
+                     temp_unit: TempUnit = 'K') -> Optional[float]:
     """Convert ``value [unit_text]`` to ``target_unit`` for ``family``.
 
     Returns the converted scalar in ``target_unit``, or ``None`` if the
