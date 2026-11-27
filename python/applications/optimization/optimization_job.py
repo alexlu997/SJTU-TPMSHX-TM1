@@ -191,15 +191,110 @@ def archived_design(report, index, output_dir, current):
     return config
 
 
-def baseline_failure_reasons(baseline, output_dir):
-    """Read the batch reason and each recorded condition failure."""
-    reasons = [baseline['reason']] if baseline['reason'] else []
-    if output_dir is not None:
+def baseline_failure_details(baseline, output_dir):
+    """Return structured recorded failure details for the failed-baseline card in one read."""
+    stage_names = {
+        'input': '输入准备',
+        'prepare': '前处理',
+        'save_case': '保存算例',
+        'solve': '原生求解',
+        'validate_result': '结果核查',
+        'postprocess': '后处理',
+        'save_result': '保存结果',
+        'qualification': '资格检查',
+        'comparison': '基准对比',
+        'reuse': '复用归档',
+    }
+    gate_names = {
+        'execution': '运行状态',
+        'convergence': '收敛检查',
+        'physical': '物理守恒',
+        'applicability': '适用范围',
+        'metrics': '性能指标',
+        'model_scope': '模型适用域',
+        'full_solve': '完整求解',
+    }
+    fluid_names = {'water': '水', 'air': '空气', 'sco2': 'sCO₂', 'co2': 'CO₂'}
+
+    condition_label = '—'
+    stage_entries: list[str] = []
+    detail_entries: list[str] = []
+    raw_reasons: list[str] = []
+    checks_out: list[str] = []
+
+    if output_dir is not None and baseline.get('directory'):
         path = Path(output_dir) / baseline['directory'] / 'batch.json'
         if path.is_file():
             with path.open(encoding='utf-8') as source:
                 batch = json.load(source)
-            for row in batch['conditions']:
-                if row['reason']:
-                    reasons.append(f'{row["condition_id"]}：{row["reason"]}')
-    return reasons
+            failed_rows = [
+                row for row in batch.get('conditions', [])
+                if row.get('status') == 'failed' or row.get('reason')
+            ]
+            if failed_rows:
+                multi = len(failed_rows) > 1
+                cond_ids = [
+                    '当前工况' if row.get('condition_id') == 'current' else str(row.get('condition_id', '—'))
+                    for row in failed_rows
+                ]
+                condition_label = '、'.join(dict.fromkeys(cond_ids))
+                for row, cid in zip(failed_rows, cond_ids):
+                    row_stage_parts: list[str] = []
+                    stage_key = row.get('stage')
+                    if stage_key:
+                        row_stage_parts.append(stage_names.get(stage_key, str(stage_key)))
+                    qual = row.get('qualification') if isinstance(row.get('qualification'), dict) else {}
+                    opt_gate = qual.get('optimization') if isinstance(qual.get('optimization'), dict) else {}
+                    for gate in opt_gate.get('reasons') or []:
+                        mapped = gate_names.get(gate, str(gate))
+                        if mapped not in row_stage_parts:
+                            row_stage_parts.append(mapped)
+                    if row_stage_parts:
+                        stage_text = ' · '.join(row_stage_parts)
+                        stage_entries.append(f'{cid}：{stage_text}' if multi else stage_text)
+
+                    row_checks: list[str] = []
+                    app = qual.get('applicability') if isinstance(qual.get('applicability'), dict) else {}
+                    for check in app.get('checks') or []:
+                        if check.get('passed') is False:
+                            side = check.get('side', '')
+                            qty = check.get('quantity', '')
+                            src = check.get('source') or []
+                            if len(src) >= 3 and str(src[0]).startswith('nu'):
+                                fl = fluid_names.get(str(src[1]).lower(), str(src[1]))
+                                row_checks.append(f'{side} 侧 {qty} 超出 Nu 关联式（{fl} · {src[2]}）范围')
+                            elif side and qty:
+                                row_checks.append(f'{side} 侧 {qty} 超出适用范围')
+                    unique_row_checks = list(dict.fromkeys(row_checks))
+                    checks_out.extend(unique_row_checks)
+
+                    raw_reason = str(row['reason']) if row.get('reason') else ''
+                    if raw_reason:
+                        raw_cid = row.get('condition_id', '')
+                        raw_reasons.append(f'{raw_cid}：{raw_reason}' if raw_cid else raw_reason)
+
+                    if unique_row_checks:
+                        text = '；'.join(unique_row_checks)
+                        detail_entries.append(f'{cid}：{text}' if multi else text)
+                    elif raw_reason:
+                        detail_entries.append(f'{cid}：{raw_reason}' if multi else raw_reason)
+
+    unique_stages = list(dict.fromkeys(stage_entries))
+    stage_summary = (
+        f"均匀基准 · {'；'.join(unique_stages)}" if unique_stages else '均匀基准'
+    )
+    unique_details = list(dict.fromkeys(detail_entries))
+    unique_checks = list(dict.fromkeys(checks_out))
+    unique_raw = list(dict.fromkeys(raw_reasons))
+    if not unique_raw and baseline.get('reason'):
+        unique_raw.append(str(baseline['reason']))
+    if not unique_details and baseline.get('reason'):
+        unique_details.append(str(baseline['reason']))
+
+    return {
+        'condition': condition_label,
+        'stage': stage_summary,
+        'checks': unique_checks,
+        'details': unique_details,
+        'reasons': unique_raw,
+    }

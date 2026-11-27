@@ -19,7 +19,7 @@ def make_page():
     def make(mode='auto'):
         page = QuickDesignPage(window)
         page.le_qd_file.setText('spec.xlsx')
-        page.combo_qd_mode.setCurrentIndex(page.combo_qd_mode.findData(mode))
+        page.mode_selector.set_value(mode)
         pages.append(page)
         return page
 
@@ -39,18 +39,18 @@ def make_page():
 def test_display_labels_do_not_change_backend_values(make_page, mode, arrangement, properties, monkeypatch):
     monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.quick_design_panel.TRAIN_T_NODES', (.3000004, .6))
     page = make_page()
-    page.combo_qd_mode.setCurrentIndex(page.combo_qd_mode.findData(mode))
-    page.combo_qd_arr.setCurrentIndex(page.combo_qd_arr.findData(arrangement))
-    page.combo_qd_prop.setCurrentIndex(page.combo_qd_prop.findData(properties))
-    for combo in (page.combo_qd_mode, page.combo_qd_arr, page.combo_qd_prop):
-        combo.setItemText(combo.currentIndex(), '修改后的显示名称')
+    page.mode_selector.set_value(mode)
+    page.arrangement_selector.set_value(arrangement)
+    page.prop_model_selector.set_value(properties)
+    for selector in (page.mode_selector, page.arrangement_selector, page.prop_model_selector):
+        selector.set_label(selector.current_index(), '修改后的显示名称')
     params = page._gather_inputs()
     assert (params['mode'], params['arrangement'], params['prop_model']) == (
         mode, arrangement, properties)
     if mode == 'auto':
         assert params['nodes']['t'] == [.3000004, .6]
-    assert page.le_qd_l.isVisibleTo(page) == (mode == 'auto')
-    assert page.le_qd_cell_l.isVisibleTo(page) == (mode == 'fixed')
+    assert page.le_qd_l.isVisibleTo(page._input_drawer_body) == (mode == 'auto')
+    assert page.le_qd_cell_l.isVisibleTo(page._input_drawer_body) == (mode == 'fixed')
 
 
 @pytest.mark.parametrize('alias', [False, True])
@@ -81,10 +81,12 @@ def test_export_preserves_accepted_input_after_file_draft_changes(make_page, tmp
     # Actual buttons, QThread, input loader and XLSX writer; only numerical
     # sizing and the headless file chooser's selected path are substituted.
     page = make_page()
+    assert not page._qd_export_btn.isEnabled()
     page.le_qd_file.setText(str(source))
-    page.combo_qd_mode.setCurrentIndex(page.combo_qd_mode.findData('fixed'))
+    page.mode_selector.set_value('fixed')
     page._qd_run_btn.click()
     _wait_for(page.is_idle)
+    assert page._qd_export_btn.isEnabled()
     assert calls == [2]
     assert page.last_result['params']['file'] == str(source)
     page.le_qd_file.setText(str(tmp_path / 'next-input.xlsx'))
@@ -93,7 +95,8 @@ def test_export_preserves_accepted_input_after_file_draft_changes(make_page, tmp
     monkeypatch.setattr(QFileDialog, 'getSaveFileName', lambda *a: (str(target), ''))
     export = next(b for b in page.findChildren(QPushButton) if b.text() == '导出 xlsx')
     export.click()
-    assert page._qd_status.text() == '导出失败: 导出文件不能覆盖输入工况文件'
+    assert page._qd_status.text() == '导出失败: 导出文件不能覆盖输入算例文件'
+    assert page._action_notice is not None and '输入算例文件' in page._action_notice.detail
     assert source.read_bytes() == previous
     assert len(load_cases(str(source))) == 2
     if alias:
@@ -103,7 +106,7 @@ def test_export_preserves_accepted_input_after_file_draft_changes(make_page, tmp
     assert '已导出' in page._qd_status.text()
     workbook = load_workbook(target, read_only=True)
     try:
-        assert workbook.sheetnames == ['构型汇总', '工况明细']
+        assert workbook.sheetnames == ['构型汇总', '算例明细']
         cells = list(workbook['构型汇总'].values)
         row = dict(zip(cells[0], cells[1]))
         assert row['拓扑'] == 'Diamond' and row['l_mm'] == 7.

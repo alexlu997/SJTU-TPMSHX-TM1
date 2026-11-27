@@ -108,7 +108,7 @@ def test_energy_diagnostic_is_reported_without_a_new_feasibility_gate(
     assert write_xlsx(path, [design]) == (1, 1, 1)
     workbook = load_workbook(path)
     try:
-        cells = list(workbook['工况明细'].values)
+        cells = list(workbook['算例明细'].values)
         row = dict(zip(cells[0], cells[1]))
         assert row['热侧换热量_W'] == hot and row['冷侧换热量_W'] == cold
         assert row['换热量_kW'] == round(hot / 1e3, 3)
