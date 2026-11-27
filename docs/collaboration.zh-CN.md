@@ -31,9 +31,9 @@ Git 操作使用[任务持续授权](../AGENTS.md#1-task-scope-and-authority)。
 
 ### 工作树准备
 
-新工作树没有 `.venv-path`，也没有已发布的原生库。
+新工作树没有已发布的原生库，也可能没有 `.venv-path`：`.worktreeinclude` 只把该文件复制到 Codex 管理的工作树。
 
-1. 将 `.venv-path` 指向符合本任务依赖锁的已验收共享解释器。
+1. 若缺少 `.venv-path`，将其指向符合本任务依赖锁的已验收共享解释器。若已存在，按同一依赖锁核验。
 2. 任务修改原生代码时，先构建并发布新库，再用其取证。
 3. 任务不修改原生代码时，使用主检出中匹配的库，并按用途选择：
    - 几何、前处理和结果代码：设置 `TPMSHX_GEOMETRY_LIBRARY`、`TPMSHX_PREPARATION_LIBRARY` 和 `TPMSHX_RESULT_LIBRARY`。
@@ -229,6 +229,14 @@ GUI 和 CLI 标签、文档、注释和 docstring。
    此后由协调者负责批量 PR 描述、CI、合并和 `main` CI。
 4. 等待最新 PR 提交的必需 CI。依据持续授权修复任务相关失败，重跑受影响检查，
    并更新审查结论。范围外的未解决失败须记录下一步处理动作。
+   审查通过后，CI 修复同时满足以下全部条件时，无需新的审查轮次：
+   - 只修改 `tests/` 下已有的测试文件，不修改生产代码。
+   - 自获批提交起，全部修复提交按 `git diff --numstat` 统计的新增与删除行数合计不超过 10 行。
+     第 6 步中无冲突的 `origin/main` 合并不计入。
+   - 不删除检查，不减弱断言，不修改容差或契约值，不添加 `skip` 或 `xfail`。
+   - 协调者核对差异。PR 中记录获批提交、修复提交和失败的检查。
+   - 修复提交的必需 PR CI 全部通过。
+   其他修复按常规审查轮次处理。
 5. 等待协调者通知轮到合并。新提交到达时，`main` CI 会取消正在运行的任务，
    仓库保护又要求分支为最新，因此一次只合并一个 PR。仅当没有正在运行的 `main` CI 时开始合并。
 6. 将当前 `origin/main` 合入任务分支并解决冲突。保留分支历史，不强推或覆盖其他负责人的改动。
@@ -397,8 +405,10 @@ Git 工作树管理操作。最后处理分支，先确认必要提交有恢复�
 ## 工具规则入口
 
 Codex、Claude 和 Antigravity 共用 `AGENTS.md` 中的项目规则。
-[Codex](https://learn.chatgpt.com/docs/agent-configuration/agents-md) 读取 `AGENTS.md`。
-支持 AGENTS 的 [Claude Code](https://code.claude.com/docs/en/memory#agentsmd) 版本在
-项目或上层目录没有 `CLAUDE.md` 覆盖该选择时，可以直接读取它。Antigravity 读取
-`.agents/rules/` 中指向 `AGENTS.md` 的本地规则。首次接入时在实际客户端检查规则加载。
-若既有 Claude 配置需要入口，在 `CLAUDE.md` 中用 `@AGENTS.md` 引用共同规则，不复制出第二套规则。
+[Codex](https://learn.chatgpt.com/docs/agent-configuration/agents-md) 和 Antigravity
+直接读取工作树根目录的 `AGENTS.md`。Antigravity 还读取主检出 `.agents/rules/` 中的本地规则。
+[Claude Code](https://code.claude.com/docs/en/memory#agentsmd) 读取已跟踪的根目录 `CLAUDE.md`，
+该文件用 `@AGENTS.md` 引用项目规则。不要依赖 Claude Code 对 AGENTS 的直接支持：
+它在项目或上层目录发现 `CLAUDE.md` 时会跳过 `AGENTS.md`。若 `CLAUDE_CONFIG_DIR` 指向其他目录
+（例如 Orca 配置目录），Claude 会把 `~/.claude/CLAUDE.md` 当作上层目录文件。
+首次接入时在实际客户端检查规则加载。规则只保存在 `AGENTS.md` 中，不复制到 `CLAUDE.md` 或第二套规则。
