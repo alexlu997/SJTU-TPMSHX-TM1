@@ -179,6 +179,8 @@ class RunHistory:
         # File actions
         load_file = menu.addAction("加载配置文件…")
         load_file.triggered.connect(window.case_files.load_config)
+        open_result = menu.addAction("打开已保存结果…")
+        open_result.triggered.connect(lambda: window.results.open_result_file())
         resume = menu.addAction("继续已保存的计算…")
         resume.triggered.connect(lambda: window.single_run.resume())
         load_link = menu.addAction("载入可复现链接…")

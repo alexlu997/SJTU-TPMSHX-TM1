@@ -186,3 +186,102 @@ def test_failed_visible_redraw_clears_old_plot_and_same_tab_retries(win, monkeyp
     assert attempts == ['temp', 'temp']
     assert 'temp' in win.cache.get_drawn_tabs()
     assert win.canvas_temp._hover_data['names'] == ['T_fB']
+
+
+def test_saved_3d_result_uses_selected_field_reader_for_single_view_and_full_load_for_export(
+        win, tmp_path, monkeypatch):
+    from dataclasses import replace
+    from tests.python.test_module_result_mapping import _synthetic_results
+    from tm1.applications.gui.controllers import result_field_loader
+    from tm1.applications.gui.ui import result_export
+    from tm1.file_io.metrics_io import save_metrics
+    from tm1.file_io.result_io import load_result, save_result
+    from tm1.postprocess.result_display import describe_fields
+
+    native, performance = _synthetic_results(3)
+    grid = dict(native.grid)
+    for axis in ('x', 'y', 'z'):
+        grid[axis + '_edges'] = np.r_[0.0, np.cumsum(grid['d' + axis])]
+    archived = replace(
+        native,
+        grid=grid,
+        field_metadata=describe_fields(native.fields, 3),
+    )
+    results_path = tmp_path / 'results.h5'
+    save_result(archived, results_path)
+    save_metrics(performance, tmp_path / 'metrics.json')
+    expected = load_result(results_path)
+
+    def _forbid_full_load(*_args, **_kwargs):
+        raise AssertionError('full load_result must not run for single-field display')
+
+    monkeypatch.setattr(result_field_loader, 'load_result', _forbid_full_load)
+    win._temp_unit = 'K'
+    win._field_phase = 0
+    win.chk_sync_colorbar_T.setChecked(False)
+    win.chk_shared_pressure_scale.setChecked(False)
+
+    assert win.results.open_result_file(results_path)
+    assert win.cache.result_file('3d') == results_path.resolve()
+    assert 'Ta' not in win.cache.get_result('3d').fields
+    k_mid = win._slice_index
+    np.testing.assert_array_equal(
+        win.canvas_temp._hover_data['fields'][0],
+        expected.fields['Ta'][:, :, k_mid],
+    )
+
+    win.workbench.switch_tab('vel')
+    np.testing.assert_array_equal(
+        win.canvas_vel._hover_data['fields'][0],
+        expected.fields['vmag_A'][:, :, k_mid],
+    )
+
+    win.workbench.switch_tab('pres')
+    np.testing.assert_array_equal(
+        win.canvas_pres._hover_data['fields'][0],
+        expected.fields['P_report_A'][:, :, k_mid] * 1e-3,
+    )
+
+    # 3D panel binds a lazy field source and reads one field at a time on demand.
+    bound = {}
+    monkeypatch.setattr(
+        win,
+        'canvas_3d',
+        SimpleNamespace(
+            cleanup=lambda: None,
+            set_scale_sharing=lambda **kw: None,
+            set_field_source=lambda **kw: bound.update(kw),
+            set_lattice_geometry=lambda *args, **kw: bound.update(lattice=(args, kw)),
+            set_watermark=lambda text: None,
+            color_range_state=lambda: {'mode': 'global', 'ranges': {}},
+        ),
+    )
+    assert finalize_plots_3d(win)
+    assert set(bound['available_fields']) == {
+        'Ta', 'Tb', 'Ts', 'vmag', 'vmag_B', 'P_kPa', 'P_B_kPa', 'L_mm', 't_mm',
+    }
+    np.testing.assert_array_equal(bound['field_loader']('Ta'), expected.fields['Ta'])
+    np.testing.assert_array_equal(
+        bound['field_loader']('P_kPa'), expected.fields['P_report_A'] * 1e-3
+    )
+    np.testing.assert_array_equal(
+        bound['field_loader']('L_mm'), expected.metadata['design_fields']['L_field_m'] * 1e3
+    )
+
+    # Full export requires every field and uses full load_result.
+    monkeypatch.setattr(result_field_loader, 'load_result', load_result)
+    csv_path = tmp_path / 'export.csv'
+    monkeypatch.setattr(
+        result_export.QFileDialog,
+        'getSaveFileName',
+        lambda *args: (str(csv_path), 'CSV (*.csv)'),
+    )
+    win.result_export.export_results()
+    assert csv_path.is_file()
+    with np.load(tmp_path / 'export_fields.npz') as exported:
+        np.testing.assert_array_equal(exported['Ta'], expected.fields['Ta'])
+        np.testing.assert_array_equal(exported['P_fA'], expected.fields['P_report_A'])
+        np.testing.assert_array_equal(exported['vmag_A'], expected.fields['vmag_A'])
+        np.testing.assert_array_equal(
+            exported['L_mm'], expected.metadata['design_fields']['L_field_m'] * 1e3
+        )

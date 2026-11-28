@@ -21,6 +21,14 @@ metadata are validated at the file boundary. Explicit native pressure units must
 
 `results.h5` archives completed execution, including `converged=False`. Failed
 or cancelled partial data cannot be saved as a normal completed result.
+`load_result_field(path, name)` reads one named field and its physical grid from
+`results.h5` without reading unselected array payloads. It runs the same schema,
+local-link, dataset, grid, and unit checks as `load_result(path)`. It returns
+the source result ID, raw and display units, physical grid, axes, cell
+association, shape, dtype, state, and immutable array values.
+`load_result_design_field(path, name)` reads one cell-shaped design field from
+`metadata.design_fields` with the same checks. `load_result_header(path)` reads
+validated metadata, grid arrays, and field names without reading field payloads.
 `metrics.json` uses standard JSON: unavailable values are null with an explicit
 reason and status, finite available values keep MetricSpec units/version.
 Nonfinite diagnostics stay in HDF5, never converted to a valid metric.

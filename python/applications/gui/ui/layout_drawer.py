@@ -18,13 +18,23 @@ def _remove_thumb_axes(fig, canvas) -> None:
     canvas._thumb_axes = ()
 
 
+def _read_2d_field(window, fields, key):
+    value = fields.get(key)
+    if value is not None:
+        return value
+    cache = getattr(window, "cache", None)
+    if cache is not None and hasattr(cache, "read_field"):
+        return cache.read_field(key, "2d")
+    return None
+
+
 def _render_2d_thumbnail_axes(window, fig) -> bool:
     """Draw the accepted 2D temperature field below the 2D domain in physical mm."""
     result = window.cache.get_result("2d")
     if result is None:
         return False
     fields = result.fields or {}
-    Ta = fields.get("Ta")
+    Ta = _read_2d_field(window, fields, "Ta")
     if Ta is None:
         return False
 
@@ -49,17 +59,17 @@ def _render_2d_thumbnail_axes(window, fig) -> bool:
 
     u = window._temp_unit
     unit = "°C" if u == "C" else "K"
-    temps = [fields[k] for k in ("Ta", "Tb", "Ts") if fields.get(k) is not None]
     sync = bool(
         getattr(window, "chk_sync_colorbar_T", None)
         and window.chk_sync_colorbar_T.isChecked()
     )
-    if sync and len(temps) >= 1:
-        lo, hi = field_color_limits(temps, shared=True)[0]
-    elif len(temps) >= 2:
-        lo, hi = field_color_limits(temps[:2], shared=True)[0]
-    else:
-        lo, hi = field_color_limits([Ta], shared=True)[0]
+    keys = ("Ta", "Tb", "Ts") if sync else ("Ta", "Tb")
+    temps = [Ta]
+    for key in keys[1:]:
+        arr = _read_2d_field(window, fields, key)
+        if arr is not None:
+            temps.append(arr)
+    lo, hi = field_color_limits(temps, shared=True)[0]
     lo, hi = kelvin_to_display(lo, u), kelvin_to_display(hi, u)
     data = kelvin_to_display(Ta, u)
 

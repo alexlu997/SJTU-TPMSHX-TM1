@@ -10,7 +10,7 @@ HDF5 保存根级模式和类型属性、UTF-8 JSON 描述符，以及 `/arrays`
 
 显式原生压力单位必须为 `Pa`。原生质量通量单位在二维中必须为 `kg/(s m)` 或 `kg/(m s)`，在三维中必须为 `kg/s`。内存后处理前也检查这些声明；矛盾单位不得自动转换。
 
-`results.h5` 保存已完成的执行结果，包括 `converged=False`。失败或取消产生的部分数据不能保存为正常完成结果。`metrics.json` 使用标准 JSON：不可用值为 null，并带有明确原因和状态；有限的可用值保留 MetricSpec 单位和版本。非有限诊断保留在 HDF5 中，不能转换成有效指标。
+`results.h5` 保存已完成的执行结果，包括 `converged=False`。失败或取消产生的部分数据不能保存为正常完成结果。`load_result_field(path, name)` 从 `results.h5` 中仅读取一个具名场及其物理网格，不读取未选中数组的数据载荷，并执行与 `load_result(path)` 相同的模式、本地链接、数据集、网格和单位校验；返回值包含源结果 ID、原始单位与显示单位、物理网格、坐标轴、单元关联类型、形状、数据类型、状态以及不可变数组。`load_result_design_field(path, name)` 以同样校验从 `metadata.design_fields` 读取单个单元形状的设计场；`load_result_header(path)` 在不读取场数据载荷的前提下读取已校验的元数据、网格数组与场名清单。`metrics.json` 使用标准 JSON：不可用值为 null，并带有明确原因和状态；有限的可用值保留 MetricSpec 单位和版本。非有限诊断保留在 HDF5 中，不能转换成有效指标。
 
 公共阶段命令为：
 

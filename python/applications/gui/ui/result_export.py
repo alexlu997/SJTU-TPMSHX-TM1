@@ -33,6 +33,8 @@ class ResultExport:
         # File dialogs process worker completion signals. Keep the accepted
         # object selected at click time even if another result is published.
         result = res_3d if res_3d is not None else res_2d
+        mode = '3d' if res_3d is not None else '2d'
+        result_file = window.cache.result_file(mode) if hasattr(window.cache, 'result_file') else None
         path, _ = QFileDialog.getSaveFileName(
             window, "导出计算结果", "results.csv",
             "CSV 文件 (*.csv);;所有文件 (*)")
@@ -40,7 +42,11 @@ class ResultExport:
             return
         try:
             rows = []
-            _rf = result.fields
+            if result_file is not None:
+                from tm1.applications.gui.controllers.result_field_loader import load_all_saved_display_fields
+                _rf = {**result.fields, **load_all_saved_display_fields(result_file, mode=mode)}
+            else:
+                _rf = result.fields
             diag = result.diagnostics or {}
             status = {
                 'converged': result.converged,
@@ -90,7 +96,6 @@ class ResultExport:
             path = Path(path)
             npz_path = path.with_name(path.stem + '_fields.npz')
             if res_3d is not None:
-                _rf = res_3d.fields
                 save_dict = dict(status)
                 for npz_key, src in (('Ta', 'Ta'), ('Tb', 'Tb'),
                                      ('Ts', 'Ts'), ('vmag', 'vmag_A'),

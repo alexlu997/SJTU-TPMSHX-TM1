@@ -4,6 +4,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import replace
 import math
+from pathlib import Path
 from time import perf_counter
 
 from tm1.applications.gui.ui.fmt import qualification_reasons, recorded_elapsed_s
@@ -28,7 +29,7 @@ class FieldResults:
             window.setUpdatesEnabled(True)
         return out
 
-    def publish(self, result):
+    def publish(self, result, *, result_file=None, available_fields=()):
         """Publish one ComputeResult for rendering, diagnostics and export."""
         window = self.window
         if not getattr(result, 'converged', True):
@@ -49,7 +50,7 @@ class FieldResults:
         window.workbench.rendered_slices = False
         mode = result.diagnostics.get('mode', '2d')
         # Isolate published containers while sharing the field arrays.
-        window.cache.set_result(mode, replace(
+        published = replace(
             result, fields=dict(result.fields), coeffs=dict(result.coeffs),
             residuals=dict(result.residuals), zones=deepcopy(result.zones),
             metadata=deepcopy(result.metadata), warnings=list(result.warnings),
@@ -58,9 +59,42 @@ class FieldResults:
                 'envelope_warnings': list(result.diagnostics.get('envelope_warnings') or ()),
                 'convergence_detail': dict(
                 result.diagnostics.get('convergence_detail') or {})},
-        ))
+        )
+        if result_file is not None or available_fields:
+            window.cache.set_result(
+                mode, published, result_file=result_file, available_fields=available_fields
+            )
+        else:
+            window.cache.set_result(mode, published)
         from tm1.applications.gui.ui.builders_sidebar import clear_sample_points
         clear_sample_points(window)
+
+    def open_result_file(self, path=None) -> bool:
+        """Open a saved HDF5 result file and load only the active view's fields."""
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+        from tm1.applications.gui.controllers.result_field_loader import build_saved_compute_result
+
+        window = self.window
+        if path is None:
+            start_path = window.case_files.store.base_dir / 'runs'
+            path, _ = QFileDialog.getOpenFileName(
+                window, '打开已保存结果', str(start_path), 'Saved result (results.h5);;HDF5 (*.h5)')
+        if not path:
+            return False
+        result_path = Path(path).resolve()
+        try:
+            mode, result, available = build_saved_compute_result(result_path)
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            QMessageBox.warning(window, '无法打开结果', str(error))
+            return False
+        self.publish(result, result_file=result_path, available_fields=available)
+        success = self.render(mode)
+        self.refresh_summary()
+        window.workbench.update_tab_visibility()
+        window.result_export.refresh_export_button()
+        if success:
+            window.dialogs.notify(f'已打开结果：{result_path.name}', kind='info', duration_ms=5000)
+        return success
 
     def summary(self):
         """Read diagnostics and scalar values from the published result."""
