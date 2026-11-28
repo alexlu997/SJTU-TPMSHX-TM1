@@ -128,7 +128,7 @@ raise SystemExit(status)
             '--checkpoint-interval', '3600', '--cpu-threads', '1']
     entry = str(Path(__file__).resolve().parents[3] / 'main.py')
     process = subprocess.run([sys.executable, '-c', script, entry, *args], input=interrupt + '\n',
-                             capture_output=True, text=True, timeout=120)
+                             capture_output=True, encoding='utf-8', timeout=120)
     assert process.returncode == exit_code, process.stdout + process.stderr
     assert 'checkpoint-ready' in process.stdout
     record = json.loads((original / 'run.json').read_text())
@@ -141,7 +141,7 @@ raise SystemExit(status)
             '--native-library', str(moved / record['native_file']),
             '--native-table-directory', control.native_table_directory, '--cpu-threads', '3']
     process = subprocess.run([sys.executable, entry, *args],
-                             capture_output=True, text=True, timeout=120)
+                             capture_output=True, encoding='utf-8', timeout=120)
     qualified = expected.run_status['converged'] and all(
         expected_metrics.metrics[name].status == 'available'
         for name in ('Q', 'dP_A', 'dP_B', 'T_out_A', 'T_out_B'))

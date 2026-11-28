@@ -47,6 +47,15 @@ def test_cli_routes_and_spawn_children_import_no_gui_or_torch(mode):
         assert all(name in run.stdout for name in ('prepare', 'summary', 'design', 'optimize'))
 
 
+def test_cli_route_writes_to_a_stream_without_reconfigure(entry):
+    import contextlib, io, json
+    # A text buffer has no reconfigure(); a closed stream (None) has none either.
+    output = io.StringIO()
+    with contextlib.redirect_stdout(output):
+        assert entry.main(['summary', str(ROOT / 'examples/three_module/air_2d.json'), '--dry-run', '--json']) == 0
+    assert json.loads(output.getvalue())['pipeline'] == 'Pipeline2D'
+
+
 def test_gui_caches_respect_explicit_paths(tmp_path, monkeypatch):
     from tm1.applications.gui import main as gui
     monkeypatch.setattr(QStandardPaths, 'writableLocation', lambda *_: str(tmp_path))

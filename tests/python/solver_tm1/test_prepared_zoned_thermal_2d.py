@@ -291,8 +291,8 @@ def test_sigmoid_saved_execution_keeps_row_drag(monkeypatch, tmp_path):
 
     completed = subprocess.run([sys.executable, str(Path(__file__).resolve().parents[3] / 'main.py'),
         'solve', str(tmp_path / 'case.yaml'), str(tmp_path / 'cli-result.h5'),
-        '--native-library', library, '--cpu-threads', '1'], capture_output=True, text=True, check=False)
-    (tmp_path / 'cli.log').write_text(completed.stdout + completed.stderr)
+        '--native-library', library, '--cpu-threads', '1'], capture_output=True, encoding='utf-8', check=False)
+    (tmp_path / 'cli.log').write_text(completed.stdout + completed.stderr, encoding='utf-8')
     assert completed.returncode == (0 if results[1].run_status['converged'] else 2), completed.stderr
     cli = load_result(tmp_path / 'cli-result.h5')
     assert cli.run_status == results[1].run_status

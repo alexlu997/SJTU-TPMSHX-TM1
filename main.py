@@ -37,8 +37,10 @@ def main(argv=None):
     if mode != 'gui':
         # Help, results and errors can contain Chinese text. On Windows, a pipe or a
         # file uses the legacy code page (for example cp1252), which cannot encode it.
+        # A closed stream is None, and a text buffer such as StringIO takes Unicode.
         for stream in (sys.stdout, sys.stderr):
-            stream.reconfigure(encoding='utf-8')
+            if hasattr(stream, 'reconfigure'):
+                stream.reconfigure(encoding='utf-8')
     if mode in STAGES:
         from tm1.applications.cli.stages import main as run_stage
         return run_stage([mode, *args])

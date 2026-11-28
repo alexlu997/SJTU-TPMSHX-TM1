@@ -681,7 +681,7 @@ def test_saved_qd_cpp_cli_solve_postprocess_and_replay(native_control, tmp_path,
                    str(source), str(output), '--backend', 'cpp',
                    '--native-library', native_control.native_library,
                    '--native-table-directory', str(tables)]
-        process = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=60)
+        process = subprocess.run(command, cwd=ROOT, capture_output=True, encoding='utf-8', timeout=60)
         assert process.returncode == (2 if exhausted else 0), process.stdout + process.stderr
         result = load_result(output)
         assert result.backend_id == 'cpp' and result.run_status == expected.run_status
@@ -696,7 +696,7 @@ def test_saved_qd_cpp_cli_solve_postprocess_and_replay(native_control, tmp_path,
     metrics_path = tmp_path / 'metrics.json'
     process = subprocess.run([
         sys.executable, str(ROOT / 'main.py'), 'postprocess',
-        str(outputs[1]), str(metrics_path)], cwd=ROOT, capture_output=True, text=True, timeout=60)
+        str(outputs[1]), str(metrics_path)], cwd=ROOT, capture_output=True, encoding='utf-8', timeout=60)
     assert process.returncode == 0, process.stdout + process.stderr
     performance = load_metrics(metrics_path)
     assert performance.source_result_id == load_result(outputs[1]).result_id
@@ -711,7 +711,7 @@ def test_cpp_cli_missing_library_preserves_existing_result(native_control, tmp_p
     process = subprocess.run([
         sys.executable, str(ROOT / 'main.py'), 'solve', str(source), str(output),
         '--backend', 'cpp', '--native-library', str(missing)],
-        cwd=ROOT, capture_output=True, text=True, timeout=60)
+        cwd=ROOT, capture_output=True, encoding='utf-8', timeout=60)
     assert process.returncode != 0 and 'missing-library' in process.stderr
     assert output.read_bytes() == b'previous result'
 
