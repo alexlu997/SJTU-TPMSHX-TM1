@@ -717,8 +717,7 @@ template<class Source,class Result,class Function> int flow_boundary(
             throw p::c_api::StateError(problem.status,problem.what());
         } catch (const p::PropertyError& problem) {
             const auto& value=problem.failure;staged_failure.kind=problem.status==3?3u:1u;staged_failure.have_property=1;
-            staged_failure.property={value.reason,value.input,value.index,value.first_t_index,value.first_p_index,
-                value.temperature,value.pressure,value.detail,value.fp};
+            staged_failure.property=p::failure_record(value);
             throw p::c_api::StateError(problem.status,problem.what());
         } catch (const std::invalid_argument&) {staged_failure.kind=1;throw;}
         catch (...) {staged_failure.kind=3;throw;}
@@ -932,8 +931,7 @@ template<class Source,class Result,class Function> int boundary_3d(
             throw p::c_api::StateError(problem.status,problem.what());
         } catch (const p::PropertyError& problem) {
             const auto& value=problem.failure;staged_failure.kind=problem.status==3?3u:1u;staged_failure.have_property=1;
-            staged_failure.property={value.reason,value.input,value.index,value.first_t_index,value.first_p_index,
-                value.temperature,value.pressure,value.detail,value.fp};
+            staged_failure.property=p::failure_record(value);
             if (problem.cause_offset!=std::string::npos) {
                 staged_failure.cause_count=1;staged_failure.causes[0].kind=1;
                 tpmshx::fields::c_api::message(staged_failure.causes[0].message,sizeof(staged_failure.causes[0].message),
@@ -1036,12 +1034,13 @@ static int inlet_boundary(const Source* source,const tpmshx_preparation_callback
             }
         } catch (const tpmshx::geometry::ScalarGeometryError& problem) {
             staged_failure.kind=1;staged_failure.have_property=1;
-            staged_failure.property.reason=static_cast<uint32_t>(problem.reason);
+            p::PropertyFailure details;
+            details.reason=static_cast<uint32_t>(problem.reason);
+            staged_failure.property=p::failure_record(details);
             throw;
         } catch (const p::PropertyError& problem) {
             const auto& value=problem.failure;staged_failure.kind=problem.status==3?3u:1u;staged_failure.have_property=1;
-            staged_failure.property={value.reason,value.input,value.index,value.first_t_index,value.first_p_index,
-                value.temperature,value.pressure,value.detail,value.fp};
+            staged_failure.property=p::failure_record(value);
             if (problem.cause_offset!=std::string::npos) {
                 staged_failure.cause_count=1;staged_failure.causes[0].kind=1;
                 tpmshx::fields::c_api::message(staged_failure.causes[0].message,sizeof(staged_failure.causes[0].message),

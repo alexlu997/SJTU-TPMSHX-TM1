@@ -2,7 +2,7 @@
 
 #include "../numerics/property_kernels.hpp"
 #include "tpmshx/finite_volume.hpp"
-#include "tpmshx/preparation_c_api.h"
+#include "tpmshx/property_c_api.h"
 #include <array>
 #include <cstdint>
 #include <limits>
@@ -38,6 +38,11 @@ struct PropertyFailure {
     double detail=std::numeric_limits<double>::quiet_NaN();
     tpmshx_preparation_fp_failure_v1 fp{};
 };
+inline tpmshx_property_failure_v1 failure_record(const PropertyFailure& value) {
+    return {value.reason,value.input,value.index,value.first_t_index,value.first_p_index,
+        value.temperature,value.pressure,value.detail,value.fp};
+}
+
 class PropertyError : public std::runtime_error {
 public:
     PropertyError(int status,const std::string& text,PropertyFailure failure={},std::size_t cause_offset=std::string::npos)

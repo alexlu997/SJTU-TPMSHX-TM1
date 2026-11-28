@@ -287,8 +287,7 @@ std::array<InletInput2D,2> validate(const CaseInput2D& input,CaseScope scope,boo
                 significant(inlet.pressure_Pa,6)+" Pa: "+error.what(),2,static_cast<std::uint32_t>(side),
                 value.reason==1?std::vector<PreparationFailureCause>{}:
                     std::vector<PreparationFailureCause>{{value.reason==6?2u:1u,error.what()}});
-            failure.have_property=true;failure.property={value.reason,value.input,value.index,value.first_t_index,
-                value.first_p_index,value.temperature,value.pressure,value.detail,value.fp};
+            failure.have_property=true;failure.property=failure_record(value);
             throw failure;
         }
     }
@@ -535,8 +534,7 @@ template<class Inlet> void check_co2_inlet(const Inlet& inlet,std::size_t side) 
             causes.push_back({1,error.what()+error.cause_offset});
         PreparationError failure(error.status,"CO2 inlet "+std::string(side?"B":"A")+": "+error.what(),1,
                                  static_cast<std::uint32_t>(side),std::move(causes));
-        failure.have_property=true;failure.property={value.reason,value.input,value.index,value.first_t_index,
-            value.first_p_index,value.temperature,value.pressure,value.detail,value.fp};
+        failure.have_property=true;failure.property=failure_record(value);
         throw failure;
     }
 }
@@ -2012,8 +2010,7 @@ void water_inlet_3d(const InletInput3D& inlet,std::size_t side,const std::string
             significant(inlet.pressure_Pa,6)+" Pa: "+error.what(),2,static_cast<std::uint32_t>(side),
             value.reason==1?std::vector<PreparationFailureCause>{}:
                 std::vector<PreparationFailureCause>{{value.reason==6?2u:1u,error.what()}});
-        failure.have_property=true;failure.property={value.reason,value.input,value.index,value.first_t_index,
-            value.first_p_index,value.temperature,value.pressure,value.detail,value.fp};
+        failure.have_property=true;failure.property=failure_record(value);
         throw failure;
     }
 }

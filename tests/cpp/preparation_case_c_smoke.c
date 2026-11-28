@@ -721,6 +721,12 @@ static int check_inlet_query(void) {
         CHECK(held.evidence.ranges[0].label.size && !memcmp(held.evidence.ranges[0].side.data, "unbound", 7));
         tpmshx_preparation_cached_inlet_release_v1(&held);
         CHECK(!held.owner && !held.evidence.ranges);
+        held.abi_version = 1; held.struct_size = sizeof(held);
+        model.inlet.geometry.cell_length_mm = -1.;
+        CHECK(tpmshx_preparation_cached_inlet_v1(&model, NULL, &held, &failure, error, sizeof(error)) == TPMSHX_PREPARATION_INVALID);
+        CHECK(!held.owner && failure.kind == 1 && failure.have_property && failure.property.reason == 1);
+        CHECK(failure.property.index == SIZE_MAX && failure.property.first_t_index == SIZE_MAX && failure.property.first_p_index == SIZE_MAX);
+        CHECK(isnan(failure.property.temperature) && isnan(failure.property.pressure) && isnan(failure.property.detail));
     }
     /* A negative base with a fractional exponent gives NaN with an FP event. */
     source.inlet.velocity_m_s = -.2;

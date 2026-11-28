@@ -20,11 +20,6 @@ template<class T> Range read(const T* values,std::size_t count) {return {values,
 template<class T> Range write(T* values,std::size_t count) {return {values,count,sizeof(T),alignof(T),true};}
 Range read(Input value) {return read(value.values,value.count);}
 
-Failure failure_record(const p::PropertyFailure& value) {
-    return {value.reason,value.input,value.index,value.first_t_index,value.first_p_index,
-        value.temperature,value.pressure,value.detail,value.fp};
-}
-
 template<class Function> int invoke(std::initializer_list<Range> buffers,Failure* failure,
     char* error,std::size_t size,Function function,std::size_t* cause_offset=nullptr) {
     // Error storage must be safe before a boundary can write its diagnostic.
@@ -57,10 +52,10 @@ template<class Function> int invoke(std::initializer_list<Range> buffers,Failure
             const c::StateError problem(value.status,value.what());
             if (cause_offset && value.cause_offset < std::min(size-1,std::strlen(problem.what())))
                 *cause_offset=value.cause_offset;
-            if (failure) *failure=failure_record(value.failure);
+            if (failure) *failure=p::failure_record(value.failure);
             throw problem;
         }
-        if (failure) *failure=failure_record({});
+        if (failure) *failure=p::failure_record({});
     });
 }
 
@@ -137,7 +132,7 @@ extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_cached_geometry_v1(
             if (failure) {
                 p::PropertyFailure details;
                 details.reason=static_cast<uint32_t>(problem.reason);
-                *failure=failure_record(details);
+                *failure=p::failure_record(details);
             }
             throw;
         }
