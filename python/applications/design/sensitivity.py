@@ -29,8 +29,7 @@ def _eval_surrogate(tpms, L_cell_mm, t_mm, u, T_in_K, P_in_Pa):
     from tm1.physical_models.tpms_calc import compute as _tpms_compute
     # Solid conductivity affects only the unused K_ss result.
     r = _tpms_compute(tpms, L_cell_mm, t_mm, u, T_in_K, P_in_Pa, 16.0)
-    h_v = r.get('h_v') or (
-        r['H_sf'] * r.get('A_0', 0.0))
+    h_v = r['H_sf'] * r['A_0']
     dT = 40.0  # Assumed fluid-to-solid temperature difference for the heat ranking.
     Q_vol = h_v * dT
     return {
@@ -48,7 +47,7 @@ def sweep_axis(key, steps):
     for name, _, _, low, high in SWEEP_PARAMS:
         if name == key:
             return np.linspace(low, high, steps)
-    return np.linspace(1.0, 10.0, steps)
+    raise KeyError(key)
 
 
 def sweep_row(fixed, key_x, x, key_y, ys, metric):
@@ -64,10 +63,11 @@ def sweep_row(fixed, key_x, x, key_y, ys, metric):
             result = _eval_surrogate(
                 params['tpms'], params['L_cell'], params['t'],
                 params['u_A'], params['T_in'], params['P_in'])
-            values[j] = result.get(metric, 0.0)
         except Exception as error:
             values[j] = np.nan
             failures += 1
             if not first_error:
                 first_error = str(error)
+        else:
+            values[j] = result[metric]
     return values, failures, first_error

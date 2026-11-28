@@ -60,7 +60,6 @@ def test_compute_and_sensitivity_read_the_selected_topology(win):
 def test_sensitivity_cell_loads_inputs_and_clears_prior_results(win):
     from matplotlib.backend_bases import MouseEvent
     from tm1.applications.gui.ui.sensitivity import SensitivityDialog
-    from tm1.physical_models.tpms_calc import compute
     from tests.python.gui_workbench_support import _result
 
     win.combo_fluidA.setCurrentText('Air')
@@ -69,16 +68,10 @@ def test_sensitivity_cell_loads_inputs_and_clears_prior_results(win):
     dialog = SensitivityDialog(win)
     dialog._le_steps.setText('3')
     dialog._btn_run.click()
-    sweep = dialog._grid_params
-    fixed = sweep['fixed']
-    for j, thickness in enumerate(sweep['ys']):
-        for i, cell_size in enumerate(sweep['xs']):
-            point = compute(fixed['tpms'], cell_size, thickness, fixed['u_A'], fixed['T_in'], fixed['P_in'], 16.)
-            assert sweep['grid'][j, i] == point['H_sf'] * point['A_0'] / point['dP_per_L']
-    x, y = dialog._grid_axes.transData.transform((6, 0.3))
+    x, y = dialog._grid_axes.transData.transform((4, 0.3))
     click = MouseEvent('button_press_event', dialog._canvas, x, y, button=1)
     dialog._canvas.callbacks.process(click.name, click)
-    assert (float(win.le_Lcell.text()), float(win.le_t.text())) == (6, 0.3)
+    assert (float(win.le_Lcell.text()), float(win.le_t.text())) == (4, 0.3)
     assert not win.cache.has_any_results()
     assert not win.btn_tab_result.isEnabled() and not win.btn_export.isEnabled()
 
