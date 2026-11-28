@@ -153,6 +153,8 @@ def desktop_spec_prefix(monkeypatch):
 
     from engineering.packaging import python_source
     monkeypatch.setattr(python_source, 'build_package', lambda root, directory: None)
+    # The spec imports PyVista. Import it here under the host platform, not the simulated one.
+    import pyvista  # noqa: F401
 
     def evaluate(platform):
         namespace = {'SPECPATH': str(spec.parent), 'Analysis': stop_before_build}
@@ -199,6 +201,20 @@ def test_bundle_requires_and_collects_four_prebuilt_libraries(desktop_spec_prefi
     assert '(licenses/CoolProp.txt)' in notices
     assert (staged / 'licenses/CoolProp.txt').read_bytes() == (root / 'engineering/native_build/licenses/CoolProp.txt').read_bytes()
     assert 'sjtu_tpmshx.development' in namespace['excluded']
+    # PyVista and PyVistaQt import VTK modules through importlib, which Analysis does not see.
+    # Read the module names from the installed packages, so that a new name upstream also fails.
+    import re
+    from pathlib import Path
+    import pyvista
+    from pyvista import _vtk as pyvista_vtk
+    from pyvistaqt import _vtk as pyvistaqt_vtk
+    direct = {name for path in Path(pyvista.__file__).parent.rglob('*.py')
+              for name in re.findall(r'''(?:_VTK_ROOT\}\.|_import_from\(['"]|['"]vtkmodules\.)(vtk\w+)''',
+                                     path.read_text(encoding='utf-8'))}
+    assert {'vtkRenderingContextOpenGL2', 'vtkRenderingMatplotlib', 'vtkPythonContext2D'} <= direct
+    requested = {*pyvista_vtk._CORE_MODULES, *pyvista_vtk._PLOTTING_MODULES, *pyvista_vtk._OPENGL_MODULES,
+                 *direct, *pyvistaqt_vtk._FALLBACK_MODULES.values()}
+    assert {f'vtkmodules.{name}' for name in requested} <= set(namespace['hidden'])
 
 
 @pytest.mark.parametrize('component', ['SOLVER', 'GEOMETRY', 'PREPARATION', 'RESULT'])
