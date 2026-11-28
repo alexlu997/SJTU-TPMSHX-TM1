@@ -233,15 +233,18 @@ def repeat_multi_condition_optimization(input_file, *, output_dir, control=RunCo
                                         workers=None, on_update=None, pause_check=None):
     """Start a new search with the fixed input of a saved search.
 
-    If the input is in a saved search directory, the new directory must be outside it.
+    If the given input or its link target is in a saved search directory, the new
+    directory must be outside that search.
     """
-    source = Path(input_file).resolve(strict=True)
+    given = Path(input_file).absolute()
+    source = given.resolve(strict=True)
     if source.name != 'optimization-input.json':
         raise ValueError('select optimization-input.json to repeat a search')
     destination = Path(output_dir).resolve()
-    if source.with_name('optimization.json').exists():
-        destination = _outside_saved_search(source.parent, output_dir,
-                                            'the new search directory must be outside the saved search')
+    for directory in (given.parent, source.parent):
+        if (directory / 'optimization.json').exists():
+            destination = _outside_saved_search(directory, output_dir,
+                                                'the new search directory must be outside the saved search')
     frozen = _fixed_input(source)
     return _run_multi_condition_optimization(_saved_conditions(frozen), output_dir=destination,
         control=control, workers=workers, on_update=on_update, pause_check=pause_check,

@@ -131,6 +131,25 @@ From the project folder, run:
 
 T-SOU uses checked HEOS PT properties and does not create EOS tables. The table-directory option remains for explicitly selected historical runtimes. Public APIs, CLI and direct module calls default to C++.
 
+Since 2026-11-28, `publish` writes to `native/lib/<host>/`. Before that date, it wrote to `sjtu_tpmshx/solvers/native/lib/<host>/`.
+An older checkout can also have libraries of the earlier root `native/` layout in `native/lib/`.
+A publish of changed libraries replaces `previous/` in the destination.
+Each library has its own build record:
+
+| Library | Build record |
+|---|---|
+| Solver | `build.json` |
+| Geometry | `geometry-build.json` |
+| Preparation | `preparation-build.json` |
+| Result | `result-build.json` |
+
+Before the first publish to `native/lib/<host>/`, do these steps:
+
+1. If `native/lib/<host>/` exists, move its libraries, its four build records and its `previous/` folder to a separate folder. Old checkpoints can need these files.
+2. Move each library of the current build from `sjtu_tpmshx/solvers/native/lib/<host>/` to `native/lib/<host>/` together with its build record. Also move the `previous/` folder. As an alternative, publish the libraries again.
+
+Old checkpoints still require their matching original library, selected explicitly.
+
 For dependencies configured under the current source layout, publish all four libraries after the relevant native regressions pass.
 For an old layout, first prepare a new cache as described below.
 
@@ -138,12 +157,6 @@ For an old layout, first prepare a new cache as described below.
 "$PYTHON" engineering/scripts/build_native_dependencies.py publish
 ```
 
-Since 2026-11-28, `publish` writes to `native/lib/<host>/`. Before that date, it wrote to `sjtu_tpmshx/solvers/native/lib/<host>/`.
-An older checkout can also have libraries of the earlier root `native/` layout in `native/lib/`.
-A publish of changed libraries replaces `previous/` in the destination.
-Thus, before you publish, copy each library, `build.json` and `previous/` that old checkpoints still need to a separate folder.
-Then move the libraries of the current build from `sjtu_tpmshx/solvers/native/lib/<host>/` to `native/lib/<host>/`, or publish them again.
-Old checkpoints still require their matching original library, selected explicitly.
 Keep old caches and their absolute paths while consumers still use them.
 The old pilot build directory records the previous source location. It cannot configure the new layout.
 

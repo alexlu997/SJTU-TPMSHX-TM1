@@ -1,14 +1,4 @@
-"""Start TM1: the desktop GUI (default) or one command-line mode.
-
-Usage from the repository root:
-
-    python main.py [gui] [GUI options]
-    python main.py {prepare,solve,postprocess,run,resume} ...
-    python main.py summary CONFIG [--dry-run] [--json]
-    python main.py design ...
-    python main.py optimize INPUT OUTPUT_DIR ...
-
-Use MODE --help for the arguments of a mode.
+"""Start TM1: the desktop GUI (default) or one command-line mode (see USAGE).
 
 This file imports no Qt, VTK, Matplotlib or Torch. Each route imports its own
 modules after this file selects the mode. The GUI route imports Qt, VTK and
@@ -22,12 +12,24 @@ import sys
 
 STAGES = ('prepare', 'solve', 'postprocess', 'run', 'resume')
 MODES = ('gui', *STAGES, 'summary', 'design', 'optimize')
+# A constant, not the docstring: "python -OO" removes docstrings.
+USAGE = """Start TM1: the desktop GUI (default) or one command-line mode.
+
+Usage from the repository root:
+
+    python main.py [gui] [GUI options]
+    python main.py {prepare,solve,postprocess,run,resume} ...
+    python main.py summary CONFIG [--dry-run] [--json]
+    python main.py design ...
+    python main.py optimize INPUT OUTPUT_DIR ...
+
+Use MODE --help for the arguments of a mode."""
 
 
 def main(argv=None):
     args = list(sys.argv[1:] if argv is None else argv)
     if args[:1] in (['-h'], ['--help']):
-        print(__doc__.strip())
+        print(USAGE)
         return 0
     if not args or args[0].startswith('-'):
         args.insert(0, 'gui')

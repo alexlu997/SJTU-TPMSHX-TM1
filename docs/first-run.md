@@ -161,13 +161,29 @@ macOS 尚未验收。继续复用 `.venv-path` 指定的现有锁定环境，环
 不随 Git 源码自动提供。计算开始时会报告缺少的库；`main.py` 不安装依赖，
 也不编译库。T-SOU 使用带检查的 HEOS PT 物性，不创建 EOS 表；表目录选项保留给显式选择的历史运行库。公共 API、CLI 和直接模块调用默认使用 C++。
 
+自 2026-11-28 起，`publish` 写入 `native/lib/<host>/`；此前写入 `sjtu_tpmshx/solvers/native/lib/<host>/`。较旧的检出还可能在 `native/lib/` 下保存更早的根目录 `native/` 布局的库。发布内容变化的库时会替换目标目录中的 `previous/`。每个库有自己的构建记录：
+
+| 库 | 构建记录 |
+|---|---|
+| 求解库 | `build.json` |
+| 几何库 | `geometry-build.json` |
+| 准备库 | `preparation-build.json` |
+| 结果库 | `result-build.json` |
+
+首次发布到 `native/lib/<host>/` 之前，按以下步骤操作：
+
+1. 若 `native/lib/<host>/` 已存在，将其中的库、四份构建记录和 `previous/` 目录移到单独目录；旧检查点可能需要这些文件。
+2. 将当前构建的每个库与其构建记录一起从 `sjtu_tpmshx/solvers/native/lib/<host>/` 移到 `native/lib/<host>/`，同时移动 `previous/` 目录；也可重新发布这些库。
+
+旧检查点仍须显式选择匹配的原库。
+
 已有当前锁定原生依赖、pilot 构建目录已指向当前源码布局，且相关原生回归通过时，可显式发布求解库、几何库、准备库与结果库。旧布局项目须先按下文升级步骤准备新缓存。
 
 ```sh
 "$PYTHON" engineering/scripts/build_native_dependencies.py publish
 ```
 
-自 2026-11-28 起，`publish` 写入 `native/lib/<host>/`；此前写入 `sjtu_tpmshx/solvers/native/lib/<host>/`。较旧的检出还可能在 `native/lib/` 下保存更早的根目录 `native/` 布局的库。发布内容变化的库时会替换目标目录中的 `previous/`。因此发布前，先把旧检查点仍需要的库、`build.json` 和 `previous/` 复制到单独目录；再将当前构建的库从 `sjtu_tpmshx/solvers/native/lib/<host>/` 移到 `native/lib/<host>/`，或重新发布。旧检查点仍须显式选择匹配的原库。保留仍有消费者的旧缓存及其绝对路径。旧 pilot 构建目录记录了原源码位置，不能直接用于新布局。
+保留仍有消费者的旧缓存及其绝对路径。旧 pilot 构建目录记录了原源码位置，不能直接用于新布局。
 
 已有项目须选择一个尚未使用的缓存目录。以下以 `.cache/native-layout` 和基础环境锁为例；若 `.venv-path` 指向 BO 环境，将发布命令的锁换成对应的 `engineering/requirements/bo-macos.txt` 或 `engineering/requirements/bo-windows.txt`。
 

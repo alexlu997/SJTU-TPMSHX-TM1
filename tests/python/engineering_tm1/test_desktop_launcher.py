@@ -23,7 +23,7 @@ def entry():
 _CHILD = """
 import runpy, sys
 script, mode = sys.argv[1], sys.argv[2:]
-sys.argv = [script, *mode, '--help'] if mode else [script]
+sys.argv = [script, *dict.fromkeys([*mode, '--help'])] if mode else [script]
 try:
     runpy.run_path(script, run_name='__main__' if mode else '__mp_main__')
 except SystemExit as stop:

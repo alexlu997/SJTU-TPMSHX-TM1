@@ -296,9 +296,17 @@ def test_optimize_route_continues_or_repeats_a_saved_search(tmp_path, monkeypatc
         assert json.loads((tmp_path / target / 'optimization-input.json').read_text()) == frozen
     statuses = [line for line in capsys.readouterr().out.splitlines() if line.startswith('status = ')]
     assert statuses == ['status = completed'] * 2
-    with pytest.raises(ValueError, match='outside the saved search'):
-        run([str(source / 'optimization-input.json'), str(source / 'baseline'), '--workers', '1'])
-    assert not (source / 'baseline').exists()
+    # The saved search can hold a link to a fixed input elsewhere; a standalone input writes beside itself.
+    for link in (False, True):
+        if link:
+            moved = tmp_path / 'inputs' / 'optimization-input.json'
+            moved.parent.mkdir()
+            (source / 'optimization-input.json').rename(moved)
+            (source / 'optimization-input.json').symlink_to(moved)
+        with pytest.raises(ValueError, match='outside the saved search'):
+            run([str(source / 'optimization-input.json'), str(source / 'baseline'), '--workers', '1'])
+        assert not (source / 'baseline').exists()
+    assert run([str(moved), str(moved.parent / 'repeated'), '--workers', '1']) == 0
 
 
 @pytest.mark.parametrize('saved', [True, False])
