@@ -22,7 +22,8 @@ from packaging.requirements import Requirement
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = "tm1"
-NATIVE_SOURCES = ("preprocess", "solver", "postprocess", "geometry", "numerics", "include", "tests/cpp")
+NATIVE_SOURCES = ("native/preprocess", "native/solver", "native/postprocess",
+                  "native/geometry", "native/numerics", "native/include", "tests/cpp")
 RUNTIME = PurePosixPath("native/lib")
 TESTS = PurePosixPath("tests")
 FORBIDDEN_PARTS = {".cache", ".git", ".venv", "__pycache__", ".pytest_cache", "_out", "opt_runs", "nTop_inputs", ".agents", "build", "dist"}
@@ -110,7 +111,7 @@ def check_native_closure(root: Path) -> dict:
             if include in GENERATED_HEADERS:
                 generated.add(include)
                 continue
-            candidates = (path.parent / include, root / "include" / include)
+            candidates = (path.parent / include, root / "native/include" / include)
             if not any(candidate.is_file() for candidate in candidates):
                 raise ValueError(f"Source distribution omitted local include {include} required by {path.relative_to(root)}")
             checked += 1

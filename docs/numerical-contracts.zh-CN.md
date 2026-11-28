@@ -27,7 +27,7 @@ Python 在 [python](../python/) 下负责公共 API、配置、不可变 DTO、�
 ## 原生网格与设计场
 
 几何库（`tpmshx_geometry_shared`）负责网格生成、物理端口、水平集单元几何与空间设计场。
-构建路径与发布见[几何构建与交付](cpp-migration.zh-CN.md#native-geometry-core)，固定源码与 BSD 声明见 [fields-sources.md](../geometry/fields-sources.md)。
+构建路径与发布见[几何构建与交付](cpp-migration.zh-CN.md#native-geometry-core)，固定源码与 BSD 声明见 [fields-sources.md](../native/geometry/fields-sources.md)。
 
 | 所有者 | 数值契约 |
 | --- | --- |
@@ -54,7 +54,7 @@ Python 在 [python](../python/) 下负责公共 API、配置、不可变 DTO、�
 
 ### 前处理与入口查询
 
-`preprocess/preparation_case.cpp` 负责二维／三维工况准备（`tpmshx_preparation_2d_*_v1`、`tpmshx_preparation_3d_*_v1`）与标量入口查询（`tpmshx_query_inlet_properties_v2`）。
+`native/preprocess/preparation_case.cpp` 负责二维／三维工况准备（`tpmshx_preparation_2d_*_v1`、`tpmshx_preparation_3d_*_v1`）与标量入口查询（`tpmshx_query_inlet_properties_v2`）。
 `python/cpp_interface/preparation_host.py` 在二维与三维间共享统一的 `tpmshx_preparation_callbacks_v1` 缓存传输、范围记录解码与 D-F 应用解码。
 `tpmshx_preparation_df_experiment_scope_v1` 在二维／三维准备与静态 Python 预检间共享实验 D-F 布局与 HX 实验域检查。
 详见[原生准备核心](cpp-migration.zh-CN.md#native-preparation-core)和[入口物性查询](native-stages.zh-CN.md#入口物性查询)。
@@ -77,7 +77,7 @@ Python 仅绑定保存态阶段生命周期：`full_2d_stage.py`（二维保存�
 | 严格 fullCC 温度 | 空气／水完整二维与完整三维 `Nz = 1`（`model_h_tface_sou_fou_strict_v3`）及完整三维 `Nz > 1`（`model_h_tface_sou_sou_strict_v3`）复用严格 model-h 驱动（完整边界账本比例 `<= 1e-7`）。见[共享有限体积使用方](cpp-migration.zh-CN.md#shared-finite-volume-temperature-consumers)。 |
 | Quick Design | 规定流量 LTNE 尺寸近似（`quick_design_prepare_v2.cpp`、`quick_design_run.cpp`），保留固定解析入口压降分数、定物性单次或均物性两次扫描及每次扫描后的液态水检查。长度搜索（`solve_Lx`）仅接受冷启动收敛的可行候选。 |
 
-- **结果评估（`postprocess/result_stage.cpp`）**：`python/postprocess/api.py` 将完整二维／三维与 Quick Design 的评估、适用性、物理平衡和资格查询全部路由至 `tpmshx_result_stage_query_v3`。后处理仅读取已记录证据，永不重跑求解器。
+- **结果评估（`native/postprocess/result_stage.cpp`）**：`python/postprocess/api.py` 将完整二维／三维与 Quick Design 的评估、适用性、物理平衡和资格查询全部路由至 `tpmshx_result_stage_query_v3`。后处理仅读取已记录证据，永不重跑求解器。
 
 <a id="completed-execution-records"></a>
 
@@ -146,7 +146,7 @@ Python 仅绑定保存态阶段生命周期：`full_2d_stage.py`（二维保存�
 - **`CaseData`、`FieldResult`、`PerformanceResult`**：跨阶段契约的数组保持分离且只读；仅更新元数据时可共享连续只读字节缓冲并创建独立数组头。`data_types.metric_spec` 在 JSON、GUI 与多工况聚合间强制指标族、单位与定义版本一致。
 - **显示契约（`postprocess.result_display`）**：无 Qt 依赖的数据模块，拥有场单位、坐标轴、二维显示别名、分区统计、外推水印格式化以及 `RESULT_FIELD_SPECS`（规范标量键、物理量、相、符号、存储／显示单位及默认色阶：温度 `coolwarm`、速度与压力 `viridis`、几何设计 `turbo`）。温度与压力别名保留原始单元值；三维显示别名共享不可变缓冲。绝对压力场在 GUI 显示边界由 Pa 换算为 kPa，同时保持 ΔP、原始数组与导出键不变。
 - **公共热学与压降定义**：完整热学指标采用 `native_boundary_v1`（`Q` 为主网格 `abs(Q_A)`，`Q_A`/`Q_B` 为有符号放热量，出口温度按质量通量加权，二维 Richardson 换热量另记为 `Q_richardson_A/B`）。完整压降采用 `pressure_face_v1`（最终 SIMPLE 压力外推至物理进出口面并按几何开口面积加权）。
-- **空气入口压力打靶（`numerics/pressure_reference.cpp`）**：以有界 `P^2` 更新迭代出口单元基准，直至物理入口开口面积平均压力与 `P_in` 相对误差不超过 `1e-4`。显式 `p_in_shooting = False` / `TPMSHX_P_IN_SHOOT = 0` 仅为诊断开关，不能证明收敛。不可压路线直接将物理入口面开口面积平均锚定到 `P_in`。
+- **空气入口压力打靶（`native/numerics/pressure_reference.cpp`）**：以有界 `P^2` 更新迭代出口单元基准，直至物理入口开口面积平均压力与 `P_in` 相对误差不超过 `1e-4`。显式 `p_in_shooting = False` / `TPMSHX_P_IN_SHOOT = 0` 仅为诊断开关，不能证明收敛。不可压路线直接将物理入口面开口面积平均锚定到 `P_in`。
 - **二维入口分布（`PartialBCConfig.uniform_inlet_2d`）**：采用无历史四格过渡的几何重叠分布。桌面端固定为 `True`；脚本 API 设为 `False` 时保留历史过渡分布。
 
 <a id="native-3d-continuation"></a>
@@ -200,10 +200,10 @@ nTop CSV 导出写出 XY 或 XYZ 坐标及完整控制点来源。
 仅在明确修订物理模型并完成直接验证时才可修改以下约束：
 
 1. **可压空气**：空气走理想气体密度路径，不得替换为定密度或等温近似。
-2. **孔隙率只拆分一次**：对称调用传入总孔隙率，由求解器形成双半孔隙率通道。非零 `delta_levelset` 时由 `preprocess/preparation_case.cpp` 计算总和等于总孔隙率的 `eps_A` 与 `eps_B`，内核不得再次减半。流体有效导热率为 `K_ff_i = eps_i * k_i`（对称时为 `eps_total/2 * k_i`，偏移因子 `2 * split_i` 只乘一次）。
+2. **孔隙率只拆分一次**：对称调用传入总孔隙率，由求解器形成双半孔隙率通道。非零 `delta_levelset` 时由 `native/preprocess/preparation_case.cpp` 计算总和等于总孔隙率的 `eps_A` 与 `eps_B`，内核不得再次减半。流体有效导热率为 `K_ff_i = eps_i * k_i`（对称时为 `eps_total/2 * k_i`，偏移因子 `2 * split_i` 只乘一次）。
 3. **质量通量入口**：二维与三维可压空气均采用质量通量入口；求解速度均为孔隙内速度而非表观速度。
 4. **Darcy-Forchheimer 归属**：`physical_models.df_surrogate.predict.predict_K_cF()` 保持纯几何基准（水+sCO2 CFD 在 `4..8 mm` × `0.3..0.6 mm` 的双线性插值，不依赖 Re 或流体）。生产模式仅暴露 **CFD 光滑壁**（通用默认）与 **实验标定**（SIMPLE 前每侧施加一次已评审固定因子）。显式选择已退役的 `gamma_df` 与 `rbf` 模式直接报错（见[历史模型索引](history/legacy-models.md)）。
-5. **Nusselt 归属**：完整计算在 [fluid_nusselt_ratio](../numerics/fluid_properties.cpp#L171) 与 [nu_point](../numerics/fluid_properties.cpp#L364) 计算 Nu，由 [nu_correlations.py](../python/physical_models/nu_correlations.py) 封装。`python/model_configs/sco2_effective_nu.json`（`sco2_effective_nu_config()`）是 sCO2 有效 Nu 的唯一资源（`alpha_D`/`alpha_G` 作为总 `Ceff` 在 Nu 下限前应用一次，见[模型资源](model-resources.md#sco2-有效-nu-系数)）。[二维](../solver/full_2d.cpp#L539)与[三维](../solver/full_3d.cpp#L877)求解器均按单元中心孔隙速度幅值 `sqrt(uc^2 + vc^2 [+ wc^2])` 计算局部 Re 与 Nu。
+5. **Nusselt 归属**：完整计算在 [fluid_nusselt_ratio](../native/numerics/fluid_properties.cpp#L171) 与 [nu_point](../native/numerics/fluid_properties.cpp#L364) 计算 Nu，由 [nu_correlations.py](../python/physical_models/nu_correlations.py) 封装。`python/model_configs/sco2_effective_nu.json`（`sco2_effective_nu_config()`）是 sCO2 有效 Nu 的唯一资源（`alpha_D`/`alpha_G` 作为总 `Ceff` 在 Nu 下限前应用一次，见[模型资源](model-resources.md#sco2-有效-nu-系数)）。[二维](../native/solver/full_2d.cpp#L539)与[三维](../native/solver/full_3d.cpp#L877)求解器均按单元中心孔隙速度幅值 `sqrt(uc^2 + vc^2 [+ wc^2])` 计算局部 Re 与 Nu。
 6. **可压包线**：`python/physical_models/envelope.py` 拒绝非有限状态、压力 `<= 1000 Pa` 与 `Mach >= 1`。正压亚声速场还须满足入口压力门方可收敛。
 7. **压力基准**：理想气体侧由 `P_ref_abs` 锚定出口单元，局部绝对压力为 `P_ref_abs + P`。入口压力修正与诊断统一采用物理端口面的几何开口面积平均。
 8. **单位**：准备契约统一使用 K、Pa 与 m；接受 mm 的闭合调用在边界显式换算，不改变持久化 SI 场。

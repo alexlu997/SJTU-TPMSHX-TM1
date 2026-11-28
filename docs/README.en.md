@@ -4,7 +4,7 @@
 
 [中文](README.md) | [English](README.en.md)
 
-The root directories contain the C++ stages. The Python applications are in [python](../python/).
+The C++ stages are in [native](../native/). The Python applications are in [python](../python/).
 Start with the [module map](../python/README.en.md) to read the code.
 Use the [first run instructions](first-run.en.md) to run the application.
 
@@ -38,8 +38,8 @@ Use the [first run instructions](first-run.en.md) to run the application.
 
 | Directory | Contents |
 | --- | --- |
-| [preprocess](../preprocess/), [solver](../solver/), [postprocess](../postprocess/) | C++ preparation, solving, and evaluation. |
-| [geometry](../geometry/), [numerics](../numerics/), [include](../include/) | Geometry, common numerical functions, and headers. |
+| [preprocess](../native/preprocess/), [solver](../native/solver/), [postprocess](../native/postprocess/) | C++ preparation, solving, and evaluation. |
+| [geometry](../native/geometry/), [numerics](../native/numerics/), [include](../native/include/) | Geometry, common numerical functions, and headers. |
 | [tests/cpp](../tests/cpp/) | C and C++ tests for callers and numerical functions. |
 | [tests/python](../tests/python/) | Automated Python, native-binding, and GUI tests, plus independent test references. |
 | [python](../python/) | Four computation entries, Python applications, data types, file I/O, model resources and native interfaces. |

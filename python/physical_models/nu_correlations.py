@@ -1,6 +1,6 @@
 """Python interface to the native Nusselt correlations.
 
-Scalar and array calls use nu_point in numerics/fluid_properties.cpp.
+Scalar and array calls use nu_point in native/numerics/fluid_properties.cpp.
 This module also reports correlation ranges and reads model coefficients.
 
 API

@@ -10,7 +10,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}")
 endif()
 
-get_filename_component(TPMSHX_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+get_filename_component(TPMSHX_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 set(TPMSHX_NATIVE_DEPS_ROOT "${TPMSHX_ROOT}/.cache/native-deps" CACHE PATH "Locked dependency cache")
 set(TPMSHX_COOLPROP_LIBRARY "" CACHE FILEPATH "Previously built CoolProp 8.0.0 static library")
 set(TPMSHX_MODEL_INCLUDE_DIR "${TPMSHX_NATIVE_DEPS_ROOT}/generated" CACHE PATH "Generated model coefficient headers")
@@ -18,27 +18,27 @@ if(NOT EXISTS "${TPMSHX_MODEL_INCLUDE_DIR}/tpmshx/preparation_df_data.hpp")
     message(FATAL_ERROR "Generate preparation_df_data.hpp before configuring preparation")
 endif()
 if(NOT TARGET tpmshx_geometry)
-    add_subdirectory("${TPMSHX_ROOT}/geometry" geometry)
+    add_subdirectory("${TPMSHX_ROOT}/native/geometry" geometry)
 endif()
 include("${TPMSHX_ROOT}/engineering/native_build/cmake/models.cmake")
 # Use the property kernels' floating-point options for the preparation adapter.
-target_sources(tpmshx_models PRIVATE "${TPMSHX_ROOT}/preprocess/preparation_property_points.cpp")
+target_sources(tpmshx_models PRIVATE "${TPMSHX_ROOT}/native/preprocess/preparation_property_points.cpp")
 
-add_library(tpmshx_preparation STATIC "${TPMSHX_ROOT}/preprocess/preparation_flow.cpp"
-    "${TPMSHX_ROOT}/preprocess/preparation_properties.cpp"
-    "${TPMSHX_ROOT}/preprocess/preparation_df.cpp"
-    "${TPMSHX_ROOT}/preprocess/preparation_df_corrections.cpp"
-    "${TPMSHX_ROOT}/numerics/df_summary.cpp"
-    "${TPMSHX_ROOT}/preprocess/preparation_df_projection.cpp"
-    "${TPMSHX_ROOT}/preprocess/preparation_case.cpp")
-target_include_directories(tpmshx_preparation PUBLIC "${TPMSHX_ROOT}/include")
+add_library(tpmshx_preparation STATIC "${TPMSHX_ROOT}/native/preprocess/preparation_flow.cpp"
+    "${TPMSHX_ROOT}/native/preprocess/preparation_properties.cpp"
+    "${TPMSHX_ROOT}/native/preprocess/preparation_df.cpp"
+    "${TPMSHX_ROOT}/native/preprocess/preparation_df_corrections.cpp"
+    "${TPMSHX_ROOT}/native/numerics/df_summary.cpp"
+    "${TPMSHX_ROOT}/native/preprocess/preparation_df_projection.cpp"
+    "${TPMSHX_ROOT}/native/preprocess/preparation_case.cpp")
+target_include_directories(tpmshx_preparation PUBLIC "${TPMSHX_ROOT}/native/include")
 target_link_libraries(tpmshx_preparation PUBLIC tpmshx_geometry tpmshx_models)
-set(TPMSHX_PREPARATION_C_SOURCES "${TPMSHX_ROOT}/preprocess/preparation_c_api.cpp"
-    "${TPMSHX_ROOT}/preprocess/preparation_flow_c_api.cpp"
-    "${TPMSHX_ROOT}/preprocess/property_c_api.cpp"
-    "${TPMSHX_ROOT}/preprocess/preparation_df_c_api.cpp"
-    "${TPMSHX_ROOT}/preprocess/preparation_case_c_api.cpp"
-    "${TPMSHX_ROOT}/preprocess/quick_design_prepare_v2.cpp")
+set(TPMSHX_PREPARATION_C_SOURCES "${TPMSHX_ROOT}/native/preprocess/preparation_c_api.cpp"
+    "${TPMSHX_ROOT}/native/preprocess/preparation_flow_c_api.cpp"
+    "${TPMSHX_ROOT}/native/preprocess/property_c_api.cpp"
+    "${TPMSHX_ROOT}/native/preprocess/preparation_df_c_api.cpp"
+    "${TPMSHX_ROOT}/native/preprocess/preparation_case_c_api.cpp"
+    "${TPMSHX_ROOT}/native/preprocess/quick_design_prepare_v2.cpp")
 add_library(tpmshx_preparation_c STATIC ${TPMSHX_PREPARATION_C_SOURCES})
 add_library(tpmshx_preparation_shared SHARED ${TPMSHX_PREPARATION_C_SOURCES})
 target_compile_definitions(tpmshx_preparation_shared PRIVATE TPMSHX_PREPARATION_BUILD_SHARED)

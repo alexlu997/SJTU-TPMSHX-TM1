@@ -7,10 +7,10 @@ import pytest
 from engineering.scripts import build_native_dependencies as native
 
 MANIFESTS = {
-    'solver': ('solver/solver.exports', ['_tpmshx_solver_abi_version_v1', '_tpmshx_superlu_solve_v1']),
-    'geometry': ('geometry/geometry.exports', ['_tpmshx_geometry_abi_version_v1', '_tpmshx_field_abi_version_v1']),
-    'preparation': ('preprocess/preparation.exports', ['_tpmshx_preparation_abi_version_v1']),
-    'result': ('postprocess/result.exports', ['_tpmshx_result_abi_version_v1']),
+    'solver': ('native/solver/solver.exports', ['_tpmshx_solver_abi_version_v1', '_tpmshx_superlu_solve_v1']),
+    'geometry': ('native/geometry/geometry.exports', ['_tpmshx_geometry_abi_version_v1', '_tpmshx_field_abi_version_v1']),
+    'preparation': ('native/preprocess/preparation.exports', ['_tpmshx_preparation_abi_version_v1']),
+    'result': ('native/postprocess/result.exports', ['_tpmshx_result_abi_version_v1']),
 }
 
 
@@ -105,7 +105,7 @@ def test_windows_solver_keeps_the_superlu_hook_exception(tmp_path, monkeypatch):
 
 
 def test_a_dirty_build_from_another_commit_is_reported_without_failure(tmp_path, monkeypatch, capsys):
-    record = {'source_commit': 'b' * 40, 'source_changes': [' M solver/solver.cpp', ' M solver/a.cpp']}
+    record = {'source_commit': 'b' * 40, 'source_changes': [' M native/solver/solver.cpp', ' M native/solver/a.cpp']}
     directory, _ = publish_fixture(tmp_path, monkeypatch, 'macos-arm64', record=record)
     native.verify_published(directory, 'macos-arm64', 'all', tmp_path / 'check.log')
     output = capsys.readouterr().out

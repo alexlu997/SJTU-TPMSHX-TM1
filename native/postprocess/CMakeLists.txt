@@ -3,7 +3,7 @@ project(tpmshx_result LANGUAGES C CXX)
 option(TPMSHX_BUILD_QUALIFICATION "Build the native qualification targets" ON)
 enable_testing()
 
-get_filename_component(TPMSHX_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+get_filename_component(TPMSHX_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}")
@@ -11,20 +11,20 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}")
 
 add_library(tpmshx_result STATIC
-    "${TPMSHX_ROOT}/numerics/recorded_report.cpp"
-    "${TPMSHX_ROOT}/postprocess/result_core.cpp"
-    "${TPMSHX_ROOT}/postprocess/result_arithmetic.cpp"
-    "${TPMSHX_ROOT}/postprocess/result_metrics.cpp"
-    "${TPMSHX_ROOT}/postprocess/result_balance.cpp"
-    "${TPMSHX_ROOT}/postprocess/result_checks.cpp"
-    "${TPMSHX_ROOT}/postprocess/result_stage.cpp")
-target_include_directories(tpmshx_result PUBLIC "${TPMSHX_ROOT}/include")
+    "${TPMSHX_ROOT}/native/numerics/recorded_report.cpp"
+    "${TPMSHX_ROOT}/native/postprocess/result_core.cpp"
+    "${TPMSHX_ROOT}/native/postprocess/result_arithmetic.cpp"
+    "${TPMSHX_ROOT}/native/postprocess/result_metrics.cpp"
+    "${TPMSHX_ROOT}/native/postprocess/result_balance.cpp"
+    "${TPMSHX_ROOT}/native/postprocess/result_checks.cpp"
+    "${TPMSHX_ROOT}/native/postprocess/result_stage.cpp")
+target_include_directories(tpmshx_result PUBLIC "${TPMSHX_ROOT}/native/include")
 set(TPMSHX_RESULT_C_SOURCES
-    "${TPMSHX_ROOT}/postprocess/result_c_api.cpp"
-    "${TPMSHX_ROOT}/postprocess/result_metrics_c_api.cpp"
-    "${TPMSHX_ROOT}/postprocess/result_balance_c_api.cpp"
-    "${TPMSHX_ROOT}/postprocess/result_checks_c_api.cpp"
-    "${TPMSHX_ROOT}/postprocess/result_stage_c_api.cpp")
+    "${TPMSHX_ROOT}/native/postprocess/result_c_api.cpp"
+    "${TPMSHX_ROOT}/native/postprocess/result_metrics_c_api.cpp"
+    "${TPMSHX_ROOT}/native/postprocess/result_balance_c_api.cpp"
+    "${TPMSHX_ROOT}/native/postprocess/result_checks_c_api.cpp"
+    "${TPMSHX_ROOT}/native/postprocess/result_stage_c_api.cpp")
 add_library(tpmshx_result_c STATIC ${TPMSHX_RESULT_C_SOURCES})
 add_library(tpmshx_result_shared SHARED ${TPMSHX_RESULT_C_SOURCES})
 target_compile_definitions(tpmshx_result_shared PRIVATE TPMSHX_RESULT_BUILD_SHARED)

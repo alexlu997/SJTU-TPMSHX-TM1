@@ -1,6 +1,6 @@
 #include "tpmshx/temperature_driver.hpp"
 #include "tpmshx/conservative_energy.hpp"
-#include "../../solver/temperature_faces.hpp"
+#include "../../native/solver/temperature_faces.hpp"
 
 #include <algorithm>
 #include <array>

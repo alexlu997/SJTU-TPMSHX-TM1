@@ -8,13 +8,13 @@ TM1 calculates flow, heat transfer and pressure drop in TPMS heat exchangers. It
 
 ```mermaid
 flowchart LR
-    prep["Prepare · preprocess/"]
-    subgraph sol["Solve · solver/"]
+    prep["Prepare · native/preprocess/"]
+    subgraph sol["Solve · native/solver/"]
         d2["Full 2D · full_2d.cpp"]
         d3["Full 3D · full_3d.cpp"]
         q["Quick Design · quick_design_driver.cpp"]
     end
-    result["Evaluate · postprocess/"]
+    result["Evaluate · native/postprocess/"]
     prep --> d2 --> result
     prep --> d3 --> result
     prep --> q --> result
@@ -24,11 +24,11 @@ Start with the [2D air example](examples/cpp/air_2d.cpp#L32-L34) to see the thre
 
 | Stage | C++ source | Python entry |
 | --- | --- | --- |
-| Prepare the case | [2D case preparation](preprocess/preparation_case.cpp#L1021) · [Geometry](geometry/) | [prepare_case](python/preprocess/api.py) |
-| Solve | [Full 2D](solver/full_2d.cpp#L1095) · [Full 3D](solver/full_3d.cpp#L1505) · [Quick Design](solver/quick_design_driver.cpp#L116) | [run_case](python/solvers/api.py) |
-| Evaluate the results | [Metric evaluation](postprocess/result_stage.cpp#L1164) | [evaluate](python/postprocess/api.py) |
+| Prepare the case | [2D case preparation](native/preprocess/preparation_case.cpp#L1021) · [Geometry](native/geometry/) | [prepare_case](python/preprocess/api.py) |
+| Solve | [Full 2D](native/solver/full_2d.cpp#L1095) · [Full 3D](native/solver/full_3d.cpp#L1505) · [Quick Design](native/solver/quick_design_driver.cpp#L116) | [run_case](python/solvers/api.py) |
+| Evaluate the results | [Metric evaluation](native/postprocess/result_stage.cpp#L1164) | [evaluate](python/postprocess/api.py) |
 
-For fluid properties and common numerical methods, open [numerics/](numerics/). For flow and thermal models, field results or checkpoints, use the [solver guide](solver/README.en.md).
+For fluid properties and common numerical methods, open [native/numerics/](native/numerics/). For flow and thermal models, field results or checkpoints, use the [solver guide](native/solver/README.en.md).
 
 <a id="first-run"></a><a id="从这里开始"></a><a id="start-here"></a>
 

@@ -25,7 +25,7 @@ GAMMA_AIR = _MODEL_PARAMETERS['envelope']['gamma_air']
 
 ENVELOPE_MODES = ('raise', 'warn', 'off')
 
-# The native pressure check in numerics/pressure_reference.cpp uses the same
+# The native pressure check in native/numerics/pressure_reference.cpp uses the same
 # model parameter. A minimum absolute pressure at or below the floor, including
 # its relative tolerance, is outside the compressible envelope.
 PRESSURE_FLOOR_PA = _MODEL_PARAMETERS['envelope']['pressure_floor_pa']

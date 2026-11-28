@@ -1,7 +1,7 @@
 #include "tpmshx/full_2d.hpp"
 #include "tpmshx/full_3d.hpp"
 #include "tpmshx/model_coefficients.hpp"
-#include "../../solver/closure_ranges.hpp"
+#include "../../native/solver/closure_ranges.hpp"
 
 #include <cmath>
 #include <limits>

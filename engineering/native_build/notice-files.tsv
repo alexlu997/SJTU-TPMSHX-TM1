@@ -1,6 +1,6 @@
 engineering/native_build/dependencies-lock.toml	dependencies-lock.toml
-geometry/fields-sources.md	geometry/fields-sources.md
-geometry/README.md	geometry/README.md
+native/geometry/fields-sources.md	geometry/fields-sources.md
+native/geometry/README.md	geometry/README.md
 engineering/native_build/licenses/AMGCL.txt	licenses/AMGCL.txt
 engineering/native_build/licenses/classical-amg-sources.md	licenses/classical-amg-sources.md
 engineering/native_build/licenses/CoolProp-bundled.txt	licenses/CoolProp-bundled.txt
@@ -13,6 +13,6 @@ engineering/native_build/licenses/scikit-image-LICENSE.txt	licenses/scikit-image
 engineering/native_build/licenses/scipy-LICENSE.txt	licenses/scipy-LICENSE.txt
 engineering/native_build/licenses/scipy-v1.17.1-LICENSE.txt	licenses/scipy-v1.17.1-LICENSE.txt
 engineering/native_build/licenses/SuperLU.txt	licenses/SuperLU.txt
-preprocess/sources.md	preparation/sources.md
-postprocess/sources.md	result/sources.md
+native/preprocess/sources.md	preparation/sources.md
+native/postprocess/sources.md	result/sources.md
 engineering/native_build/licenses/THIRD_PARTY_NOTICES.md	THIRD_PARTY_NOTICES.md

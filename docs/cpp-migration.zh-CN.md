@@ -28,10 +28,10 @@ Linux x86_64 仅支持独立结果评估。
 
 | 共享库 | 源码目录 | 现行 ABI 与职责 |
 | --- | --- | --- |
-| 几何库 | [geometry](../geometry/) | Geometry ABI 2 与 Field ABI 3：单元几何、chi/Kss、网格、端口、样条、sigmoid、LUT 与分区。 |
-| 准备库 | [preprocess](../preprocess/) | Preparation ABI 3 与 Quick Design 准备 v2：物性、Nu 闭合、固定 D-F、二维／三维及 Quick 准备。 |
-| 求解库 | [solver](../solver/) | 二维保存态 ABI 5、三维保存态 ABI 3、捕获 ABI 2 及 Quick Design 运行 v2。 |
-| 结果库 | [postprocess](../postprocess/) | Result ABI 3（`float64` + `int32` 标签）：工程指标、物理平衡、适用性、分区统计与资格判断。 |
+| 几何库 | [geometry](../native/geometry/) | Geometry ABI 2 与 Field ABI 3：单元几何、chi/Kss、网格、端口、样条、sigmoid、LUT 与分区。 |
+| 准备库 | [preprocess](../native/preprocess/) | Preparation ABI 3 与 Quick Design 准备 v2：物性、Nu 闭合、固定 D-F、二维／三维及 Quick 准备。 |
+| 求解库 | [solver](../native/solver/) | 二维保存态 ABI 5、三维保存态 ABI 3、捕获 ABI 2 及 Quick Design 运行 v2。 |
+| 结果库 | [postprocess](../native/postprocess/) | Result ABI 3（`float64` + `int32` 标签）：工程指标、物理平衡、适用性、分区统计与资格判断。 |
 
 所有现行 C++ 阶段接口均将数值缓冲区规范化为 `float64`，分区标签规范化为 `int32`。
 按职责查找 C++ 修改入口见[源码地图](../python/README.md)。
@@ -43,12 +43,12 @@ PR CI、合并主分支 CI、桌面交付、单元上限附近内存检查、真
 
 ## 原生几何核心
 
-[geometry](../geometry/) 中的独立几何核心负责标准、CO2 与非对称单元几何，以及 chi 和固体导热率计算。
+[geometry](../native/geometry/) 中的独立几何核心负责标准、CO2 与非对称单元几何，以及 chi 和固体导热率计算。
 同一核心还负责网格、端口、六方向轴映射、连续 XY/XYZ 样条、sigmoid 场、线性 LUT、离散分区与高斯滤波。
 单个共享库文件（`tpmshx_geometry_shared`）提供以上全部计算。
 它仅依赖 C++ 标准库、marching-cubes 移植代码与受限的 C17 FITPACK 子集。
 它不链接 CoolProp、SuperLU、AMGCL、Eigen 或求解器运行库。
-网格与设计场归属见[架构说明](architecture.zh-CN.md#native-grids-and-design-fields)，固定源码与 BSD 声明见 [fields-sources.md](../geometry/fields-sources.md)。
+网格与设计场归属见[架构说明](architecture.zh-CN.md#native-grids-and-design-fields)，固定源码与 BSD 声明见 [fields-sources.md](../native/geometry/fields-sources.md)。
 
 `python/cpp_interface/_native_geometry.py` 通过 ctypes 按需加载 `tpmshx_geometry_shared`。
 几何、网格与分区接口使用 geometry ABI 2，状态 2 表示定义域错误。
@@ -97,7 +97,7 @@ Python wheel 仅包含 Python 模块与模型资源，不含原生库。
 
 ## 原生准备核心
 
-[preprocess](../preprocess/) 中的独立准备核心计算流体物性、Nu 闭合、固定 D-F 表、实验修正、行投影及完整二维／三维／Quick 准备。
+[preprocess](../native/preprocess/) 中的独立准备核心计算流体物性、Nu 闭合、固定 D-F 表、实验修正、行投影及完整二维／三维／Quick 准备。
 其 CMake 目标（`tpmshx_preparation`、`tpmshx_preparation_c`、`tpmshx_preparation_shared`）复用几何核心、共享物性实现与锁定的 CoolProp 静态库。
 该工程不依赖求解器运行库、`run_state`、SuperLU 或 AMG。
 
@@ -146,11 +146,11 @@ Windows 两个角色共用同一个锁定的 `Release/CoolProp.lib`。
 
 ## 原生结果核心
 
-[postprocess](../postprocess/) 中的独立结果核心实现 Result ABI 3。
+[postprocess](../native/postprocess/) 中的独立结果核心实现 Result ABI 3。
 它以 `float64` 数值与 `int32` 分区标签计算工程指标、有符号物理平衡、分区统计、适用性检查和资格结论。
-独立的 `postprocess/` 工程仅依赖 C++17 与系统库。
+独立的 `native/postprocess/` 工程仅依赖 C++17 与系统库。
 它不链接求解库、准备库、几何库、CoolProp、Qt 或模型资源文件。
-缓冲区布局、错误码与通知规则见 [postprocess/sources.md](../postprocess/sources.md)。
+缓冲区布局、错误码与通知规则见 [native/postprocess/sources.md](../native/postprocess/sources.md)。
 
 `python/cpp_interface/result_evaluation.py` 中的查询通过 `_native_result.py` 按需加载结果库。
 纯 Python 导入和 HDF5/JSON 读取不依赖原生库。
@@ -173,7 +173,7 @@ CI 除完整 macOS/Windows 构建外，还在 Ubuntu 24.04 与 26.04 上构建�
 
 ## 求解核心与执行接口
 
-[solver](../solver/) 中的求解库实现完整二维、完整三维、Quick Design、SIMPLE 流动、model-h、温度及 T-SOU 保守能量驱动。
+[solver](../native/solver/) 中的求解库实现完整二维、完整三维、Quick Design、SIMPLE 流动、model-h、温度及 T-SOU 保守能量驱动。
 保存态阶段运行生命周期是 Python 及 C／C++ 调用方唯一的求解执行接口。
 原生绑定位于 `python/cpp_interface/` 下的 `full_2d_stage.py`、`full_3d_stage.py` 和 `quick_design.py`。
 求解宿主 `python/solvers/full_2d.py`、`python/solvers/full_3d.py` 与 `python/solvers/quick_design.py` 校验保存工况并组装公共 `FieldResult`。
@@ -212,7 +212,7 @@ SOU 配方 2 采用六样本 Anderson 提议，仅当提议严格降低归一化
 只有完整的常规 PT／审计块能够判定收敛。
 `tpmshx_energy_algorithm_version_v1` 独立于 C ABI 报告实际执行的配方版本。
 
-`solver/enthalpy_sweeps.cpp` 中的 `thermal_energy_audit` 计算真实态 A/B/固体单元残差及六个外法向有符号边界焓热负荷。
+`native/solver/enthalpy_sweeps.cpp` 中的 `thermal_energy_audit` 计算真实态 A/B/固体单元残差及六个外法向有符号边界焓热负荷。
 耦合与方程比例采用 `max(abs(Q_A), abs(Q_B), 1)` 作为分母，单位为 W/m（二维）或 W（三维）。
 该算子本身不施加验收阈值；由驱动强制执行 `0.001` 的耦合／方程门槛与 Kelvin 更新门槛。
 可移植候选结果标记 `thermal_mode=conservative_energy` 并记录 `boundary_fluxes.true_h.boundary_power`；单侧换热量为 `-sum(boundary_power)`，不做回退重构。

@@ -339,7 +339,7 @@ def build(cache: Path, host: str, python: Path, lock: Path, component: str) -> N
         else:
             options += ["-DCMAKE_OSX_ARCHITECTURES=arm64"]
         build_dir = cache / "build" / f"geometry-{host}"
-        run([cmake, "-S", ROOT / "geometry", "-B", build_dir,
+        run([cmake, "-S", ROOT / "native/geometry", "-B", build_dir,
              *generator, *options], cache / "logs" / f"configure-geometry-{host}.log")
         run([cmake, "--build", build_dir, "--config", "Release", "--parallel", "2"],
             cache / "logs" / f"build-geometry-{host}.log")
@@ -374,7 +374,7 @@ def build(cache: Path, host: str, python: Path, lock: Path, component: str) -> N
             if host == "macos-arm64":
                 options += ["-DCMAKE_OSX_ARCHITECTURES=arm64"]
             source = "preprocess" if build_name == "preparation" else "solver"
-            run([cmake, "-S", ROOT / source, "-B", build_dir,
+            run([cmake, "-S", ROOT / "native" / source, "-B", build_dir,
                  *generator, *options], cache / "logs" / f"configure-{build_name}-{host}.log")
             command = [cmake, "--build", build_dir, "--config", "Release", "--parallel", "2"]
             if build_name == "preparation" and component != "preparation":
@@ -395,7 +395,7 @@ def build_result(cache: Path, host: str) -> None:
     elif host == "macos-arm64":
         options += ["-DCMAKE_OSX_ARCHITECTURES=arm64"]
     _request_build_metadata(build_dir)
-    run([cmake, "-S", ROOT / "postprocess", "-B", build_dir,
+    run([cmake, "-S", ROOT / "native/postprocess", "-B", build_dir,
          *generator, *options], cache / "logs" / f"configure-result-{host}.log")
     run([cmake, "--build", build_dir, "--config", "Release", "--parallel", "2"],
         cache / "logs" / f"build-result-{host}.log")
@@ -484,7 +484,7 @@ def result_build_record(cache: Path, host: str) -> dict:
 def verify_model_exports(build_dir: Path, host: str, component: str, log: Path) -> None:
     """Verify each image's C exports and dynamic library boundary."""
     folder = {'preparation': 'preprocess', 'result': 'postprocess'}.get(component, component)
-    expected = set((ROOT / folder / (component + '.exports')).read_text().splitlines())
+    expected = set((ROOT / "native" / folder / (component + '.exports')).read_text().splitlines())
     if not expected or any(not name.startswith('_tpmshx_') for name in expected):
         raise RuntimeError(f'Invalid {component} C export list')
     if host == 'macos-arm64':
@@ -829,7 +829,7 @@ def check_stages(cache: Path, host: str, python: Path, lock: Path, component: st
         # A direct qualification configure can reuse an SDK component build directory.
         run([cmake, "--build", stage_build, "--config", "Release", "--target", "tpmshx_solver_build-configure"], log)
         check_model_h_history_input(solver_build, qualification=False)
-        run([cmake, "-S", ROOT / "solver", "-B", solver_build, "-DTPMSHX_BUILD_QUALIFICATION=ON"], log)
+        run([cmake, "-S", ROOT / "native/solver", "-B", solver_build, "-DTPMSHX_BUILD_QUALIFICATION=ON"], log)
         check_model_h_history_input(solver_build, qualification=True)
     run([cmake, "--build", stage_build, "--config", "Release", "--parallel", "1"], log)
     if component == "all":
