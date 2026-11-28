@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import numpy as np
 
 from . import _native_flow, _native_properties
+from ._native_diagnostics import native_error
 from ._native_preparation_case import _GeometryCache, _Sample
 from ._native_preparation_case import (_QuickInputV2 as _Input, _QuickPreparedV2 as _Prepared,
                                        _QuickPressureV2 as _Pressure)
@@ -44,7 +45,7 @@ class _Bindings:
         result, error = _Sample(), ct.create_string_buffer(2048)
         status = self.range_query(view, lower, upper, ct.byref(result), error, len(error))
         if status:
-            _native_flow._check_status(status, error)
+            _native_flow._check_status(self.range_query.__name__, status, error)
         return result
 
 
@@ -144,13 +145,28 @@ def _native_result(state, geometry_cache, eos_cache, check_model_error, observe)
     result_type = _Prepared if state.full else _Pressure
     result, error = result_type(2, ct.sizeof(result_type)), ct.create_string_buffer(4096)
     try:
-        status = (bindings.prepare if state.full else bindings.pressure)(
+        call = bindings.prepare if state.full else bindings.pressure
+        status = call(
             ct.byref(source), ct.byref(table), ct.byref(result), error, len(error))
         if callbacks.errors:
             raise callbacks.errors[0]
         if status:
-            check_model_error(status, error.value.decode('utf-8', errors='replace'))
-            _native_flow._check_status(status, error)
+            if status == 1:
+                text = error.value.decode('utf-8', errors='replace')
+                try:
+                    check_model_error(text)
+                except ValueError as problem:
+                    evidence = dict(topology=state.topo, L_cell_mm=source.values[0],
+                                    t_wall_mm=source.values[1], reason='geometry')
+                    causes = ()
+                    if problem.__cause__ is not None:
+                        inner = native_error('preparation', call.__name__, status, text,
+                                             problem=problem.__cause__, **evidence)
+                        causes = (inner.diagnostic,)
+                    native_error('preparation', call.__name__, status, text, problem=problem,
+                                 causes=causes, **evidence)
+                    raise
+            _native_flow._check_status(call.__name__, status, error)
         ranges = [(item.label, item.side, tuple(item.bounds), item.temperature_K)
                   for item in result.ranges[:result.range_count]]
         pressures = [(tuple(item.floating_events), item.no_positive_outlet, item.outlet_squared)

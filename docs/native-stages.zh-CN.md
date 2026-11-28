@@ -220,6 +220,7 @@ Quick Design 属于规定流量 LTNE 尺寸近似模式（`physical_validation=n
 
 | 接口 | 头文件 |
 | --- | --- |
+| 诊断标识 | `diagnostic_codes.hpp` |
 | 阶段调用与运行状态 | `stages.hpp`、`stage_run_c_api.h`、`stage_run_3d_c_api.h`、`quick_design_stage_c_api.h`、`run_state_c_api.h` |
 | 几何与网格 | `geometry_c_api.h`、`grid_c_api.h`、`zones_c_api.h`、`field_continuous_c_api.h`、`field_lut_c_api.h`、`field_sigmoid_c_api.h` |
 | 工况准备与物性 | `preparation_c_api.h`、`preparation_case_c_api.h`、`preparation_case_3d_c_api.h`、`preparation_df_c_api.h`、`preparation_flow_c_api.h`、`property_c_api.h` |

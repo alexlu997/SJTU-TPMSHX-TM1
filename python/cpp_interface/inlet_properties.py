@@ -3,6 +3,7 @@ import ctypes as ct
 from functools import lru_cache
 
 from . import _native_preparation_case as abi, _native_properties, preparation_host as host
+from ._native_diagnostics import native_error
 from ._native_values import TOPOLOGIES, borrow_text, real_scalar
 from .stage_libraries import preparation_library
 
@@ -48,21 +49,23 @@ def query_values(topology, cell, wall, velocity, temperature, pressure, fluid_na
         validate, observe_range=observe, observe_notice=notice, observe_event=observe_event)
     result = abi._InletQueryResult(1, ct.sizeof(abi._InletQueryResult))
     failure, error = abi._Failure(2, ct.sizeof(abi._Failure)), ct.create_string_buffer(4096)
-    status = _inlet_query_function(preparation_library.path())(
+    call = _inlet_query_function(preparation_library.path())
+    status = call(
         ct.byref(source), ct.byref(callbacks), ct.byref(result), ct.byref(failure), error, len(error))
     if callback_errors:
         raise callback_errors[0]
     if status and failure.have_property:
-        import errno
-        import os
         fp = failure.property.fp
         _native_properties._floating_events(fp.events[:fp.event_count])
         text = error.value.decode('utf-8', errors='replace')
-        if fp.python_cause == 2:
-            raise OverflowError(errno.ERANGE, os.strerror(errno.ERANGE))
         if fp.python_cause:
-            exception = {1: ZeroDivisionError, 3: ValueError, 4: TypeError}.get(fp.python_cause, RuntimeError)
-            raise exception(text)
-        property_error(status, failure.property.reason, text)
-    host._check_status(status, error, failure, water_error)
+            raise native_error('preparation', call.__name__, status, text, cause=fp.python_cause,
+                               events=tuple(fp.events[:fp.event_count]))
+        try:
+            property_error(status, failure.property.reason, text)
+        except ValueError as problem:
+            native_error('preparation', call.__name__, status, text, problem=problem, T_K=temp, P_abs_Pa=press,
+                         state_reason=failure.property.reason)
+            raise
+    host._check_status(call.__name__, status, error, failure, water_error)
     return list(result.values)

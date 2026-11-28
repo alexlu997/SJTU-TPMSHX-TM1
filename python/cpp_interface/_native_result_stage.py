@@ -5,6 +5,7 @@ from collections.abc import Mapping
 import numpy as np
 
 from . import _native_result as core
+from ._native_diagnostics import result_host_causes
 
 P = ct.POINTER
 S, I, Z, D = ct.c_char_p, ct.c_int, ct.c_size_t, ct.c_double
@@ -104,8 +105,7 @@ def _read(values, key, default=_REQUIRED):
 
 
 def _cause(error):
-    for exception, cause in ((ZeroDivisionError, 1), (OverflowError, 2), (ValueError, 3),
-                             (TypeError, 4), (IndexError, 5), (KeyError, 6), (NotImplementedError, 7)):
+    for exception, cause in result_host_causes():
         if isinstance(error, exception):
             return cause
     return 8

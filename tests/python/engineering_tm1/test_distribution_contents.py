@@ -233,6 +233,8 @@ from tm1.model_configs.model_parameters import (
     load_model_parameters, load_co2_coefficients, load_preparation_df_parameters,
 )
 assert load_shanghai_baseline() and load_model_parameters()
+from tm1.run_control.diagnostics import diagnostic_catalog
+assert diagnostic_catalog() == json.loads(Path(sys.argv[4]).read_text(encoding='utf-8'))
 from tm1.physical_models.co2_correlations import coefficients
 assert coefficients() == load_co2_coefficients() and load_preparation_df_parameters()
 from tm1.preprocess.offline import load_core, load_segments
@@ -282,7 +284,8 @@ def test_installed_wheel_runtime(kind):
                        cwd=directory, env=env, check=True, capture_output=True, text=True, timeout=120)
         result = subprocess.run([sys.executable, "-I", "-c", _INSTALLED_SMOKE, str(target),
                                  str(root / "examples/three_module/air_2d.json"),
-                                 json.dumps(sorted(distributions.declared_resources(root)))],
+                                 json.dumps(sorted(distributions.declared_resources(root))),
+                                 str(root / 'python/model_configs/diagnostic_codes_v1.json')],
                                 cwd=directory, env=env, capture_output=True, text=True, timeout=120)
         assert result.returncode == 0, result.stdout + result.stderr
         result = subprocess.run([sys.executable, "-m", "tm1.development.runs.cfd_asym.ingest_cfd_kappa", "--help"],

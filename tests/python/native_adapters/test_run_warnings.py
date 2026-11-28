@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from tm1.run_control.run_warnings import (
-    current_warnings, warning_scope, range_context, warning_messages, merge_warnings,
+    current_warnings, warning_scope, range_context, range_diagnostics, warning_messages, merge_warnings,
 )
 from tm1.physical_models import fluid_props, nu_correlations as nu, tpms_props
 from tm1.data_types.field_result import FieldResult
@@ -393,6 +393,19 @@ def test_cache_facts_bind_to_each_run_context(prewarm, standalone_registries):
     assert a and a == b
     assert len(records) == len(a) + len(b)
     assert len(list(warning_messages(records))) == 2
+    diagnostics = range_diagnostics(records, 'quick')
+    warnings_only = [row for row in diagnostics if row['details']['severity'] == 'warning']
+    assert [row['message'] for row in warnings_only] == warning_messages(records)
+    assert [row['details']['side'] for row in warnings_only] == ['A', 'B']
+    for key, row in zip(records, diagnostics, strict=True):
+        details, sample = row['details'], records[key]
+        assert details['source'] == key[:-2]
+        assert (details['stage'], details['layout'], details['shape']) == ('inlet', 'mean', key[-2])
+        suffix = '_K' if sample.quantity == 'T' else ''
+        assert details['minimum' + suffix] == sample.minimum[0]
+        assert details['maximum_index'] == sample.maximum[1]
+        assert details['bounds' + suffix] == tuple(sample.bounds)
+        assert details['unit'] == ('K' if suffix else '1')
 
 
 def test_worker_merge_keeps_single_snapshot_counts_and_does_not_mutate_source():
@@ -408,6 +421,36 @@ def test_worker_merge_keeps_single_snapshot_counts_and_does_not_mutate_source():
     value, = merged.values()
     assert (value.low, value.high, value.size) == (1, 1, 2)
     assert sources[0] == before
+
+
+def test_native_water_failure_keeps_experimental_and_geometry_ranges():
+    from tm1.preprocess.two_d.preparation import prepare_case
+    from tests.python.test_experimental_df_v3 import _water_air_cfg
+
+    cfg = _water_air_cfg()
+    cfg.solver.Nz = 1
+    with warning_scope({}) as records:
+        prepare_case(cfg, case_id='geometry-and-inlet-ranges')
+        cfg.fluid_A.T_in_K = 400.
+        with pytest.raises(fluid_props.WaterStateError, match='inlet A') as caught:
+            prepare_case(cfg, case_id='water-rejection')
+
+    assert caught.value.diagnostic['code'] == 'fluid.water_state'
+    observations = caught.value.diagnostic['details']['observations']
+    quantities = {'cell length': ('geometry.fit_range', 'mm', '_mm'),
+                  'wall thickness': ('geometry.fit_range', 'mm', '_mm'),
+                  'inlet u': ('df.extrapolation', 'm/s', '_m_s')}
+    actual = {row['details']['quantity']: row for row in observations}
+    for quantity, (code, unit, suffix) in quantities.items():
+        row = actual[quantity]
+        details = row['details']
+        key = (*details['source'], details['shape'], (details['side'], details['stage'], details['layout']))
+        sample = records[key]
+        assert (row['code'], details['unit']) == (code, unit)
+        assert details['bounds' + suffix] == tuple(sample.bounds)
+        for name in ('minimum', 'maximum'):
+            assert details[name + suffix] == getattr(sample, name)[0]
+            assert details['last'][name + suffix] == sample.last[name][0]
 
 
 def test_sigmoid_nu_warning_origin_and_run_scope(standalone_registries):

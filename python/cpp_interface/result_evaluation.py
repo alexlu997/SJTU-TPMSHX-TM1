@@ -1,10 +1,10 @@
 """Read independent result reports while the native library owns their buffers."""
-import ast
 import ctypes as ct
 import json
 import weakref
 
 from . import _native_result as core
+from ._native_diagnostics import native_code, native_error
 from ._native_result_stage import (
     Events, HostError, Input, InputError, Metric, Output, P, Spec, Z,
     _Evidence, _cause, _text,
@@ -20,6 +20,17 @@ QUALIFICATION = 3
 
 def _spec(value):
     return Spec(*(_text(getattr(value, name)) for name in ('name', 'unit', 'definition_version', 'description')))
+
+
+def _result_error(status, cause, raw):
+    operation = 'tpmshx_result_stage_query_v3'
+    message = raw.decode('utf-8', errors='replace')
+    if status == 4 and cause == 6:
+        return native_error('result', operation, status, message, cause=cause, key=message)
+    if status == 4 and native_code('result', operation, status, cause=cause) == 'contract.unknown_status':
+        message = 'native result stage returned an invalid numerical cause'
+    return native_error('result', operation, status, message or f'native result stage failed with status {status}',
+                        cause=cause)
 
 
 def query_result(result, query, declaration_dimension, raw_field_names, saved_gates, *, metric_spec=None, metrics=None):
@@ -61,24 +72,15 @@ def query_result(result, query, declaration_dimension, raw_field_names, saved_ga
         release = library.bind('tpmshx_result_stage_release_v1', [P(Output)], None)
         status = call(ct.byref(argument), query, ct.byref(selection) if selection is not None else None,
             supplied, len(statuses), ct.byref(output), ct.byref(diagnostics), ct.byref(token), error, len(error))
+        if status and token.value:
+            if token.value in packed.exceptions:
+                raise packed.exceptions[token.value]
+            raise native_error('result', 'tpmshx_result_stage_query_v3', status,
+                               f'Native result returned unknown host token {token.value}',
+                               cause=diagnostics.python_cause, unresolved_token=token.value)
         core.notify(diagnostics, stacklevel=5)
         if status:
-            if token.value:
-                raise packed.exceptions[token.value]
-            message = error.value.decode('utf-8', errors='replace') or f'native result stage failed with status {status}'
-            if status == 1:
-                raise ValueError(message)
-            if status == 2:
-                raise MemoryError(message)
-            if status == 4:
-                cause = {1: ZeroDivisionError, 2: OverflowError, 3: ValueError, 4: TypeError,
-                         5: IndexError, 6: KeyError, 7: NotImplementedError}.get(diagnostics.python_cause)
-                if cause is None:
-                    raise RuntimeError('native result stage returned an invalid numerical cause')
-                if cause is KeyError:
-                    message = ast.literal_eval(message)
-                raise cause(message)
-            raise RuntimeError(message)
+            raise _result_error(status, diagnostics.python_cause, error.value)
         report = json.loads(output.json)
         if query != METRICS:
             return report, ()

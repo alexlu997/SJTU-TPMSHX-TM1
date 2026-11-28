@@ -1,13 +1,12 @@
 """Adapt property data and error policy for the native preparation library."""
 import ctypes as ct
-import errno
 import sys
-import os
 import warnings
 
 import numpy as np
 
 from ._native_values import real_scalar
+from ._native_diagnostics import native_error
 from .stage_libraries import preparation_library
 
 
@@ -84,17 +83,13 @@ def _call(name, *arguments):
         return
     _floating_events(failure.fp.events[:failure.fp.event_count])
     text = error.value.decode('utf-8', errors='replace')
+    problem = native_error('preparation', f'tpmshx_preparation_{name}_v1', status, text,
+                           cause=failure.fp.python_cause, events=tuple(failure.fp.events[:failure.fp.event_count]))
     if status in (10, 11, 12):
-        raise StateError(status, text, failure)
-    if status == 2:
-        raise MemoryError(text)
-    if status == 1:
-        raise ValueError(text)
-    if failure.fp.python_cause == 2:
-        raise OverflowError(errno.ERANGE, os.strerror(errno.ERANGE))
-    exception = {1: ZeroDivisionError, 2: OverflowError, 3: ValueError, 4: TypeError}.get(
-        failure.fp.python_cause, RuntimeError)
-    raise exception(text)
+        state = StateError(status, text, failure)
+        state.diagnostic = problem.diagnostic
+        raise state
+    raise problem
 
 
 def _pointer(values):

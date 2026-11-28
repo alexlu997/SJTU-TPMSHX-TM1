@@ -65,11 +65,7 @@ def _eos_cache(fluid, index, temperature, pressure, stored):
         owner.store(key, None, stored[0] if sco2 else stored)
 
 
-def _check_model_error(state, status, message):
-    if status == 10:
-        raise registry.WaterStateError(message)
-    if status in (11, 12):
-        raise ValueError(message)
+def _check_model_error(state, message):
     if message == 'Wall thickness must satisfy 2*t < L, with usable pore space':
         raise ValueError(f'Wall thickness t={state.t}mm >= L={state.l}mm, no pore space')
     if message == 'L_mm must be positive':
