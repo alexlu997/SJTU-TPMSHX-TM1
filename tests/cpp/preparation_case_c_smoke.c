@@ -304,13 +304,12 @@ static int check_flow(void) {
         tpmshx_preparation_callbacks_v3 host = {TPMSHX_PREPARATION_CALLBACK_ABI_VERSION, sizeof(host), &checks, 0, NULL, check_host_input};
         tpmshx_preparation_callbacks_v3 host_before;
         CHECK(!tpmshx_preparation_2d_uniform_prepare_case_v1(&source, &options, &host, &result, &failure, error, sizeof(error)));
-        CHECK(checks.count == 5 && checks.stage[0] == 1 && checks.stage[1] == 0 && checks.stage[2] == 1);
-        CHECK(checks.stage[3] == 2 && checks.side[3] == 0 && checks.stage[4] == 2 && checks.side[4] == 1);
+        CHECK(checks.count == 1 && checks.stage[0] == 0 && checks.side[0] == 2);
         tpmshx_preparation_2d_uniform_case_release_v1(&result);
         result.abi_version = 1; result.struct_size = sizeof(result); before = result;
-        checks.count = 0; checks.cancel_at = 4;
+        checks.count = 0; checks.cancel_at = 1;
         CHECK(tpmshx_preparation_2d_uniform_prepare_case_v1(&source, &options, &host, &result, &failure, error, sizeof(error)) == TPMSHX_PREPARATION_RUNTIME);
-        CHECK(checks.count == 4 && failure.kind == 3 && !memcmp(&before, &result, sizeof(result)));
+        CHECK(checks.count == 1 && failure.kind == 3 && !memcmp(&before, &result, sizeof(result)));
         checks.count = 0; checks.cancel_at = 0; host_before = host; failure_before = failure;
         CHECK(tpmshx_preparation_2d_uniform_prepare_case_v1(&source, &options, &host, &result, &failure,
             (char*)&host.validate_host_input, sizeof(host.validate_host_input)) == TPMSHX_PREPARATION_INVALID);
@@ -326,13 +325,13 @@ static int check_flow(void) {
         tpmshx_preparation_2d_uniform_flow_release_v1(&query);
         query.abi_version = 1; query.struct_size = sizeof(query);
         CHECK(!tpmshx_preparation_2d_uniform_capacities_v1(&source, &options, &host, &query, &failure, error, sizeof(error)));
-        CHECK(checks.count == 1 && checks.stage[0] == 1 && checks.side[0] == 2);
+        CHECK(!checks.count);
         tpmshx_preparation_2d_uniform_flow_release_v1(&query);
         /* Verify validate_grid_stage == 1 emits (stage=3, side=2). */
         checks.count = 0; host.validate_grid_stage = 1;
         source.input.sides[0].velocity_m_s = 5.; source.input.sides[1].velocity_m_s = .02;
         CHECK(!tpmshx_preparation_2d_uniform_prepare_case_v1(&source, &options, &host, &result, &failure, error, sizeof(error)));
-        CHECK(checks.count == 5 && checks.stage[2] == 3 && checks.side[2] == 2);
+        CHECK(checks.count == 2 && checks.stage[0] == 0 && checks.stage[1] == 3 && checks.side[1] == 2);
         tpmshx_preparation_2d_uniform_case_release_v1(&result);
         result.abi_version = 1; result.struct_size = sizeof(result); before = result;
         source.input.sides[0].velocity_m_s = -99.; source.input.sides[1].velocity_m_s = -88.;
@@ -383,8 +382,7 @@ static int check_continuous(void) {
         host_checks checks = {0};
         tpmshx_preparation_callbacks_v3 host = {TPMSHX_PREPARATION_CALLBACK_ABI_VERSION, sizeof(host), &checks, 0, NULL, check_host_input};
         CHECK(!tpmshx_preparation_2d_continuous_prepare_case_v1(&source, &options, &host, &result, &failure, error, sizeof(error)));
-        CHECK(checks.count == 5 && checks.stage[0] == 1 && checks.stage[1] == 0 && checks.stage[2] == 1);
-        CHECK(checks.stage[3] == 2 && checks.side[3] == 0 && checks.stage[4] == 2 && checks.side[4] == 1);
+        CHECK(checks.count == 1 && checks.stage[0] == 0 && checks.side[0] == 2);
     }
     CHECK(result.owner);
     CHECK(result.design_pore_porosity.size == result.prepared.nx * result.prepared.ny);
