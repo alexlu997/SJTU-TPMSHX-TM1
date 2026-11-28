@@ -94,7 +94,7 @@ $tm1Python = Get-Content .venv-path -TotalCount 1
 
 | 目录 | 职责与边界 |
 | --- | --- |
-| [preprocess/](preprocess/) | 前处理与显式离线模型准备。 |
+| [preprocess/](preprocess/) | 前处理、[网格与几何预检](preprocess/preflight.py)和显式离线模型准备。 |
 | [solvers/](solvers/) | 求解 API、二维／三维与 Quick Design 求解宿主及执行与账本辅助模块。C++ 实现在 [solver/](../solver/)。 |
 | [postprocess/](postprocess/) | 已记录结果的指标、物理审计、资格结论和导出。 |
 | [data_types/](data_types/) | 配置、准备好的工况、场与性能结果的数据定义。 |
@@ -102,7 +102,7 @@ $tm1Python = Get-Content .venv-path -TotalCount 1
 | [run_control/](run_control/) | 取消、进度、告警、环境与运行库选择。 |
 | [physical_models/](physical_models/) 和 [model_configs/](model_configs/) | 物理模型查询及带版本的模型参数。 |
 | [cpp_interface/](cpp_interface/) | 原生 ctypes 绑定。[solver_library/](cpp_interface/solver_library/) 包含保存态原生运行的 ctypes 布局与解码函数。 |
-| [applications/](applications/) | [GUI](applications/gui/)、[CLI](applications/cli/)、[快速设计](applications/design/)、[BO 优化](applications/optimization/)和[历史运行恢复](applications/execution/recovery.py)。 |
+| [applications/](applications/) | [GUI](applications/gui/)、[CLI](applications/cli/)、[快速设计](applications/design/)、[仅适用于空气的灵敏度筛选](applications/design/sensitivity.py)、[BO 优化](applications/optimization/)和[历史运行恢复](applications/execution/recovery.py)。 |
 | [development/](development/) | 数值与实验验证、诊断和开发工具。自动测试位于 [tests/python/](../tests/python/)。 |
 
 仍使用已退役模块路径的本地脚本需更新导入，或使用记录的原源码版本。

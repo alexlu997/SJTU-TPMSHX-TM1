@@ -187,7 +187,7 @@ nTop CSV 导出写出 XY 或 XYZ 坐标及完整控制点来源。
 ## UI 结构
 
 - **用户存储与启动**：`python/applications/gui/controllers/user_storage.py` 使用临时文件原子替换在平台用户目录保存偏好、会话与历史。`python/applications/gui/main.py` 在导入 Matplotlib 前配置可写缓存。已有会话恢复完整输入快照；上海默认配置仅用于新建工作区。
-- **预检与退役设置**：点击计算前先捕获一份 `ComputeConfig` 供网格预检、速度建议、三维规模确认与后台工作线程共用。预检与前处理共享 `python/physical_models/grid.py`。已退役的 `wall_refine_3d`（额外六壁面加层）在开启时拒绝新前处理；`ComputeConfig.from_dict(..., prepared_grid=True)` 用于重放、续算与几何导出（见[退役记录](history/README.md#six-wall-grid-retirement)）。已保存的多边形预设被拒绝。
+- **预检与退役设置**：点击计算前先捕获一份 `ComputeConfig` 供网格预检、速度建议、三维规模确认与后台工作线程共用。[preflight_config](../python/preprocess/preflight.py) 使用已捕获的端口，与前处理共用[网格构造函数](../python/physical_models/grid.py)，并将几何检查结果加入网格报告。单次运行对话框显示错误，并请用户确认警告。已退役的 `wall_refine_3d`（额外六壁面加层）在开启时拒绝新前处理；`ComputeConfig.from_dict(..., prepared_grid=True)` 用于重放、续算与几何导出（见[退役记录](history/README.md#six-wall-grid-retirement)）。已保存的多边形预设被拒绝。
 - **预设与局部导入**：复制为 Python、可复现链接、菜单载入与拖放共用同一预设解码器。未包装的 `line_edits` 与旧扁平配置仅将提供字段合入当前捕获输入后再做跨字段校验。
 - **工作台模块**：`builders_canvas.py` 组装工作台；`workbench.py` 负责标签页路由；`panel_vis_3d.py`（配合 `volume_toolbar.py` 与 `volume_overlays.py`）负责 PyVista 三维渲染（单元中心加边界点、默认外表面、三正交截面、体渲染不透明度、悬浮色标卡与端口标签，以及供 `result_export.py` 复制与保存共用的单一合成捕获）；`background_tasks.py` 在工作台拥有的单个 QThread 中准备三维模块，同时将控件／Matplotlib／OpenGL 保留在 GUI 线程；`field_factory.py` 负责数值标签；`fmt.py` 格式化资格原因；`typography.py` 选择系统无衬线 Qt 字体与出版级 Matplotlib/VTK 字体。
 - **结果缓存与导出**：`ResultCache` 为当前维度持有一份已发布的 `ComputeResult`；失败或取消的尝试保留先前已接受结果。三维 NPZ 导出包含温度（K）、速度分量与幅值（m/s）、显示压力 `P_fA`/`P_fB`（Pa）、`L_mm`/`t_mm`（mm）、`dx`/`dy`/`dz`（m）及历史别名 `vmag`/`P_kPa`。
