@@ -160,9 +160,10 @@ def test_saved_case_is_independent_of_native_owner(monkeypatch, tmp_path, mode):
 
 
 def test_missing_preparation_library_stops_3d_dispatch(monkeypatch):
-    monkeypatch.setenv('TPMSHX_PREPARATION_LIBRARY', '/missing/preparation/library')
-    with pytest.raises(FileNotFoundError, match='prebuilt native preparation library is missing'):
-        api.prepare_case(_configuration('uniform'), case_id='missing')
+    with monkeypatch.context() as missing:
+        missing.setenv('TPMSHX_PREPARATION_LIBRARY', '/missing/preparation/library')
+        with pytest.raises(FileNotFoundError, match='prebuilt native preparation library is missing'):
+            api.prepare_case(_configuration('uniform'), case_id='missing')
 
 
 def test_host_exception_keeps_identity_and_releases_owner(monkeypatch):

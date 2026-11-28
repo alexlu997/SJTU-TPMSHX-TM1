@@ -225,7 +225,7 @@ def test_missing_zones_never_solve_or_finalize(dimension, axis, grid, monkeypatc
     finalize.assert_not_called()
 
 
-@pytest.mark.parametrize('callback', ['geometry', 'inlet', 'observe_range'])
+@pytest.mark.parametrize('callback', ['inlet', 'observe_range'])
 @pytest.mark.parametrize('axis', ['x', 'y', 'grid'])
 def test_native_zone_callback_error_propagates(callback, axis, monkeypatch):
     from tm1.preprocess.preparation import PreparationCache

@@ -253,7 +253,7 @@ def test_concurrent_full_and_quick_preparation_and_solver_keep_serial_fields():
 
     full_config = _configuration_mass_flow('Diamond', ('water', 'air'))
     full_config.geometry.L_cell_mm, full_config.geometry.t_wall_mm = 7., .5
-    quick_args = _args(case=_case(hot_fluid='sco2', cold_fluid='water', T_in_c=350., P_in_c=2e5))
+    quick_args = _args(case=_case(hot_fluid='sco2', cold_fluid='water', T_in_c=350., P_in_c=3e6))
     saved = prepare_quick_design(**quick_args, case_id='serial-quick')
 
     def values(operation):
