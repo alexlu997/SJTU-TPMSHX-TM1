@@ -15,12 +15,12 @@ data/raw_data/
 ├── experiments/
 │   ├── air/           空气试件台架实验汇总
 │   ├── water_air/     水—空气整机实验及水侧压损整理表
-│   └── sco2/
+│   └── sco2/          D/G 整机实验数值汇总及 83 工况验收清单
 │       └── d76/       D7、壁厚 0.6 mm 的现用整理版及数值版
 ├── cfd/
 │   ├── water/         现存水 CFD 历史结果
 │   └── sco2/          超临界 CO2；仍按 Diamond/Gyroid 分目录
-├── archive/           普通 CO2、旧水压损表、sCO2 处理公式及 REFPROP 附件
+├── archive/           普通 CO2、旧水压损表、sCO2 公式原件、处理表及 REFPROP 附件
 └── plans/
     └── water/         水 CFD 工况计划，不是计算结果
 ```
@@ -44,7 +44,7 @@ data/raw_data/
 | `7-6-Water-dp.xlsx` | `experiments/water_air/water-air_DG7-t0p6_hx_water-dp_with-air-temperature.xlsx` | 水侧压损整理；D 页另有空气进口温度列；现有水 HX 读取器使用此表 |
 | `换热器压损——20260407-G-7-6+20260609-D_7_6.xlsx` | `archive/water_air/water-air_DG7-t0p6_hx_water-dp.xlsx` | 另一份压损整理；D 页没有附加空气温度列，不与上一表合并 |
 | `试验记录表_整理版.xlsx` | `experiments/air/air_DG_specimen_experiment_summary.xlsx` | 电加热空气试件实验，含 CFD 对照列；不是水 CFD 结果 |
-| `sCO2-Experient.xlsx` | `experiments/sco2/sco2_DG7-t0p6_hx_experiment_summary.xlsx` | D/G sCO2 整机实验汇总；保留两种结构各自的列映射 |
+| `sCO2-Experient.xlsx` | `experiments/sco2/sco2_DG7-t0p6_hx_experiment_summary.xlsx` | D/G sCO2 整机实验汇总；保留两种结构各自的列映射。2026-11-28 起该路径为数值版，公式原件移至 `archive/sco2/sco2_DG7-t0p6_hx_experiment_summary_formulas.xlsx` |
 | `D-7-6实验数据-sCO2.xlsx` | `experiments/sco2/d76/sco2_D7-t0p6_hx_experiment_arranged.xlsx` | 原 `整理版`/`无公式` 布局，47 列 |
 | `D-7-6-sCO2/D-7-6实验数据-V1.xlsx` | `experiments/sco2/d76/sco2_D7-t0p6_hx_experiment_values_v1.xlsx` | 原 V1，`无公式` 页，48 列 |
 | `D-7-6-sCO2/D-7-6实验数据-formula.xlsx` | `archive/sco2/d76/sco2_D7-t0p6_hx_experiment_formulas.xlsx` | 原公式版，保留 REFPROP 外链及缓存 |
@@ -108,6 +108,49 @@ K/℃ 切换及配置保存不再把温度输入截成两位小数。
 此次修正仅更新 GUI 预设，不改变 `shanghai_pipeline_config` 的 F/H 名义流量基准、
 标定成员、系数、阈值或历史结果。实测流量复现实验与名义流量基准必须明确区分。
 网格和收敛控制仍是数值设置，不是实验测量值。
+
+<a id="sco2-values-and-manifest-2026-11-28"></a>
+
+## sCO2 整机数值版工作簿与 83 工况验收清单（2026-11-28）
+
+`data-revision.txt` 现固定私有数据仓提交
+`30eb545095e8dce682427b2d9b709224c78007d0`（`alexlu997/SJTU-TPMSHX-data` PR #3）。
+本次更新将 sCO2 整机实验汇总切换为数值版工作簿，归档公式原件，并纳入 83 工况换热量验收清单。
+
+### 数值版工作簿与公式原件
+
+TM1 从 `experiments/sco2/sco2_DG7-t0p6_hx_experiment_summary.xlsx` 读取
+Diamond 和 Gyroid 的整机实验数值，无需 REFPROP。原工作簿 5 张工作表中的
+3,586 个公式全部替换为最后保存的缓存值，保留单元格位置、数值格式、完成状态和备注。
+数值版不含公式、外部链接或计算链。原公式文件逐字节移至
+`archive/sco2/sco2_DG7-t0p6_hx_experiment_summary_formulas.xlsx`，保留 REFPROP 外链和公式缓存供公式核查。
+
+`物性计算` 工作表第 10–41 行预留给温压输入，`B10:C41` 均为空；数值版逐字保留该区域的
+160 个空输入诊断文本。两种拓扑的实验工况均取自各自的 `实验数据处理` 工作表。
+TM1 读取器（`load_exp`、工况筛选、固定清单读取及 `fit_experimental_effective.evaluate_sco2`）
+在原件与数值版上输出一致的数据表和结果。
+
+### 83 工况换热量验收清单
+
+`experiments/sco2/sco2_DG7-t0p6_hx_q-acceptance_83-cases.meta.json` 是 sCO2
+整机换热量验收的固定工况清单，共 83 个工况：Diamond 43 个、Gyroid 40 个。
+`python -m tm1.development.validation.cases.validate_sco2_exp_q --case-manifest <清单文件>`
+直接读取该文件。
+
+原清单文件在早期缓存清理中丢失。上述 83 个工况编号取自 TM1 Git 提交 `1f9bc07` 的
+`docs/plans/three-module-graph/evidence/real-experiments/fixed166-comparison.json`，
+并在该工作簿上以历史筛选规则复现：排除“作废”和“重做”，|热平衡| ≤ 0.15，温度 280–700 K，
+表压 8.0–16.0 MPa。清单分别记录现用数值版和归档公式原件的 SHA-256 哈希；
+归档公式原件与结项资料中的 `实验数据处理与分析_物性自动计算，需配置Refprop.xlsx` 逐字节一致。
+
+现行 `--all-valid` 筛选共 86 个工况，比固定清单多 3 个且不少任何一个。
+Gyroid 1 和 37 因表压改绝压（+101325 Pa）后热侧压力高于 8.0 MPa 而进入；
+Diamond 48 因压力下限从 8.0 MPa 调整为 7.9 MPa 而进入。2026-11-28 用户确认
+TM1 重构第 4、5 步的 sCO2 实验验收使用这 83 个工况，以便与历史验收结果保持可比。
+仅按“完成”状态叠加现行压力规则也会得到 83 个工况（Diamond 41、Gyroid 42），
+但成员不同，不得替代本清单。
+
+此次数据更新保持原有实测数值、列映射、压力换算约定与验收门槛不变，不构成求解器或实验精度验收结论。
 
 ## 水 CFD 计划孔隙率修订（2026-09-12）
 
