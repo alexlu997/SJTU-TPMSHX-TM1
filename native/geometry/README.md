@@ -31,12 +31,12 @@ Grid and zone entries use [grid_c_api.h](../include/tpmshx/grid_c_api.h) and [zo
 Field entries use [field_continuous_c_api.h](../include/tpmshx/field_continuous_c_api.h),
 [field_sigmoid_c_api.h](../include/tpmshx/field_sigmoid_c_api.h) and [field_lut_c_api.h](../include/tpmshx/field_lut_c_api.h).
 Direct C++ interfaces include [geometry.hpp](../include/tpmshx/geometry.hpp), [grid.hpp](../include/tpmshx/grid.hpp) and [ports.hpp](../include/tpmshx/ports.hpp).
-The [C caller](../tests/cpp/geometry_c_smoke.c) checks fields, ownership, errors and unchanged outputs after failure.
-The [C++ caller](../tests/cpp/geometry_kernel_smoke.cpp) checks inclusive counts and injected model or node data.
+The [C caller](../../tests/cpp/geometry_c_smoke.c) checks fields, ownership, errors and unchanged outputs after failure.
+The [C++ caller](../../tests/cpp/geometry_kernel_smoke.cpp) checks inclusive counts and injected model or node data.
 A caller result is separate from full numerical, platform and desktop acceptance.
 
-Use the [configured project interpreter](../README.md) from the repository root.
-The [build script](../engineering/scripts/build_native_dependencies.py) has these actions:
+Use the [configured project interpreter](../../README.md) from the repository root.
+The [build script](../../engineering/scripts/build_native_dependencies.py) has these actions:
 
 | Action | Scope |
 | --- | --- |
@@ -139,8 +139,8 @@ The applicable license for both excerpts is BSD-3-Clause.
 Copyright 2009-2022 the scikit-image team.
 Copyright (c) 2005-2025, NumPy Developers.
 The complete notices are retained unchanged as
-[scikit-image-LICENSE.txt](../engineering/native_build/licenses/scikit-image-LICENSE.txt) and
-[numpy-LICENSE.txt](../engineering/native_build/licenses/numpy-LICENSE.txt).
+[scikit-image-LICENSE.txt](../../engineering/native_build/licenses/scikit-image-LICENSE.txt) and
+[numpy-LICENSE.txt](../../engineering/native_build/licenses/numpy-LICENSE.txt).
 Source distributions must retain their copyright, conditions and disclaimers.
 Binary distributions must provide these notices in accompanying materials.
 Do not use upstream names to endorse a derived product without permission.
@@ -148,7 +148,7 @@ These duties also apply to a geometry-only binary distribution.
 
 The field and filter subsets use SciPy **1.18.1** sources.
 The [field source record](fields-sources.md) lists fixed FITPACK, basis, LUT and ndimage references and local changes.
-Retain [scipy-LICENSE.txt](../engineering/native_build/licenses/scipy-LICENSE.txt) and [ndimage-LICENSE.txt](../engineering/native_build/licenses/ndimage-LICENSE.txt) unchanged with the NumPy notice.
+Retain [scipy-LICENSE.txt](../../engineering/native_build/licenses/scipy-LICENSE.txt) and [ndimage-LICENSE.txt](../../engineering/native_build/licenses/ndimage-LICENSE.txt) unchanged with the NumPy notice.
 These BSD-3-Clause notices also apply when only the geometry/design-field library is distributed.
 
 ## Local changes and numerical rules
@@ -160,7 +160,7 @@ Batch L/t fields use `float64` arrays.
 Effective solid conductivity evaluates `chi * (1 - epsilon) * k_s` in `double`.
 Formal nonzero asymmetric preparation converts L/t and length to `float64` and computes in `double`.
 
-The local implementation is in [geometry/](.).
+The local implementation is in [native/geometry/](.).
 The cell state and ambiguity tests were translated from Cython to C++17.
 Lookup data were decoded into signed-byte C++ tables without changing their dimensions or order.
 The port keeps all 47 non-classic tables. It has no classic, mask, normal or value output mode.

@@ -30,7 +30,7 @@ Preparation ABI 3、Quick Design v2、二维保存态阶段 ABI 5、三维保存
 
 ## 阶段主线、所有权与单位
 
-`include/tpmshx/stages.hpp` 中的 C++ 调用顺序为 `prepare_case`、`run_case` 与 `evaluate`。
+`native/include/tpmshx/stages.hpp` 中的 C++ 调用顺序为 `prepare_case`、`run_case` 与 `evaluate`。
 准备库计算物理网格、端口、场与模型证据；求解库运行准备态；结果库独立评估已记录证据。
 
 调用 `saved_case`、`SavedCase2D` 或 `SavedPreparedCase3D` 前，先用变量保存准备所有者。

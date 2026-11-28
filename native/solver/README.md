@@ -4,15 +4,15 @@
 
 | 要读的计算 | 先看算例里的调用 | 再看 C++ 如何推进 |
 | --- | --- | --- |
-| 完整二维 | [二维空气工况](../examples/cpp/air_2d.cpp#L32-L34) | [Full2DRun::advance_impl](full_2d.cpp#L1095) 按外迭代、流动、热学三个边界推进。改速度或压力迭代，从 [simple_2d.cpp](simple_2d.cpp) 读起。 |
-| 完整三维 | [三维工况](../examples/cpp/run_3d.cpp#L20) | [Full3DRun::advance_step](full_3d.cpp#L1505) 先求两侧初始流场，再推进热学和流场更新。三维 SIMPLE 在 [simple_3d.cpp](simple_3d.cpp)。 |
-| 快速设计（Quick） | [单候选工况](../examples/cpp/quick_design.cpp#L13) | [solve_quick_design](quick_design_driver.cpp#L116) 按候选工况更新两侧物性，并[调用共用温度求解器](quick_design_driver.cpp#L206)。 |
+| 完整二维 | [二维空气工况](../../examples/cpp/air_2d.cpp#L32-L34) | [Full2DRun::advance_impl](full_2d.cpp#L1095) 按外迭代、流动、热学三个边界推进。改速度或压力迭代，从 [simple_2d.cpp](simple_2d.cpp) 读起。 |
+| 完整三维 | [三维工况](../../examples/cpp/run_3d.cpp#L20) | [Full3DRun::advance_step](full_3d.cpp#L1505) 先求两侧初始流场，再推进热学和流场更新。三维 SIMPLE 在 [simple_3d.cpp](simple_3d.cpp)。 |
+| 快速设计（Quick） | [单候选工况](../../examples/cpp/quick_design.cpp#L13) | [solve_quick_design](quick_design_driver.cpp#L116) 按候选工况更新两侧物性，并[调用共用温度求解器](quick_design_driver.cpp#L206)。 |
 
 **把二维工况读完整。** 从[前处理](../preprocess/preparation_case.cpp#L1021)看两侧端口和阻力如何落到网格上，从[几何计算](../geometry/geometry.cpp#L182)看孔隙率和水力直径。接着读表中的二维求解。最后进入[后处理](../postprocess/result_stage.cpp#L1164)，查看[换热量等指标](../postprocess/result_metrics.cpp)及[质量与能量收支](../postprocess/result_balance.cpp)。
 
 ## 按维护任务展开目录树
 
-下面按阅读顺序分组。组内文件都在同一层 `solver/` 目录。
+下面按阅读顺序分组。组内文件都在同一层 `native/solver/` 目录。
 
 <details>
 <summary>改模型或求解流程</summary>
@@ -81,7 +81,7 @@
 <details>
 <summary>查暂停、检查点和续算</summary>
 
-从[二维快照](full_2d.cpp#L1320)或[三维快照](full_3d.cpp#L1767)看要保存哪些迭代量。[二维续算算例](../examples/cpp/resume_2d.cpp)演示原生恢复，桌面应用从 [resume_loaded_run](../python/applications/execution/recovery.py#L78) 恢复磁盘上的记录。
+从[二维快照](full_2d.cpp#L1320)或[三维快照](full_3d.cpp#L1767)看要保存哪些迭代量。[二维续算算例](../../examples/cpp/resume_2d.cpp)演示原生恢复，桌面应用从 [resume_loaded_run](../../python/applications/execution/recovery.py#L78) 恢复磁盘上的记录。
 
 - 完整求解状态的编码与解码
   - [full_run_state.cpp](full_run_state.cpp)

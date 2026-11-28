@@ -8,7 +8,7 @@ from engineering.scripts import build_native_dependencies as native
 @pytest.mark.parametrize('fault', [None, 'extra-cpp-export', 'missing-c-export', 'cross-image-import'])
 def test_private_model_image_gate(tmp_path, monkeypatch, host, fault):
     root = tmp_path/'project'
-    manifest = root/'preprocess/preparation.exports'
+    manifest = root/'native/preprocess/preparation.exports'
     manifest.parent.mkdir(parents=True)
     manifest.write_text('_tpmshx_preparation_abi_version_v1\n')
     monkeypatch.setattr(native, 'ROOT', root)

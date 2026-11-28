@@ -18,8 +18,8 @@ if(MSVC)
 endif()
 find_package(Threads REQUIRED)
 
-add_library(tpmshx_models STATIC "${TPMSHX_ROOT}/numerics/fluid_properties.cpp")
-target_include_directories(tpmshx_models PUBLIC "${TPMSHX_ROOT}/include" "${TPMSHX_MODEL_INCLUDE_DIR}")
+add_library(tpmshx_models STATIC "${TPMSHX_ROOT}/native/numerics/fluid_properties.cpp")
+target_include_directories(tpmshx_models PUBLIC "${TPMSHX_ROOT}/native/include" "${TPMSHX_MODEL_INCLUDE_DIR}")
 target_link_libraries(tpmshx_models PUBLIC CoolProp::CoolProp Threads::Threads tpmshx_grid)
 target_compile_features(tpmshx_models PUBLIC cxx_std_17)
 set_target_properties(tpmshx_models PROPERTIES CXX_EXTENSIONS OFF POSITION_INDEPENDENT_CODE ON

@@ -2,7 +2,7 @@
 
 [中文](README.md) | [English](README.en.md)
 
-C++ 数值实现按计算阶段放在根目录，Python 应用集中在 [python/](../python/)。
+C++ 数值实现按计算阶段放在 [native/](../native/)，Python 应用集中在 [python/](../python/)。
 读代码从[模块地图](../python/README.md)开始，运行程序从
 [首次运行说明](first-run.md)开始。
 
@@ -32,8 +32,8 @@ C++ 数值实现按计算阶段放在根目录，Python 应用集中在 [python/
 
 | 目录 | 用途 |
 | --- | --- |
-| [preprocess/](../preprocess/)、[solver/](../solver/)、[postprocess/](../postprocess/) | C++ 前处理、求解和后处理 |
-| [geometry/](../geometry/)、[numerics/](../numerics/)、[include/](../include/) | 几何、共用数值函数及头文件 |
+| [native/preprocess/](../native/preprocess/)、[native/solver/](../native/solver/)、[native/postprocess/](../native/postprocess/) | C++ 前处理、求解和后处理 |
+| [native/geometry/](../native/geometry/)、[native/numerics/](../native/numerics/)、[native/include/](../native/include/) | 几何、共用数值函数及头文件 |
 | [tests/cpp/](../tests/cpp/) | C/C++ 调用与内核测试 |
 | [tests/python/](../tests/python/) | Python 自动化测试、原生绑定测试、GUI 测试与独立参考实现 |
 | [python/](../python/) | 四个计算入口、应用、数据类型、文件读写、模型资源与 C++ 调用接口 |

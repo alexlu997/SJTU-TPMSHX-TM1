@@ -39,10 +39,10 @@ def project(tmp_path):
         "python/development/runs/tool.py": "value = 2\n",
         "python/development/validation/reference.py": "value = 3\n",
         "python/__init__.py": '"""Package."""\n',
-        "numerics/fluid_properties.cpp": '#include "tpmshx/model_math.h"\n',
-        "include/tpmshx/model_math.h": "/* Local declaration. */\n",
-        "preprocess/CMakeLists.txt":
-            'add_library(models "${TPMSHX_ROOT}/numerics/fluid_properties.cpp")\n',
+        "native/numerics/fluid_properties.cpp": '#include "tpmshx/model_math.h"\n',
+        "native/include/tpmshx/model_math.h": "/* Local declaration. */\n",
+        "native/preprocess/CMakeLists.txt":
+            'add_library(models "${TPMSHX_ROOT}/native/numerics/fluid_properties.cpp")\n',
         "engineering/scripts/build_native_dependencies.py": '"""Explicit source build."""\n',
         "docs/build.md": "Source instructions.\n",
         "examples/input.json": "{}\n",
@@ -88,12 +88,12 @@ def test_source_archive_keeps_native_helper_and_its_local_build_closure(project,
     archive = tmp_path / "source.tar.gz"
     source_archive(project, archive, extra={"tm1.egg-info/PKG-INFO": b"generated metadata"})
     _, files = distributions.inspect_sdist(archive, project)
-    assert "numerics/fluid_properties.cpp" in files
+    assert "native/numerics/fluid_properties.cpp" in files
     assert "tests/python/native/reference.py" in files
     assert "tests/python/native/bridge.cpp" in files
     assert "tests/python/_ci_shard0.txt" in files
     assert distributions.check_native_closure(project)["local_includes"] == 1
-    header = project / "include/tpmshx/model_math.h"
+    header = project / "native/include/tpmshx/model_math.h"
     header.unlink()
     with pytest.raises(ValueError, match="omitted local include"):
         distributions.check_native_closure(project)
@@ -114,7 +114,7 @@ def test_source_archive_excludes_local_cfd_output(project, tmp_path):
 
 def test_source_archive_rejects_the_confirmed_native_source_omission(project, tmp_path):
     archive = tmp_path / "source.tar.gz"
-    source_archive(project, archive, omit={"numerics/fluid_properties.cpp"})
+    source_archive(project, archive, omit={"native/numerics/fluid_properties.cpp"})
     with pytest.raises(ValueError, match="omitted source/build inputs"):
         distributions.inspect_sdist(archive, project)
 
@@ -128,7 +128,7 @@ def test_source_archive_rejects_retired_numerics(project, tmp_path, name):
         distributions.inspect_sdist(archive, project)
 
 
-@pytest.mark.parametrize("name", ["numerics/fluid_properties.cpp",
+@pytest.mark.parametrize("name", ["native/numerics/fluid_properties.cpp",
     "native/lib/macos-arm64/libtpmshx_preparation_shared.dylib",
     "tm1/physical_models/local_heat_transfer.py",
     "tm1/physical_models/quick_design.py",

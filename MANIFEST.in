@@ -1,11 +1,6 @@
 include LICENSE README.md README.en.md pyproject.toml requirements.txt
 include CMakeLists.txt
-graft preprocess
-graft solver
-graft postprocess
-graft geometry
-graft numerics
-graft include
+graft native
 graft tests/cpp
 include main.py tm1.py tests/__init__.py
 graft python

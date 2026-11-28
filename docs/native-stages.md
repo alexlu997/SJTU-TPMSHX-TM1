@@ -31,7 +31,7 @@ See [C++ migration history](history/cpp-migration-history.md) for retired `v1`â€
 
 ## Stage pipeline, ownership, and units
 
-The C++ call sequence in `include/tpmshx/stages.hpp` is `prepare_case`, `run_case`, then `evaluate`.
+The C++ call sequence in `native/include/tpmshx/stages.hpp` is `prepare_case`, `run_case`, then `evaluate`.
 Preparation computes physical grids, ports, fields, and model evidence.
 The solver runs that prepared state, and the result library evaluates recorded evidence independently.
 

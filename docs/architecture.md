@@ -25,14 +25,14 @@ Four independent C++ shared libraries own all production numerical work:
 
 | Library | Source | Active ABI and role |
 | --- | --- | --- |
-| `tpmshx_geometry_shared` | [geometry/](../geometry/) | Geometry ABI 2 and field ABI 3: TPMS cell geometry, chi/Kss, grids, ports, splines, sigmoid fields, LUTs, and zones. |
-| `tpmshx_preparation_shared` | [preprocess/](../preprocess/) | Preparation ABI 3 and Quick Design preparation v2: properties, Nu closures, fixed D-F, 2D/3D preparation, and scalar inlet queries. |
-| `tpmshx_solver_shared` | [solver/](../solver/) | Saved 2D ABI 5, saved 3D ABI 3 (capture ABI 2), and Quick Design run v2: SIMPLE flow, model-h, temperature, and T-SOU conservative energy. |
-| `tpmshx_result_shared` | [postprocess/](../postprocess/) | Result ABI 3 (`float64` arrays and `int32` zone labels): metrics, physical balances, applicability checks, zone statistics, and qualification. |
+| `tpmshx_geometry_shared` | [native/geometry/](../native/geometry/) | Geometry ABI 2 and field ABI 3: TPMS cell geometry, chi/Kss, grids, ports, splines, sigmoid fields, LUTs, and zones. |
+| `tpmshx_preparation_shared` | [native/preprocess/](../native/preprocess/) | Preparation ABI 3 and Quick Design preparation v2: properties, Nu closures, fixed D-F, 2D/3D preparation, and scalar inlet queries. |
+| `tpmshx_solver_shared` | [native/solver/](../native/solver/) | Saved 2D ABI 5, saved 3D ABI 3 (capture ABI 2), and Quick Design run v2: SIMPLE flow, model-h, temperature, and T-SOU conservative energy. |
+| `tpmshx_result_shared` | [native/postprocess/](../native/postprocess/) | Result ABI 3 (`float64` arrays and `int32` zone labels): metrics, physical balances, applicability checks, zone statistics, and qualification. |
 
 Shared coefficients, bounds, and defaults come from [model_parameters_v1.json](../python/model_configs/model_parameters_v1.json) and [preparation_df_v1.json](../python/model_configs/preparation_df_v1.json).
 `engineering/scripts/generate_native_model_coefficients.py` generates native C++ headers from these files with the Python standard library only.
-See [include/tpmshx/](../include/tpmshx/), [tests/cpp/](../tests/cpp/), [C++ integration](cpp-migration.md#cpp-core-scope), [native stage SDK](native-stages.md), and [C++ migration history](history/cpp-migration-history.md).
+See [native/include/tpmshx/](../native/include/tpmshx/), [tests/cpp/](../tests/cpp/), [C++ integration](cpp-migration.md#cpp-core-scope), [native stage SDK](native-stages.md), and [C++ migration history](history/cpp-migration-history.md).
 
 ## Source, import, and native library name map
 
@@ -52,10 +52,10 @@ The [Python layer owners](#python-layer-owners) table gives the responsibilities
 
 | Path | Contents |
 | --- | --- |
-| [preprocess/](../preprocess/), [solver/](../solver/), [postprocess/](../postprocess/) | C++ preparation, solving, and evaluation. |
-| [geometry/](../geometry/) | C++ geometry. |
-| [numerics/](../numerics/) | Common numerical functions. |
-| [include/tpmshx/](../include/tpmshx/) | C and C++ headers. |
+| [native/preprocess/](../native/preprocess/), [native/solver/](../native/solver/), [native/postprocess/](../native/postprocess/) | C++ preparation, solving, and evaluation. |
+| [native/geometry/](../native/geometry/) | C++ geometry. |
+| [native/numerics/](../native/numerics/) | Common numerical functions. |
+| [native/include/tpmshx/](../native/include/tpmshx/) | C and C++ headers. |
 | [tests/cpp/](../tests/cpp/) | Native caller tests. |
 | [python/applications/](../python/applications/) | Application workflows. GUI components are in `gui/ui/` and controllers are in `gui/controllers/`. |
 | [python/preprocess/](../python/preprocess/) | Python preparation stage. It produces new `CaseData`. |
@@ -105,17 +105,17 @@ See [kept Python responsibilities](numerical-contracts.md#retained-python-respon
 
 The four shipped shared libraries have no shared-library link cycle.
 Each CMake scope builds an independent image.
-Only `preprocess/` and `solver/` link separate static CoolProp archives; `geometry/` and `postprocess/` link no CoolProp.
+Only `native/preprocess/` and `native/solver/` link separate static CoolProp archives; `native/geometry/` and `native/postprocess/` link no CoolProp.
 Six compile-time source and header edges cross C++ directories:
 
 | Edge | Source or header sites | Reason |
 | --- | --- | --- |
-| `preprocess/` <-> `numerics/` | `preprocess/preparation_properties.hpp` includes `../numerics/property_kernels.hpp`. `numerics/df_summary.cpp` includes `tpmshx/preparation_df.hpp`. | `preprocess/preparation_property_points.cpp` defines the six preparation adapter functions. `numerics/fluid_properties.cpp` defines the shared property kernels. The preparation and solver builds use the same D-F summary function. |
-| `solver/` -> `postprocess/` | `solver/CMakeLists.txt` compiles `postprocess/result_{core,arithmetic,metrics,balance}.cpp` into hidden static target `tpmshx_capture_math`. `solver/stage_capture_2d.cpp` includes `../postprocess/result_zone_capture.hpp`. | Reuses exact result arithmetic during solver capture and keeps `tpmshx_result_shared` standalone with no solver dependency. |
-| `solver/` -> `preprocess/` | `solver/CMakeLists.txt` compiles `preprocess/preparation_{df_corrections,flow}.cpp`. `solver/stage_saved_models.hpp` includes `../preprocess/preparation_nu.hpp`. `solver/quick_design_run.cpp` includes `../preprocess/preparation_c_boundary.hpp`. | Reuses D-F correction, `closure_geometry_ratio`, Nu-route, and C-boundary rules without linking `tpmshx_preparation_shared`, so static CoolProp registries stay separate. |
-| `preprocess/`, `solver/` -> `geometry/` | Both CMake files add `geometry/` as a subdirectory. `preprocess/preparation_case.cpp` includes `../geometry/field_{continuous,lut,sigmoid}.hpp`. Five preparation and solver files include `../geometry/field_c_boundary.hpp`. | Compiles grid, port, field, and C-boundary helpers statically into each isolated stage build. |
-| `geometry/` <-> `numerics/` | `include/tpmshx/geometry.hpp` includes `tpmshx/fluid_properties.hpp` for `Topology`. `geometry/{grid,zones}.cpp` include `../numerics/contiguous_sum.hpp`. `include/tpmshx/pressure_reference.hpp` includes `tpmshx/ports.hpp`; `pressure-reference.cmake` links `tpmshx_grid` directly and `models.cmake` links it transitively. | Shares the topology enum, deterministic summation helper, and physical port-fraction code across geometry and pressure-reference targets. |
-| Stages -> `numerics/`, shared Quick header | `preprocess/` and `solver/` include `../numerics/contiguous_sum.hpp` and compile `numerics/df_summary.cpp`. `preprocess/` and `postprocess/` include `../numerics/scalar_range_samples.hpp`. `solver/` and `postprocess/` compile `numerics/recorded_report.cpp`. `include/tpmshx/quick_design_stage_c_api.h` includes preparation, solver, and result C headers. | Shares deterministic sums, range sampling, report encoding, and the single Quick Design stage C interface across stages. |
+| `native/preprocess/` <-> `native/numerics/` | `native/preprocess/preparation_properties.hpp` includes `../numerics/property_kernels.hpp`. `native/numerics/df_summary.cpp` includes `tpmshx/preparation_df.hpp`. | `native/preprocess/preparation_property_points.cpp` defines the six preparation adapter functions. `native/numerics/fluid_properties.cpp` defines the shared property kernels. The preparation and solver builds use the same D-F summary function. |
+| `native/solver/` -> `native/postprocess/` | `native/solver/CMakeLists.txt` compiles `native/postprocess/result_{core,arithmetic,metrics,balance}.cpp` into hidden static target `tpmshx_capture_math`. `native/solver/stage_capture_2d.cpp` includes `../postprocess/result_zone_capture.hpp`. | Reuses exact result arithmetic during solver capture and keeps `tpmshx_result_shared` standalone with no solver dependency. |
+| `native/solver/` -> `native/preprocess/` | `native/solver/CMakeLists.txt` compiles `native/preprocess/preparation_{df_corrections,flow}.cpp`. `native/solver/stage_saved_models.hpp` includes `../preprocess/preparation_nu.hpp`. `native/solver/quick_design_run.cpp` includes `../preprocess/preparation_c_boundary.hpp`. | Reuses D-F correction, `closure_geometry_ratio`, Nu-route, and C-boundary rules without linking `tpmshx_preparation_shared`, so static CoolProp registries stay separate. |
+| `native/preprocess/`, `native/solver/` -> `native/geometry/` | Both CMake files add `native/geometry/` as a subdirectory. `native/preprocess/preparation_case.cpp` includes `../geometry/field_{continuous,lut,sigmoid}.hpp`. Five preparation and solver files include `../geometry/field_c_boundary.hpp`. | Compiles grid, port, field, and C-boundary helpers statically into each isolated stage build. |
+| `native/geometry/` <-> `native/numerics/` | `native/include/tpmshx/geometry.hpp` includes `tpmshx/fluid_properties.hpp` for `Topology`. `native/geometry/{grid,zones}.cpp` include `../numerics/contiguous_sum.hpp`. `native/include/tpmshx/pressure_reference.hpp` includes `tpmshx/ports.hpp`; `pressure-reference.cmake` links `tpmshx_grid` directly and `models.cmake` links it transitively. | Shares the topology enum, deterministic summation helper, and physical port-fraction code across geometry and pressure-reference targets. |
+| Stages -> `native/numerics/`, shared Quick header | `native/preprocess/` and `native/solver/` include `../numerics/contiguous_sum.hpp` and compile `native/numerics/df_summary.cpp`. `native/preprocess/` and `native/postprocess/` include `../numerics/scalar_range_samples.hpp`. `native/solver/` and `native/postprocess/` compile `native/numerics/recorded_report.cpp`. `native/include/tpmshx/quick_design_stage_c_api.h` includes preparation, solver, and result C headers. | Shares deterministic sums, range sampling, report encoding, and the single Quick Design stage C interface across stages. |
 
 ## Detailed contracts
 

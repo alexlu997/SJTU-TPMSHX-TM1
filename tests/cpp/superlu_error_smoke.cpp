@@ -1,4 +1,4 @@
-#include "../../solver/superlu_hooks.h"
+#include "../../native/solver/superlu_hooks.h"
 
 #include <algorithm>
 #include <atomic>
