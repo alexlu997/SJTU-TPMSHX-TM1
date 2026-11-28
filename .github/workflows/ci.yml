@@ -368,3 +368,19 @@ jobs:
       - name: Evaluate real files from source and installed wheels in the minimal environment
         if: needs.scope.outputs.tier != 'docs'
         run: '"$CI_PYTHON" -m pytest tests/python/integration_tm1/test_minimal_install.py -q'
+      - name: Compare two Linux evaluations of the CI macOS handoff files
+        if: needs.scope.outputs.tier != 'docs'
+        run: |
+          shopt -s globstar
+          for run in first second; do
+            "$CI_PYTHON" -m engineering.scripts.restructure_reference handoff "$RUNNER_TEMP/reference/$run" "${TPMSHX_RESULT_LIBRARY%/*}" "$TM1_REAL_HANDOFF_DIR"/**/handoff/results.h5
+          done
+          "$CI_PYTHON" -m engineering.scripts.restructure_reference compare "$RUNNER_TEMP/reference/first" "$RUNNER_TEMP/reference/second"
+      - uses: actions/upload-artifact@v7
+        if: needs.scope.outputs.tier != 'docs'
+        with:
+          name: linux-reference-handoff
+          path: ${{ runner.temp }}/reference/first
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
