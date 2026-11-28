@@ -522,7 +522,7 @@ TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_l
  * Physical fields use C order (nx,ny); side row fields use the stream axis.
  * A nonzero return preserves result. Input, result, failure, error and callback
  * storage must be mutually disjoint. Error requires a nonempty writable buffer.
- * Failure kind: 0=none, 1=ValueError, 2=WaterStateError, 3=RuntimeError, 4=Unsupported.
+ * Failure kind: 0=none, 1=ValueError, 2=WaterStateError, 3=RuntimeError, 4=Unsupported, 5=invalid chi.
  */
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_2d_uniform_capacities_v1(
     const tpmshx_preparation_2d_uniform_input_v1*,

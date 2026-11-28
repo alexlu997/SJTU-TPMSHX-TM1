@@ -104,9 +104,9 @@ LruCache<TableKey, TableValue, 32> tables;
 template<class Function>
 auto with_cache(std::uint32_t id, Function function) {
     switch (id) {
-    case TPMSHX_CACHE_GEOMETRY: return function(geometries);
-    case TPMSHX_CACHE_CO2: return function(co2);
-    case TPMSHX_CACHE_SCO2: return function(sco2);
+    case TPMSHX_PREPARATION_CACHE_GEOMETRY: return function(geometries);
+    case TPMSHX_PREPARATION_CACHE_CO2: return function(co2);
+    case TPMSHX_PREPARATION_CACHE_SCO2: return function(sco2);
     case TPMSHX_PREPARATION_CACHE_INLET: return function(inlets);
     case TPMSHX_PREPARATION_CACHE_SIGMOID: return function(tables);
     default: throw std::invalid_argument("unknown preparation cache ID");
@@ -115,9 +115,20 @@ auto with_cache(std::uint32_t id, Function function) {
 } // namespace
 
 std::shared_ptr<const geometry::PhiIndex> geometry_index(Topology topology, std::size_t resolution) {
-    return indices.get({topology, resolution}, [&] {
+    const auto build = [&] {
         return std::make_shared<const geometry::PhiIndex>(geometry::PhiIndex::from_topology(topology, resolution));
-    });
+    };
+    if (resolution == 128) {
+        if (topology == Topology::diamond) {
+            static const auto diamond = build();
+            return diamond;
+        }
+        if (topology == Topology::gyroid) {
+            static const auto gyroid = build();
+            return gyroid;
+        }
+    }
+    return indices.get({topology, resolution}, build);
 }
 
 geometry::Geometry cached_geometry(Topology topology, double cell_mm, double wall_mm, std::size_t resolution) {

@@ -29,7 +29,7 @@ typedef struct {
 } tpmshx_property_failure_v1;
 
 enum tpmshx_preparation_cache_id {
-    TPMSHX_CACHE_GEOMETRY=0, TPMSHX_CACHE_CO2=1, TPMSHX_CACHE_SCO2=2,
+    TPMSHX_PREPARATION_CACHE_GEOMETRY=0, TPMSHX_PREPARATION_CACHE_CO2=1, TPMSHX_PREPARATION_CACHE_SCO2=2,
     TPMSHX_PREPARATION_CACHE_INLET=3, TPMSHX_PREPARATION_CACHE_SIGMOID=4
 };
 typedef struct {size_t hits,misses,maxsize,currsize;} tpmshx_preparation_cache_info_v1;
@@ -66,7 +66,9 @@ TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_clear_cach
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_cached_sco2_v1(
     tpmshx_property_key_v1 key,double temperature,double pressure,double* result,
     tpmshx_property_failure_v1* failure,char* error,size_t error_capacity);
-/* CO2 queries return the byte offset of a nested cause in error, or SIZE_MAX. */
+/* Both CO2 queries require a non-null cause_offset. It receives the byte offset of the first
+ * cause byte in error, or SIZE_MAX if the buffer contains no cause bytes.
+ */
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_cached_co2_v1(
     double temperature,double pressure,double* values,size_t value_count,size_t* cause_offset,
     tpmshx_property_failure_v1* failure,char* error,size_t error_capacity);

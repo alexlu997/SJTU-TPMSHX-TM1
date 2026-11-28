@@ -4,6 +4,7 @@
 #include "preparation_c_boundary.hpp"
 #include <CoolProp/CoolProp.h>
 #include <algorithm>
+#include <cstring>
 #include <initializer_list>
 #include <string>
 #include <vector>
@@ -18,6 +19,11 @@ struct Range {const void* data;std::size_t count,width,alignment;bool output;};
 template<class T> Range read(const T* values,std::size_t count) {return {values,count,sizeof(T),alignof(T),false};}
 template<class T> Range write(T* values,std::size_t count) {return {values,count,sizeof(T),alignof(T),true};}
 Range read(Input value) {return read(value.values,value.count);}
+
+Failure failure_record(const p::PropertyFailure& value) {
+    return {value.reason,value.input,value.index,value.first_t_index,value.first_p_index,
+        value.temperature,value.pressure,value.detail,value.fp};
+}
 
 template<class Function> int invoke(std::initializer_list<Range> buffers,Failure* failure,
     char* error,std::size_t size,Function function,std::size_t* cause_offset=nullptr) {
@@ -48,15 +54,13 @@ template<class Function> int invoke(std::initializer_list<Range> buffers,Failure
         if (cause_offset) *cause_offset=std::string::npos;
         try {function();}
         catch (const p::PropertyError& value) {
-            if (cause_offset) *cause_offset=value.cause_offset;
-            if (failure) {const auto& f=value.failure;
-                *failure={f.reason,f.input,f.index,f.first_t_index,f.first_p_index,
-                    f.temperature,f.pressure,f.detail,f.fp};}
-            throw c::StateError(value.status,value.what());
+            const c::StateError problem(value.status,value.what());
+            if (cause_offset && value.cause_offset < std::min(size-1,std::strlen(problem.what())))
+                *cause_offset=value.cause_offset;
+            if (failure) *failure=failure_record(value.failure);
+            throw problem;
         }
-        if (failure) {const p::PropertyFailure empty;
-            *failure={empty.reason,empty.input,empty.index,empty.first_t_index,empty.first_p_index,
-                empty.temperature,empty.pressure,empty.detail,empty.fp};}
+        if (failure) *failure=failure_record({});
     });
 }
 
@@ -130,7 +134,11 @@ extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_cached_geometry_v1(
             const double result[]{value.epsilon,value.epsilon_a,value.epsilon_b,value.area_density,value.hydraulic_diameter};
             std::copy_n(result,5,values);
         } catch (const tpmshx::geometry::ScalarGeometryError& problem) {
-            if (failure) { *failure={}; failure->reason=static_cast<uint32_t>(problem.reason); }
+            if (failure) {
+                p::PropertyFailure details;
+                details.reason=static_cast<uint32_t>(problem.reason);
+                *failure=failure_record(details);
+            }
             throw;
         }
     });

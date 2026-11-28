@@ -99,7 +99,7 @@ def _range_record(value, bounds_list):
     return (*source, shape, context), record
 
 
-def _check_status(operation, status, error, failure, water_error):
+def _check_status(operation, status, error, failure, water_error, chi_error=None):
     if not status:
         return
     side = 'AB'[failure.side] if failure.kind and failure.side < 2 else None
@@ -112,7 +112,9 @@ def _check_status(operation, status, error, failure, water_error):
                              side=side, water_error=water_error)
         causes.append(cause)
     text = error.value.decode('utf-8', errors='replace')
-    problem = native_error('preparation', operation, status, text, kind=failure.kind, side=side, route=route,
+    host_error = chi_error if status != 2 and failure.kind == 5 else None
+    problem = native_error('preparation', operation, status, text, problem=host_error,
+                           kind=failure.kind, side=side, route=route,
                            side_status='available' if side is not None else 'not_recorded',
                            observations=range_diagnostics(current_warnings() or {}, route),
                            causes=[item.diagnostic for item in causes], water_error=water_error)
@@ -232,9 +234,7 @@ def _owned_result(bindings, key, inputs, options, bridge, water_error, chi_error
                       ct.byref(result), ct.byref(failure), error, len(error))
         if callback_errors:
             raise callback_errors[0]
-        if status and failure.kind == 5 and chi_error is not None:
-            raise native_error('preparation', call.__name__, status, str(chi_error), kind=5, problem=chi_error)
-        _check_status(call.__name__, status, error, failure, water_error)
+        _check_status(call.__name__, status, error, failure, water_error, chi_error)
         yield result
     finally:
         bindings.releases[result_type](ct.byref(result))
