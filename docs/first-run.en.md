@@ -138,7 +138,11 @@ For an old layout, first prepare a new cache as described below.
 "$PYTHON" engineering/scripts/build_native_dependencies.py publish
 ```
 
-When you upgrade from the root `native/` layout, keep the original libraries, `build.json` and `previous/` under `native/lib/`.
+Since 2026-11-28, `publish` writes to `native/lib/<host>/`. Before that date, it wrote to `sjtu_tpmshx/solvers/native/lib/<host>/`.
+An older checkout can also have libraries of the earlier root `native/` layout in `native/lib/`.
+A publish of changed libraries replaces `previous/` in the destination.
+Thus, before you publish, copy each library, `build.json` and `previous/` that old checkpoints still need to a separate folder.
+Then move the libraries of the current build from `sjtu_tpmshx/solvers/native/lib/<host>/` to `native/lib/<host>/`, or publish them again.
 Old checkpoints still require their matching original library, selected explicitly.
 Keep old caches and their absolute paths while consumers still use them.
 The old pilot build directory records the previous source location. It cannot configure the new layout.

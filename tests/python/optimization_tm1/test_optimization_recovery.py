@@ -296,3 +296,38 @@ def test_optimize_route_continues_or_repeats_a_saved_search(tmp_path, monkeypatc
         assert json.loads((tmp_path / target / 'optimization-input.json').read_text()) == frozen
     statuses = [line for line in capsys.readouterr().out.splitlines() if line.startswith('status = ')]
     assert statuses == ['status = completed'] * 2
+    with pytest.raises(ValueError, match='outside the saved search'):
+        run([str(source / 'optimization-input.json'), str(source / 'baseline'), '--workers', '1'])
+    assert not (source / 'baseline').exists()
+
+
+@pytest.mark.parametrize('saved', [True, False])
+def test_optimize_route_reports_the_search_pause_only_after_it_is_saved(tmp_path, monkeypatch, capsys, saved):
+    import signal
+    from tests.python.optimization_support import _checkpoint_fault
+    from tm1.applications.optimization.cli import run
+    _fake_batches(monkeypatch)
+    batch = search.evaluate_compact_condition_batch
+
+    def interrupted(*args, **kwargs):
+        # The terminal Ctrl+C arrives while the baseline batch runs; the batch pauses at its boundary.
+        signal.raise_signal(signal.SIGINT)
+        return batch(*args, **kwargs)
+
+    monkeypatch.setattr(search, 'evaluate_compact_condition_batch', interrupted)
+    source = tmp_path / 'source'
+    with pytest.raises(PausedRun):
+        search.run_multi_condition_optimization(_conditions(), output_dir=source,
+            method='sobol', n_init=1, n_iter=0, workers=1, pause_check=lambda: True)
+    output = tmp_path / 'continued'
+    if not saved:
+        _checkpoint_fault(monkeypatch, search, 'optimization.json',
+            lambda record, _: record['status'] == 'paused', persistent=True)
+        with pytest.raises(PausedRun) as caught:
+            run([str(source / 'optimization.json'), str(output), '--workers', '1'])
+        assert 'checkpoint write failed' in '\n'.join(caught.value.__notes__)
+        assert 'paused = ' not in capsys.readouterr().out
+        return
+    assert run([str(source / 'optimization.json'), str(output), '--workers', '1']) == 3
+    assert f"paused = {output.resolve() / 'optimization.json'}" in capsys.readouterr().out.splitlines()
+    assert _manifest(output)['status'] == 'paused'

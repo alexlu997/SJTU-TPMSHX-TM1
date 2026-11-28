@@ -38,9 +38,6 @@ def test_native_runtime_assets_stay_local_and_source_stays_tracked():
         'native/lib/macos-arm64/libtpmshx_solver_shared.dylib',
         'native/lib/windows-x64/tpmshx_solver_shared.dll',
         'native/lib/macos-arm64/previous/build.json',
-        'native/lib/macos-arm64/libtpmshx_solver_shared.dylib',
-        'native/lib/windows-x64/tpmshx_solver_shared.dll',
-        'native/lib/macos-arm64/previous/build.json',
     ]
     paths = [*runtimes, 'solver/full_2d.cpp']
     result = subprocess.run(

@@ -19,6 +19,7 @@ def entry():
 
 
 # A spawned child imports main.py as __mp_main__; the CLI routes stop at argparse help.
+# The top-level help ("--help" alone) lists the modes; Linux result hosts have no Qt.
 _CHILD = """
 import runpy, sys
 script, mode = sys.argv[1], sys.argv[2:]
@@ -33,12 +34,14 @@ assert not heavy, heavy
 """
 
 
-@pytest.mark.parametrize('mode', [[], ['run'], ['resume'], ['summary'], ['design'], ['optimize']],
+@pytest.mark.parametrize('mode', [[], ['--help'], ['run'], ['resume'], ['summary'], ['design'], ['optimize']],
                          ids=lambda mode: mode[0] if mode else 'spawn-child')
 def test_cli_routes_and_spawn_children_import_no_gui_or_torch(mode):
     run = subprocess.run([sys.executable, '-c', _CHILD, str(ROOT / 'main.py'), *mode],
                          cwd=ROOT, capture_output=True, text=True, timeout=120)
     assert run.returncode == 0, run.stdout + run.stderr
+    if mode == ['--help']:
+        assert all(name in run.stdout for name in ('prepare', 'summary', 'design', 'optimize'))
 
 
 def test_gui_caches_respect_explicit_paths(tmp_path, monkeypatch):

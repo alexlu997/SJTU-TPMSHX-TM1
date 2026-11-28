@@ -30,6 +30,7 @@ def project(tmp_path):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"original resource\n")
     files = {
+        "main.py": "",
         "tm1.py": "",
         "tests/__init__.py": "",
         "tests/python/__init__.py": "",
@@ -133,6 +134,7 @@ def test_source_archive_rejects_retired_numerics(project, tmp_path, name):
     "tm1/physical_models/local_heat_transfer.py",
     "tm1/physical_models/quick_design.py",
     "tm1/preprocess/thermal_geometry.py",
+    "main.py",
     "tm1.py",
     "tm1/development/tests/native/reference.py",
     "tests/python/__init__.py",

@@ -5,6 +5,7 @@ from dataclasses import asdict, replace
 import json
 from math import fsum, isfinite
 from pathlib import Path
+import signal
 from uuid import uuid4
 
 import numpy as np
@@ -179,6 +180,9 @@ _batch_pause = None
 
 
 def _init_condition_worker(cancel, events, pause):
+    # A terminal sends Ctrl+C to all processes in the group. The parent owns the
+    # pause and the cancellation; it stops this process through the shared events.
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
     global _batch_cancel, _batch_events, _batch_pause
     _batch_cancel, _batch_events, _batch_pause = cancel, events, pause
 

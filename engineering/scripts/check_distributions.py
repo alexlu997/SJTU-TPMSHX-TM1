@@ -64,7 +64,7 @@ def source_files(root: Path, directory: str) -> set[str]:
 
 def expected_source_files(root: Path) -> set[str]:
     expected = {"CMakeLists.txt", "pyproject.toml", "MANIFEST.in", "LICENSE", "README.md", "README.en.md", "requirements.txt"}
-    expected.add("tm1.py")
+    expected.update(("main.py", "tm1.py"))
     for directory in (*NATIVE_SOURCES, "python", str(TESTS), "engineering", "docs", "examples"):
         expected.update(source_files(root, directory))
     return expected

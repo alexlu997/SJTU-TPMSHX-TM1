@@ -167,7 +167,7 @@ macOS 尚未验收。继续复用 `.venv-path` 指定的现有锁定环境，环
 "$PYTHON" engineering/scripts/build_native_dependencies.py publish
 ```
 
-从旧的根目录 `native/` 布局升级时，先保留原 `native/lib/` 下的库、`build.json` 和 `previous/`。旧检查点仍须显式选择匹配的原库。保留仍有消费者的旧缓存及其绝对路径。旧 pilot 构建目录记录了原源码位置，不能直接用于新布局。
+自 2026-11-28 起，`publish` 写入 `native/lib/<host>/`；此前写入 `sjtu_tpmshx/solvers/native/lib/<host>/`。较旧的检出还可能在 `native/lib/` 下保存更早的根目录 `native/` 布局的库。发布内容变化的库时会替换目标目录中的 `previous/`。因此发布前，先把旧检查点仍需要的库、`build.json` 和 `previous/` 复制到单独目录；再将当前构建的库从 `sjtu_tpmshx/solvers/native/lib/<host>/` 移到 `native/lib/<host>/`，或重新发布。旧检查点仍须显式选择匹配的原库。保留仍有消费者的旧缓存及其绝对路径。旧 pilot 构建目录记录了原源码位置，不能直接用于新布局。
 
 已有项目须选择一个尚未使用的缓存目录。以下以 `.cache/native-layout` 和基础环境锁为例；若 `.venv-path` 指向 BO 环境，将发布命令的锁换成对应的 `engineering/requirements/bo-macos.txt` 或 `engineering/requirements/bo-windows.txt`。
 

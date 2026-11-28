@@ -206,7 +206,7 @@ $env:TPMSHX_NATIVE_RESULT_LIBRARY = 'C:\absolute\path\tpmshx_result_shared.dll'
   --native-table-directory "/absolute/writable/path/native-eos-tables"
 ```
 
-同一可执行文件的 `--cli run ...` / `--cli solve ...` 接受相同三个主机选项。
+同一可执行文件的 `run ...` / `solve ...` 模式接受相同三个主机选项。
 `--native-table-directory` 保留给显式选择且需要 BICUBIC 表的历史运行库；此时须使用程序包外可写的绝对路径。当前 T-SOU 执行不读取此选项，也不创建表。
 双击启动时使用包内 C++ 求解库、几何库、准备库和结果库。
 
@@ -236,9 +236,9 @@ $env:TPMSHX_NATIVE_RESULT_LIBRARY = 'C:\absolute\path\tpmshx_result_shared.dll'
 
 1. 启动 GUI，检查字体、图标、深浅主题、参数栏和三维渲染组件能加载。
 2. 修改偏好、退出、重启并核对恢复；确认程序目录没有新增用户状态文件。
-3. 用包内可执行文件执行 `--cli run INPUT OUTPUT --case-id CASE_ID`，分别运行公开的
+3. 用包内可执行文件执行 `run INPUT OUTPUT --case-id CASE_ID`，分别运行公开的
    `air_2d.json` 与 `air_3d.json`。必须保留原返回码、收敛和指标支持状态。
-4. 使用 `--cli postprocess RESULTS METRICS` 独立回读结果；检查 Q 单位为
+4. 使用 `postprocess RESULTS METRICS` 独立回读结果；检查 Q 单位为
    二维 W/m、三维 W，Q/压降/出口温度与同版本源码基线一致。
 5. GUI 完成真实计算并导出 CSV/NPZ；检查后台任务运行时的关闭、取消和重启保护。
 

@@ -127,19 +127,29 @@ class OptimizationInput:
                 mass_requirements=self.mass_requirements, control=control,
                 on_update=on_update, pause_check=pause_check)
         except (CancelledError, PausedRun) as exc:
-            if getattr(exc, '__notes__', None):
-                raise
-            checkpoint = Path(output_dir) / 'optimization.json'
-            if not checkpoint.exists():
-                if isinstance(exc, CancelledError):
-                    return None
-                raise ValueError('Paused search has no saved checkpoint') from exc
-            with checkpoint.open(encoding='utf-8') as source:
-                report = json.load(source)
-            expected = 'paused' if isinstance(exc, PausedRun) else 'cancelled'
-            if not isinstance(report, dict) or report.get('status') != expected:
-                raise ValueError(f'Search checkpoint does not record {expected} status') from exc
-            return report
+            return stopped_search(output_dir, exc)
+
+
+def stopped_search(output_dir, exc):
+    """Return the saved record of a paused or cancelled search.
+
+    A cancellation before the first save returns None. Raise ``exc`` again if the
+    search could not save its record (the error is in a note). Raise ValueError if
+    the record is missing for a pause or does not record the stop.
+    """
+    if getattr(exc, '__notes__', None):
+        raise exc
+    checkpoint = Path(output_dir) / 'optimization.json'
+    if not checkpoint.exists():
+        if isinstance(exc, CancelledError):
+            return None
+        raise ValueError('Paused search has no saved checkpoint') from exc
+    with checkpoint.open(encoding='utf-8') as source:
+        report = json.load(source)
+    expected = 'paused' if isinstance(exc, PausedRun) else 'cancelled'
+    if not isinstance(report, dict) or report.get('status') != expected:
+        raise ValueError(f'Search checkpoint does not record {expected} status') from exc
+    return report
 
 
 def archived_design(report, index, output_dir, current):

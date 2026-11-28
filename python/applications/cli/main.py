@@ -5,9 +5,8 @@ The root ``main.py`` routes ``prepare``, ``solve``, ``postprocess``, ``run`` and
 ComputeConfig JSON file and prints a summary. GUI presets use a separate
 format and must be restored through the GUI.
 
-Calculation exit codes are 0 for a successful stage and 2 for failed
-convergence/required-result checks. A saved pause returns 3; cancellation returns 130.
-Parsing and file errors exit nonzero. See README for each stage's contract.
+Exit codes are 0 for a passed summary or a dry run, and 2 for failed convergence,
+envelope or required-metric checks. Parsing and file errors exit nonzero.
 """
 from __future__ import annotations
 

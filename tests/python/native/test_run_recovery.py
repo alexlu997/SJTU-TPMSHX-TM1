@@ -108,8 +108,7 @@ def test_cli_process_exit_and_relocated_resume_keep_public_result(
     config_path, original = tmp_path / 'config.json', tmp_path / 'original'
     config.to_json(config_path)
     script = '''
-import os, signal, sys
-from tm1 import cli
+import os, runpy, signal, sys
 from tm1.applications.execution import recovery
 save = recovery.save_solver_checkpoint
 def interrupt_after_publication(*args):
@@ -120,14 +119,15 @@ def interrupt_after_publication(*args):
         os._exit(23)
     signal.raise_signal(signal.SIGINT)
 recovery.save_solver_checkpoint = interrupt_after_publication
-status = cli.main(sys.argv[1:])
+status = runpy.run_path(sys.argv[1])['main'](sys.argv[2:])
 assert 'PySide6' not in sys.modules
 raise SystemExit(status)
 '''
     args = ['run', str(config_path), str(original), '--case-id', route, '--backend', 'cpp',
             '--native-library', str(native_path), '--native-table-directory', control.native_table_directory,
             '--checkpoint-interval', '3600', '--cpu-threads', '1']
-    process = subprocess.run([sys.executable, '-c', script, *args], input=interrupt + '\n',
+    entry = str(Path(__file__).resolve().parents[3] / 'main.py')
+    process = subprocess.run([sys.executable, '-c', script, entry, *args], input=interrupt + '\n',
                              capture_output=True, text=True, timeout=120)
     assert process.returncode == exit_code, process.stdout + process.stderr
     assert 'checkpoint-ready' in process.stdout
@@ -140,7 +140,7 @@ raise SystemExit(status)
     args = ['resume', str(moved / 'checkpoint.h5'), str(target), '--checkpoint-interval', '3600',
             '--native-library', str(moved / record['native_file']),
             '--native-table-directory', control.native_table_directory, '--cpu-threads', '3']
-    process = subprocess.run([sys.executable, str(Path(__file__).resolve().parents[3] / 'main.py'), *args],
+    process = subprocess.run([sys.executable, entry, *args],
                              capture_output=True, text=True, timeout=120)
     qualified = expected.run_status['converged'] and all(
         expected_metrics.metrics[name].status == 'available'

@@ -56,8 +56,8 @@ Codex, Claude, and Antigravity use these rules. The [collaboration guide](docs/c
 - Organize modules by responsibility, with clear owners and explicit interfaces, not by file length.
   [Directory owners](docs/architecture.md#directory-owners) gives the location of each layer. Do not duplicate
   correlations or physical constants between layers. Keep independent test references and physical checks.
-- Keep Qt in `python/applications/gui/` (`ui/`, `controllers/`, `main.py`) only. The root `main.py` routes
-  each mode before it imports Qt.
+- Keep Qt in `python/applications/gui/` (`ui/`, `controllers/`, `main.py`) only. The root `main.py` selects
+  the mode. The GUI route imports Qt.
   The only other modules that can import Qt are `python/development/runs/_smoke_boot.py` and the offscreen GUI
   smoke tools in `python/development/runs/smokes/`. They start and operate the GUI. Only these smoke tools and their tests import them.
 - Only the stage packages in [directory owners](docs/architecture.md#directory-owners) produce new stage data.

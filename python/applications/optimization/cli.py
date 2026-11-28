@@ -2,15 +2,17 @@
 
 The input is a file of a saved search. ``optimization.json`` continues that search.
 ``optimization-input.json`` (format ``optimization_v1``) starts a new search with
-the same fixed input. Torch loads only when a BO method makes a proposal.
+the same fixed input. The output must be a new directory outside the saved search.
+Torch loads only when the search uses a BO method (not Sobol).
 
-Exit codes are 0 for a completed search, 2 for a failed search, 3 for a saved
-pause, and 130 for cancellation. Parsing and file errors exit nonzero.
+Ctrl+C asks for a pause. The condition processes ignore the signal; this process
+pauses them at a safe boundary. Exit codes are 0 for a completed search, 2 for a
+failed search, 3 for a saved pause, and 130 for cancellation. Parsing and file
+errors exit nonzero.
 """
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 import signal
 import threading
@@ -18,27 +20,6 @@ import threading
 from tm1.applications.cli.cli_options import add_run_control_arguments, run_control_from_args
 from tm1.run_control.cancellation import CancelledError
 from tm1.run_control.paused_run import PausedRun
-
-FIXED_SETTINGS = ('method', 'n_init', 'n_iter', 'q_batch', 'seed', 'field_spec')
-
-
-def _search(args, control, pause_check):
-    from .multi_condition import saved_condition_config
-    from .multi_condition_optimizer import (
-        resume_multi_condition_optimization, run_multi_condition_optimization,
-    )
-    options = dict(output_dir=args.output, control=control, workers=args.workers,
-                   pause_check=pause_check)
-    if args.input.name == 'optimization.json':
-        return resume_multi_condition_optimization(args.input, **options)
-    frozen = json.loads(args.input.read_text(encoding='utf-8'))
-    if frozen.get('format') != 'optimization_v1':
-        raise ValueError('saved search does not have a supported fixed input')
-    conditions = [(row['condition_id'], saved_condition_config(row),
-                   row['mass_flow_A_kg_s'], row['mass_flow_B_kg_s']) for row in frozen['conditions']]
-    return run_multi_condition_optimization(
-        conditions, mass_requirements=frozen.get('mass_requirements'),
-        **{key: frozen[key] for key in FIXED_SETTINGS}, **options)
 
 
 def run(argv=None) -> int:
@@ -56,6 +37,12 @@ def run(argv=None) -> int:
     if args.input.name not in ('optimization.json', 'optimization-input.json'):
         parser.error('select optimization.json or optimization-input.json')
     control = run_control_from_args(args)
+    from .multi_condition_optimizer import (
+        repeat_multi_condition_optimization, resume_multi_condition_optimization,
+    )
+    from .optimization_job import stopped_search
+    search = (resume_multi_condition_optimization if args.input.name == 'optimization.json'
+              else repeat_multi_condition_optimization)
     pause = threading.Event()
 
     def request_pause(signum, frame):
@@ -64,12 +51,14 @@ def run(argv=None) -> int:
 
     previous = signal.signal(signal.SIGINT, request_pause)
     try:
-        record = _search(args, control, pause.is_set)
-    except PausedRun as paused:
-        print(f'paused = {paused.checkpoint_file}')
+        record = search(args.input, output_dir=args.output, control=control,
+                        workers=args.workers, pause_check=pause.is_set)
+    except (CancelledError, PausedRun) as stop:
+        report = stopped_search(args.output, stop)
+        if report is None or report['status'] == 'cancelled':
+            return 130
+        print(f"paused = {args.output.resolve() / 'optimization.json'}")
         return 3
-    except CancelledError:
-        return 130
     finally:
         signal.signal(signal.SIGINT, previous)
     print(f"status = {record['status']}")

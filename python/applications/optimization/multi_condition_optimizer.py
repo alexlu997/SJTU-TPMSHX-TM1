@@ -185,30 +185,68 @@ def run_multi_condition_optimization(
         mass_requirements=mass_requirements)
 
 
+_FIXED_SETTINGS = ('method', 'n_init', 'n_iter', 'q_batch', 'seed', 'field_spec')
+
+
+def _outside_saved_search(search_directory, output_dir, message):
+    """Return the resolved output directory; refuse a directory inside a saved search."""
+    destination = Path(output_dir).resolve()
+    if any(parent.exists() and parent.samefile(search_directory)
+           for parent in (destination, *destination.parents)):
+        raise ValueError(message)
+    return destination
+
+
+def _fixed_input(path):
+    frozen = json.loads(path.read_text(encoding='utf-8'))
+    if frozen.get('format') != 'optimization_v1':
+        raise ValueError('saved search does not have a supported fixed input')
+    return frozen
+
+
+def _saved_conditions(frozen):
+    return [(row['condition_id'], saved_condition_config(row),
+             row['mass_flow_A_kg_s'], row['mass_flow_B_kg_s']) for row in frozen['conditions']]
+
+
 def resume_multi_condition_optimization(checkpoint_file, *, output_dir, control=RunControl(),
                                         workers=None, on_update=None, pause_check=None):
     """Validate and continue a saved search without changing its source directory."""
     source = Path(checkpoint_file).resolve(strict=True)
     if source.name != 'optimization.json':
         raise ValueError('select optimization.json to continue a search')
-    destination = Path(output_dir).resolve()
-    if any(parent.exists() and parent.samefile(source.parent)
-           for parent in (destination, *destination.parents)):
-        raise ValueError('the recovery directory must be outside the saved search')
+    destination = _outside_saved_search(source.parent, output_dir,
+                                        'the recovery directory must be outside the saved search')
     record = json.loads(source.read_text(encoding='utf-8'))
-    frozen = json.loads(source.with_name('optimization-input.json').read_text(encoding='utf-8'))
-    if frozen.get('format') != 'optimization_v1':
-        raise ValueError('saved search does not have a supported fixed input')
+    frozen = _fixed_input(source.with_name('optimization-input.json'))
     for saved in (record, frozen):
         for row in saved['conditions']:
             if row['config']['flags'].get('wall_refine_3d') is False:
                 del row['config']['flags']['wall_refine_3d']
-    conditions = [(row['condition_id'], saved_condition_config(row),
-                   row['mass_flow_A_kg_s'], row['mass_flow_B_kg_s']) for row in frozen['conditions']]
-    return _run_multi_condition_optimization(conditions, output_dir=destination, control=control,
-        workers=workers, on_update=on_update, pause_check=pause_check,
+    return _run_multi_condition_optimization(_saved_conditions(frozen), output_dir=destination,
+        control=control, workers=workers, on_update=on_update, pause_check=pause_check,
         resume_from=(source.parent, record, frozen), mass_requirements=frozen.get('mass_requirements'),
-        **{key: frozen[key] for key in ('method', 'n_init', 'n_iter', 'q_batch', 'seed', 'field_spec')})
+        **{key: frozen[key] for key in _FIXED_SETTINGS})
+
+
+def repeat_multi_condition_optimization(input_file, *, output_dir, control=RunControl(),
+                                        workers=None, on_update=None, pause_check=None):
+    """Start a new search with the fixed input of a saved search.
+
+    If the input is in a saved search directory, the new directory must be outside it.
+    """
+    source = Path(input_file).resolve(strict=True)
+    if source.name != 'optimization-input.json':
+        raise ValueError('select optimization-input.json to repeat a search')
+    destination = Path(output_dir).resolve()
+    if source.with_name('optimization.json').exists():
+        destination = _outside_saved_search(source.parent, output_dir,
+                                            'the new search directory must be outside the saved search')
+    frozen = _fixed_input(source)
+    return _run_multi_condition_optimization(_saved_conditions(frozen), output_dir=destination,
+        control=control, workers=workers, on_update=on_update, pause_check=pause_check,
+        mass_requirements=frozen.get('mass_requirements'),
+        **{key: frozen[key] for key in _FIXED_SETTINGS})
 
 
 def _run_multi_condition_optimization(

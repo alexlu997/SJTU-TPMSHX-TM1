@@ -8,9 +8,14 @@ Usage from the repository root:
     python main.py design ...
     python main.py optimize INPUT OUTPUT_DIR ...
 
-The routes import their own modules. Only the GUI route imports Qt, VTK and
-Matplotlib, and only the optimize route imports Torch. Spawned child processes
-import this file as ``__mp_main__``; the guard at the end keeps them from routing.
+Use MODE --help for the arguments of a mode.
+
+This file imports no Qt, VTK, Matplotlib or Torch. Each route imports its own
+modules after this file selects the mode. The GUI route imports Qt, VTK and
+Matplotlib. Torch loads only for a BO method: in the optimize route, or in the
+GUI process when the GUI runs a BO study.
+Spawned child processes import this file as ``__mp_main__``; the guard at the
+end keeps them from routing.
 """
 import multiprocessing
 import sys
@@ -21,6 +26,9 @@ MODES = ('gui', *STAGES, 'summary', 'design', 'optimize')
 
 def main(argv=None):
     args = list(sys.argv[1:] if argv is None else argv)
+    if args[:1] in (['-h'], ['--help']):
+        print(__doc__.strip())
+        return 0
     if not args or args[0].startswith('-'):
         args.insert(0, 'gui')
     mode = args.pop(0)

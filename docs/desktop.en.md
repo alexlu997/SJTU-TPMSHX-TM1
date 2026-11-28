@@ -203,7 +203,7 @@ For example, run the packaged macOS executable directly:
   --native-table-directory "/absolute/writable/path/native-eos-tables"
 ```
 
-The same executable's `--cli run ...` and `--cli solve ...` accept these three host options. `--native-table-directory` is kept for explicitly selected historical libraries that need BICUBIC tables. For those libraries, use a writable absolute path outside the package. Current T-SOU execution does not read this option or create tables. Double-click startup uses the packaged C++ solver, geometry, preparation and result libraries.
+The same executable's `run ...` and `solve ...` modes accept these three host options. `--native-table-directory` is kept for explicitly selected historical libraries that need BICUBIC tables. For those libraries, use a writable absolute path outside the package. Current T-SOU execution does not read this option or create tables. Double-click startup uses the packaged C++ solver, geometry, preparation and result libraries.
 
 <a id="文件与状态"></a>
 
@@ -230,8 +230,8 @@ A successful build is only the first check. Copy the complete output outside the
 
 1. Start the GUI. Do a check of fonts, icons, light/dark themes, parameter rail, and 3D rendering components.
 2. Change preferences. Exit. Restart. Do a check of restoration. Make sure that no user-state files appeared in the program directory.
-3. Run `--cli run INPUT OUTPUT --case-id CASE_ID` with public `air_2d.json` and `air_3d.json`. Keep exit codes, convergence, and metric support states.
-4. Independently load results with `--cli postprocess RESULTS METRICS`. Make sure that Q units are W/m for 2D and W for 3D. Compare Q, pressure drops, and outlet temperatures with the same-version source baseline.
+3. Run the packaged executable with `run INPUT OUTPUT --case-id CASE_ID` and public `air_2d.json` and `air_3d.json`. Keep exit codes, convergence, and metric support states.
+4. Independently load results with `postprocess RESULTS METRICS`. Make sure that Q units are W/m for 2D and W for 3D. Compare Q, pressure drops, and outlet temperatures with the same-version source baseline.
 5. Complete a real GUI computation. Export CSV/NPZ. Do tests of close, cancellation, and restart protection during background work.
 
 A native candidate package must repeat applicable calculations, cancellation, and error checks with explicit `--backend cpp`. Make sure that the copied package's library is loaded. Run without a C/C++ compiler. On macOS, use `otool -L` for dynamic dependencies. Use `otool -l` to record actual library/executable `LC_BUILD_VERSION minos`.
