@@ -307,7 +307,7 @@ def handoff(args):
             output.update(field=result_fields(field), performance=evaluation(field, report))
         cases[name] = exact(output)
         sources[name] = dict(sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
-                             provenance=field.metadata['provenance'])
+                             provenance=exact(field.metadata['provenance']))
     assert cases.keys() == {'handoff-2d', 'handoff-3d'}
     save(args.output, manifest | dict(cases=cases, files=sources, total_seconds=perf_counter()-start))
 
