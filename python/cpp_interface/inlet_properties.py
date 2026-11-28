@@ -9,12 +9,14 @@ from .stage_libraries import preparation_library
 
 
 @lru_cache(maxsize=1)
-def _inlet_query_function(path, cached=False):
-    owner = preparation_library.load(path)
+def _inlet_functions(owner, cached):
     symbol = 'tpmshx_preparation_cached_inlet_v1' if cached else 'tpmshx_query_inlet_properties_v2'
-    return owner.bind(symbol, [
+    call = owner.bind(symbol, [
         ct.POINTER(abi._CachedInletInput if cached else abi._InletQueryInput), ct.POINTER(abi._Callbacks),
         ct.POINTER(abi._CachedInletResult if cached else abi._InletQueryResult), ct.POINTER(abi._Failure), ct.POINTER(ct.c_char), abi._S])
+    release = (owner.bind('tpmshx_preparation_cached_inlet_release_v1', [ct.POINTER(abi._CachedInletResult)], None)
+               if cached else None)
+    return call, release
 
 
 def query_values(topology, cell, wall, velocity, temperature, pressure, fluid_name,
@@ -61,8 +63,7 @@ def query_values(topology, cell, wall, velocity, temperature, pressure, fluid_na
     kind = abi._CachedInletResult if cached else abi._InletQueryResult
     result = kind(1, ct.sizeof(kind))
     failure, error = abi._Failure(2, ct.sizeof(abi._Failure)), ct.create_string_buffer(4096)
-    path = preparation_library.path()
-    call = _inlet_query_function(path, cached)
+    call, release = _inlet_functions(preparation_library.get(), cached)
     status = call(
         ct.byref(source), ct.byref(callbacks), ct.byref(result), ct.byref(failure), error, len(error))
     try:
@@ -96,7 +97,5 @@ def query_values(topology, cell, wall, velocity, temperature, pressure, fluid_na
             records['native-preparation', i] = host.read_text(value)
         return host.geometry_scalars(result.geometry), list(result.values)
     finally:
-        if cached:
-            release = preparation_library.load(path).bind('tpmshx_preparation_cached_inlet_release_v1',
-                [ct.POINTER(abi._CachedInletResult)], None)
+        if release is not None:
             release(ct.byref(result))

@@ -12,13 +12,23 @@ geometry::Geometry cached_geometry(Topology topology, double cell_mm, double wal
 std::array<double,5> cached_co2(double temperature, double pressure);
 double cached_sco2(const std::string& key, double temperature, double pressure);
 using InletValue = std::shared_ptr<const PreparationInletCache>;
-using TableValue = std::shared_ptr<const SigmoidLUT2D>;
+// Keep the source bytes of a file field that has a different dtype from the numerical view.
+struct TableFileField {
+    std::string dtype;
+    std::vector<unsigned char> bytes;
+};
+using TableFileFields = std::array<TableFileField,2>;
+struct CachedTable {
+    SigmoidLUT2D lut;
+    TableFileFields file_fields;
+};
+using TableValue = std::shared_ptr<const CachedTable>;
 InletValue find_inlet(const PreparationInletKey&);
 InletValue publish_inlet(const PreparationInletKey&, PreparationInletCache);
 TableValue find_table(Topology, std::size_t resolution, const SigmoidLUT2D& axes,
                       std::array<bool,2> descending = {});
 TableValue publish_table(Topology, std::size_t resolution, SigmoidLUT2D table,
-                         std::array<bool,2> descending = {});
+                         std::array<bool,2> descending = {}, TableFileFields file_fields = {});
 
 tpmshx_preparation_cache_info_v1 scalar_cache_info(std::uint32_t id);
 void clear_scalar_cache(std::uint32_t id);

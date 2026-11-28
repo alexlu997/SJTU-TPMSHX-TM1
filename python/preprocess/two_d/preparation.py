@@ -217,9 +217,9 @@ def _execute(config, operation, *, targets=None, case_id=None, start_observation
         resolved = ComputeConfig.from_dict(asdict(resolved), _native_preparation=True)
         return _case(copy_case(), copy_metadata, resolved, case_id, observers.extrap_reasons)
 
-    def load_table(topology, resolution, lengths, walls):
+    def load_table(topology, resolution, lengths, walls, image):
         from tm1.physical_models.sigmoid_field import load_default_table
-        return load_default_table(topology, resolution, lengths, walls)
+        return load_default_table(topology, resolution, lengths, walls, image)
 
     return native_preparation.run_preparation(operation, source, chi=chi, allow=allow, validate=host_input,
         policy=observers, load_table=load_table, water_error=WaterStateError, finish=finish)

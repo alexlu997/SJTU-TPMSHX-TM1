@@ -143,6 +143,14 @@ def test_default_lut_cold_memory_and_disk_paths(monkeypatch, tmp_path, topology)
     assert events == first_events and ranges == first_ranges
     table_value.cache_clear()
     monkeypatch.setattr(sigmoid_field, '_write_table', lambda *args: pytest.fail('valid NPZ was replaced'))
+    load = sigmoid_field.load_default_table
+
+    def load_with_changed_selection(*args):
+        with monkeypatch.context() as other:
+            other.setenv('TPMSHX_PREPARATION_LIBRARY', str(tmp_path / 'other-preparation-image'))
+            return load(*args)
+
+    monkeypatch.setattr(sigmoid_field, 'load_default_table', load_with_changed_selection)
     third, events, ranges, _ = _capture(monkeypatch, api, 'full', config)
     _same(third.design_fields, first.design_fields)
     assert events == first_events and ranges == first_ranges

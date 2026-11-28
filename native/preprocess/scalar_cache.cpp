@@ -107,8 +107,8 @@ auto with_cache(std::uint32_t id, Function function) {
     case TPMSHX_CACHE_GEOMETRY: return function(geometries);
     case TPMSHX_CACHE_CO2: return function(co2);
     case TPMSHX_CACHE_SCO2: return function(sco2);
-    case TPMSHX_CACHE_INLET: return function(inlets);
-    case TPMSHX_CACHE_SIGMOID: return function(tables);
+    case TPMSHX_PREPARATION_CACHE_INLET: return function(inlets);
+    case TPMSHX_PREPARATION_CACHE_SIGMOID: return function(tables);
     default: throw std::invalid_argument("unknown preparation cache ID");
     }
 }
@@ -157,9 +157,10 @@ InletValue publish_inlet(const PreparationInletKey& key, PreparationInletCache v
 TableValue find_table(Topology topology, std::size_t resolution, const SigmoidLUT2D& axes, std::array<bool,2> descending) {
     return tables.find({topology, resolution, axes.cell_mm, axes.wall_mm, descending}).value_or(nullptr);
 }
-TableValue publish_table(Topology topology, std::size_t resolution, SigmoidLUT2D value, std::array<bool,2> descending) {
+TableValue publish_table(Topology topology, std::size_t resolution, SigmoidLUT2D value,
+                         std::array<bool,2> descending, TableFileFields file_fields) {
     const TableKey key{topology, resolution, value.cell_mm, value.wall_mm, descending};
-    return tables.publish(key, std::make_shared<const SigmoidLUT2D>(std::move(value)));
+    return tables.publish(key, std::make_shared<const CachedTable>(CachedTable{std::move(value),std::move(file_fields)}));
 }
 
 tpmshx_preparation_cache_info_v1 scalar_cache_info(std::uint32_t id) {

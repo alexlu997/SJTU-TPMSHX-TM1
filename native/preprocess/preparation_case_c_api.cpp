@@ -246,7 +246,11 @@ struct FlowOutputStorage {
     void lut(const tpmshx_preparation_sigmoid_lut_view_v6& value) const {
         for (const auto item:{value.cell_mm,value.wall_mm,value.porosity,value.area_density_per_m}) borrowed(item);
     }
+    void file_field(const tpmshx_preparation_lut_file_field_v1& value) const {
+        borrowed(value.dtype);borrowed(value.data,value.size);
+    }
     void owned(const tpmshx_preparation_sigmoid_lut_v7& value) const {
+        for (const auto& field:value.file_fields) file_field(field);
         for (const auto item:{value.cell_mm,value.wall_mm,value.porosity,value.area_density_per_m}) borrowed(item);
     }
     void owned_regions(const tpmshx_preparation_zone_region_v5* regions,std::size_t count) const {
@@ -1081,26 +1085,35 @@ void table_result(tpmshx_preparation_sigmoid_lut_v7& result,tpmshx::Topology top
                   std::size_t resolution,p::TableValue value) {
     if (!value) {result={};result.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION;result.struct_size=sizeof(result);return;}
     auto owner=std::make_unique<TableOwner>(TableOwner{topology,resolution,std::move(value)});
-    const auto& table=*owner->value;
+    const auto& table=owner->value->lut;
     result={TPMSHX_PREPARATION_CASE_ABI_VERSION,sizeof(result),array(table.cell_mm),array(table.wall_mm),
-        array(table.porosity),array(table.area_density),table.porosity_fast,table.area_fast,owner.release()};
+        array(table.porosity),array(table.area_density),table.porosity_fast,table.area_fast,owner.get(),{}};
+    for (std::size_t i=0;i<2;++i) {
+        const auto& field=owner->value->file_fields[i];
+        result.file_fields[i]={text(field.dtype),field.bytes.data(),field.bytes.size()};
+    }
+    owner.release();
 }
 }
 
 extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_table_v1(
     uint32_t operation,uint32_t topology,size_t resolution,const tpmshx_preparation_sigmoid_lut_view_v6* source,
-    tpmshx_preparation_sigmoid_lut_v7* result,char* error,size_t capacity) {
+    const tpmshx_preparation_lut_file_field_v1 file_fields[2],tpmshx_preparation_sigmoid_lut_v7* result,char* error,size_t capacity) {
     if (!tpmshx::fields::c_api::error_buffer_valid(error,capacity)) return TPMSHX_PREPARATION_INVALID;
     const FlowOutputStorage storage{reinterpret_cast<const unsigned char*>(result),result?sizeof(*result):0,nullptr,error,capacity};
     try {
         require_buffer(result,1);require_disjoint(error,capacity,result,1);
         if (result->owner) storage.owned(*result);
         storage.borrowed(source,1);storage.lut(*source);
+        if (file_fields) {
+            storage.borrowed(file_fields,2);
+            for (std::size_t i=0;i<2;++i) storage.file_field(file_fields[i]);
+        }
     } catch (...) {return TPMSHX_PREPARATION_INVALID;}
     return p::c_api::boundary(error,capacity,[&] {
         version(result);
         if (result->owner) throw std::invalid_argument("release the previous sigmoid LUT before reuse");
-        if (topology>1 || !resolution || operation>TPMSHX_LUT_IMPORT_PRIVATE)
+        if (topology>1 || !resolution || operation>TPMSHX_PREPARATION_LUT_IMPORT_PRIVATE)
             throw std::invalid_argument("invalid sigmoid table request");
         const auto model=static_cast<tpmshx::Topology>(topology);
         const auto copy=[](tpmshx_preparation_array_v1 a) {
@@ -1116,7 +1129,7 @@ extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_table_v1(
         const auto nx=table.cell_mm.size(),ny=table.wall_mm.size();
         tpmshx::fields::validate_lut_axes(table.cell_mm.data(),nx,table.wall_mm.data(),ny);
         p::TableValue value;
-        if (operation==TPMSHX_LUT_IMPORT_SHARED || operation==TPMSHX_LUT_IMPORT_PRIVATE) {
+        if (operation==TPMSHX_PREPARATION_LUT_IMPORT_SHARED || operation==TPMSHX_PREPARATION_LUT_IMPORT_PRIVATE) {
             const auto size=table.cell_mm.size()*table.wall_mm.size();
             if (source->porosity.size!=size || source->area_density_per_m.size!=size)
                 throw std::invalid_argument("sigmoid table shape does not match its axes");
@@ -1133,11 +1146,21 @@ extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_table_v1(
             };
             table.porosity=normalized(source->porosity);table.area_density=normalized(source->area_density_per_m);
             table.porosity_fast=source->porosity_fast;table.area_fast=source->area_fast;
-            value=operation==TPMSHX_LUT_IMPORT_SHARED?p::publish_table(model,resolution,std::move(table),descending):
-                std::make_shared<const p::SigmoidLUT2D>(std::move(table));
+            p::TableFileFields sources;
+            if (file_fields) for (std::size_t i=0;i<2;++i) {
+                const auto& field=file_fields[i];
+                if ((!field.dtype.size && field.size) || (!size && field.size) ||
+                    (size && field.dtype.size && (!field.size || field.size%size)))
+                    throw std::invalid_argument("sigmoid file field size does not match the table");
+                sources[i].dtype=cache_text(field.dtype);
+                if (field.size) sources[i].bytes.assign(field.data,field.data+field.size);
+            }
+            value=operation==TPMSHX_PREPARATION_LUT_IMPORT_SHARED?
+                p::publish_table(model,resolution,std::move(table),descending,std::move(sources)):
+                std::make_shared<const p::CachedTable>(p::CachedTable{std::move(table),std::move(sources)});
         } else {
             value=p::find_table(model,resolution,table,descending);
-            if (!value && operation==TPMSHX_LUT_GET_OR_BUILD)
+            if (!value && operation==TPMSHX_PREPARATION_LUT_GET_OR_BUILD)
                 value=p::publish_table(model,resolution,p::build_sigmoid_table(model,std::move(table),resolution),descending);
         }
         table_result(*result,model,resolution,std::move(value));
@@ -1171,8 +1194,10 @@ extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_sample_v1(
             table->area_density_per_m.data,table->cell_mm.size,table->wall_mm.size,table->porosity.size,
             table->porosity_fast,table->area_fast};
         const auto result=tpmshx::fields::sample_lut(view,x.data,y.data,count);
-        std::copy(result[0].begin(),result[0].end(),epsilon);
-        std::copy(result[1].begin(),result[1].end(),area);
+        if (count) {
+            std::copy(result[0].begin(),result[0].end(),epsilon);
+            std::copy(result[1].begin(),result[1].end(),area);
+        }
     });
 }
 
@@ -1387,7 +1412,7 @@ static int sigmoid_boundary(p::ZonedOperation operation,const tpmshx_preparation
             version(source->table);
             const auto& table=*static_cast<const TableOwner*>(source->table->owner);
             if (table.topology!=pending->flow.input.input.geometry.topology || table.resolution!=256 ||
-                table.value->cell_mm!=source->prefix->axes.cell_mm || table.value->wall_mm!=source->prefix->axes.wall_mm)
+                table.value->lut.cell_mm!=source->prefix->axes.cell_mm || table.value->lut.wall_mm!=source->prefix->axes.wall_mm)
                 throw std::invalid_argument("sigmoid resume table does not match the request");
             original=source->prefix->original;
             state=std::move(*pending);pending.reset();

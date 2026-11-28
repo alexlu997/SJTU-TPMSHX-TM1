@@ -126,6 +126,7 @@ Preparation ABI 5 为全部四个二维几何族（`uniform`、`continuous`、`z
 首次需要表时，准备入口返回坐标轴、分辨率和持有阶段状态的 `prefix`。
 调用 `tpmshx_preparation_sigmoid_table_v1` 导入或生成表，再将前段状态与表传给同一入口，使用新的结果对象继续计算。
 通过创建它们的准备库释放前后两次结果和表。Python 校验 NPZ，原子替换缺失或无效的文件后继续计算。
+导入字段的数据类型与本机 float64 不同时，准备库保留其原始类型和字节。孔隙率与面积密度分别使用各自的插值标志。
 SDK 示例传入私有表，读取原生入口缓存统计。[空间准备示例](../examples/cpp/prepare_spatial_cache_2d.cpp)
 
 ## 既有偏移几何

@@ -135,6 +135,8 @@ Import or build the table with `tpmshx_preparation_sigmoid_table_v1`.
 Pass the prefix and table to the same entry with a fresh result.
 Release both results and the table with the creating library.
 Python verifies the NPZ and atomically replaces a missing or invalid file before it resumes preparation.
+Imported file fields retain their original dtype and bytes when they differ from native float64.
+The two interpolation flags apply independently to porosity and area density.
 The SDK example supplies a private table and reads native inlet statistics. [Spatial preparation example](../examples/cpp/prepare_spatial_cache_2d.cpp)
 
 ## Existing offset geometry

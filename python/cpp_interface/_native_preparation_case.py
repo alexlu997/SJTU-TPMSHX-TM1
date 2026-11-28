@@ -120,9 +120,10 @@ _SigmoidControls = _struct('SigmoidControls', [('decision_mm', _Array),
     ('inlet_transition', _D), ('outlet_transition', _D)])
 _SpatialModel = _struct('SpatialModel', [('solid_conductivity_W_mK', _D),
     ('allow_geometry_extrapolation', _U), ('load_default_lut', _U)])
+_LUTFileField = _struct('LUTFileField', [('dtype', _Text), ('data', ct.POINTER(ct.c_ubyte)), ('size', _S)])
 _SigmoidLUT = _struct('SigmoidLUT', [('abi_version', _U), ('struct_size', _S),
     *((name, _Array) for name in ('cell_mm', 'wall_mm', 'porosity', 'area_density_per_m')),
-    ('porosity_fast', _U), ('area_fast', _U), ('owner', ct.c_void_p)])
+    ('porosity_fast', _U), ('area_fast', _U), ('owner', ct.c_void_p), ('file_fields', _LUTFileField * 2)])
 
 _FlowOptions = [('have_explicit_targets', _U), ('explicit_targets_kg_s', _D * 2)]
 

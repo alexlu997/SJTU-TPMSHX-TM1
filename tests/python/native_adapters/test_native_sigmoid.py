@@ -262,6 +262,7 @@ def test_lut_keeps_axis_reference_and_descending_copy_rules(native, tmp_path, mo
 
 def test_lut_owner_keeps_creating_binding_after_loader_cache_eviction(native, tmp_path, monkeypatch):
     lut, old = _lut(tmp_path, monkeypatch)
+    pinned = sigmoid_field.GeometryLUT('Gyroid', n_L=3, n_t=4, N=1, cache_dir=tmp_path)
     binding_ref = weakref.ref(lut._native_lut.binding)
     _native_lut._bindings.cache_clear()
     geometry._load_library.cache_clear()
@@ -272,6 +273,9 @@ def test_lut_owner_keeps_creating_binding_after_loader_cache_eviction(native, tm
     monkeypatch.setattr(geometry, '_library', forbidden)
     monkeypatch.setattr(_native_lut, '_bindings', forbidden)
     _query(lut, old)
+    _query(pinned, old)
+    np.testing.assert_array_equal(pinned.eps_table, lut.eps_table)
+    _query(pinned, old)
 
 
 def test_lut_pairs_ravel_counts_and_rejects_mismatched_counts(native, tmp_path, monkeypatch):

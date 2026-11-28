@@ -124,43 +124,33 @@ def _write_table(path, topology, resolution, axes, tables):
             temporary.unlink(missing_ok=True)
 
 
-def _detached(table, descending):
-    result = []
-    for values, fast in zip(table.arrays(), (table.view.porosity_fast, table.view.area_fast)):
-        if not fast:
-            values = values.astype(np.dtype('f8').newbyteorder('S'))
-        result.append(np.flip(values, axis=descending) if descending else values)
-    return tuple(result)
-
-
-def _file_table(topology, resolution, axes, path, *, private, direct=False):
+def _file_table(topology, resolution, axes, path, *, image, private, direct=False):
     _, descending = _native_lut._normalized_axes(axes)
     tables = _read_table(path, topology, resolution, axes)
     if tables is not None:
-        values = tuple(_native_lut._normalized_values(t, descending) for t in tables)
-        table = _native_lut.table_value(topology, resolution, axes, tables=tables, private=private)
+        table = _native_lut.table_value(topology, resolution, axes, tables=tables, private=private, image=image)
         if direct and not private:
-            flags = table.view.porosity_fast, table.view.area_fast
-            if (flags != tuple(_native_lut._fast(v) for v in values)
-                    or any(not np.array_equal(a, b) for a, b in zip(table.arrays(), values))):
+            published = table.file_arrays(descending)
+            file_flags = tuple(_native_lut._fast(_native_lut._normalized_values(t, descending)) for t in tables)
+            if ((table.view.porosity_fast, table.view.area_fast) != file_flags or
+                    any(a.dtype != b.dtype or a.tobytes() != b.tobytes() for a, b in zip(tables, published))):
                 table.close()
-                table = _native_lut.table_value(topology, resolution, axes, tables=tables, private=True)
-        return table, tables
-    table = _native_lut.table_value(topology, resolution, axes)
+                table = _native_lut.table_value(topology, resolution, axes, tables=tables, private=True, image=image)
+        return table
+    table = _native_lut.table_value(topology, resolution, axes, image=image)
     try:
-        tables = _detached(table, descending)
+        tables = table.file_arrays(descending)
         _write_table(path, topology, resolution, axes, tables)
-        return table, tables
+        return table
     except BaseException:
         table.close()
         raise
 
 
-def load_default_table(topology, resolution, lengths, walls):
+def load_default_table(topology, resolution, lengths, walls, image):
     """Load the default NPZ after preparation reaches its first table miss."""
     axes = lengths, walls
-    table, _ = _file_table(topology, resolution, axes, _path(topology, resolution, axes), private=False)
-    return table
+    return _file_table(topology, resolution, axes, _path(topology, resolution, axes), image=image, private=False)
 
 
 class GeometryLUT:
@@ -168,27 +158,32 @@ class GeometryLUT:
 
     def __init__(self, tpms_type, L_range=TRAIN_L, t_range=TRAIN_T,
                  n_L=41, n_t=31, N=256, cache_dir=None):
+        self._open(tpms_type, L_range, t_range, n_L, n_t, N, cache_dir, prefer_memory=False, image=_native_lut.selected_image())
+
+    def _open(self, tpms_type, L_range=TRAIN_L, t_range=TRAIN_T, n_L=41, n_t=31, N=256,
+              cache_dir=None, *, prefer_memory, image):
         self.tpms_type, self.N = tpms_type, N
         axes = np.linspace(*L_range, n_L), np.linspace(*t_range, n_t)
         self._cache_path = _path(tpms_type, N, axes, cache_dir)
-        self._native_lut, tables = _file_table(tpms_type, N, axes, self._cache_path,
-                                               private=cache_dir is not None, direct=True)
-        self._axes = axes
-        self._dtypes = tuple(table.dtype for table in tables)
+        table = _native_lut.table_value(tpms_type, N, axes, find_only=True, image=image) if prefer_memory and cache_dir is None else None
+        self._native_lut = table or _file_table(tpms_type, N, axes, self._cache_path,
+                                               image=image, private=cache_dir is not None, direct=True)
+        self._descending = tuple(i for i, axis in enumerate(axes) if axis.size > 1 and axis[0] > axis[-1])
+        self._array_lock = Lock()
 
     _public_arrays = ('L_vals', 't_vals', 'eps_table', 'A0_table')
 
     def _detach(self):
         if 'eps_table' in self.__dict__:
             return
-        axes = self._axes
-        _, descending = _native_lut._normalized_axes(axes)
-        values = self._native_lut.arrays()
-        if descending:
-            values = tuple(np.flip(v, axis=descending) for v in values)
-        tables = (v.astype(dtype, copy=False) for v, dtype in zip(values, self._dtypes))
-        self.__dict__.update(zip(self._public_arrays, (*axes, *tables)))
-        self.bind_tables()
+        with self._array_lock:
+            if 'eps_table' in self.__dict__:
+                return
+            held = self._native_lut
+            axes = [held.axis(i, i in self._descending) for i in range(2)]
+            arrays = (*axes, *held.file_arrays(self._descending))
+            private = _native_lut.LUT(held.binding, *arrays)
+            self.__dict__.update(zip(self._public_arrays, arrays), _native_lut=private)
 
     def __getattr__(self, name):
         if name in self._public_arrays:
@@ -203,7 +198,10 @@ class GeometryLUT:
 
     def bind_tables(self):
         """Capture the current private axes and values for interpolation."""
-        self._native_lut = _native_lut.LUT(self.L_vals, self.t_vals, self.eps_table, self.A0_table)
+        if 'eps_table' not in self.__dict__:
+            self._detach()
+            return
+        self._native_lut = _native_lut.LUT(self._native_lut.binding, self.L_vals, self.t_vals, self.eps_table, self.A0_table)
 
     def preparation_arrays(self):
         self._detach()
@@ -222,13 +220,15 @@ _facade_lock = Lock()
 
 def get_geometry_lut(tpms_type, **kwargs):
     """Reuse a live facade for the same image, directory and arguments."""
-    key = (_native_lut.image_path(), os.environ.get('XDG_CACHE_HOME'), tpms_type, tuple(
+    image = _native_lut.selected_image()
+    key = (image.path, os.environ.get('XDG_CACHE_HOME'), tpms_type, tuple(
         (k, tuple(v) if isinstance(v, (list, tuple)) else v) for k, v in sorted(kwargs.items())))
     with _facade_lock:
         current = _facades.get(key)
     if current is not None:
         return current
-    created = GeometryLUT(tpms_type, **kwargs)
+    created = GeometryLUT.__new__(GeometryLUT)
+    created._open(tpms_type, **kwargs, prefer_memory=True, image=image)
     with _facade_lock:
         return _facades.setdefault(key, created)
 

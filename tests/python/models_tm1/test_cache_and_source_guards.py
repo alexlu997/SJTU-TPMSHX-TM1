@@ -172,6 +172,33 @@ def test_explicit_lut_directories_and_mutations_are_private(tmp_path):
     assert not np.array_equal(generated.eps_table, imported.eps_table)
 
 
+def test_warm_lut_materializes_the_original_npz_types_and_values(tmp_path, monkeypatch):
+    import numpy as np
+    from tm1.cpp_interface._native_lut import table_value
+    from tm1.physical_models import sigmoid_field
+
+    monkeypatch.setenv('XDG_CACHE_HOME', str(tmp_path))
+    table_value.cache_clear()
+    kwargs = dict(n_L=2, n_t=2, N=16)
+    path = tmp_path / 'tm1/geometry/lut_Gyroid_2x2_N16.npz'
+    path.parent.mkdir(parents=True)
+    epsilon = np.array([[.7, .6], [.5, .4]], dtype=np.float32)
+    area = np.arange(4, dtype=np.uint64).reshape(2, 2) + np.uint64(2**53)
+    np.savez_compressed(path, L_vals=[4., 8.], t_vals=[.3, .6], eps_table=epsilon,
+                        A0_table=area, tpms_type=['Gyroid'], N=[16])
+    loaded = sigmoid_field.GeometryLUT('Gyroid', **kwargs)
+    with monkeypatch.context() as warm:
+        warm.setattr(sigmoid_field, '_read_table', lambda *args: pytest.fail('warm default lookup opened its NPZ'))
+        shared = sigmoid_field.get_geometry_lut('Gyroid', **kwargs)
+    copied = sigmoid_field.GeometryLUT('Gyroid', cache_dir=tmp_path / 'copy', **kwargs)
+    with np.load(copied._cache_path, allow_pickle=False) as written:
+        for name, expected in [('eps_table', epsilon), ('A0_table', area)]:
+            for value in (getattr(loaded, name), getattr(shared, name), getattr(copied, name), written[name]):
+                assert value.dtype == expected.dtype
+                np.testing.assert_array_equal(value, expected)
+    assert copied.preparation_arrays()[1] == loaded.preparation_arrays()[1] == (0, 1)
+
+
 def test_concurrent_table_publishers_return_complete_tables(tmp_path):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Barrier

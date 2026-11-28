@@ -230,6 +230,14 @@ typedef struct {
     uint32_t allow_geometry_extrapolation,load_default_lut;
 } tpmshx_preparation_spatial_model_2d_v9;
 
+/* Optional original file representation for one field. The numerical view contains its float64 conversion.
+ * Use an empty field for a native float64 array. File bytes keep the order of the input axes. */
+typedef struct {
+    tpmshx_preparation_text_v1 dtype;
+    const unsigned char* data;
+    size_t size;
+} tpmshx_preparation_lut_file_field_v1;
+
 /* Flat owned sigmoid LUT result. Initialize abi_version=1, struct_size and owner=NULL. */
 typedef struct {
     uint32_t abi_version;
@@ -237,6 +245,7 @@ typedef struct {
     tpmshx_preparation_array_v1 cell_mm,wall_mm,porosity,area_density_per_m;
     uint32_t porosity_fast,area_fast;
     void* owner;
+    tpmshx_preparation_lut_file_field_v1 file_fields[2];
 } tpmshx_preparation_sigmoid_lut_v7;
 
 /* Flat 2D uniform operation family structs. */
@@ -346,6 +355,7 @@ typedef struct {
     tpmshx_preparation_spatial_model_2d_v9 model;
     /* Set defer_default_lut to request disk I/O on a default-table miss.
      * Initialize both input headers for resume. Pass the live prefix and selected table to the same entry.
+     * Pass NULL for resume options. The prefix owns the selected options.
      * Use a new result. Release the prefix result after resume or an I/O error. */
     uint32_t defer_default_lut;
     struct tpmshx_preparation_sigmoid_prefix_v1* prefix;
@@ -484,13 +494,14 @@ TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_lu
  * Each axis can increase or decrease. The output axes increase.
  * Find returns an empty owner on a miss. Shared import retains the first complete value.
  * Private import owns its values separately. Both import modes use the two interpolation flags.
+ * An importer can supply two file fields for lossless file output. Other callers pass NULL.
  * Release each result with tpmshx_preparation_sigmoid_lut_release_v7. */
 enum tpmshx_preparation_lut_operation {
-    TPMSHX_LUT_FIND=0, TPMSHX_LUT_GET_OR_BUILD=1, TPMSHX_LUT_IMPORT_SHARED=2, TPMSHX_LUT_IMPORT_PRIVATE=3
+    TPMSHX_PREPARATION_LUT_FIND=0, TPMSHX_PREPARATION_LUT_GET_OR_BUILD=1, TPMSHX_PREPARATION_LUT_IMPORT_SHARED=2, TPMSHX_PREPARATION_LUT_IMPORT_PRIVATE=3
 };
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_table_v1(
     uint32_t operation,uint32_t topology,size_t resolution,const tpmshx_preparation_sigmoid_lut_view_v6*,
-    tpmshx_preparation_sigmoid_lut_v7*,char*,size_t);
+    const tpmshx_preparation_lut_file_field_v1 file_fields[2],tpmshx_preparation_sigmoid_lut_v7*,char*,size_t);
 /* Sample the two captured tables. Output arrays have one value per query point. */
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_sigmoid_sample_v1(
     const tpmshx_preparation_sigmoid_lut_view_v6*,tpmshx_preparation_array_v1 x,tpmshx_preparation_array_v1 y,

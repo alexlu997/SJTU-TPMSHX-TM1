@@ -197,12 +197,12 @@ def _sigmoid_result(bindings, key, source, options, bridge, water_error, chi_err
             return
         from ._native_values import copy_array
         table = load_table(TOPOLOGIES[source.input.topology], initial.lut_resolution,
-                           copy_array(initial.lut.cell_mm), copy_array(initial.lut.wall_mm))
+                           copy_array(initial.lut.cell_mm), copy_array(initial.lut.wall_mm), bindings.owner)
         try:
             resumed = type(source)(source.abi_version, ct.sizeof(source))
             resumed.input.abi_version, resumed.input.struct_size = source.input.abi_version, ct.sizeof(source.input)
             resumed.prefix, resumed.table = initial.prefix, ct.pointer(table.view)
-            with _owned_result(bindings, key, (resumed,), options, bridge, water_error, chi_error) as result:
+            with _owned_result(bindings, key, (resumed,), None, bridge, water_error, chi_error) as result:
                 yield result
         finally:
             table.close()
@@ -228,7 +228,7 @@ def _owned_result(bindings, key, inputs, options, bridge, water_error, chi_error
     failure, error = abi._Failure(2, ct.sizeof(abi._Failure)), ct.create_string_buffer(4096)
     callbacks, callback_errors = bridge
     try:
-        status = call(*map(ct.byref, inputs), ct.byref(options), ct.byref(callbacks),
+        status = call(*map(ct.byref, inputs), ct.byref(options) if options is not None else None, ct.byref(callbacks),
                       ct.byref(result), ct.byref(failure), error, len(error))
         if callback_errors:
             raise callback_errors[0]

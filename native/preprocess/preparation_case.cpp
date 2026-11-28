@@ -1218,10 +1218,10 @@ struct ZonedCache {
             const auto topology=input.input.geometry.topology;
             loaded_lut=default_sigmoid_table(topology,41,31,256);
         }
-        return *loaded_lut;
+        return loaded_lut->lut;
     }
     void retain_lut(ZonedInput2D& input) const {
-        if (loaded_lut && input.sigmoid) input.sigmoid->lut=*loaded_lut;
+        if (loaded_lut && input.sigmoid) input.sigmoid->lut=loaded_lut->lut;
     }
 };
 CaseInput2D region_input(const CaseInput2D& input,const ZoneRegion2D& region,const ZonedInput2D& request) {
@@ -1748,7 +1748,7 @@ TableValue default_sigmoid_table(Topology topology,std::size_t cell_nodes,std::s
 
 SigmoidLUT2D build_sigmoid_lut_2d(Topology topology,std::size_t cell_nodes,
     std::size_t wall_nodes,std::size_t resolution) {
-    return *default_sigmoid_table(topology,cell_nodes,wall_nodes,resolution);
+    return default_sigmoid_table(topology,cell_nodes,wall_nodes,resolution)->lut;
 }
 
 SigmoidLUT2D build_sigmoid_table(Topology topology,SigmoidLUT2D output,std::size_t resolution) {

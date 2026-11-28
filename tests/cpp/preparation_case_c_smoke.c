@@ -203,10 +203,10 @@ static int check_cache(const tpmshx_preparation_2d_uniform_input_v1* source) {
     union { double align; char data[4096]; } error, saved_error;
     double rho[2], kss; size_t side; int mode;
     tpmshx_preparation_cache_info_v1 info;
-    CHECK(!tpmshx_preparation_clear_cache_v1(TPMSHX_CACHE_INLET, error.data, sizeof(error.data)));
+    CHECK(!tpmshx_preparation_clear_cache_v1(TPMSHX_PREPARATION_CACHE_INLET, error.data, sizeof(error.data)));
     CHECK(!tpmshx_preparation_2d_uniform_prepare_case_v1(source, &options, &callbacks, &result, &failure, error.data, sizeof(error.data)));
     CHECK(result.owner);
-    CHECK(!tpmshx_preparation_read_cache_info_v1(TPMSHX_CACHE_INLET, &info, error.data, sizeof(error.data)));
+    CHECK(!tpmshx_preparation_read_cache_info_v1(TPMSHX_PREPARATION_CACHE_INLET, &info, error.data, sizeof(error.data)));
     CHECK(info.hits == 0 && info.misses == 2 && info.currsize == 2);
     CHECK(checks.live_ranges && checks.notices && !checks.invalid_observation);
     for (side = 0; side < 2; ++side) rho[side] = result.prepared.sides[side].properties.rho;
@@ -219,7 +219,7 @@ static int check_cache(const tpmshx_preparation_2d_uniform_input_v1* source) {
     CHECK(!memcmp(saved_error.data, result.prepared.cell_length.data, sizeof(double)));
     tpmshx_preparation_2d_uniform_case_release_v1(&result); result.abi_version = 1; result.struct_size = sizeof(result);
     CHECK(!tpmshx_preparation_2d_uniform_prepare_case_v1(source, &options, &callbacks, &result, &failure, error.data, sizeof(error.data)));
-    CHECK(!tpmshx_preparation_read_cache_info_v1(TPMSHX_CACHE_INLET, &info, error.data, sizeof(error.data)));
+    CHECK(!tpmshx_preparation_read_cache_info_v1(TPMSHX_PREPARATION_CACHE_INLET, &info, error.data, sizeof(error.data)));
     CHECK(info.hits == 2 && info.misses == 2 && info.currsize == 2);
     CHECK(checks.cached_ranges && !checks.invalid_observation);
     for (side = 0; side < 2; ++side) CHECK(result.prepared.sides[side].properties.rho == rho[side]);
@@ -545,7 +545,7 @@ static int check_sigmoid_resume(tpmshx_preparation_2d_sigmoid_input_v1 source,
     size_t i;
     source.lut = (tpmshx_preparation_sigmoid_lut_view_v6){0};
     source.defer_default_lut = source.model.load_default_lut = 1;
-    CHECK(!tpmshx_preparation_clear_cache_v1(TPMSHX_CACHE_SIGMOID, error, sizeof(error)));
+    CHECK(!tpmshx_preparation_clear_cache_v1(TPMSHX_PREPARATION_CACHE_SIGMOID, error, sizeof(error)));
     CHECK(!tpmshx_preparation_2d_sigmoid_prepare_case_v1(&source, options, NULL, &prefix, &failure, error, sizeof(error)));
     CHECK(prefix.prefix && !prefix.owner && prefix.lut_resolution == 256);
     CHECK(prefix.lut.cell_mm.size == 41 && prefix.lut.wall_mm.size == 31);
@@ -554,16 +554,16 @@ static int check_sigmoid_resume(tpmshx_preparation_2d_sigmoid_input_v1 source,
     imported.porosity = (tpmshx_preparation_array_v1){porosity, 41 * 31};
     imported.area_density_per_m = (tpmshx_preparation_array_v1){area, 41 * 31};
     imported.porosity_fast = imported.area_fast = 1;
-    CHECK(!tpmshx_preparation_sigmoid_table_v1(TPMSHX_LUT_IMPORT_PRIVATE, source.input.topology,
-        prefix.lut_resolution, &imported, &table, error, sizeof(error)));
+    CHECK(!tpmshx_preparation_sigmoid_table_v1(TPMSHX_PREPARATION_LUT_IMPORT_PRIVATE, source.input.topology,
+        prefix.lut_resolution, &imported, NULL, &table, error, sizeof(error)));
     resume.input.abi_version = 1; resume.input.struct_size = sizeof(resume.input);
     resume.prefix = prefix.prefix; resume.table = &table;
-    CHECK(!tpmshx_preparation_2d_sigmoid_prepare_case_v1(&resume, options, NULL, &final, &failure, error, sizeof(error)));
+    CHECK(!tpmshx_preparation_2d_sigmoid_prepare_case_v1(&resume, NULL, NULL, &final, &failure, error, sizeof(error)));
     CHECK(final.owner && final.cell_count == 48 && final.prepared.input.length_m == source.input.length_m);
     CHECK(final.controls.decision_mm.size == 36 && final.prepared.input.sides[1].temperature_K == 300.);
     tpmshx_preparation_2d_sigmoid_case_release_v1(&final);
     final.abi_version = 1; final.struct_size = sizeof(final);
-    CHECK(tpmshx_preparation_2d_sigmoid_prepare_case_v1(&resume, options, NULL, &final, &failure, error, sizeof(error))
+    CHECK(tpmshx_preparation_2d_sigmoid_prepare_case_v1(&resume, NULL, NULL, &final, &failure, error, sizeof(error))
         == TPMSHX_PREPARATION_INVALID);
     CHECK(!final.owner && !final.prefix);
     tpmshx_preparation_sigmoid_lut_release_v7(&table);
@@ -708,15 +708,15 @@ static int check_inlet_query(void) {
         tpmshx_preparation_cached_inlet_result_v1 held = {1, sizeof(held)}, warm = {1, sizeof(warm)};
         tpmshx_preparation_cache_info_v1 info;
         model.inlet = source.inlet;
-        CHECK(!tpmshx_preparation_clear_cache_v1(TPMSHX_CACHE_INLET, error, sizeof(error)));
+        CHECK(!tpmshx_preparation_clear_cache_v1(TPMSHX_PREPARATION_CACHE_INLET, error, sizeof(error)));
         CHECK(!tpmshx_preparation_cached_inlet_v1(&model, NULL, &held, &failure, error, sizeof(error)));
         CHECK(!tpmshx_preparation_cached_inlet_v1(&model, NULL, &warm, &failure, error, sizeof(error)));
         CHECK(held.owner && warm.owner && held.evidence.range_count && !warm.evidence.event_count);
         CHECK(!memcmp(held.values, warm.values, sizeof(held.values)));
         CHECK(held.values[5] != result.values[5]);
-        CHECK(!tpmshx_preparation_read_cache_info_v1(TPMSHX_CACHE_INLET, &info, error, sizeof(error)));
+        CHECK(!tpmshx_preparation_read_cache_info_v1(TPMSHX_PREPARATION_CACHE_INLET, &info, error, sizeof(error)));
         CHECK(info.hits == 1 && info.misses == 1);
-        CHECK(!tpmshx_preparation_clear_cache_v1(TPMSHX_CACHE_INLET, error, sizeof(error)));
+        CHECK(!tpmshx_preparation_clear_cache_v1(TPMSHX_PREPARATION_CACHE_INLET, error, sizeof(error)));
         tpmshx_preparation_cached_inlet_release_v1(&warm);
         CHECK(held.evidence.ranges[0].label.size && !memcmp(held.evidence.ranges[0].side.data, "unbound", 7));
         tpmshx_preparation_cached_inlet_release_v1(&held);

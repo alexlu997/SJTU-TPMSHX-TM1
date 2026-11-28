@@ -63,7 +63,7 @@ int main() {
         check_prepared(zone_result.view());
         tpmshx_preparation_cache_info_v1 info{};
         char error[256]{};
-        check(!tpmshx_preparation_read_cache_info_v1(TPMSHX_CACHE_INLET,&info,error,sizeof(error)));
+        check(!tpmshx_preparation_read_cache_info_v1(TPMSHX_PREPARATION_CACHE_INLET,&info,error,sizeof(error)));
         check(info.currsize && info.misses);
 
         auto sigmoid=[&] {
