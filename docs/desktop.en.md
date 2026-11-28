@@ -79,7 +79,7 @@ After changing C++ functions or compiled model data, rebuild and restart the pro
 Old checkpoints still need their exact matching solver runtime.
 
 Preparation loads on demand from the same platform directory. The GUI prewarm and standalone scalar geometry queries share its cache with case preparation.
-Preparation uses ABI 4. Geometry uses geometry ABI 2 and field ABI 3.
+Preparation uses ABI 5. Geometry uses geometry ABI 2 and field ABI 3.
 Its name is `libtpmshx_preparation_shared.dylib` on macOS and `tpmshx_preparation_shared.dll` on Windows.
 `TPMSHX_PREPARATION_LIBRARY` overrides its runtime path. `--native-library` still selects only the solver.
 Historical result reading and independent postprocessing do not load preparation.

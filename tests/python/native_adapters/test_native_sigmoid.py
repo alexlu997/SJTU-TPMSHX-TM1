@@ -177,13 +177,13 @@ def _lut(tmp_path, monkeypatch, *, dtype=np.float64, area_dtype=np.float64,
         epsilon = np.arange(np.prod(shape), dtype=dtype).reshape(shape)
     area = np.array([[1534.7, 1629.1, 1735.3, 1811.9], [1477.3, 1599.7, 1689.1, 1793.3],
                      [1391.9, 1511.3, 1637.7, 1743.1]])[:shape[0], :shape[1]].astype(area_dtype)
-    def prepared(self):
-        self.eps_table, self.A0_table = epsilon, area
-    monkeypatch.setattr(sigmoid_field.GeometryLUT, '_precompute', prepared)
     length_range, wall_range = ((8., 4.), (.6, .3)) if descending else ((4., 8.), (.3, .6))
+    np.savez_compressed(tmp_path / f'lut_Gyroid_{shape[0]}x{shape[1]}_N1.npz',
+                        L_vals=np.linspace(*length_range, shape[0]), t_vals=np.linspace(*wall_range, shape[1]),
+                        eps_table=epsilon, A0_table=area, tpms_type=['Gyroid'], N=[1])
     lut = sigmoid_field.GeometryLUT('Gyroid', L_range=length_range, t_range=wall_range,
                                     n_L=shape[0], n_t=shape[1], N=1, cache_dir=tmp_path)
-    old = reference.GeometryLUT(lut.L_vals, lut.t_vals, epsilon, area)
+    old = reference.GeometryLUT(lut.L_vals, lut.t_vals, lut.eps_table, lut.A0_table)
     return lut, old
 
 
@@ -202,38 +202,24 @@ def _query(lut, old):
 @pytest.mark.parametrize('descending', [False, True])
 def test_lut_keeps_each_normalized_table_branch_and_inplace_mutation(native, tmp_path, monkeypatch, dtype, descending):
     lut, old = _lut(tmp_path, monkeypatch, dtype=dtype, descending=descending)
-    observed = []
-    binding = lut._native_lut.binding
-    query = binding.query
-    def record(*args):
-        observed.append((args[7], args[8]))
-        return query(*args)
-    monkeypatch.setattr(binding, 'query', record)
     _query(lut, old)
-    assert observed[-1] == old.modes()
+    assert lut.preparation_arrays()[1] == old.modes()
     lut.eps_table[...] += 1
     lut.A0_table[...] += .125
     _query(lut, old)
-    assert observed[-1] == old.modes()
+    assert lut.preparation_arrays()[1] == old.modes()
     lut.eps_table.flags.writeable = False
     _query(lut, old)
-    assert observed[-1] == old.modes()
+    assert lut.preparation_arrays()[1] == old.modes()
     lut.eps_table.flags.writeable = True
     _query(lut, old)
-    assert observed[-1] == old.modes()
+    assert lut.preparation_arrays()[1] == old.modes()
 
 
 def test_lut_area_mode_is_independent_of_epsilon_mode(native, tmp_path, monkeypatch):
     lut, old = _lut(tmp_path, monkeypatch, area_dtype=np.float32)
-    observed = []
-    binding = lut._native_lut.binding
-    query = binding.query
-    def record(*args):
-        observed.append((args[7], args[8]))
-        return query(*args)
-    monkeypatch.setattr(binding, 'query', record)
     _query(lut, old)
-    assert observed[-1] == old.modes() == (1, 0)
+    assert lut.preparation_arrays()[1] == old.modes() == (1, 0)
 
 
 @pytest.mark.parametrize('shape', [(1, 4), (3, 1), (1, 1)])

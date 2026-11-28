@@ -25,8 +25,7 @@ def configuration(monkeypatch, tmp_path, mode, topology='Gyroid'):
     config = native_preparation_abi._configuration_spatial(mode, topology)
     if mode == 'sigmoid':
         table = sigmoid_field.GeometryLUT(topology, n_L=2, n_t=2, N=16, cache_dir=tmp_path)
-        monkeypatch.setattr(sigmoid_field, 'get_geometry_lut', lambda *args, **kwargs: table)
-        monkeypatch.setitem(sigmoid_field._lut_cache, (topology,), table)
+        native_preparation_abi.supply_sigmoid_table(monkeypatch, table)
     return config
 
 
@@ -113,26 +112,104 @@ def test_capacity_ignores_unconsumed_experimental_drag(monkeypatch, tmp_path, mo
 @pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
 def test_default_lut_cold_memory_and_disk_paths(monkeypatch, tmp_path, topology):
     config = native_preparation_abi._configuration_spatial('sigmoid', topology)
-    monkeypatch.delitem(sigmoid_field._lut_cache, (topology,), raising=False)
-    monkeypatch.setenv('XDG_CACHE_HOME', str(tmp_path / 'native'))
+    from tm1.cpp_interface._native_lut import table_value
 
-    def forbidden(*args, **kwargs):
-        pytest.fail('native cold LUT construction reentered Python geometry')
+    table_value.cache_clear()
+    monkeypatch.setenv('XDG_CACHE_HOME', str(tmp_path))
+    from tm1.cpp_interface import native_preparation
+    run = native_preparation.run_preparation
 
-    monkeypatch.setattr(sigmoid_field.GeometryLUT, '_precompute', forbidden)
-    monkeypatch.setattr(sigmoid_field, 'get_geometry_lut', forbidden)
-    first, _, _, _ = _capture(monkeypatch, api, 'full', config)
-    created = sigmoid_field._lut_cache[topology,]
-    second, _, _, _ = _capture(monkeypatch, api, 'full', config)
-    assert sigmoid_field._lut_cache[topology,] is created
+    def fail_after_file(*args, validate, **kwargs):
+        def check_grid(stage, side):
+            if stage == 3:
+                raise ArithmeticError('requested grid after first table')
+            validate(stage, side)
+        return run(*args, validate=check_grid, **kwargs)
+
+    with monkeypatch.context() as fault:
+        fault.setattr(native_preparation, 'run_preparation', fail_after_file)
+        with pytest.raises(ArithmeticError, match='requested grid after first table'):
+            _capture(monkeypatch, api, 'full', config)
+    assert (tmp_path / f'tm1/geometry/lut_{topology}_41x31_N256.npz').is_file()
+    assert table_value.cache_info().currsize == 1
+    first, first_events, first_ranges, _ = _capture(monkeypatch, api, 'full', config)
+    file, = (tmp_path / 'tm1/geometry').glob('*.npz')
+    with np.load(file, allow_pickle=False) as stored:
+        assert stored['eps_table'].shape == (41, 31) and int(stored['N'][0]) == 256
+    with monkeypatch.context() as warm:
+        warm.setattr(sigmoid_field, '_read_table', lambda *args: pytest.fail('memory hit read an NPZ'))
+        second, events, ranges, _ = _capture(monkeypatch, api, 'full', config)
     _same(second.design_fields, first.design_fields)
-    monkeypatch.delitem(sigmoid_field._lut_cache, (topology,))
-    third, _, _, _ = _capture(monkeypatch, api, 'full', config)
-    restored = sigmoid_field._lut_cache[topology,]
-    assert restored is not created
-    for name in ('L_vals', 't_vals', 'eps_table', 'A0_table'):
-        _same(getattr(restored, name), getattr(created, name), name)
+    assert events == first_events and ranges == first_ranges
+    table_value.cache_clear()
+    monkeypatch.setattr(sigmoid_field, '_write_table', lambda *args: pytest.fail('valid NPZ was replaced'))
+    third, events, ranges, _ = _capture(monkeypatch, api, 'full', config)
     _same(third.design_fields, first.design_fields)
+    assert events == first_events and ranges == first_ranges
+
+
+@pytest.mark.parametrize('operation,targets,expected', [
+    ('capacity', None, [3, 4, 'NPZ']),
+    ('resolve', (.001, .001), [3, 4, 'NPZ']),
+    ('full', (.001, .001), [3, 4, 'NPZ', 0, 4]),
+    ('full', None, [0, 4, 'NPZ', 3]),
+])
+def test_sigmoid_file_access_follows_the_first_grid_validation(monkeypatch, tmp_path, operation, targets, expected):
+    from tm1.cpp_interface import native_preparation
+    from tm1.cpp_interface._native_lut import table_value
+    from tm1.model_configs.df_domain import TRAIN_L, TRAIN_T
+
+    config = native_preparation_abi._configuration_spatial('sigmoid')
+    table_value.cache_clear()
+    monkeypatch.setenv('XDG_CACHE_HOME', str(tmp_path))
+    seen = []
+    fail_at_zone_check = True
+    original = native_preparation.run_preparation
+
+    def run(*args, validate, **kwargs):
+        def record(stage, side):
+            seen.append(stage)
+            if stage == 4 and fail_at_zone_check:
+                raise LookupError('zone validation')
+            validate(stage, side)
+        return original(*args, validate=record, **kwargs)
+
+    monkeypatch.setattr(native_preparation, 'run_preparation', run)
+    read = sigmoid_field._read_table
+
+    def read_file(*args):
+        seen.append('NPZ')
+        return read(*args)
+
+    monkeypatch.setattr(sigmoid_field, '_read_table', read_file)
+    with pytest.raises(LookupError, match='zone validation'):
+        _capture(monkeypatch, api, operation, config, targets)
+    assert seen == expected[:expected.index('NPZ')]
+    assert not (tmp_path / 'tm1').exists()
+
+    fail_at_zone_check = False
+    path = tmp_path / 'tm1/geometry/lut_Gyroid_41x31_N256.npz'
+    path.parent.mkdir(parents=True)
+    np.savez_compressed(path, L_vals=np.linspace(*TRAIN_L, 41), t_vals=np.linspace(*TRAIN_T, 31),
+                        eps_table=np.full((41, 31), .7), A0_table=np.full((41, 31), 1300.),
+                        tpms_type=['Gyroid'], N=[256])
+    seen.clear()
+    _capture(monkeypatch, api, operation, config, targets)
+    assert seen == expected
+    seen.clear()
+    _capture(monkeypatch, api, operation, config, targets)
+    assert seen == [stage for stage in expected if stage != 'NPZ']
+
+
+def test_sigmoid_resolve_without_targets_skips_disk(monkeypatch, tmp_path):
+    from tm1.cpp_interface._native_lut import table_value
+    table_value.cache_clear()
+    config = native_preparation_abi._configuration_spatial('sigmoid')
+    monkeypatch.setenv('XDG_CACHE_HOME', str(tmp_path))
+    monkeypatch.setattr(sigmoid_field, 'load_default_table', lambda *args: pytest.fail('unexpected LUT request'))
+    resolved, *_ = _capture(monkeypatch, api, 'resolve', config)
+    assert resolved.fluid_A.u_mps == config.fluid_A.u_mps
+    assert not (tmp_path / 'tm1').exists() and table_value.cache_info().currsize == 0
 
 
 @pytest.mark.parametrize('mode', ['x', 'y', 'grid', 'sigmoid'])

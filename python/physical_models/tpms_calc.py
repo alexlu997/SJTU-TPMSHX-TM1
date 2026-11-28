@@ -8,7 +8,7 @@ computes geometry and closure parameters for prepared solver inputs:
 Includes:
   - Geometry and material queries through the native geometry library
   - One native query for properties, Nu and fixed CFD Darcy-Forchheimer drag
-  - Public caches, scalar types and warning records in the Python host
+  - Detached scalar values and warning records for the Python caller
 
 Supported TPMS types: 'Diamond', 'Gyroid'
 Fluids: air, water, sCO2 and CO2 with their existing property and Nu models
@@ -35,7 +35,7 @@ convention on both sides, so downstream Q calculations are consistent.
 ──────────────────────────────────────────────────────────────────────
 """
 
-from . import preparation_cache
+from functools import wraps
 import sys
 import warnings
 import numpy as np  # noqa: F401 - preserve existing module surface
@@ -44,6 +44,7 @@ from tm1.run_control.run_warnings import (
 )
 from .tpms_geometry import compute_geometry as _tpms_geom
 from tm1.cpp_interface import inlet_properties
+from tm1.cpp_interface._native_properties import cache_controls
 
 # Geometry and property primitives live in tpms_props. Current consumers may
 # also import the explicitly re-exported names from models.tpms_calc.
@@ -61,7 +62,6 @@ from tm1.run_control.logutil import get_logger
 _log = get_logger(__name__)
 
 from .fluid_props import validate_fluid_type as validate_fluid_type
-from .preparation_cache import _InletCacheValue
 
 
 # ── Nu correlations ───────────────────────────────────────────
@@ -134,101 +134,63 @@ def _reynolds_notice(tpms_type, Re, fluid_type):
     return None
 
 
-@preparation_cache.inlet_cache.wrap
-def _compute_cached(tpms_type: str,
-                    L_cell_mm: float,
-                    t_mm: float,
-                    u: float,
-                    T_in_K: float,
-                    P_in_Pa: float,
-                    fluid_type: str = 'air',
-                    sco2_nu=None, co2_geometry=False) -> tuple[dict, dict]:
-    """
-    Cache TPMS geometry and fluid properties.
+class _InletValues(tuple):
+    """Keep cp and Pr with the detached source records."""
+    def __new__(cls, values, records, cp, pr):
+        result = super().__new__(cls, (values, records))
+        result.cp, result.pr = cp, pr
+        return result
 
-    Parameters
-    ----------
-    tpms_type : 'Diamond' or 'Gyroid'
-    L_cell_mm : TPMS unit cell size [mm]  (geometry/D-F table: 4–8 mm)
-    t_mm      : wall thickness [mm]       (geometry/D-F table: 0.3–0.6 mm)
-        Nu fits and experimental corrections have independent applicability
-        ranges; the table domain does not extend those ranges.
-    u         : selected fluid's interstitial velocity [m/s]
-    T_in_K    : inlet temperature [K]
-    P_in_Pa   : inlet pressure [Pa]
 
-    Returns
-    -------
-    tuple[dict, dict]
-        Numerical values and source warning records. Public ``compute``
-        returns only a copy of the numerical dict; records stay internal.
-
-    Numerical dict keys:
-        epsilon   – porosity [-]
-        A_0       – single-side specific surface area [m⁻¹] (area seen by one
-                    fluid stream per unit total volume — NOT double-sided;
-                    see tpms_geometry.py for derivation). h_vA = A_0 × H_sf_A
-                    and h_vB = A_0 × H_sf_B therefore do NOT double-count.
-        D_h       – hydraulic diameter [m]
-        Re        – Reynolds number (based on D_h, interstitial velocity) [-]
-        Nu        – Nusselt number [-]
-        K_df      – permeability [m²] (fixed CFD D-F closure)
-        cF_df     – Forchheimer coefficient [1/m] (fixed CFD D-F closure)
-        dP_per_L  – pressure drop per unit length [Pa/m]
-        H_sf      – face heat transfer coefficient [W/(m²·K)]
-        K_ff      – single-stream effective conductivity epsilon_A*k_f [W/(m·K)]
-        rho       – selected fluid density [kg/m³]
-        mu        – selected fluid dynamic viscosity [Pa·s]
-        k_f       – selected fluid thermal conductivity [W/(m·K)]
-    """
+def _calculate(tpms_type, cell, wall, u, temperature, pressure, fluid, selection, co2_geometry, *, cached, caller):
     from .fluid_props import get
 
+    fluid_name = get(fluid).name
+    co2 = co2_geometry or fluid_name == 'co2'
+    if not co2 and tpms_type not in ('Diamond', 'Gyroid'):
+        raise ValueError(f"tpms_type must be 'Diamond' or 'Gyroid', got '{tpms_type}'")
+
+    def notice(kind, side, value, message):
+        if kind != 0:
+            raise RuntimeError(f'unknown property query notice kind {kind}')
+        message = _reynolds_notice(tpms_type, value, fluid) if current_warnings() is None else None
+        if message is not None:
+            warnings.warn_explicit(message, UserWarning, caller.f_code.co_filename, caller.f_lineno,
+                module=caller.f_globals['__name__'], registry=caller.f_globals.setdefault('__warningregistry__', {}))
+
     with cache_warning_records({}) as records:
-        # ── Geometry from numerical computation ─────────────────────
-        fluid_name = get(fluid_type).name
-        if co2_geometry or fluid_name == 'co2':
-            from .co2_correlations import geometry as geometry_model
-            g = geometry_model(tpms_type, L_cell_mm, t_mm)
+        if cached:
+            scalars, row = inlet_query(tpms_type, cell, wall, u, temperature, pressure, fluid_name,
+                selection, None, records, notice, co2_geometry=co2_geometry, caller=caller)
+            g = {key: np.float64(value) if co2 or key in ('A_0', 'D_h') else value
+                 for key, value in zip(('epsilon', 'epsilon_A', 'epsilon_B', 'A_0', 'D_h'), scalars, strict=True)}
         else:
-            g = _tpms_geom(tpms_type, L_cell_mm, t_mm)
-        eps   = g['epsilon']
-        A0    = g['A_0']
-        D_h_m = g['D_h']
-        eps_A = g['epsilon_A']
-        caller = sys._getframe(1)
-        if caller.f_code is _compute_cached.__code__:
-            caller = caller.f_back
+            if co2:
+                from .co2_correlations import geometry as geometry_model
+            else:
+                geometry_model = _tpms_geom
+            g = geometry_model(tpms_type, cell, wall)
+            row = inlet_query(tpms_type, cell, wall, u, temperature, pressure, fluid_name,
+                selection, g, records, notice, caller=caller)
+        rho, mu, k_f, cp, pr, re, nu, permeability, drag, gradient, transfer, conductivity = row
+        values = {key: g[key] for key in ('epsilon', 'epsilon_A', 'epsilon_B', 'A_0', 'D_h')}
+        values.update(Re=re, Nu=nu, K_df=permeability, cF_df=drag, dP_per_L=gradient,
+                      H_sf=transfer, K_ff=conductivity, rho=rho, mu=mu, k_f=k_f)
+        return _InletValues(values, records, cp, pr)
 
-        def notice(kind, side, value, message):
-            if kind != 0:
-                raise RuntimeError(f'unknown property query notice kind {kind}')
-            message = _reynolds_notice(tpms_type, value, fluid_type) if current_warnings() is None else None
-            if message is not None:
-                warnings.warn_explicit(message, UserWarning, caller.f_code.co_filename, caller.f_lineno,
-                    module=caller.f_globals['__name__'],
-                    registry=caller.f_globals.setdefault('__warningregistry__', {}))
 
-        rho, mu, k_f, cp_f, Pr_f, Re, Nu, K_df, cF_df, dP_per_L, H_sf, K_ff = (
-            inlet_query(tpms_type, L_cell_mm, t_mm, u, T_in_K,
-                P_in_Pa, fluid_name, sco2_nu, g, records, notice))
+def _compute_uncached(tpms_type, L_cell_mm, t_mm, u, T_in_K, P_in_Pa, fluid_type='air',
+                      sco2_nu=None, co2_geometry=False):
+    return _calculate(tpms_type, L_cell_mm, t_mm, u, T_in_K, P_in_Pa, fluid_type,
+                      sco2_nu, co2_geometry, cached=False, caller=sys._getframe(1))
 
-        return _InletCacheValue({
-            'epsilon':   eps,
-            'epsilon_A': eps_A,
-            'epsilon_B': eps_A,     # symmetric sheet HX: ε_B = ε_A = ε/2
-            'A_0':       A0,
-            'D_h':       D_h_m,
-            'Re':        Re,
-            'Nu':        Nu,
-            'K_df':      K_df,      # permeability [m²] (fixed CFD)
-            'cF_df':     cF_df,     # Forchheimer coeff [1/m] (fixed CFD)
-            'dP_per_L':  dP_per_L,
-            'H_sf':      H_sf,
-            'K_ff':      K_ff,
-            'rho':       rho,
-            'mu':        mu,
-            'k_f':       k_f,
-        }, records, cp_f, Pr_f)
+
+@cache_controls(3)
+@wraps(_compute_uncached)
+def _compute_cached(tpms_type, L_cell_mm, t_mm, u, T_in_K, P_in_Pa, fluid_type='air',
+                    sco2_nu=None, co2_geometry=False):
+    return _calculate(tpms_type, L_cell_mm, t_mm, u, T_in_K, P_in_Pa, fluid_type,
+                      sco2_nu, co2_geometry, cached=True, caller=sys._getframe(1))
 
 
 # ── Public cached property calculation ────────────────────────
@@ -286,25 +248,34 @@ compute.cache_parameters = _compute_cached.cache_parameters
 
 
 def inlet_query(topology, cell, wall, velocity, temperature, pressure, fluid,
-                selection, geometry, records, notice):
+                selection, geometry, records, notice, *, co2_geometry=False, caller=None):
     """Select the fluid, pressure, and corrections for an inlet with supplied geometry."""
     from . import fluid_props
     from .preparation_notices import range_notices
 
-    fluid_name = fluid_props.get(fluid, sco2_nu=selection).name
-    if fluid_name in ('sco2', 'co2') and pressure is None:
-        if fluid_name == 'co2':
-            raise ValueError('CO2 requires absolute pressure P in Pa')
-        raise ValueError('sCO2 properties require pressure P [Pa]; caller passed P=None. '
-                         'Fix the call site to forward the inlet/local pressure.')
+    fluid_name = fluid_props.get(fluid).name
+
+    def validate_model():
+        fluid_props.get(fluid, sco2_nu=selection)
+        if fluid_name in ('sco2', 'co2') and pressure is None:
+            if fluid_name == 'co2':
+                raise ValueError('CO2 requires absolute pressure P in Pa')
+            raise ValueError('sCO2 properties require pressure P [Pa]; caller passed P=None. '
+                             'Fix the call site to forward the inlet/local pressure.')
+
+    if geometry is not None:
+        validate_model()
 
     def observe(key, record, cached, scalar):
         for message in range_notices(key, record, cached, scalar, records=records):
             warnings.warn(message, UserWarning)
 
+    if caller is None:
+        caller = sys._getframe(1)
+
     def floating_warning(message):
-        # Attribute native arithmetic to the caller that requested this inlet.
-        warnings.warn(message, RuntimeWarning, stacklevel=7)
+        warnings.warn_explicit(message, RuntimeWarning, caller.f_code.co_filename, caller.f_lineno,
+            module=caller.f_globals['__name__'], registry=caller.f_globals.setdefault('__warningregistry__', {}))
 
     def observe_event(kind, logger, message, code, replay):
         if kind == 2:
@@ -316,18 +287,15 @@ def inlet_query(topology, cell, wall, velocity, temperature, pressure, fluid,
         else:
             raise RuntimeError(f'unknown preparation event kind {kind}')
 
-    def property_error(status, reason, text):
-        if status == 11 and fluid_name == 'co2':
-            if reason in (1, 5):
-                raise ValueError(text) from None
-            prefix = ('CO2 requires a stable single-phase PT state; '
-                      'saturation, two-phase and critical-point states are unsupported. ')
-            raise ValueError(text) from ValueError(text.removeprefix(prefix))
-        if status in (10, 12):
-            raise ValueError(text) from None
+    def property_error(status, text, cause):
+        if status in (10, 11, 12):
+            raise ValueError(text) from (ValueError(cause) if cause is not None else None)
 
-    query_pressure = 0. if fluid_name == 'water' else pressure
-    nu_settings = selection if fluid_name == 'sco2' else None
+    missing_pressure = pressure is None and fluid_name in ('co2', 'sco2')
+    query_pressure = 0. if missing_pressure or (geometry is not None and fluid_name == 'water') else pressure
+    nu_settings = selection if geometry is None or fluid_name == 'sco2' else None
+    from .tpms_props import _resolve_chi_s
     return inlet_properties.query_values(topology, cell, wall, velocity, temperature, query_pressure, fluid_name,
         nu_settings, geometry, observe, notice, observe_event, property_error, fluid_props.WaterStateError,
-        exact_co2_drag=fluid_name == 'co2')
+        exact_co2_drag=fluid_name == 'co2', co2_geometry=co2_geometry, records=records,
+        validate_geometry=_resolve_chi_s, validate_model=validate_model)

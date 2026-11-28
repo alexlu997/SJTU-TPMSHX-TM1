@@ -124,6 +124,7 @@ struct PreparationDragEvidence {
 };
 struct PreparedSide2D {
     InletInput2D inlet;
+    geometry::Geometry property_geometry{};
     UniformInletProperties properties;
     double seed_permeability_m2=0.,seed_forchheimer_per_m=0.;
     std::vector<double> cross_widths,stream_widths,row_permeability,row_forchheimer;
@@ -170,16 +171,11 @@ struct PreparationCallbacks {
     void* context=nullptr;
     // This optional hook checks host objects, never physical values.
     void (*validate_host_input)(void*,std::uint32_t,std::uint32_t)=nullptr;
-    // Cache hooks transport completed values. A miss uses the native calculation.
-    bool (*inlet_cache)(void*,bool,std::uint32_t,const InletInput2D&,PreparationInletCache&)=nullptr;
     // Observe at the source. Cached records do not repeat standalone notices.
     void (*observe_range)(void*,const PreparationRange&,bool,std::optional<double>)=nullptr;
     // Notice 0 is inlet Re, 1 is a Nu reason, and 2 is a geometry reason.
     void (*observe_notice)(void*,std::uint32_t,std::uint32_t,double,const std::string&)=nullptr;
     void (*validate_grid)(void*)=nullptr;
-    // Spatial and 3D stages identify each actual scalar cache access.
-    bool (*inlet_cache_at)(void*,bool,const PreparationInletKey&,PreparationInletCache&)=nullptr;
-    bool (*sigmoid_lut_cache)(void*,bool,Topology,std::size_t,SigmoidLUT2D&)=nullptr;
 };
 struct PreparationModelRef {
     std::string name,version,side;
@@ -212,6 +208,7 @@ struct InletPropertyQuery {
 using InletQueryResult=std::array<double,12>;
 InletQueryResult query_inlet_properties(const InletPropertyQuery&,
     const PreparationCallbacks& = {});
+PreparationInletCache query_cached_inlet(const PreparationInletKey&, const PreparationCallbacks& = {});
 struct PreparedCase2D {
     CaseInput2D input;
     PreparationOptions options;

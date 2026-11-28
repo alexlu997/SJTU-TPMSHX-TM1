@@ -30,7 +30,7 @@ compute -> preprocess.api.prepare_case -> CaseData -> solvers.api.run_case -> Fi
 
 四个计算阶段直接调用收敛后的现行 C ABI，不回退到已退役的 Python 数值实现：
 
-- **前处理准备（`native/preprocess/`，ABI 4）**：`python/cpp_interface/native_preparation.py` 与 `python/cpp_interface/preparation_host.py` 绑定扁平二维和三维 `v1` 族入口及统一的 `tpmshx_preparation_callbacks_v2`。`python/preprocess/two_d/preparation.py` 使用绑定在释放前复制的数组与元数据构造不可变的二维 `CaseData`。`python/preprocess/three_d/preparation.py` 使用绑定在释放前复制的数组与元数据构造不可变的三维 `CaseData`。`python/physical_models/zone_units.py` 负责保存分区数据的单位转换。
+- **前处理准备（`native/preprocess/`，ABI 5）**：`python/cpp_interface/native_preparation.py` 与 `python/cpp_interface/preparation_host.py` 绑定扁平二维和三维 `v1` 族入口及统一的 `tpmshx_preparation_callbacks_v3`。`python/preprocess/two_d/preparation.py` 使用绑定在释放前复制的数组与元数据构造不可变的二维 `CaseData`。`python/preprocess/three_d/preparation.py` 使用绑定在释放前复制的数组与元数据构造不可变的三维 `CaseData`。`python/physical_models/zone_units.py` 负责保存分区数据的单位转换。
 - **入口物性查询**：`python/cpp_interface/inlet_properties.py` 为独立的 `physical_models.tpms_calc.compute` 绑定 `tpmshx_query_inlet_properties_v2`。Python 保留几何选择、共享缓存、逐次 `K_ss` 查询和警告策略。见[入口物性查询](../docs/native-stages.zh-CN.md#入口物性查询)。
 - **完整二维与三维执行（`native/solver/`，二维保存态 ABI 5／三维保存态 ABI 3、捕获 ABI 2）**：求解宿主 `python/solvers/full_2d.py` 与 `python/solvers/full_3d.py` 校验保存工况、选择模型与运行控制、重放警告并组装 `FieldResult`。`python/cpp_interface/full_2d_stage.py` 与 `python/cpp_interface/full_3d_stage.py` 仅绑定保存态阶段生命周期（`tpmshx_run_saved_case_2d_v5`、`tpmshx_run_saved_case_3d_v3` 及经由 `python/cpp_interface/run_state.py` 使用宿主错误映射的检查点创建／恢复入口），并在释放前复制原生输出。两者均要求库提供 `execution_view_v1`、`records_v1`、`report_v1` 和 `get_capture_v1`；缺少这些入口的库按部署错误直接失败。
 - **执行与适用性记录**：保存态二维／三维运行在原生结果释放前复制适用性分组与必需记录。`python/cpp_interface/solver_library/stage_capture.py` 复制原生捕获视图、闭合记录、账本与适用性选择，`python/solvers/stage_execution.py` 将原生报告关联到可移植模型角色，`python/data_types/field_result.py` 发布 `execution_record`（`full_execution_v1`）及带 `scope_notes` 的 `applicability_evidence`。`python/solvers/execution_record.py` 仅在非阶段或测试构造的 `FieldResult` 缺少该字段时补充组装 `full_execution_v1`。
@@ -60,7 +60,7 @@ Python 之外的 C/C++ 调用流程见[原生阶段 SDK](../docs/native-stages.z
 | 阶段评估与资格判断 | [result_stage.cpp](../native/postprocess/result_stage.cpp): `evaluate`, `evaluate_applicability`, `evaluate_physical_balance`, `evaluate_qualification` |
 
 几何库使用 geometry ABI 2 和 field ABI 3。
-准备库使用 preparation ABI 4 和 Quick Design 准备 v3。
+准备库使用 preparation ABI 5 和 Quick Design 准备 v3。
 结果库使用 result ABI 3。
 求解器内部边界见[C++ 接入说明](../docs/cpp-migration.zh-CN.md)，Python 保留职责见[架构说明](../docs/architecture.zh-CN.md#retained-python-responsibilities)。
 

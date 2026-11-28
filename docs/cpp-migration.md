@@ -29,7 +29,7 @@ Four independent C++ shared libraries own all production numerical calculations:
 | Library | Source directory | Active ABI and role |
 | --- | --- | --- |
 | Geometry | [geometry](../native/geometry/) | Geometry ABI 2 and field ABI 3: cell geometry, chi/Kss, grids, ports, splines, sigmoid, LUTs, zones. |
-| Preparation | [preprocess](../native/preprocess/) | Preparation ABI 4 and Quick Design preparation v3: properties, Nu closures, fixed D-F, 2D/3D and Quick preparation. |
+| Preparation | [preprocess](../native/preprocess/) | Preparation ABI 5 and Quick Design preparation v3: properties, Nu closures, fixed D-F, 2D/3D and Quick preparation. |
 | Solver | [solver](../native/solver/) | Saved 2D ABI 5, saved 3D ABI 3, capture ABI 2, and Quick Design run v2. |
 | Result | [postprocess](../native/postprocess/) | Result ABI 3 (`float64` + `int32` labels): metrics, physical balances, applicability, zone statistics, and qualification. |
 
@@ -101,8 +101,8 @@ The independent preparation core in [preprocess](../native/preprocess/) calculat
 Its CMake targets (`tpmshx_preparation`, `tpmshx_preparation_c`, `tpmshx_preparation_shared`) reuse geometry and shared property implementations with the locked CoolProp static library.
 This project needs no solver runtime, `run_state`, SuperLU, or AMG.
 
-`python/cpp_interface/stage_libraries.py` loads preparation ABI 4 independently on demand.
-Preparation ABI 4 uses flat `(abi_version, struct_size)` input structs, unified `tpmshx_preparation_callbacks_v2`, and clean `v1` family entry names.
+`python/cpp_interface/stage_libraries.py` loads preparation ABI 5 independently on demand.
+Preparation ABI 5 uses flat `(abi_version, struct_size)` input structs, unified `tpmshx_preparation_callbacks_v3`, and clean `v1` family entry names.
 Status 0 indicates success, 1 invalid input, 2 allocation failure, and 3 a runtime error.
 Status 10, 11, or 12 indicates a water, CO2, or sCO2 state error, respectively.
 The flow and Quick Design preparation entries return status 13 for scalar division by zero.
@@ -110,7 +110,7 @@ See [native stages](native-stages.md) for every active 2D, 3D, inlet-query, and 
 
 - [Inlet-property query](native-stages.md#inlet-property-query): `tpmshx_query_inlet_properties_v2` returns 12 `float64` values with no grid or solver.
 - [Spatial total mass flow](native-stages.md#spatial-total-mass-flow): capacity, flow resolution, and complete 2D preparation for uniform, continuous XY, discrete zone, and sigmoid inputs.
-- [Spatial host cache interface](native-stages.md#spatial-host-cache-interface): `preparation_host.py` and `tpmshx_preparation_callbacks_v2` cache transport without numerical host callbacks.
+- The preparation library owns the inlet and sigmoid caches. [Preparation caches and observations](native-stages.md#preparation-caches-and-observations)
 - [Existing offset geometry](native-stages.md#existing-offset-geometry): nonzero `delta_levelset` nominal thermal-side geometry and split rules.
 - [Uniform 3D preparation](native-stages.md#uniform-3d-preparation): uniform, continuous XY/XYZ, and XY grid-rectangle 3D preparation with `preparation_case_3d_c_api.h`.
 - [Quick Design stage](native-stages.md#quick-design-stage): `tpmshx_prepare_quick_design_v3` and `tpmshx_quick_pressure_fractions_v3`.

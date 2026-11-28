@@ -8,7 +8,7 @@
 #include "tpmshx/preparation_df_data.hpp"
 #include "preparation_df_fields.hpp"
 #include "preparation_properties.hpp"
-#include "scalar_cache.hpp"
+#include "sigmoid_preparation.hpp"
 #include "preparation_nu.hpp"
 #include "../geometry/field_continuous.hpp"
 #include "../geometry/field_lut.hpp"
@@ -22,7 +22,6 @@
 #include <iomanip>
 #include <limits>
 #include <locale>
-#include <list>
 #include <sstream>
 #include <stdexcept>
 #include <string_view>
@@ -699,22 +698,39 @@ InletQueryResult inlet_property_values(const InletPropertyQuery& query,Records& 
     return output;
 }
 
-template<class Input,class Inlet>
-UniformInletProperties inlet_properties(const Input& input,const Inlet& inlet,std::size_t index,
-                                       const geometry::MaterialGeometry& geometry,Records& records,
-                                       bool unbound=false,const std::string& bound_layout="scalar") {
-    InletPropertyQuery query;
-    query.inlet=inlet_key(input,index,true);
-    query.inlet.fluid=inlet.fluid;query.inlet.velocity_m_s=inlet.velocity_m_s;
-    query.inlet.temperature_K=inlet.temperature_K;query.inlet.pressure_Pa=inlet.pressure_Pa;
-    query.hydraulic_diameter_m=geometry.geometry.hydraulic_diameter;
-    query.epsilon_a=geometry.geometry.epsilon_a;
-    query.exact_co2_drag=inlet.fluid==Fluid::co2;
-    const auto values=inlet_property_values(query,records,unbound?"unbound":index?"B":"A",
-        unbound?"unbound":"inlet",unbound?"source":bound_layout,false,static_cast<std::uint32_t>(index));
-    return {values[0],values[1],values[2],values[3],values[4],values[5],
-        values[6],values[7],values[8],values[9],values[10],values[11],
-        geometry.solid_conductivity};
+template<class Geometry>
+PreparationInletCache cached_inlet(const PreparationInletKey& key, Geometry geometry, const PreparationCallbacks& callbacks,
+                                  const std::string& side, const std::string& layout, std::uint32_t notice_side,
+                                  bool standalone=false) {
+    if (auto saved=find_inlet(key)) return *saved;
+    PreparationInletCache value;
+    value.geometry=geometry();
+    Records local{value.evidence,callbacks,{},{}};
+    const InletPropertyQuery query{key,value.geometry.hydraulic_diameter,value.geometry.epsilon_a,key.fluid==Fluid::co2};
+    const auto row=inlet_property_values(query,local,side,side=="unbound"?"unbound":"inlet",layout,standalone,notice_side);
+    value.properties={row[0],row[1],row[2],row[3],row[4],row[5],row[6],row[7],row[8],row[9],row[10],row[11],0.};
+    for (auto& range:value.evidence.ranges) {
+        range.side=range.stage="unbound";
+        range.layout="source";
+    }
+    value.evidence.warnings=std::move(local.plain_warnings);
+    auto events=std::move(value.evidence.events);
+    auto result=*publish_inlet(key,std::move(value));
+    result.evidence.events=std::move(events);
+    return result;
+}
+
+template<class Input,class Geometry>
+PreparationInletCache stage_inlet(const Input& input,std::size_t index,const PreparationOptions& options,
+        bool nominal,const std::string& side,const std::string& layout,Geometry geometry,Records& records) {
+    auto result=cached_inlet(inlet_key(input,index,nominal),geometry,records.callbacks,
+                             side,layout,static_cast<std::uint32_t>(index));
+    const auto& model=input.geometry;
+    result.properties.solid_conductivity_W_mK=geometry::solid_conductivity(
+        geometry::calibration(model.topology).solid_tortuosity,result.geometry.epsilon,
+        model.solid_conductivity_W_mK,options.chi_override);
+    records.merge(result.evidence,side=="unbound"?"":side,layout);
+    return result;
 }
 
 template<class Input,class Inlet>
@@ -832,6 +848,12 @@ template<class Input> void model_evidence(const Input& input,PreparationEvidence
             "accuracy for variable-property heat exchangers or geometry gradients.");
     }
 }
+const geometry::Co2GeometryTable& co2_table(Topology topology) {
+    static const std::array<geometry::Co2GeometryTable,2> tables{
+        geometry::Co2GeometryTable::from_generated(Topology::diamond),
+        geometry::Co2GeometryTable::from_generated(Topology::gyroid)};
+    return tables.at(static_cast<std::size_t>(topology));
+}
 template<class Input>
 geometry::MaterialGeometry material_geometry(const Input& input,const PreparationOptions& options) {
     const auto& model=input.geometry;
@@ -840,9 +862,7 @@ geometry::MaterialGeometry material_geometry(const Input& input,const Preparatio
     const bool co2=co2_geometry(input);
     if (co2) {
         require_valid_chi(options);
-        static const std::array<geometry::Co2GeometryTable,2> tables{{geometry::Co2GeometryTable::from_generated(Topology::diamond),
-                                                                   geometry::Co2GeometryTable::from_generated(Topology::gyroid)}};
-        output=tables[static_cast<std::size_t>(model.topology)].evaluate(
+        output=co2_table(model.topology).evaluate(
             model.cell_length_mm,model.wall_thickness_mm,model.solid_conductivity_W_mK,options.chi_override);
     } else {
         output.geometry=cached_geometry(model.topology,model.cell_length_mm,model.wall_thickness_mm,128);
@@ -1026,7 +1046,6 @@ PreparedCase2D prepare_case(const CaseInput2D& input,const PreparationOptions& o
     nominal_grid_steps(input,records);
     const auto& model=input.geometry;
     check_co2_chi(input,options);
-    if (callbacks.validate_host_input) callbacks.validate_host_input(callbacks.context,1,2);
     output.uniform_geometry=material_geometry(input,options);
     const auto& uniform=output.uniform_geometry.geometry;
     output.hydraulic_radius_m=geometry::hydraulic_radius(uniform.hydraulic_diameter);
@@ -1069,28 +1088,11 @@ PreparedCase2D prepare_case(const CaseInput2D& input,const PreparationOptions& o
     output.uniform_geometry=material_geometry(input,options);
     prepare_thermal_sides(output,input);
     for (std::size_t i=0;i<2;++i) {
-        if (callbacks.validate_host_input)
-            callbacks.validate_host_input(callbacks.context,2,static_cast<std::uint32_t>(i));
         auto& side=output.sides[i];
-        if (!callbacks.inlet_cache) {
-            side.properties=inlet_properties(input,inlets[i],i,output.uniform_geometry,records);
-            continue;
-        }
-        PreparationInletCache cached{};
-        const auto index=static_cast<std::uint32_t>(i);
-        const bool hit=callbacks.inlet_cache(callbacks.context,false,index,inlets[i],cached);
-        if (!hit) {
-            const auto geometry=material_geometry(input,options);
-            cached.geometry=geometry.geometry;
-            Records local_records{cached.evidence,callbacks,{},{}};
-            cached.properties=inlet_properties(input,inlets[i],i,geometry,local_records);
-            callbacks.inlet_cache(callbacks.context,true,index,inlets[i],cached);
-        }
-        side.properties=cached.properties;
-        const auto calibration=geometry::calibration(model.topology);
-        side.properties.solid_conductivity_W_mK=geometry::solid_conductivity(calibration.solid_tortuosity,
-            cached.geometry.epsilon,model.solid_conductivity_W_mK,options.chi_override);
-        records.merge(cached.evidence,i?"B":"A");
+        const auto value=stage_inlet(input,i,options,true,i?"B":"A","scalar",
+            [&] {return material_geometry(input,options).geometry;},records);
+        side.property_geometry=value.geometry;
+        side.properties=value.properties;
     }
     output.uniform_geometry=material_geometry(input,options);
     const auto cells=count(output.grid.nx,output.grid.ny);
@@ -1185,33 +1187,14 @@ SigmoidLUT2D sigmoid_lut_axes(std::size_t cell_nodes,std::size_t wall_nodes) {
     return output;
 }
 
-// Raw calls retain first typed values; host hooks own the shared cache.
 struct ZonedCache {
-    struct GeometryEntry {std::array<double,3> key;geometry::Geometry value;};
-    struct InletEntry {std::array<double,7> key;PreparationInletCache value;};
-    const PreparationCallbacks& callbacks;
-    std::list<GeometryEntry> geometries;
-    std::list<InletEntry> inlets;
-    std::optional<SigmoidLUT2D> loaded_lut;
+    TableValue loaded_lut;
 
     geometry::MaterialGeometry material(const CaseInput2D& input,const PreparationOptions& options) {
         const auto& model=input.geometry;
         const std::array<double,3> key{model.cell_length_mm,model.wall_thickness_mm,static_cast<double>(model.topology)};
-        if (!callbacks.inlet_cache_at) {
-            const auto found=std::find_if(geometries.begin(),geometries.end(),[&](const auto& item){return item.key==key;});
-            if (found!=geometries.end()) {
-                geometries.splice(geometries.begin(),geometries,found);
-                return geometry::with_material(found->value,geometry::calibration(model.topology).solid_tortuosity,
-                    model.solid_conductivity_W_mK,options.chi_override);
-            }
-        }
         try {
-            const auto result=material_geometry(input,options);
-            if (!callbacks.inlet_cache_at) {
-                geometries.push_front({key,result.geometry});
-                if (geometries.size()>32768) geometries.pop_back();
-            }
-            return result;
+            return material_geometry(input,options);
         } catch (const geometry::ScalarGeometryError& error) {
             using Reason=geometry::ScalarGeometryReason;
             switch (error.reason) {
@@ -1226,45 +1209,14 @@ struct ZonedCache {
     }
     PreparationInletCache properties(const CaseInput2D& input,std::size_t side,bool nominal,
                                     const PreparationOptions& options,Records& records) {
-        const auto& inlet=input.sides[side];
-        const std::array<double,7> key{input.geometry.cell_length_mm,input.geometry.wall_thickness_mm,
-            inlet.velocity_m_s,inlet.temperature_K,inlet.pressure_Pa,nominal?1.:0.,static_cast<double>(input.geometry.topology)};
-        const auto probe=inlet_key(input,side,nominal);PreparationInletCache value;
-        bool hit=false;
-        if (callbacks.inlet_cache_at) hit=callbacks.inlet_cache_at(callbacks.context,false,probe,value);
-        else {
-            const auto found=std::find_if(inlets.begin(),inlets.end(),[&](const auto& item){return item.key==key;});
-            hit=found!=inlets.end();
-            if (hit) {inlets.splice(inlets.begin(),inlets,found);value=inlets.front().value;}
-        }
-        if (!hit) {
-            const auto geometry=material(input,options);value.geometry=geometry.geometry;
-            Records local{value.evidence,records.callbacks,{},{}};
-            value.properties=inlet_properties(input,inlet,side,geometry,local,!nominal);
-            if (nominal) for (auto& range:value.evidence.ranges) {
-                range.side=range.stage="unbound";range.layout="source";
-            }
-            if (callbacks.inlet_cache_at) callbacks.inlet_cache_at(callbacks.context,true,probe,value);
-            else {inlets.push_front({key,value});if (inlets.size()>4096) inlets.pop_back();}
-        }
-        value.properties.solid_conductivity_W_mK=geometry::solid_conductivity(
-            geometry::calibration(input.geometry.topology).solid_tortuosity,value.geometry.epsilon,
-            input.geometry.solid_conductivity_W_mK,options.chi_override);
-        if (hit) value.evidence.events.clear();
-        records.merge(value.evidence,nominal?(side?"B":"A"):"");
-        return value;
+        return stage_inlet(input,side,options,nominal,nominal?(side?"B":"A"):"unbound",nominal?"scalar":"source",
+            [&] {return material(input,options).geometry;},records);
     }
     const SigmoidLUT2D& lut(const ZonedInput2D& input) {
         if (!input.spatial_model || !input.spatial_model->load_default_lut) return input.sigmoid->lut;
         if (!loaded_lut) {
-            auto values=sigmoid_lut_axes(41,31);
             const auto topology=input.input.geometry.topology;
-            const bool hit=callbacks.sigmoid_lut_cache && callbacks.sigmoid_lut_cache(callbacks.context,false,topology,256,values);
-            if (!hit) {
-                values=build_sigmoid_lut_2d(topology);
-                if (callbacks.sigmoid_lut_cache) callbacks.sigmoid_lut_cache(callbacks.context,true,topology,256,values);
-            }
-            loaded_lut=std::move(values);
+            loaded_lut=default_sigmoid_table(topology,41,31,256);
         }
         return *loaded_lut;
     }
@@ -1506,18 +1458,14 @@ void zoned_fields(PreparedZonedCase2D& output,const ZonedInput2D& request,const 
     }
 }
 
-void validate_zoned_request(const ZonedInput2D& request,const PreparationCallbacks& callbacks) {
+void validate_zoned_request(const ZonedInput2D& request) {
     validate_zone_bounds(request);
     if (request.spatial_model) positive(request.spatial_model->solid_conductivity_W_mK,"spatial.solid_conductivity_W_mK");
     if (request.sigmoid && request.kind!=1)
         throw std::invalid_argument("sigmoid preparation requires grid zones");
     if (request.input.geometry_mode!=2 || request.input.continuous)
         throw std::invalid_argument("native zoned preparation requires geometry_mode=2 and raw regions");
-    if (callbacks.validate_host_input || callbacks.inlet_cache
-        || callbacks.observe_range || callbacks.observe_notice) {
-        if (!callbacks.inlet_cache_at)
-            throw std::invalid_argument("native zoned preparation currently accepts event callbacks only");
-    }
+
 }
 void require_spatial_air(const CaseInput2D& input) {
     if (input.sides[0].fluid==Fluid::air && input.sides[1].fluid==Fluid::air) return;
@@ -1536,24 +1484,38 @@ void spatial_regions(PreparedZonedCase2D& output,const ZonedInput2D& request) {
     auto regions=request.regions;if (!request.kind) sort_stripes(regions);
     if (!request.sigmoid) for (const auto& region:regions) output.regions.push_back({region,{},{},{}});
 }
-PreparedZonedCase2D prepare_zoned_case(const ZonedInput2D& request,const PreparationOptions& options,
-                                     const PreparationCallbacks& callbacks,ZonedCache& cache,PreparedZonedCase2D* retained=nullptr) {
+SpatialPrefix zoned_prefix(const ZonedInput2D& request,const PreparationOptions& options,
+                                     const PreparationCallbacks& callbacks,ZonedCache& cache,bool resolved_mass) {
     FloatingEnvironment floating_environment;
-    validate_zoned_request(request,callbacks);
+    validate_zoned_request(request);
     auto input=request.input;input.geometry_mode=0;validate_nu(input.sco2_nu);
-    const auto inlets=validate(input,input.offset_scope?CaseScope::offset_v10:retained?CaseScope::uniform_mass_v3:CaseScope::air_cfd_v1);input.sides=inlets;
+    const auto inlets=validate(input,input.offset_scope?CaseScope::offset_v10:resolved_mass?CaseScope::uniform_mass_v3:CaseScope::air_cfd_v1);input.sides=inlets;
     if (input.offset_scope && input.df_mode)
         throw std::invalid_argument(experimental_layout_error);
-    auto output=spatial_output(request,input,options);auto& prepared=output.prepared;
+    SpatialPrefix prefix;
+    prefix.output=spatial_output(request,input,options);
+    auto& prepared=prefix.output.prepared;
     Records records{prepared.evidence,callbacks,{},{}};
     nominal_grid_steps(input,records);
     check_co2_chi(input,options);
-    if (callbacks.validate_host_input) callbacks.validate_host_input(callbacks.context,1,2);
     prepared.uniform_geometry=cache.material(input,options);
     preflight(input,options,inlets,records);
     if (input.offset_scope) require_spatial_air(input);
     if (callbacks.validate_host_input) callbacks.validate_host_input(callbacks.context,4,2);
-    spatial_regions(output,request);
+    spatial_regions(prefix.output,request);
+    prefix.warning_order=std::move(records.warning_order);
+    prefix.plain_warnings=std::move(records.plain_warnings);
+    return prefix;
+}
+PreparedZonedCase2D finish_zoned_case(const ZonedInput2D& request,SpatialPrefix prefix,
+        const PreparationCallbacks& callbacks,ZonedCache& cache,PreparedZonedCase2D* retained=nullptr) {
+    FloatingEnvironment floating_environment;
+    auto output=std::move(prefix.output);
+    auto& prepared=output.prepared;
+    auto input=prepared.input;input.geometry_mode=0;
+    const auto& options=prepared.options;
+    const auto& inlets=input.sides;
+    Records records{prepared.evidence,callbacks,std::move(prefix.warning_order),std::move(prefix.plain_warnings)};
     PhysicalGrid2D requested;requested.nx=input.grid.requested_nx;requested.ny=input.grid.requested_ny;
     if (request.sigmoid) sigmoid_fields(output,request,requested,false,records,cache);
     else zoned_fields(output,request,requested,false,cache,records);
@@ -1602,6 +1564,7 @@ PreparedZonedCase2D prepare_zoned_case(const ZonedInput2D& request,const Prepara
     prepare_thermal_sides(prepared,input);
     for (std::size_t i=0;i<2;++i) {
         const auto cached=cache.properties(input,i,true,options,records);
+        prepared.sides[i].property_geometry=cached.geometry;
         prepared.sides[i].properties=cached.properties;
     }
     prepared.uniform_geometry=cache.material(input,options);
@@ -1659,7 +1622,6 @@ InletGeometry2D prepare_inlet_geometry(const CaseInput2D& input,
     const auto inlets=validate(input,flow_scope(input),true);
     Records records{flow.evidence,callbacks,{},{}};nominal_grid_steps(input,records);
     check_co2_chi(input,options);
-    if (callbacks.validate_host_input) callbacks.validate_host_input(callbacks.context,1,2);
     InletGeometry2D output{};output.material=material_geometry(input,options);
     if (callbacks.validate_grid) callbacks.validate_grid(callbacks.context);
     output.grid=physical_grid(input.grid,inlets);
@@ -1707,9 +1669,9 @@ InletFlowRequest2D spatial_flow_request(const ZonedFlowRequest2D& source) {
     InletFlowRequest2D output{source.input.input,source.explicit_targets};
     output.input.geometry_mode=0;return output;
 }
-PreparedZonedCase2D prepare_spatial_inlet_geometry(const ZonedInput2D& request,
+SpatialPrefix spatial_inlet_prefix(const ZonedInput2D& request,
     const PreparationOptions& options,const PreparationCallbacks& callbacks,ZonedCache& cache,InletFlow2D& flow) {
-    validate_zoned_request(request,callbacks);
+    validate_zoned_request(request);
     auto input=request.input;input.geometry_mode=0;
     const auto inlets=validate(input,CaseScope::uniform_mass_v3,true);input.sides=inlets;
     if (input.df_mode && !request.spatial_model)
@@ -1717,15 +1679,27 @@ PreparedZonedCase2D prepare_spatial_inlet_geometry(const ZonedInput2D& request,
     if (!input.offset_scope) for (const auto& side:inlets) if (side.fluid!=Fluid::air)
         throw std::invalid_argument("native 2D preparation currently supports air/air only");
     Records records{flow.evidence,callbacks,{},{}};nominal_grid_steps(input,records);
-    auto output=spatial_output(request,input,options);auto& prepared=output.prepared;
+    SpatialPrefix prefix;
+    prefix.output=spatial_output(request,input,options);
+    auto& prepared=prefix.output.prepared;
     check_co2_chi(input,options);
-    if (callbacks.validate_host_input) callbacks.validate_host_input(callbacks.context,1,2);
     prepared.uniform_geometry=cache.material(input,options);
     if (callbacks.validate_grid) callbacks.validate_grid(callbacks.context);
     prepared.grid=physical_grid(input.grid,inlets,true);record_grid(input,prepared.grid,records);
     if (input.offset_scope) require_spatial_air(input);
     if (callbacks.validate_host_input) callbacks.validate_host_input(callbacks.context,4,2);
-    spatial_regions(output,request);
+    spatial_regions(prefix.output,request);
+    prefix.warning_order=std::move(records.warning_order);
+    prefix.plain_warnings=std::move(records.plain_warnings);
+    return prefix;
+}
+PreparedZonedCase2D finish_spatial_inlet(const ZonedInput2D& request,SpatialPrefix prefix,
+    const PreparationCallbacks& callbacks,ZonedCache& cache,InletFlow2D& flow) {
+    auto output=std::move(prefix.output);
+    auto& prepared=output.prepared;
+    auto input=prepared.input;input.geometry_mode=0;
+    const auto& inlets=input.sides;
+    Records records{flow.evidence,callbacks,std::move(prefix.warning_order),std::move(prefix.plain_warnings)};
     Records geometry_records{prepared.evidence,callbacks,{},{}};
     if (request.sigmoid) sigmoid_geometry(output,request,prepared.grid,true,geometry_records,cache.lut(request));
     else zoned_geometry(output,request,prepared.grid,true,cache,true);
@@ -1751,11 +1725,35 @@ InletQueryResult query_inlet_properties(const InletPropertyQuery& input,const Pr
     return inlet_property_values(input,records,"unbound","unbound","source",true);
 }
 
+PreparationInletCache query_cached_inlet(const PreparationInletKey& key,const PreparationCallbacks& callbacks) {
+    FloatingEnvironment floating_environment;
+    topology_name(key.geometry.topology);fluid_name(key.fluid);
+    return cached_inlet(key,[&] {
+        const auto& g=key.geometry;
+        if (key.co2_geometry || key.fluid==Fluid::co2) {
+            if (callbacks.validate_host_input) callbacks.validate_host_input(callbacks.context,4,10);
+            return co2_table(g.topology).evaluate(g.cell_length_mm,g.wall_thickness_mm).geometry;
+        }
+        return cached_geometry(g.topology,g.cell_length_mm,g.wall_thickness_mm,128);
+    },callbacks,"unbound","source",0,true);
+}
+
+TableValue default_sigmoid_table(Topology topology,std::size_t cell_nodes,std::size_t wall_nodes,std::size_t resolution) {
+    FloatingEnvironment floating_environment;
+    count(cell_nodes,wall_nodes);
+    auto axes=sigmoid_lut_axes(cell_nodes,wall_nodes);
+    if (auto hit=find_table(topology,resolution,axes)) return hit;
+    return publish_table(topology,resolution,build_sigmoid_table(topology,std::move(axes),resolution));
+}
+
 SigmoidLUT2D build_sigmoid_lut_2d(Topology topology,std::size_t cell_nodes,
     std::size_t wall_nodes,std::size_t resolution) {
+    return *default_sigmoid_table(topology,cell_nodes,wall_nodes,resolution);
+}
+
+SigmoidLUT2D build_sigmoid_table(Topology topology,SigmoidLUT2D output,std::size_t resolution) {
     FloatingEnvironment floating_environment;
-    const auto cells=count(cell_nodes,wall_nodes);
-    auto output=sigmoid_lut_axes(cell_nodes,wall_nodes);
+    const auto cells=count(output.cell_mm.size(),output.wall_mm.size());
     output.porosity.reserve(cells);output.area_density.reserve(cells);
     const auto index=geometry::PhiIndex::from_topology(topology,resolution);
     const auto model=geometry::calibration(topology);
@@ -1804,49 +1802,85 @@ PreparedFlowCase2D prepare_flow_case_2d(const InletFlowRequest2D& request,
 
 PreparedZonedCase2D prepare_zoned_case_2d(const ZonedInput2D& input,const PreparationOptions& options,
     const PreparationCallbacks& callbacks) {
-    ZonedCache cache{callbacks,{},{},{}};return prepare_zoned_case(input,options,callbacks,cache);
+    ZonedCache cache;
+    auto prefix=zoned_prefix(input,options,callbacks,cache,false);
+    return finish_zoned_case(input,std::move(prefix),callbacks,cache);
+}
+
+ZonedPreparation start_zoned(const ZonedFlowRequest2D& request,ZonedOperation operation,
+    const PreparationOptions& options,const PreparationCallbacks& callbacks,bool defer_missing_table) {
+    FloatingEnvironment floating_environment;
+    ZonedPreparation state{};
+    state.operation=operation;state.options=options;state.flow.input=request.input;
+    if (operation==ZonedOperation::capacities) {
+        state.flow.flow.input=request.input.input;
+        state.physical_grid=true;
+    } else {
+        state.targets=flow_targets(spatial_flow_request(request),state.flow.flow.input);
+        state.physical_grid=state.targets[0] || state.targets[1];
+        if (!state.physical_grid && operation==ZonedOperation::resolve) {
+            state.flow.flow.input=request.input.input;
+            state.needs_fields=false;
+            return state;
+        }
+        state.flow.input.input=state.flow.flow.input;
+        state.flow.input.input.geometry_mode=2;
+        if (!state.physical_grid) resolved_spatial_input(state.flow);
+    }
+    ZonedCache cache;
+    if (state.physical_grid)
+        state.prefix=spatial_inlet_prefix(state.flow.input,options,callbacks,cache,state.flow.flow);
+    else {
+        if (callbacks.validate_host_input) callbacks.validate_host_input(callbacks.context,0,2);
+        state.prefix=zoned_prefix(state.flow.input,options,callbacks,cache,false);
+    }
+    const auto& input=state.flow.input;
+    if (input.sigmoid && input.spatial_model && input.spatial_model->load_default_lut) {
+        auto axes=sigmoid_lut_axes(41,31);
+        const auto topology=input.input.geometry.topology;
+        state.table=find_table(topology,256,axes);
+        if (!state.table) {
+            if (defer_missing_table) state.requested_axes=std::move(axes);
+            else state.table=publish_table(topology,256,build_sigmoid_table(topology,std::move(axes),256));
+        }
+    }
+    return state;
+}
+
+PreparedZonedFlowCase2D finish_zoned(ZonedPreparation state,const PreparationCallbacks& callbacks) {
+    FloatingEnvironment floating_environment;
+    PreparedZonedFlowCase2D result;
+    auto& flow=result.flow;
+    flow=std::move(state.flow);
+    if (!state.needs_fields) return result;
+    ZonedCache cache{std::move(state.table)};
+    if (state.physical_grid) {
+        auto geometry=finish_spatial_inlet(flow.input,std::move(state.prefix),callbacks,cache,flow.flow);
+        if (state.operation!=ZonedOperation::capacities) {
+            resolve_speeds(state.targets,flow.flow,flow.input.spatial_model.has_value());
+            resolved_spatial_input(flow);
+        }
+        if (state.operation==ZonedOperation::prepare) {
+            if (callbacks.validate_host_input) callbacks.validate_host_input(callbacks.context,0,2);
+            auto prefix=zoned_prefix(flow.input,state.options,callbacks,cache,true);
+            result.prepared=finish_zoned_case(flow.input,std::move(prefix),callbacks,cache,&geometry);
+        }
+    } else result.prepared=finish_zoned_case(flow.input,std::move(state.prefix),callbacks,cache);
+    cache.retain_lut(flow.input);
+    return result;
 }
 
 ZonedInletFlow2D prepare_zoned_inlet_mass_capacities_2d(const ZonedInput2D& input,
     const PreparationOptions& options,const PreparationCallbacks& callbacks) {
-    FloatingEnvironment floating_environment;
-    ZonedInletFlow2D output;output.input=input;output.flow.input=input.input;ZonedCache cache{callbacks,{},{},{}};
-    prepare_spatial_inlet_geometry(input,options,callbacks,cache,output.flow);
-    cache.retain_lut(output.input);return output;
+    return finish_zoned(start_zoned({input,{}},ZonedOperation::capacities,options,callbacks,false),callbacks).flow;
 }
-
 ZonedInletFlow2D resolve_zoned_inlet_flow_2d(const ZonedFlowRequest2D& request,
     const PreparationOptions& options,const PreparationCallbacks& callbacks) {
-    FloatingEnvironment floating_environment;
-    ZonedInletFlow2D output;output.input=request.input;
-    const auto flow_request=spatial_flow_request(request);
-    const auto targets=flow_targets(flow_request,output.flow.input);
-    if (!targets[0] && !targets[1]) {output.flow.input=request.input.input;return output;}
-    output.input.input=output.flow.input;output.input.input.geometry_mode=2;
-    ZonedCache cache{callbacks,{},{},{}};
-    prepare_spatial_inlet_geometry(output.input,options,callbacks,cache,output.flow);
-    resolve_speeds(targets,output.flow,request.input.spatial_model.has_value());resolved_spatial_input(output);
-    cache.retain_lut(output.input);return output;
+    return finish_zoned(start_zoned(request,ZonedOperation::resolve,options,callbacks,false),callbacks).flow;
 }
-
 PreparedZonedFlowCase2D prepare_zoned_flow_case_2d(const ZonedFlowRequest2D& request,
     const PreparationOptions& options,const PreparationCallbacks& callbacks) {
-    FloatingEnvironment floating_environment;
-    PreparedZonedFlowCase2D output;output.flow.input=request.input;ZonedCache cache{callbacks,{},{},{}};
-    const auto flow_request=spatial_flow_request(request);
-    const auto targets=flow_targets(flow_request,output.flow.flow.input);
-    output.flow.input.input=output.flow.flow.input;output.flow.input.input.geometry_mode=2;
-    if (!targets[0] && !targets[1]) {
-        resolved_spatial_input(output.flow);
-        if (callbacks.validate_host_input) callbacks.validate_host_input(callbacks.context,0,2);
-        output.prepared=prepare_zoned_case(output.flow.input,options,callbacks,cache);
-        cache.retain_lut(output.flow.input);return output;
-    }
-    auto geometry=prepare_spatial_inlet_geometry(output.flow.input,options,callbacks,cache,output.flow.flow);
-    resolve_speeds(targets,output.flow.flow,request.input.spatial_model.has_value());resolved_spatial_input(output.flow);
-    if (callbacks.validate_host_input) callbacks.validate_host_input(callbacks.context,0,2);
-    output.prepared=prepare_zoned_case(output.flow.input,options,callbacks,cache,&geometry);
-    cache.retain_lut(output.flow.input);return output;
+    return finish_zoned(start_zoned(request,ZonedOperation::prepare,options,callbacks,false),callbacks);
 }
 
 namespace {
@@ -2199,7 +2233,6 @@ void prepare_geometry_3d(PreparedCase3D& output,Records& records,bool check_spee
     check_co2_chi(input,options);
     host_3d(records,10);
     output.uniform_geometry=material_geometry(input,options);
-    host_3d(records,11);
     for (std::size_t i=0;i<2;++i) water_inlet_3d(input.sides[i],i,"pipeline inlet");
     host_3d(records,12);
     if (check_speed) preflight(input,options,input.sides,records);
@@ -2249,29 +2282,9 @@ void prepare_geometry_3d(PreparedCase3D& output,Records& records,bool check_spee
 }
 
 void air_uniform_ranges_3d(const PreparedCase3D& output,std::size_t side,Records& records) {
-    const auto& input=output.input;const auto& inlet=input.sides[side];
-    const auto& callbacks=records.callbacks;
-    if (!callbacks.inlet_cache_at) {
-        inlet_properties(input,inlet,side,output.uniform_geometry,records,false,"scalar-hv-bulk");
-        return;
-    }
-    const PreparationInletKey key{geometry_key(input),inlet.fluid,inlet.velocity_m_s,
-        inlet.temperature_K,inlet.pressure_Pa,{},co2_geometry(input)};
-    PreparationInletCache cached;
-    const bool hit=callbacks.inlet_cache_at(callbacks.context,false,key,cached);
-    if (!hit) {
-        const auto geometry=material_geometry(input,output.options);
-        cached.geometry=geometry.geometry;
-        Records local{cached.evidence,callbacks,{},{}};
-        cached.properties=inlet_properties(input,inlet,side,geometry,local,false,"scalar-hv-bulk");
-        for (auto& range:cached.evidence.ranges) {range.side="unbound";range.stage="unbound";range.layout="source";}
-        callbacks.inlet_cache_at(callbacks.context,true,key,cached);
-    }
-    // Public compute applies the current material after either cache outcome.
-    geometry::solid_conductivity(geometry::calibration(input.geometry.topology).solid_tortuosity,
-        cached.geometry.epsilon,input.geometry.solid_conductivity_W_mK,output.options.chi_override);
-    if (hit) cached.evidence.events.clear();
-    records.merge(cached.evidence,side?"B":"A","scalar-hv-bulk");
+    const auto& input=output.input;
+    stage_inlet(input,side,output.options,false,side?"B":"A","scalar-hv-bulk",
+        [&] {return material_geometry(input,output.options).geometry;},records);
 }
 
 void finish_case_3d(PreparedCase3D& output,Records& records) {

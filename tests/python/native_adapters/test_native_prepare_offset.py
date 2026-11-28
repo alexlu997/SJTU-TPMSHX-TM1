@@ -155,10 +155,6 @@ def test_offset_owned_buffers_survive_diagnostic_aliases(monkeypatch, tmp_path, 
     config.geometry.delta_levelset = .2
     source, problem = binding.pack_input(config, None, lambda fluid: fluid.u_mps, preparation._spatial_rows)
     assert problem is None
-    if mode == 'sigmoid':
-        lut_cache = binding._lut_cache(preparation._lut_cache())
-        lut_cache(0, 1, 16, source.lut)
-        source.model.load_default_lut = 0
     family = 'uniform' if mode == 'uniform' else 'sigmoid' if mode == 'sigmoid' else 'zoned'
     result_type = (native._UniformCase if mode == 'uniform' else
                    native._SigmoidCase if mode == 'sigmoid' else native._ZonedCase)
@@ -198,9 +194,6 @@ def test_offset_nested_headers_preserve_result(monkeypatch, tmp_path, mode, fiel
     config.geometry.delta_levelset = .2
     source, problem = binding.pack_input(config, None, lambda fluid: fluid.u_mps, preparation._spatial_rows)
     assert problem is None
-    if mode == 'sigmoid':
-        binding._lut_cache(preparation._lut_cache())(0, 1, 16, source.lut)
-        source.model.load_default_lut = 0
     family = 'uniform' if mode == 'uniform' else 'sigmoid' if mode == 'sigmoid' else 'zoned'
     result_type = (native._UniformCase if mode == 'uniform' else
                    native._SigmoidCase if mode == 'sigmoid' else native._ZonedCase)

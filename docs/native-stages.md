@@ -4,7 +4,7 @@
 
 ## Active C ABI
 
-Preparation ABI 4, Quick Design preparation v3, Quick Design run v2, 2D saved stage ABI 5, and 3D saved stage ABI 3 define the active computation C interfaces.
+Preparation ABI 5, Quick Design preparation v3, Quick Design run v2, 2D saved stage ABI 5, and 3D saved stage ABI 3 define the active computation C interfaces.
 Result ABI 3 defines the independent evaluation interface.
 All preparation and saved-run descriptors are flat structs with one top-level `(abi_version, struct_size)` header and no nested `values` chain.
 All stage numeric buffers use `float64`, and zone labels use `int32`.
@@ -12,8 +12,8 @@ The libraries export no earlier version of these stage operations.
 
 | Stage | Active C entries |
 | --- | --- |
-| 2D preparation (ABI 4) | `tpmshx_preparation_2d_{uniform,continuous,zoned,sigmoid}_{capacities,resolve_flow,prepare_case}_v1`, `tpmshx_preparation_2d_stripe_prepare_case_v1`, `tpmshx_query_inlet_properties_v2`, `tpmshx_preparation_sigmoid_lut_{create,release}_v7`, `tpmshx_preparation_df_experiment_scope_v1`, `tpmshx_preparation_collect_range_v1` |
-| 3D preparation (ABI 4) | `tpmshx_preparation_3d_{continuous,spatial}_{capacities,resolve_flow,prepare_case}_v1` |
+| 2D preparation (ABI 5) | `tpmshx_preparation_2d_{uniform,continuous,zoned,sigmoid}_{capacities,resolve_flow,prepare_case}_v1`, `tpmshx_preparation_2d_stripe_prepare_case_v1`, `tpmshx_query_inlet_properties_v2`, `tpmshx_preparation_cached_inlet_v1`, `tpmshx_preparation_cached_inlet_release_v1`, `tpmshx_preparation_sigmoid_lut_{create,release}_v7`, `tpmshx_preparation_sigmoid_{table,sample}_v1`, `tpmshx_preparation_df_experiment_scope_v1`, `tpmshx_preparation_collect_range_v1` |
+| 3D preparation (ABI 5) | `tpmshx_preparation_3d_{continuous,spatial}_{capacities,resolve_flow,prepare_case}_v1` |
 | Quick Design preparation | `tpmshx_prepare_quick_design_v3`, `tpmshx_quick_pressure_fractions_v3`, `tpmshx_quick_prepared_release_v2` |
 | 2D stage run (saved ABI 5) | `tpmshx_stage_run_2d_abi_version`, `tpmshx_run_saved_case_2d_v5`, `tpmshx_stage_run_2d_{create,restore}_saved_v5`, `tpmshx_stage_run_2d_{advance_step,finish,phase,snapshot,take_result,release_run,release}_v1`, `tpmshx_stage_run_2d_{records,execution_view,get_capture,zone_temperatures,report}_v1`, `tpmshx_stage_borrow_mesh_v1`, `tpmshx_stage_port_windows_fit_2d_v1`, `tpmshx_stage_run_2d_check_experiment_v4` |
 | 3D stage run (saved ABI 3, capture ABI 2) | `tpmshx_stage_run_3d_abi_version`, `tpmshx_stage_capture_3d_abi_version`, `tpmshx_run_saved_case_3d_v3`, `tpmshx_stage_run_3d_{create,restore}_saved_v3`, `tpmshx_stage_run_3d_{advance_step,finish,phase,snapshot,take_result,release_run,release}_v1`, `tpmshx_stage_run_3d_{records,execution_view,get_capture,report}_v1` |
@@ -89,14 +89,14 @@ It evaluates four-fluid properties, Nu, and fixed CFD drag in their production o
 
 `tpmshx_preparation_inlet_query_result_v1` (`abi_version = 1`, `struct_size = sizeof(tpmshx_preparation_inlet_query_result_v1)`) returns 12 `float64` values (`double values[12]`).
 This query allocates no owner and requires no release call.
-Pass optional `tpmshx_preparation_callbacks_v2` with null cache hooks and `validate_grid_stage = 0` to record range, notice, and floating-point events synchronously.
-Standalone `tpms_calc.compute` selects the registered fluid, geometry, shared cache, per-call `K_ss` and warning policy. Its `inlet_query` uses `python/cpp_interface/inlet_properties.py` to call this entry.
+Pass optional `tpmshx_preparation_callbacks_v3` with `validate_grid_stage = 0` to record range, notice, and floating-point events synchronously.
+Standalone `tpms_calc.compute` selects the registered fluid, geometry, shared cache, per-call `K_ss` and warning policy. It calls `tpmshx_preparation_cached_inlet_v1` and releases the owned result after it copies the source records.
 The optional keyword `df_mode` defaults to `cfd_smooth`. With `experimental`, the query applies the selected correction to the returned permeability, inertial coefficient and pressure gradient.
 The shared cache contains the base values. CO₂ uses its fixed correction for either mode.
 
 ## Spatial total mass flow
 
-Preparation ABI 4 provides `capacities`, `resolve_flow`, and `prepare_case` entries across all four 2D geometry families (`uniform`, `continuous`, `zoned`, `sigmoid`).
+Preparation ABI 5 provides `capacities`, `resolve_flow`, and `prepare_case` entries across all four 2D geometry families (`uniform`, `continuous`, `zoned`, `sigmoid`).
 `tpmshx_preparation_2d_stripe_prepare_case_v1` also returns per-stripe A-side hydraulic radius:
 
 - **Uniform (`FlowInput2D`)**: both topologies and all 16 ordered air/water/sCO2/CO2 fluid pairs, with CFD or eligible experimental D-F.
@@ -112,21 +112,30 @@ Total mass-flow targets use kg/s and require a positive physical depth in m; 2D 
 The caller must pass 0 (Diamond) or 1 (Gyroid) for `topology`.
 This interface defines the result only for these two codes.
 
-## Spatial host cache interface
+## Preparation caches and observations
 
-All 2D and 3D preparation entries accept one unified flat callback struct: `tpmshx_preparation_callbacks_v2` (`PreparationCallbacks` in `stages.hpp`).
-Initialize `abi_version = TPMSHX_PREPARATION_CALLBACK_ABI_VERSION` (2) and `struct_size = sizeof(tpmshx_preparation_callbacks_v2)`.
+The 2D and 3D preparation entries accept `tpmshx_preparation_callbacks_v3` (`PreparationCallbacks` in `stages.hpp`).
+Set `abi_version = TPMSHX_PREPARATION_CALLBACK_ABI_VERSION` and `struct_size = sizeof(tpmshx_preparation_callbacks_v3)`.
+The caller can receive events, range observations and notices synchronously.
+A nonzero observer return stops the operation.
+Set `validate_grid_stage` to zero for 3D or direct inlet queries.
+The 2D grid check requires a host validation function.
 
-- **Event and observation hooks**: `event`, `observe_range`, and `observe_notice` report diagnostics, range records, and notices (including geometry extrapolation reasons) synchronously on the caller thread.
-- **Host validation hooks**: `validate_host_input` and `validate_grid_stage` (`0` or `1`) keep Python object-check order without numerical values. `validate_grid_stage = 1` requires non-null `validate_host_input`.
-- The host retrieves inlet and sigmoid table values with action 0 and publishes them with action 1. On a hit, the host lends a read-only view through the end of the stage call. The host copies newly published values before the callback returns.
-- Uniform and continuous 2D use `inlet_cache`. Zoned, sigmoid and stripe 2D use `inlet_cache_at` and `sigmoid_lut_cache`. 3D accepts `inlet_cache_at` and requires `validate_grid_stage = 0`.
-- **Isolation rules**: callbacks do no numerical preparation. Returned views must not overlap output, failure, or error storage. A nonzero callback return stops the stage immediately so Python can re-raise its saved exception.
+The preparation library owns 32,768 scalar geometry entries and 4,096 inlet entries.
+The inlet key includes topology, dimensions, actual velocity, temperature, absolute pressure, fluid, the complete optional Nu selection and the CO₂ geometry flag.
+Each inlet stores five geometry scalars, twelve properties and source records.
+Preparation applies the current material and binds source records to the current side and layout.
+Each complete 2D result exposes both sides in `property_geometry`.
 
-The preparation library shares 32,768 scalar geometry entries across full preparation, Quick Design and standalone queries. Keys contain topology, cell length and wall thickness in mm, and voxel resolution. Solid conductivity uses the current material after each lookup.
-`python/physical_models/preparation_cache.py` owns the 4,096 inlet entries. `python/cpp_interface/preparation_host.py` copies host cache values and retains callback buffers.
-Python keeps disk/memory LUT storage; on a LUT miss, C++ builds the native 41×31 table at voxel resolution 256.
-The [spatial cache example](../examples/cpp/prepare_spatial_cache_2d.cpp) tests these typed callbacks outside Python.
+The library owns sigmoid tables indexed by topology, voxel resolution and both axes.
+C and C++ callers can supply a table or generate it in memory.
+Set `defer_default_lut` to request host file access on a default-table miss.
+At its first table request, preparation returns the axes, resolution and an owned `prefix`.
+Import or build the table with `tpmshx_preparation_sigmoid_table_v1`.
+Pass the prefix and table to the same entry with a fresh result.
+Release both results and the table with the creating library.
+Python verifies the NPZ and atomically replaces a missing or invalid file before it resumes preparation.
+The SDK example supplies a private table and reads native inlet statistics. [Spatial preparation example](../examples/cpp/prepare_spatial_cache_2d.cpp)
 
 ## Existing offset geometry
 

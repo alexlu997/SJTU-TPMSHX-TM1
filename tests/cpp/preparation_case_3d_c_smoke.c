@@ -11,7 +11,7 @@
     for (record_=0;record_<6;++record_) for (field_=0;field_<2;++field_) { \
         request_type request_=(base); \
         tpmshx_preparation_case_options_v1 options_={1,sizeof(options_),0,1,0.}; \
-        tpmshx_preparation_callbacks_v2 callbacks_={0}; \
+        tpmshx_preparation_callbacks_v3 callbacks_={0}; \
         tpmshx_preparation_case_failure_v2 failure_={0}; \
         result_type result_={0},saved_result_; \
         uint32_t* versions_[6]; size_t* sizes_[6]; \
@@ -80,20 +80,11 @@ static int TPMSHX_PREPARATION_CALL stop_event(void* context,const tpmshx_prepara
 static int TPMSHX_PREPARATION_CALL dummy_host(void* context,uint32_t stage,uint32_t side) {
     (void)context;(void)stage;(void)side;return 0;
 }
-static int TPMSHX_PREPARATION_CALL dummy_inlet(void* context,uint32_t action,uint32_t side,
-    const tpmshx_preparation_inlet_2d_v1* input,tpmshx_preparation_inlet_cache_v3* value,uint32_t* hit) {
-    (void)side; (void)input;
-    (void)context;(void)action;(void)value;*hit=0;return 0;
-}
-static int TPMSHX_PREPARATION_CALL dummy_lut(void* context,uint32_t action,uint32_t topology,
-    size_t resolution,tpmshx_preparation_sigmoid_lut_view_v6* value,uint32_t* hit) {
-    (void)context;(void)action;(void)topology;(void)resolution;(void)value;*hit=0;return 0;
-}
 int main(void) {
     tpmshx_preparation_case_input_3d_v1 input={0},original;
     tpmshx_preparation_case_failure_v2 failure={0},saved_failure;
     tpmshx_preparation_case_options_v1 options={1,sizeof(options),0,1,0.};
-    tpmshx_preparation_callbacks_v2 callback={2,sizeof(callback),NULL,0,stop_event};
+    tpmshx_preparation_callbacks_v3 callback={TPMSHX_PREPARATION_CALLBACK_ABI_VERSION,sizeof(callback),NULL,0,stop_event};
     const double dimensions[3]={.182,.042,.031};
     char error[4096]={0},saved_error[4096],source[]="source";
     size_t i,calls=0;
@@ -134,16 +125,10 @@ int main(void) {
         tpmshx_preparation_3d_spatial_case_release_v1(&combined);CHECK(!combined.owner && !combined.struct_size);
         tpmshx_preparation_3d_spatial_case_release_v1(&combined);tpmshx_preparation_3d_spatial_case_release_v1(NULL);
         combined.abi_version=1;combined.struct_size=sizeof(combined);saved_combined=combined;
-        /* 3D rejects untyped cache hooks, sigmoid_lut_cache, and validate_grid_stage != 0. */
+        /* 3D requires validate_grid_stage to be zero. */
         {
-            tpmshx_preparation_callbacks_v2 bad={2,sizeof(bad)};
-            bad.inlet_cache=dummy_inlet;
-            CHECK(tpmshx_preparation_3d_spatial_prepare_case_v1(&request,&options,&bad,&combined,&failure,error,sizeof(error))==1);
-            CHECK(!memcmp(&saved_combined,&combined,sizeof(combined)));
-            bad.inlet_cache=NULL;bad.sigmoid_lut_cache=dummy_lut;
-            CHECK(tpmshx_preparation_3d_spatial_prepare_case_v1(&request,&options,&bad,&combined,&failure,error,sizeof(error))==1);
-            CHECK(!memcmp(&saved_combined,&combined,sizeof(combined)));
-            bad.sigmoid_lut_cache=NULL;bad.validate_grid_stage=1;bad.validate_host_input=dummy_host;
+            tpmshx_preparation_callbacks_v3 bad={TPMSHX_PREPARATION_CALLBACK_ABI_VERSION,sizeof(bad)};
+            bad.validate_grid_stage=1;bad.validate_host_input=dummy_host;
             CHECK(tpmshx_preparation_3d_spatial_prepare_case_v1(&request,&options,&bad,&combined,&failure,error,sizeof(error))==1);
             CHECK(!memcmp(&saved_combined,&combined,sizeof(combined)));
         }

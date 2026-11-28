@@ -116,9 +116,7 @@ def test_geometry_lut_uses_external_cache_with_read_only_package(tmp_path, monke
         assert Path(lut._cache_path) == expected
         assert expected.is_file()
         assert list((package / 'solvers').iterdir()) == []
-        def no_rebuild(self):
-            pytest.fail('second load ignored the persistent user cache')
-        monkeypatch.setattr(sigmoid_field.GeometryLUT, '_precompute', no_rebuild)
+        monkeypatch.setattr(sigmoid_field, '_write_table', lambda *args: pytest.fail('rewrote a valid table'))
         restored = sigmoid_field.GeometryLUT('Gyroid', n_L=3, n_t=2, N=24)
         np.testing.assert_array_equal(restored.eps_table, lut.eps_table)
         np.testing.assert_array_equal(restored.A0_table, lut.A0_table)
@@ -145,20 +143,92 @@ def test_geometry_lut_rebuilds_invalid_cache(tmp_path, monkeypatch, corruption):
         data['tpms_type'] = np.array(['Gyroid'], dtype=object)
     np.savez_compressed(original._cache_path, **data)
 
-    rebuilds = []
-    precompute = GeometryLUT._precompute
-
-    def rebuild(self):
-        rebuilds.append(True)
-        precompute(self)
-
-    monkeypatch.setattr(GeometryLUT, '_precompute', rebuild)
     restored = GeometryLUT('Gyroid', **kwargs)
-    assert rebuilds == [True]
     np.testing.assert_array_equal(restored.eps_table, original.eps_table)
     np.testing.assert_array_equal(restored.A0_table, original.A0_table)
     with np.load(restored._cache_path, allow_pickle=False) as saved:
         assert saved['tpms_type'][0] == 'Gyroid'
+
+
+def test_explicit_lut_directories_and_mutations_are_private(tmp_path):
+    import numpy as np
+    from tm1.physical_models.sigmoid_field import GeometryLUT
+    from tm1.cpp_interface._native_lut import table_value
+
+    table_value.cache_clear()
+    kwargs = dict(n_L=3, n_t=2, N=16)
+    generated = GeometryLUT('Gyroid', cache_dir=tmp_path / 'first', **kwargs)
+    second = GeometryLUT('Gyroid', cache_dir=tmp_path / 'second', **kwargs)
+    with np.load(second._cache_path, allow_pickle=False) as saved:
+        custom = dict(saved)
+    custom['eps_table'] = np.full((3, 2), .42, dtype=np.float32)
+    np.savez_compressed(second._cache_path, **custom)
+    imported = GeometryLUT('Gyroid', cache_dir=tmp_path / 'second', **kwargs)
+    assert imported.eps_table.dtype == np.float32 and imported.preparation_arrays()[1] == (0, 1)
+    np.testing.assert_array_equal(imported.eps_table, custom['eps_table'])
+    imported.eps_table[:] = 1.
+    third = GeometryLUT('Gyroid', cache_dir=tmp_path / 'third', **kwargs)
+    np.testing.assert_array_equal(generated.eps_table, third.eps_table)
+    assert not np.array_equal(generated.eps_table, imported.eps_table)
+
+
+def test_concurrent_table_publishers_return_complete_tables(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    import numpy as np
+    from tm1.cpp_interface._native_lut import table_value
+    from tm1.physical_models.sigmoid_field import GeometryLUT
+
+    kwargs = dict(n_L=3, n_t=2, N=16)
+    names = ('Gyroid', 'Gyroid', 'Diamond', 'Diamond')
+    expected = {name: GeometryLUT(name, cache_dir=tmp_path / 'serial', **kwargs) for name in set(names)}
+    table_value.cache_clear()
+    barrier = Barrier(len(names))
+
+    def publish(name):
+        barrier.wait()
+        return GeometryLUT(name, cache_dir=tmp_path / 'parallel', **kwargs)
+
+    with ThreadPoolExecutor(max_workers=len(names)) as pool:
+        concurrent = list(pool.map(publish, names))
+    assert table_value.cache_info().currsize == 2
+    for name, table in zip(names, concurrent):
+        with np.load(table._cache_path, allow_pickle=False) as saved:
+            for field in ('eps_table', 'A0_table'):
+                np.testing.assert_array_equal(saved[field], getattr(expected[name], field))
+                np.testing.assert_array_equal(getattr(table, field), saved[field])
+
+
+def test_native_table_readers_keep_the_first_complete_publication_across_clear():
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    import numpy as np
+    from tm1.cpp_interface._native_lut import table_value
+
+    axes = np.array([4., 8.]), np.array([.3, .6])
+    table_value.cache_clear()
+    barrier = Barrier(4)
+
+    def request(index):
+        barrier.wait()
+        if index < 2:
+            pair = (np.full((2, 2), .7 + index / 10), np.full((2, 2), 1000. + index))
+            held = table_value('Gyroid', 13, axes, tables=pair)
+        else:
+            held = table_value('Gyroid', 13, axes, find_only=True)
+        barrier.wait()
+        return held or table_value('Gyroid', 13, axes, find_only=True)
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        readers = list(pool.map(request, range(4)))
+    assert table_value.cache_info().currsize == 1
+    table_value.cache_clear()
+    for reader in readers:
+        epsilon, area = reader.arrays()
+        winner = int(area[0, 0] - 1000.)
+        assert winner in (0, 1)
+        np.testing.assert_array_equal(epsilon, np.full((2, 2), .7 + winner / 10))
+        np.testing.assert_array_equal(area, readers[0].arrays()[1])
 
 
 # ── compute() cache — fixed production DF + hit-copy poison guard ──

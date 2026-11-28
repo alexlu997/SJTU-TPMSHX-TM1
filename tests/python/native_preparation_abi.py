@@ -14,6 +14,24 @@ _U, _S = ct.c_uint32, ct.c_size_t
 _Failure = abi._Failure
 
 
+def supply_sigmoid_table(monkeypatch, table):
+    """Pack the private axes, table values and flags for a real sigmoid operation."""
+    from tm1.cpp_interface import native_preparation
+    from tm1.cpp_interface._native_values import borrow_array
+
+    original = native_preparation.pack_input
+
+    def pack(*args):
+        source, error = original(*args)
+        if isinstance(source, abi._SigmoidInput):
+            arrays, flags = table.preparation_arrays()
+            source.lut = abi._LUTView(*(borrow_array(a, source._buffers) for a in arrays), *flags)
+            source.model.load_default_lut = 0
+        return source, error
+
+    monkeypatch.setattr(native_preparation, 'pack_input', pack)
+
+
 def _text(value):
     return ct.string_at(value.data, value.size).decode()
 

@@ -1,15 +1,13 @@
-"""Own the cache, warning, and metadata rules shared by full preparation."""
+"""Own the warning and metadata rules shared by full preparation."""
 from dataclasses import replace
 from functools import partial
 import warnings
 
 import numpy as np
 
-from tm1.data_types.compute_config import Sco2NuConfig
-from tm1.physical_models.preparation_cache import inlet_cache, _InletCacheValue
 from tm1.physical_models.preparation_notices import range_notices
 from tm1.run_control.logutil import get_logger
-from tm1.run_control.run_warnings import RangeRecord, current_warnings, record_warning, warning_messages
+from tm1.run_control.run_warnings import current_warnings, record_warning
 
 
 GEOMETRY = ('epsilon', 'epsilon_A', 'epsilon_B', 'A_0', 'D_h')
@@ -34,65 +32,13 @@ def _summary(value):
     return value.minimum if value.scalar else {'min': value.minimum, 'max': value.maximum}
 
 
-def _source_records(observations, pending):
-    """Restore ordered source observations without computing their values."""
-    ranges = []
-    for key, record in observations:
-        message = next(iter(warning_messages({key: record})), None)
-        ranges.append((key, record, message))
-    records = {}
-    plain = 0
-    for key, record, message in ranges:
-        if message is not None:
-            while pending and pending[0] != message:
-                records['native-preparation', plain] = pending.pop(0)
-                plain += 1
-            if pending:
-                pending.pop(0)
-        records[key] = record
-    for message in pending:
-        records['native-preparation', plain] = message
-        plain += 1
-    return {key[:-1] if isinstance(value, RangeRecord) else key: value for key, value in records.items()}
-
-
-class PreparationCache:
-    """Use the model caches at the native stage's lookup and publication checkpoints."""
+class PreparationObservers:
+    """Deliver the warnings and events from one preparation call."""
 
     def __init__(self, chi_error=None, nominal_grid_warning=None):
         self.chi_error = chi_error
         self.nominal_grid_warning = nominal_grid_warning
-        self.inlet_geometry = {}
         self.extrap_reasons = []
-
-    @staticmethod
-    def inlet_key(geometry, speed, temperature, pressure, fluid, settings, co2):
-        selection = None
-        if settings is not None:
-            selection = Sco2NuConfig(mode=('cfd_smooth', 'experimental')[settings.mode],
-                alpha_D=settings.alpha[0] if settings.have_alpha[0] else None,
-                alpha_G=settings.alpha[1] if settings.have_alpha[1] else None,
-                parameter_version=settings.parameter_version, source=settings.source,
-                applicability=settings.applicability)
-        return (*geometry, speed, temperature, pressure, fluid, selection, co2)
-
-    def inlet(self, action, key, read, write):
-        co2 = key[-1] or key[6] == 'co2'
-        if not action:
-            hit, saved = inlet_cache.lookup(key)
-            if hit:
-                properties, records = saved
-                values = write(lambda index: properties[GEOMETRY[index]],
-                               lambda index: properties[PROPERTIES[index]], partial(getattr, saved), records)
-                self.inlet_geometry[key] = geometry_values(values, co2)
-            return hit
-        geometry, values, cp, pr, ranges, messages = read()
-        properties = geometry_values(geometry, co2)
-        properties.update(zip(PROPERTIES, values, strict=True))
-        records = _source_records(ranges, messages)
-        inlet_cache.store(key, None, _InletCacheValue(properties, records, cp, pr))
-        self.inlet_geometry[key] = geometry_values(geometry, co2)
-        return False
 
     def observe_range(self, key, record, cached, scalar):
         for message in range_notices(key, record, cached, scalar):

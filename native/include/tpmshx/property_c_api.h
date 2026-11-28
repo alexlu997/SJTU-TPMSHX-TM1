@@ -29,7 +29,8 @@ typedef struct {
 } tpmshx_property_failure_v1;
 
 enum tpmshx_preparation_cache_id {
-    TPMSHX_CACHE_GEOMETRY=0, TPMSHX_CACHE_CO2=1, TPMSHX_CACHE_SCO2=2
+    TPMSHX_CACHE_GEOMETRY=0, TPMSHX_CACHE_CO2=1, TPMSHX_CACHE_SCO2=2,
+    TPMSHX_CACHE_INLET=3, TPMSHX_CACHE_SIGMOID=4
 };
 typedef struct {size_t hits,misses,maxsize,currsize;} tpmshx_preparation_cache_info_v1;
 

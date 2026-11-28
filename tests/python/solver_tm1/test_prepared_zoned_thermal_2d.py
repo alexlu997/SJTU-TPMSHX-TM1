@@ -96,7 +96,8 @@ def test_continuous_geometry_is_resampled_on_nonuniform_cells(monkeypatch, tmp_p
     from tm1.physical_models.df_surrogate.predict import predict_K_cF_vec
     # A small real LUT is sufficient to test coordinate transport, not LUT accuracy.
     lut = sigmoid_field.GeometryLUT('Gyroid', n_L=2, n_t=2, N=16, cache_dir=tmp_path)
-    monkeypatch.setitem(sigmoid_field._lut_cache, ('Gyroid',), lut)
+    from tests.python.native_preparation_abi import supply_sigmoid_table
+    supply_sigmoid_table(monkeypatch, lut)
     decision = np.column_stack((np.linspace(5., 8., 18), np.linspace(.3, .6, 18))).ravel()
     config = _config('grid')
     config = replace(config,
@@ -224,7 +225,8 @@ def test_sigmoid_saved_execution_keeps_row_drag(monkeypatch, tmp_path):
 
     # This small real LUT checks saved execution, not LUT accuracy.
     lut = sigmoid_field.GeometryLUT('Gyroid', n_L=2, n_t=2, N=16, cache_dir=tmp_path / 'lut')
-    monkeypatch.setitem(sigmoid_field._lut_cache, ('Gyroid',), lut)
+    from tests.python.native_preparation_abi import supply_sigmoid_table
+    supply_sigmoid_table(monkeypatch, lut)
     config = _config('grid')
     config.zones.pareto_x_decision = np.column_stack((
         np.linspace(5., 8., 18), np.linspace(.3, .6, 18))).ravel().tolist()

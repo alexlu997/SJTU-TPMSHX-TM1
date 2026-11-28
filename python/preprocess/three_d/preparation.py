@@ -156,23 +156,19 @@ def _execute(config, action, *, targets=None, case_id=None, start_observations=N
     except ValueError as problem:
         chi, chi_error = None, problem
     allow = config.extrap.allow or os.environ.get('TPMSHX_ALLOW_EXTRAP', '').lower() in ('1', 'true', 'yes')
-    cache = shared.PreparationCache(chi_error)
+    cache = shared.PreparationObservers(chi_error)
     context = {'extrap_reasons': cache.extrap_reasons}
     if start_observations is not None:
         start_observations()
 
     def host_input(stage, side):
         if stage == 10:
-            if 'co2' not in (config.fluid_A.type, config.fluid_B.type):
-                hash((config.geometry.tpms, config.geometry.L_cell_mm, config.geometry.t_wall_mm, 128))
             if config.geometry.tpms not in _TOPOLOGIES:
                 from tm1.physical_models import tpms_props, co2_correlations
                 geometry_check = (co2_correlations.geometry if 'co2' in
                     (config.fluid_A.type, config.fluid_B.type) else tpms_props.geometry)
                 geometry_check(config.geometry.tpms, config.geometry.L_cell_mm,
                                config.geometry.t_wall_mm, config.geometry.k_s_W_mK)
-        elif stage == 11:
-            return  # Older preparation libraries also issue this port notification.
         elif stage == 12:
             for name in 'AB':
                 validate_fluid_type(getattr(config, 'fluid_' + name).type, name)

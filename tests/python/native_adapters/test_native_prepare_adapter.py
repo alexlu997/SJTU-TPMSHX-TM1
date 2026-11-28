@@ -152,8 +152,7 @@ def test_native_zoned_routes_complete_and_preserve_config(monkeypatch, tmp_path,
         config.zones.pareto_x_decision = np.column_stack(
             (np.linspace(5., 8., 18), np.linspace(.3, .6, 18))).ravel().tolist()
         lut = sigmoid_field.GeometryLUT('Gyroid', n_L=2, n_t=2, N=16, cache_dir=tmp_path)
-        monkeypatch.setattr(sigmoid_field, 'get_geometry_lut', lambda *args, **kwargs: lut)
-        monkeypatch.setitem(sigmoid_field._lut_cache, (config.geometry.tpms,), lut)
+        native_preparation_abi.supply_sigmoid_table(monkeypatch, lut)
     before = deepcopy(asdict(config))
     result, _, _, _ = _capture(monkeypatch, api, operation, config, targets)
     if operation == 'capacity':
@@ -357,28 +356,9 @@ def test_shared_geometry_applies_each_material_after_lookup(monkeypatch):
         _same(warm.parameters['static_properties'], cold.parameters['static_properties'])
 
 
-def test_warm_inlet_converts_each_field_before_reading_the_next():
-    config = native_preparation_abi._configuration_mass_flow()
-    shared.inlet_cache.clear()
-    with warning_scope({}):
-        api.prepare_case(config, case_id='warm')
-        properties, _ = next(iter(shared.inlet_cache.values.values()))
-        properties['epsilon'] = 'bad-real'
-        del properties['rho']
-        with pytest.raises(TypeError, match='^must be real number, not str$') as caught:
-            api.prepare_case(config, case_id='warm')
-    assert caught.value.__cause__ is None
-
-
 @pytest.mark.parametrize('entry', ['public', 'cached', 'unwrapped'])
-@pytest.mark.parametrize('frozen', [False, True])
-def test_property_cache_wrapper_keeps_warning_source(monkeypatch, entry, frozen):
+def test_property_cache_wrapper_keeps_warning_source(entry):
     tpms_calc.compute.cache_clear()
-    if frozen:
-        from tm1.physical_models import preparation_cache
-        monkeypatch.setattr(tpms_calc._compute_cached, '__code__',
-            tpms_calc._compute_cached.__code__.replace(co_filename='python/physical_models/preparation_cache.py'))
-        monkeypatch.setattr(preparation_cache, '__file__', '/Applications/TM1.app/Contents/Frameworks/python/physical_models/preparation_cache.py')
     function = {'public': tpms_calc.compute, 'cached': tpms_calc._compute_cached,
                 'unwrapped': tpms_calc._compute_cached.__wrapped__}[entry]
     args = ('Diamond', 7., .6, .001, 300., 101325.) + ((16.,) if entry == 'public' else ())
@@ -463,7 +443,7 @@ def test_invalid_first_model_precedes_second_model_decode(monkeypatch):
     assert caught.value.__cause__ is None
 
 
-@pytest.mark.parametrize('fault', ['cache', 'copy', 'model'])
+@pytest.mark.parametrize('fault', ['range', 'copy', 'model'])
 def test_fault_keeps_exception_and_releases_once(monkeypatch, fault):
     marker = StopIteration(fault)
     releases = []
@@ -486,8 +466,8 @@ def test_fault_keeps_exception_and_releases_once(monkeypatch, fault):
     monkeypatch.setattr(preparation_host, '_bindings', bindings)
     if fault == 'copy':
         monkeypatch.setattr(native_preparation, 'copy_array', fail)
-    elif fault == 'cache':
-        monkeypatch.setattr(shared.PreparationCache, 'inlet', fail)
+    elif fault == 'range':
+        monkeypatch.setattr(shared.PreparationObservers, 'observe_range', fail)
     else:
         read = native_preparation.read_text
 
@@ -505,7 +485,7 @@ def test_fault_keeps_exception_and_releases_once(monkeypatch, fault):
         assert caught.value is marker and caught.value.__cause__ is None
     else:
         assert str(caught.value) == 'generator raised StopIteration' and caught.value.__cause__ is marker
-    assert releases == [(fault != 'cache', False)]
+    assert releases == [(fault != 'range', False)]
 
 
 def test_direct_preparation_replays_model_notices_at_the_stage(monkeypatch):

@@ -10,7 +10,7 @@ from ._native_preparation_3d import (
     pack_input as pack_volume_input,
     run_preparation as run_volume_preparation,
 )
-from ._native_values import TOPOLOGIES, borrow_text, copy_array, count, geometry_topology, real_array, real_scalar, read_text
+from ._native_values import borrow_text, copy_array, count, geometry_topology, real_array, real_scalar, read_text
 
 __all__ = ['pack_input', 'run_preparation', 'pack_volume_input', 'run_volume_preparation']
 
@@ -95,30 +95,6 @@ def _spatial_input(config, value, have_targets, explicit, buffers, spatial_rows)
     return source, zone_error
 
 
-def _lut_cache(policy):
-    buffers = []
-
-    def cache(action, topology, resolution, value):
-        def axes():
-            return copy_array(value.cell_mm), copy_array(value.wall_mm)
-
-        def tables(shape):
-            return copy_array(value.porosity, shape), copy_array(value.area_density_per_m, shape)
-
-        hit = policy(action, TOPOLOGIES[topology], resolution, axes, tables)
-        if hit is None:
-            return False
-        arrays, flags = hit
-        value.porosity_fast, value.area_fast = flags
-        for name, array in zip(('cell_mm', 'wall_mm', 'porosity', 'area_density_per_m'), arrays):
-            array = np.ascontiguousarray(array, dtype=np.float64)
-            buffers.append(array)
-            setattr(value, name, native._Array(array.ctypes.data_as(ct.POINTER(native._D)), array.size))
-        return True
-
-    return cache
-
-
 def _copy_grids(value, names, shape=None):
     return {name: copy_array(getattr(value, name), shape) for name in names.split()}
 
@@ -158,6 +134,7 @@ def _copy_case(result):
                  'uniform_solid_conductivity', 'hydraulic_radius_m', 'cell_length_m', 'wall_thickness_m', 'split_a'):
         fields[name] = getattr(value, name)
     prepared = SimpleNamespace(**fields, co2_active=bool(value.co2.active),
+        property_geometry=[host.geometry_scalars(row) for row in result.property_geometry],
         sides=[_copy_side(item, value.drag[i], result.drag[i] if continuous else None)
                for i, item in enumerate(value.sides)])
     case = SimpleNamespace(prepared=prepared, continuous=continuous, spatial=spatial, side_geometry=None)
@@ -180,20 +157,10 @@ def _copy_case(result):
     return case
 
 
-def run_preparation(name, source, *, chi, allow, validate, policy, inlet_cache, lut, water_error, finish):
+def run_preparation(name, source, *, chi, allow, validate, policy, water_error, finish, load_table=None):
     """Run one planar operation and deliver its flow or detached case to the host."""
     options = native._Options(1, ct.sizeof(native._Options), 2 if policy.chi_error is not None else int(chi is not None), allow, chi or 0.)
-    cache = host.PreparationCacheBridge(policy)
-    if isinstance(source, (native._ZonedInput, native._SigmoidInput)):
-        hooks = dict(inlet_cache_at=cache.inlet_at, sigmoid_lut_cache=_lut_cache(lut))
-    else:
-        def inlet(action, side, source_inlet, value):
-            def transfer(key):
-                return cache.inlet(action, key, value)
-            return inlet_cache(action, side, source_inlet.velocity_m_s, transfer)
-
-        hooks = dict(inlet_cache=inlet)
     with host.operation(name, source, options, validate, water_error, observe_range=policy.observe_range,
-                        observe_notice=policy.observe_notice, observe_event=policy.observe_event, chi_error=policy.chi_error, **hooks) as result:
+                        observe_notice=policy.observe_notice, observe_event=policy.observe_event, chi_error=policy.chi_error, load_table=load_table) as result:
         return finish(tuple(result.flow.capacities), tuple(result.flow.speeds),
                       partial(_copy_case, result), partial(_copy_metadata, result))

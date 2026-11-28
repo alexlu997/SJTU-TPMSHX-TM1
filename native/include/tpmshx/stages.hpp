@@ -73,9 +73,9 @@ struct PreparationOptions : tpmshx_preparation_case_options_v1 {
         abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION;struct_size=sizeof(tpmshx_preparation_case_options_v1);
     }
 };
-struct PreparationCallbacks : tpmshx_preparation_callbacks_v2 {
-    PreparationCallbacks():tpmshx_preparation_callbacks_v2{} {
-        abi_version=TPMSHX_PREPARATION_CALLBACK_ABI_VERSION;struct_size=sizeof(tpmshx_preparation_callbacks_v2);
+struct PreparationCallbacks : tpmshx_preparation_callbacks_v3 {
+    PreparationCallbacks():tpmshx_preparation_callbacks_v3{} {
+        abi_version=TPMSHX_PREPARATION_CALLBACK_ABI_VERSION;struct_size=sizeof(tpmshx_preparation_callbacks_v3);
     }
 };
 struct InletPropertyQuery : tpmshx_preparation_inlet_query_input_v1 {
@@ -472,7 +472,7 @@ private:
     void* run_=nullptr;
 };
 inline tpmshx_preparation_inlet_query_result_v1 query_inlet_properties(
-    const InletPropertyQuery& input,const tpmshx_preparation_callbacks_v2* callbacks=nullptr) {
+    const InletPropertyQuery& input,const tpmshx_preparation_callbacks_v3* callbacks=nullptr) {
     tpmshx_preparation_inlet_query_result_v1 output{};
     output.abi_version=TPMSHX_PREPARATION_CASE_ABI_VERSION;output.struct_size=sizeof(output);
     tpmshx_preparation_case_failure_v2 failure{};
@@ -498,21 +498,21 @@ inline tpmshx_preparation_case_failure_v2 failure() {
 }
 }
 inline InletFlow2D prepare_inlet_mass_capacities(const FlowInput2D& input,
-    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v2* callbacks=nullptr) {
+    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v3* callbacks=nullptr) {
     auto output=detail::versioned<tpmshx_preparation_2d_uniform_flow_v1>(TPMSHX_PREPARATION_CASE_ABI_VERSION);
     auto failure=detail::failure();char error[4096]{};
     detail::check(tpmshx_preparation_2d_uniform_capacities_v1(&input,&options,callbacks,&output,&failure,error,sizeof(error)),error);
     return InletFlow2D(output);
 }
 inline InletFlow2D resolve_inlet_flow(const FlowInput2D& input,
-    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v2* callbacks=nullptr) {
+    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v3* callbacks=nullptr) {
     auto output=detail::versioned<tpmshx_preparation_2d_uniform_flow_v1>(TPMSHX_PREPARATION_CASE_ABI_VERSION);
     auto failure=detail::failure();char error[4096]{};
     detail::check(tpmshx_preparation_2d_uniform_resolve_flow_v1(&input,&options,callbacks,&output,&failure,error,sizeof(error)),error);
     return InletFlow2D(output);
 }
 inline PreparedUniformCase2D prepare_case(const FlowInput2D& input,
-    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v2* callbacks=nullptr) {
+    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v3* callbacks=nullptr) {
     auto output=detail::versioned<tpmshx_preparation_2d_uniform_case_v1>(TPMSHX_PREPARATION_CASE_ABI_VERSION);
     auto failure=detail::failure();char error[4096]{};
     detail::check(tpmshx_preparation_2d_uniform_prepare_case_v1(&input,&options,callbacks,&output,&failure,error,sizeof(error)),error);
@@ -522,112 +522,112 @@ inline PreparedUniformCase2D prepare_case(const CaseInput2D& input,const Prepara
     FlowInput2D flow;flow.input=input;return prepare_case(flow,options);
 }
 inline ContinuousInletFlow2D prepare_inlet_mass_capacities(const ContinuousInput2D& input,
-    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v2* callbacks=nullptr) {
+    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v3* callbacks=nullptr) {
     auto output=detail::versioned<tpmshx_preparation_2d_continuous_flow_v1>(TPMSHX_PREPARATION_CASE_ABI_VERSION);
     auto failure=detail::failure();char error[4096]{};
     detail::check(tpmshx_preparation_2d_continuous_capacities_v1(&input,&options,callbacks,&output,&failure,error,sizeof(error)),error);
     return ContinuousInletFlow2D(output);
 }
 inline ContinuousInletFlow2D resolve_inlet_flow(const ContinuousInput2D& input,
-    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v2* callbacks=nullptr) {
+    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v3* callbacks=nullptr) {
     auto output=detail::versioned<tpmshx_preparation_2d_continuous_flow_v1>(TPMSHX_PREPARATION_CASE_ABI_VERSION);
     auto failure=detail::failure();char error[4096]{};
     detail::check(tpmshx_preparation_2d_continuous_resolve_flow_v1(&input,&options,callbacks,&output,&failure,error,sizeof(error)),error);
     return ContinuousInletFlow2D(output);
 }
 inline PreparedContinuousCase2D prepare_case(const ContinuousInput2D& input,
-    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v2* callbacks=nullptr) {
+    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v3* callbacks=nullptr) {
     auto output=detail::versioned<tpmshx_preparation_2d_continuous_case_v1>(TPMSHX_PREPARATION_CASE_ABI_VERSION);
     auto failure=detail::failure();char error[4096]{};
     detail::check(tpmshx_preparation_2d_continuous_prepare_case_v1(&input,&options,callbacks,&output,&failure,error,sizeof(error)),error);
     return PreparedContinuousCase2D(output);
 }
 inline ZonedInletFlow2D prepare_inlet_mass_capacities(const ZonedFlowInput2D& input,
-    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v2* callbacks=nullptr) {
+    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v3* callbacks=nullptr) {
     auto output=detail::versioned<tpmshx_preparation_2d_zoned_flow_v1>(TPMSHX_PREPARATION_CASE_ABI_VERSION);
     auto failure=detail::failure();char error[4096]{};
     detail::check(tpmshx_preparation_2d_zoned_capacities_v1(&input,&options,callbacks,&output,&failure,error,sizeof(error)),error);
     return ZonedInletFlow2D(output);
 }
 inline ZonedInletFlow2D resolve_inlet_flow(const ZonedFlowInput2D& input,
-    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v2* callbacks=nullptr) {
+    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v3* callbacks=nullptr) {
     auto output=detail::versioned<tpmshx_preparation_2d_zoned_flow_v1>(TPMSHX_PREPARATION_CASE_ABI_VERSION);
     auto failure=detail::failure();char error[4096]{};
     detail::check(tpmshx_preparation_2d_zoned_resolve_flow_v1(&input,&options,callbacks,&output,&failure,error,sizeof(error)),error);
     return ZonedInletFlow2D(output);
 }
 inline PreparedZonedFlowCase2D prepare_case(const ZonedFlowInput2D& input,
-    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v2* callbacks=nullptr) {
+    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v3* callbacks=nullptr) {
     auto output=detail::versioned<tpmshx_preparation_2d_zoned_case_v1>(TPMSHX_PREPARATION_CASE_ABI_VERSION);
     auto failure=detail::failure();char error[4096]{};
     detail::check(tpmshx_preparation_2d_zoned_prepare_case_v1(&input,&options,callbacks,&output,&failure,error,sizeof(error)),error);
     return PreparedZonedFlowCase2D(output);
 }
 inline SigmoidInletFlow2D prepare_inlet_mass_capacities(const SigmoidFlowInput2D& input,
-    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v2* callbacks=nullptr) {
+    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v3* callbacks=nullptr) {
     auto output=detail::versioned<tpmshx_preparation_2d_sigmoid_flow_v1>(TPMSHX_PREPARATION_CASE_ABI_VERSION);
     auto failure=detail::failure();char error[4096]{};
     detail::check(tpmshx_preparation_2d_sigmoid_capacities_v1(&input,&options,callbacks,&output,&failure,error,sizeof(error)),error);
     return SigmoidInletFlow2D(output);
 }
 inline SigmoidInletFlow2D resolve_inlet_flow(const SigmoidFlowInput2D& input,
-    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v2* callbacks=nullptr) {
+    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v3* callbacks=nullptr) {
     auto output=detail::versioned<tpmshx_preparation_2d_sigmoid_flow_v1>(TPMSHX_PREPARATION_CASE_ABI_VERSION);
     auto failure=detail::failure();char error[4096]{};
     detail::check(tpmshx_preparation_2d_sigmoid_resolve_flow_v1(&input,&options,callbacks,&output,&failure,error,sizeof(error)),error);
     return SigmoidInletFlow2D(output);
 }
 inline PreparedSigmoidFlowCase2D prepare_case(const SigmoidFlowInput2D& input,
-    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v2* callbacks=nullptr) {
+    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v3* callbacks=nullptr) {
     auto output=detail::versioned<tpmshx_preparation_2d_sigmoid_case_v1>(TPMSHX_PREPARATION_CASE_ABI_VERSION);
     auto failure=detail::failure();char error[4096]{};
     detail::check(tpmshx_preparation_2d_sigmoid_prepare_case_v1(&input,&options,callbacks,&output,&failure,error,sizeof(error)),error);
     return PreparedSigmoidFlowCase2D(output);
 }
 inline PreparedStripeCase2D prepare_stripe_case(const ZonedFlowInput2D& input,
-    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v2* callbacks=nullptr) {
+    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v3* callbacks=nullptr) {
     auto output=detail::versioned<tpmshx_preparation_2d_stripe_case_v1>(TPMSHX_PREPARATION_CASE_ABI_VERSION);
     auto failure=detail::failure();char error[4096]{};
     detail::check(tpmshx_preparation_2d_stripe_prepare_case_v1(&input,&options,callbacks,&output,&failure,error,sizeof(error)),error);
     return PreparedStripeCase2D(output);
 }
 inline ContinuousInletFlow3D prepare_inlet_mass_capacities(const ContinuousInput3D& input,
-    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v2* callbacks=nullptr) {
+    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v3* callbacks=nullptr) {
     auto output=detail::versioned<tpmshx_preparation_3d_continuous_flow_v1>(TPMSHX_PREPARATION_CASE_3D_ABI_VERSION);
     auto failure=detail::failure();char error[4096]{};
     detail::check(tpmshx_preparation_3d_continuous_capacities_v1(&input,&options,callbacks,&output,&failure,error,sizeof(error)),error);
     return ContinuousInletFlow3D(output);
 }
 inline ContinuousInletFlow3D resolve_inlet_flow(const ContinuousInput3D& input,
-    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v2* callbacks=nullptr) {
+    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v3* callbacks=nullptr) {
     auto output=detail::versioned<tpmshx_preparation_3d_continuous_flow_v1>(TPMSHX_PREPARATION_CASE_3D_ABI_VERSION);
     auto failure=detail::failure();char error[4096]{};
     detail::check(tpmshx_preparation_3d_continuous_resolve_flow_v1(&input,&options,callbacks,&output,&failure,error,sizeof(error)),error);
     return ContinuousInletFlow3D(output);
 }
 inline PreparedContinuousCase3D prepare_case(const ContinuousInput3D& input,
-    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v2* callbacks=nullptr) {
+    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v3* callbacks=nullptr) {
     auto output=detail::versioned<tpmshx_preparation_3d_continuous_case_v1>(TPMSHX_PREPARATION_CASE_3D_ABI_VERSION);
     auto failure=detail::failure();char error[4096]{};
     detail::check(tpmshx_preparation_3d_continuous_prepare_case_v1(&input,&options,callbacks,&output,&failure,error,sizeof(error)),error);
     return PreparedContinuousCase3D(output);
 }
 inline SpatialInletFlow3D prepare_inlet_mass_capacities(const SpatialInput3D& input,
-    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v2* callbacks=nullptr) {
+    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v3* callbacks=nullptr) {
     auto output=detail::versioned<tpmshx_preparation_3d_spatial_flow_v1>(TPMSHX_PREPARATION_CASE_3D_ABI_VERSION);
     auto failure=detail::failure();char error[4096]{};
     detail::check(tpmshx_preparation_3d_spatial_capacities_v1(&input,&options,callbacks,&output,&failure,error,sizeof(error)),error);
     return SpatialInletFlow3D(output);
 }
 inline SpatialInletFlow3D resolve_inlet_flow(const SpatialInput3D& input,
-    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v2* callbacks=nullptr) {
+    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v3* callbacks=nullptr) {
     auto output=detail::versioned<tpmshx_preparation_3d_spatial_flow_v1>(TPMSHX_PREPARATION_CASE_3D_ABI_VERSION);
     auto failure=detail::failure();char error[4096]{};
     detail::check(tpmshx_preparation_3d_spatial_resolve_flow_v1(&input,&options,callbacks,&output,&failure,error,sizeof(error)),error);
     return SpatialInletFlow3D(output);
 }
 inline PreparedSpatialCase3D prepare_case(const SpatialInput3D& input,
-    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v2* callbacks=nullptr) {
+    const PreparationOptions& options={},const tpmshx_preparation_callbacks_v3* callbacks=nullptr) {
     auto output=detail::versioned<tpmshx_preparation_3d_spatial_case_v1>(TPMSHX_PREPARATION_CASE_3D_ABI_VERSION);
     auto failure=detail::failure();char error[4096]{};
     detail::check(tpmshx_preparation_3d_spatial_prepare_case_v1(&input,&options,callbacks,&output,&failure,error,sizeof(error)),error);
