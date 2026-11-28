@@ -186,3 +186,217 @@ def test_failed_visible_redraw_clears_old_plot_and_same_tab_retries(win, monkeyp
     assert attempts == ['temp', 'temp']
     assert 'temp' in win.cache.get_drawn_tabs()
     assert win.canvas_temp._hover_data['names'] == ['T_fB']
+
+
+def _archive_synthetic_result(tmp_path, dimension):
+    from dataclasses import replace
+    from tests.python.test_module_result_mapping import _synthetic_results
+    from tm1.file_io.metrics_io import save_metrics
+    from tm1.file_io.result_io import load_result, save_result
+    from tm1.postprocess.result_display import describe_fields
+
+    native, performance = _synthetic_results(dimension)
+    grid = dict(native.grid)
+    for axis in tuple('xyz'[:dimension]):
+        grid[axis + '_edges'] = np.r_[0.0, np.cumsum(grid['d' + axis])]
+    archived = replace(
+        native,
+        grid=grid,
+        field_metadata=describe_fields(native.fields, dimension),
+        metadata={
+            **native.metadata,
+            'quantity_basis': 'per_unit_depth' if dimension == 2 else 'total',
+        },
+    )
+    results_path = tmp_path / 'results.h5'
+    metrics_path = tmp_path / 'metrics.json'
+    save_result(archived, results_path)
+    save_metrics(performance, metrics_path)
+    return results_path, metrics_path, archived, performance, load_result(results_path)
+
+
+def test_saved_3d_result_uses_selected_field_reader_for_single_view_and_full_load_for_export(
+        win, tmp_path, monkeypatch):
+    from dataclasses import replace
+    from tm1.applications.gui.controllers import result_field_loader
+    from tm1.applications.gui.ui import result_export
+    from tm1.applications.result_adapter import to_compute_result
+    from tm1.file_io.result_io import load_result, save_result
+
+    results_path, metrics_path, archived, performance, expected = _archive_synthetic_result(tmp_path, 3)
+
+    # Header mapping matches to_compute_result on all non-field data and requires metrics.json.
+    full_display = to_compute_result(expected, performance)
+    mode, header_display, header_id, _available = result_field_loader.build_saved_compute_result(results_path)
+    assert mode == '3d'
+    assert header_id == expected.result_id
+    assert header_display.metadata == full_display.metadata
+    assert header_display.coeffs == full_display.coeffs
+    assert header_display.props == full_display.props
+    assert header_display.residuals == full_display.residuals
+    assert header_display.warnings == full_display.warnings
+    assert header_display.Q_W == full_display.Q_W
+    with pytest.raises(FileNotFoundError):
+        result_field_loader.build_saved_compute_result(
+            results_path, metrics_file=tmp_path / 'missing-metrics.json'
+        )
+    with pytest.raises(ValueError, match='source_result_id'):
+        win.cache.set_result('3d', header_display, result_file=results_path)
+    with pytest.raises(ValueError, match='expected_result_id'):
+        result_field_loader.read_saved_display_field(
+            results_path, 'Ta', mode='3d', expected_result_id=''
+        )
+
+    def _forbid_full_load(*_args, **_kwargs):
+        raise AssertionError('full load_result must not run for single-field display')
+
+    monkeypatch.setattr(result_field_loader, 'load_result', _forbid_full_load)
+    win._temp_unit = 'K'
+    win._field_phase = 0
+    win.chk_sync_colorbar_T.setChecked(False)
+    win.chk_shared_pressure_scale.setChecked(False)
+
+    assert win.results.open_result_file(results_path)
+    assert win.cache.result_file('3d') == results_path.resolve()
+    assert win.cache.source_result_id('3d') == expected.result_id
+    assert 'Ta' not in win.cache.get_result('3d').fields
+    k_mid = win._slice_index
+    np.testing.assert_array_equal(
+        win.canvas_temp._hover_data['fields'][0],
+        expected.fields['Ta'][:, :, k_mid],
+    )
+
+    win.workbench.switch_tab('vel')
+    np.testing.assert_array_equal(
+        win.canvas_vel._hover_data['fields'][0],
+        expected.fields['vmag_A'][:, :, k_mid],
+    )
+
+    win.workbench.switch_tab('pres')
+    np.testing.assert_array_equal(
+        win.canvas_pres._hover_data['fields'][0],
+        expected.fields['P_report_A'][:, :, k_mid] * 1e-3,
+    )
+
+    # 3D panel binds a lazy field source and reads one field at a time on demand.
+    bound = {}
+    monkeypatch.setattr(
+        win,
+        'canvas_3d',
+        SimpleNamespace(
+            cleanup=lambda: None,
+            set_scale_sharing=lambda **kw: None,
+            set_field_source=lambda **kw: bound.update(kw),
+            set_lattice_geometry=lambda *args: bound.update(lattice=args),
+            set_watermark=lambda text: None,
+            color_range_state=lambda: {'mode': 'global', 'ranges': {}},
+        ),
+    )
+    assert finalize_plots_3d(win)
+    assert set(bound['available_fields']) == {
+        'Ta', 'Tb', 'Ts', 'vmag', 'vmag_B', 'P_kPa', 'P_B_kPa', 'L_mm', 't_mm',
+    }
+    np.testing.assert_array_equal(bound['field_loader']('Ta'), expected.fields['Ta'])
+    np.testing.assert_array_equal(
+        bound['field_loader']('P_kPa'), expected.fields['P_report_A'] * 1e-3
+    )
+    np.testing.assert_array_equal(
+        bound['field_loader']('L_mm'), expected.metadata['design_fields']['L_field_m'] * 1e3
+    )
+
+    # Full export requires every field and uses full load_result.
+    monkeypatch.setattr(result_field_loader, 'load_result', load_result)
+    csv_path = tmp_path / 'export.csv'
+    monkeypatch.setattr(
+        result_export.QFileDialog,
+        'getSaveFileName',
+        lambda *args: (str(csv_path), 'CSV (*.csv)'),
+    )
+    win.result_export.export_results()
+    assert csv_path.is_file()
+    with np.load(tmp_path / 'export_fields.npz') as exported:
+        np.testing.assert_array_equal(exported['Ta'], expected.fields['Ta'])
+        np.testing.assert_array_equal(exported['P_fA'], expected.fields['P_report_A'])
+        np.testing.assert_array_equal(exported['vmag_A'], expected.fields['vmag_A'])
+        np.testing.assert_array_equal(
+            exported['L_mm'], expected.metadata['design_fields']['L_field_m'] * 1e3
+        )
+
+    # Replacing results.h5 in place with another result ID must reject on-demand and full reads.
+    replacement = replace(
+        archived,
+        result_id='different-result-id',
+        fields={**archived.fields, 'Tb': archived.fields['Tb'] + 50.0},
+    )
+    save_result(replacement, results_path)
+    with pytest.raises(ValueError, match='source_result_id'):
+        win.cache.read_field('Tb', '3d')
+    with pytest.raises(ValueError, match='source_result_id'):
+        bound['field_loader']('Tb')
+    with pytest.raises(ValueError, match='source_result_id'):
+        win.cache.load_all_fields('3d')
+
+
+def test_saved_2d_result_uses_selected_field_reader(win, tmp_path, monkeypatch):
+    from tm1.applications.gui.controllers import result_field_loader
+
+    results_path, _metrics_path, _archived, _performance, expected = _archive_synthetic_result(tmp_path, 2)
+
+    def _forbid_full_load(*_args, **_kwargs):
+        raise AssertionError('full load_result must not run for single-field display')
+
+    monkeypatch.setattr(result_field_loader, 'load_result', _forbid_full_load)
+    win._temp_unit = 'K'
+    win._field_phase = 0
+    win.chk_sync_colorbar_T.setChecked(False)
+    win.chk_shared_pressure_scale.setChecked(False)
+
+    assert win.results.open_result_file(results_path)
+    assert win.cache.result_file('2d') == results_path.resolve()
+    assert win.cache.source_result_id('2d') == expected.result_id
+    assert 'Ta' not in win.cache.get_result('2d').fields
+    np.testing.assert_array_equal(win.canvas_temp._hover_data['fields'][0], expected.fields['Ta'])
+
+    win.workbench.switch_tab('vel')
+    expected_vmag = np.hypot(expected.fields['ucA'], expected.fields['vcA'])
+    np.testing.assert_array_equal(win.canvas_vel._hover_data['fields'][0], expected_vmag)
+
+    win.workbench.switch_tab('pres')
+    np.testing.assert_array_equal(
+        win.canvas_pres._hover_data['fields'][0], expected.fields['P_report_A'] * 1e-3
+    )
+
+
+def test_panel_select_field_surfaces_reader_error_in_status():
+    from tests.python.test_volume_render_batching import _make_stub_panel
+    from tm1.applications.gui.ui.panel_vis_3d import ThreeDVisPanel
+
+    panel = _make_stub_panel()
+    panel._sync_temp_scale = False
+    shown = {'text': '', 'visible': False}
+    panel.status = SimpleNamespace(
+        setText=lambda text: shown.__setitem__('text', text),
+        setToolTip=lambda text: None,
+        show=lambda: shown.__setitem__('visible', True),
+        hide=lambda: shown.__setitem__('visible', False),
+    )
+    widths = [np.full(n, 0.001) for n in (2, 2, 2)]
+    base = np.full((2, 2, 2), 320.0)
+
+    def _loader(key):
+        if key == 'Tb':
+            raise ValueError('source_result_id mismatch')
+        return base
+
+    ThreeDVisPanel.set_field_source(
+        panel,
+        available_fields=('Ta', 'Tb'),
+        field_loader=_loader,
+        dx=widths[0],
+        dy=widths[1],
+        dz=widths[2],
+    )
+    assert panel.select_field('Tb') is False
+    assert panel.active_field() == 'Ta'
+    assert shown['visible'] is True
+    assert 'source_result_id mismatch' in shown['text']

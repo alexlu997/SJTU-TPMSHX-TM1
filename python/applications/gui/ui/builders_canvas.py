@@ -699,7 +699,10 @@ def refresh_field_controls(window):
             window._paint_2d_seg()
 
         b_source = "dir_B" if tab in ("pres", "vel") else "Tb"
-        has_b = result is None or result.fields.get(b_source) is not None
+        has_b = result is None or (
+            result.fields.get(b_source) is not None
+            or window.cache.has_field(b_source, "3d")
+        )
         phase = getattr(window, "_field_phase", None)
         if (tab in ("pres", "vel") and phase == 2) or (phase == 1 and not has_b):
             phase = window._field_phase = 0

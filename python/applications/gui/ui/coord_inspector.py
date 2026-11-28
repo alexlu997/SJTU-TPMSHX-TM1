@@ -68,14 +68,14 @@ _FIELD_TABLE = [
 ]
 
 
-def _resolve_fields(window, x_mm, y_mm):
+def _resolve_fields(window, x_mm, y_mm, *, fields=None):
     """Return list of (label, value_str, unit) at the (x_mm, y_mm) point.
 
     Reads fields from the accepted 2D/3D ComputeResult. If results haven't
     been computed yet, returns an empty list (caller displays "— no
     compute yet —" in that case).
     """
-    r = _display_fields(window)
+    r = _display_fields(window) if fields is None else fields
     if r is None:
         return []
     N_x = int(r.get('N_x', 0)); N_y = int(r.get('N_y', 0))
@@ -149,11 +149,28 @@ def _resolve_fields(window, x_mm, y_mm):
 def _display_fields(window):
     """Read the same accepted result source as the active field canvas."""
     result_3d = window.cache.get_result('3d')
-    if result_3d is None:
-        result_2d = window.cache.get_result('2d')
-        return result_2d.fields if result_2d is not None else None
-    f = result_3d.fields
-    nx, ny, _ = f['Ta'].shape
+    mode = '3d' if result_3d is not None else '2d'
+    result = result_3d if result_3d is not None else window.cache.get_result('2d')
+    inspector = getattr(window, '_coord_inspector', None)
+    if result is None:
+        if inspector is not None:
+            inspector._full_fields_cache = None
+        return None
+    result_file = window.cache.result_file(mode)
+    if result_file is not None:
+        cache_key = (window.cache.source_result_id(mode), result_file)
+        cached = inspector._full_fields_cache if inspector is not None else None
+        if cached is not None and cached[0] == cache_key:
+            f = cached[1]
+        else:
+            f = window.cache.load_all_fields(mode)
+            if inspector is not None and inspector.isVisible():
+                inspector._full_fields_cache = (cache_key, f)
+    else:
+        f = result.fields
+    if mode == '2d':
+        return f
+    nx, ny = len(f['dx']), len(f['dy'])
     return {**f, 'N_x': nx, 'N_y': ny, 'L': f['Lx'], 'H': f['Ly'],
             'dx_arr': f['dx'], 'dy_arr': f['dy']}
 
@@ -269,6 +286,11 @@ class CoordInspector(QDockWidget):
                            QSizePolicy.Policy.MinimumExpanding)
 
         self._last_rows: list[tuple[str, str, str]] = []
+        self._full_fields_cache = None
+
+    def hideEvent(self, event):
+        self._full_fields_cache = None
+        super().hideEvent(event)
 
     # ── External API ────────────────────────────────────────────────
     _last_ij: tuple | None = None
