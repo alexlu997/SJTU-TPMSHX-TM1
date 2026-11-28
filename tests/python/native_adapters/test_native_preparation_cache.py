@@ -10,7 +10,7 @@ from tm1.data_types.compute_config import Sco2NuConfig
 from tm1.physical_models.tpms_calc import compute
 from tm1.preprocess import api
 from tm1.preprocess.preparation import PreparationObservers
-from tm1.run_control.run_warnings import range_observations, warning_scope
+from tm1.run_control.run_warnings import warning_scope
 from tests.python.native_preparation_abi import _configuration_mass_flow
 
 
@@ -41,11 +41,10 @@ def test_overlapping_cold_inlets_bind_evidence_to_each_run():
 
     def prepare(k_s, concurrent=False):
         geometry = replace(config.geometry, k_s_W_mK=k_s)
-        with warning_scope({}) as records:
-            if concurrent:
-                barrier.wait()
-            case = api.prepare_case(replace(config, geometry=geometry), case_id='inlets')
-            return case.parameters['static_properties'], range_observations(records)
+        if concurrent:
+            barrier.wait()
+        case = api.prepare_case(replace(config, geometry=geometry), case_id='inlets')
+        return case.parameters['static_properties'], case.metadata['applicability_inputs']
 
     serial = {}
     for material in (13., 27.):
@@ -58,7 +57,8 @@ def test_overlapping_cold_inlets_bind_evidence_to_each_run():
             values, observations = job.result()
             assert values == serial[k_s][0]
             assert observations == serial[k_s][1]
-            sides = {item['side'] for item in observations if item['stage'] == 'inlet'}
+            sides = {item['side'] for item in observations
+                     if item['stage'] == 'inlet' and item['source'] == ('nu', 'air', config.geometry.tpms)}
             assert sides == {'A', 'B'}
 
 
