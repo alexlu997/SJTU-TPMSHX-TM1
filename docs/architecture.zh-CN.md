@@ -42,7 +42,7 @@ Quick Design、保存态工况运行、离线评估和运行恢复分别从对�
 | --- | --- |
 | 源码目录 [python/](../python/) | 存放 Python 源码树；[pyproject.toml](../pyproject.toml) 中的 `[tool.setuptools.package-dir]` 将 `tm1` 映射到 `python`。 |
 | 导入名 `tm1` | 仓库内全部导入与 CLI 模块命令使用的公开包名。 |
-| 应用启动入口 [main.py](../main.py) | 唯一的应用启动入口，也是冻结包入口；在任何路由导入 Qt、VTK、Matplotlib 或 Torch 之前分派 `gui`（默认）、CLI 阶段、`summary`、`design` 与 `optimize`。 |
+| 应用启动入口 [main.py](../main.py) | 唯一的应用启动入口，也是冻结包入口；在任何路由导入 Qt、VTK、Matplotlib 或 Torch 之前分派 `gui`（默认）、CLI 阶段、`summary`、`design` 与 `optimize`。命令行模式以 UTF-8 写入标准输出和标准错误。 |
 | 检出加载器 [tm1.py](../tm1.py) | 从仓库根目录执行命令时，将 `python/__init__.py` 作为 `tm1` 加载；源码检出中的 `main.py`、`tm1` 工具的模块命令和 pytest 使用它。 |
 | 安装态 wheel 布局 `tm1/` | 打包 Python 模块及 `pyproject.toml` 声明的 JSON、CSV 与图标资源，不含原生库。[check_types.py](../engineering/scripts/check_types.py) 通过 [python_source.py](../engineering/packaging/python_source.py) 构建相同目录树供 `mypy` 检查。 |
 | 别名解析器 [python/shared.py](../python/shared.py) | 在当前 `tm1` 包根下以零重复方式将 `tm1.shared.*` 与 `tm1.solvers.backends.cpp.*` 别名路径解析至规范所有者。[python/solvers/backends/cpp.py](../python/solvers/backends/cpp.py) 导入其搜索路径；[packaging_support.py](../tests/python/packaging_support.py)、[test_three_module_imports.py](../tests/python/architecture/test_three_module_imports.py) 与 [test_distribution_contents.py](../tests/python/engineering_tm1/test_distribution_contents.py) 在源码检出与安装 wheel 中测试这些别名。仍使用旧包根的本地 `.cache/` 脚本需更新导入或使用记录的原源码版本。 |

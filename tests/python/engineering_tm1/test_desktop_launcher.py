@@ -1,5 +1,6 @@
 """The root main.py routes each mode before heavy imports and keeps GUI caches writable."""
 from importlib.util import module_from_spec, spec_from_file_location
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -20,6 +21,7 @@ def entry():
 
 # A spawned child imports main.py as __mp_main__; the CLI routes stop at argparse help.
 # The top-level help ("--help" alone) lists the modes; Linux result hosts have no Qt.
+# The command-line modes write UTF-8, also where a pipe uses the Windows cp1252 code page.
 _CHILD = """
 import runpy, sys
 script, mode = sys.argv[1], sys.argv[2:]
@@ -38,7 +40,8 @@ assert not heavy, heavy
                          ids=lambda mode: mode[0] if mode else 'spawn-child')
 def test_cli_routes_and_spawn_children_import_no_gui_or_torch(mode):
     run = subprocess.run([sys.executable, '-c', _CHILD, str(ROOT / 'main.py'), *mode],
-                         cwd=ROOT, capture_output=True, text=True, timeout=120)
+                         cwd=ROOT, env=dict(os.environ, PYTHONIOENCODING='cp1252:strict'),
+                         capture_output=True, encoding='utf-8', timeout=120)
     assert run.returncode == 0, run.stdout + run.stderr
     if mode == ['--help']:
         assert all(name in run.stdout for name in ('prepare', 'summary', 'design', 'optimize'))

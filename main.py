@@ -34,6 +34,11 @@ def main(argv=None):
     if not args or args[0].startswith('-'):
         args.insert(0, 'gui')
     mode = args.pop(0)
+    if mode != 'gui':
+        # Help, results and errors can contain Chinese text. On Windows, a pipe or a
+        # file uses the legacy code page (for example cp1252), which cannot encode it.
+        for stream in (sys.stdout, sys.stderr):
+            stream.reconfigure(encoding='utf-8')
     if mode in STAGES:
         from tm1.applications.cli.stages import main as run_stage
         return run_stage([mode, *args])
