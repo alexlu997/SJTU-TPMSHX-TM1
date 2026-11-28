@@ -9,6 +9,30 @@ from sjtu_tpmshx.run_control.cancellation import CancelledError
 from sjtu_tpmshx.run_control.module_ports import RunControl
 
 
+def _sized_with_source(cases, topo, l, t, *args, **kwargs):
+    # Each loky worker imports this module. The patches of the test apply only to the parent process.
+    from sjtu_tpmshx.run_control.provenance import source_context
+    return sizing.Design(True, topo=topo, l=l, t=t, V=l, percase=[source_context()])
+
+
+@pytest.mark.parametrize('n_jobs', [1, 2])
+def test_run_design_keeps_the_source_revision_of_its_entry(monkeypatch, tmp_path, n_jobs):
+    from sjtu_tpmshx.run_control import provenance
+    pin = tmp_path / 'data-revision.txt'
+    pin.write_text('A')
+    monkeypatch.setattr(provenance, 'SOURCE_ROOT', tmp_path)
+    monkeypatch.setattr(select, 'size_fixed_cell', _sized_with_source)
+
+    def cancel_check():
+        pin.write_text('B')  # The live revision changes after the study entry.
+        return False
+
+    results, _ = run_design(['case1'], nodes=dict(topo=['Diamond'], l=[5., 6.], t=[.4]),
+                            n_jobs=n_jobs, control=RunControl(cancel_check=cancel_check))
+    assert [design.percase[0]['data']['declared_revision'] for design in results] == ['A', 'A']
+    assert provenance.source_context()['data']['declared_revision'] == 'B'
+
+
 @pytest.mark.parametrize('feasible', [True, False])
 def test_run_design_fixed_forwards_controls_and_skips_refinement(monkeypatch, feasible):
     seen = {}

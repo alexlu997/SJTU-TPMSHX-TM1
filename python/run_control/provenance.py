@@ -1,12 +1,16 @@
 """Source context recorded at module entry, independent of GUI and solvers."""
+from contextlib import contextmanager
+from copy import deepcopy
 import os
 from pathlib import Path
 import subprocess
+import threading
 
 from sjtu_tpmshx._version import __version__
 
 SOURCE_ROOT = Path(__file__).resolve().parents[2]
 PUBLISHED_LIBRARY_DIR = SOURCE_ROOT / "sjtu_tpmshx/solvers/native/lib"
+_study = threading.local()
 
 
 def repository_environment(root):
@@ -40,7 +44,15 @@ def repository_revision(root):
 
 
 def source_context():
-    """A revision context, not a claim that every configured data file was used."""
+    """A revision context, not a claim that every configured data file was used.
+
+    In a study scope, return a copy of the snapshot of that study. Outside a study, read the live source state.
+    """
+    snapshot = getattr(_study, 'snapshot', None)
+    return _live_source_context() if snapshot is None else deepcopy(snapshot)
+
+
+def _live_source_context():
     pin = SOURCE_ROOT / 'data-revision.txt'
     raw = SOURCE_ROOT / 'data' / 'raw_data'
     return dict(code=dict(package_version=__version__, **repository_revision(SOURCE_ROOT)),
@@ -48,3 +60,18 @@ def source_context():
                           raw_data_available=raw.is_dir(),
                           repository=repository_revision(raw.resolve().parent),
                           scope='configured raw-data repository; consumed model versions are model_refs'))
+
+
+@contextmanager
+def study_source(snapshot=None):
+    """Record the source context one time for all runs of a study in this thread.
+
+    Each study reads the live source state at entry. A worker process enters this scope
+    with the snapshot of its parent study. At exit, the scope restores the previous snapshot.
+    """
+    previous = getattr(_study, 'snapshot', None)
+    _study.snapshot = _live_source_context() if snapshot is None else deepcopy(snapshot)
+    try:
+        yield
+    finally:
+        _study.snapshot = previous

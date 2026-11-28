@@ -8,6 +8,7 @@ _QUICK_PARAMETERS = load_quick_design_parameters()
 K_STEEL = _QUICK_PARAMETERS['k_s']
 from sjtu_tpmshx.run_control.module_ports import RunControl
 from sjtu_tpmshx.run_control.cancellation import CancelledError
+from sjtu_tpmshx.run_control.provenance import source_context, study_source
 
 
 class SelectionCancelled(CancelledError):
@@ -16,6 +17,13 @@ class SelectionCancelled(CancelledError):
     def __init__(self, results):
         super().__init__('Design selection cancelled; completed candidates retained')
         self.results = list(results)
+
+
+def _in_study(snapshot, size, *args, **kwargs):
+    """Size one candidate in a worker process with the source snapshot of the parent study."""
+    with study_source(snapshot):
+        return size(*args, **kwargs)
+
 
 # The default candidates use the calibrated D-F nodes.
 NODES = {"topo": ["Diamond", "Gyroid"],
@@ -55,13 +63,14 @@ def enumerate_select(cases, arrangement="cross", nodes=None, rho_s=RHO_S,
                 backend=control.backend, native_library=control.native_library,
                 native_table_directory=control.native_table_directory, cpu_threads=control.cpu_threads)
             width = min(effective_n_jobs(n_jobs), len(combos))
+            snapshot = source_context()
             with Parallel(n_jobs=n_jobs, backend="loky") as parallel:
                 for start in range(0, len(combos), width):
                     control.check_cancelled()
                     results.extend(parallel(
-                        delayed(size_fixed_cell)(cases, topo, l, t, arrangement,
-                                                 rho_s=rho_s, k_s=k_s, prop_model=prop_model,
-                                                 height=height, control=worker_control)
+                        delayed(_in_study)(snapshot, size_fixed_cell, cases, topo, l, t, arrangement,
+                                           rho_s=rho_s, k_s=k_s, prop_model=prop_model,
+                                           height=height, control=worker_control)
                         for topo, l, t in combos[start:start + width]))
         control.check_cancelled()
     except CancelledError as exc:

@@ -10,7 +10,7 @@
 
 ## 共享规则
 
-公共前处理在 `CaseData.metadata.provenance` 中记录软件包版本、源码仓库修订和跟踪文件修改标志。它还记录配置的原始数据仓库修订，以及独立的 `data-revision.txt` 声明。公共执行保留该前处理记录，并在 `FieldResult.metadata.provenance.execution` 中加入执行入口快照。模型版本仍位于 `model_refs`。后端标签和模式版本标签不是代码修订。YAML/HDF5 保留这些记录；加载和后处理时不查询 Git。
+公共前处理在 `CaseData.metadata.provenance` 中记录软件包版本、源码仓库修订和跟踪文件修改标志。它还记录配置的原始数据仓库修订，以及独立的 `data-revision.txt` 声明。公共执行保留该前处理记录，并在 `FieldResult.metadata.provenance.execution` 中加入执行入口快照。在快速设计研究中，前处理和执行记录研究入口采集的快照。模型版本仍位于 `model_refs`。后端标签和模式版本标签不是代码修订。YAML/HDF5 保留这些记录；加载和后处理时不查询 Git。
 
 这些信息描述仓库上下文，不是逐文件的数据使用清单，也不表示未跟踪文件已纳入版本管理。没有 Git 的源码安装明确记录修订不可用，同时保留软件包版本。缺少原始前处理记录时，状态为 `not_recorded`。不得从之后的检出状态补填这两类信息，也不得静默改用声明的数据版本。
 
