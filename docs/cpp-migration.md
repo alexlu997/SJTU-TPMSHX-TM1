@@ -28,10 +28,10 @@ Four independent C++ shared libraries own all production numerical calculations:
 
 | Library | Source directory | Active ABI and role |
 | --- | --- | --- |
-| Geometry | [geometry](../geometry/) | Geometry ABI 2 and field ABI 3: cell geometry, chi/Kss, grids, ports, splines, sigmoid, LUTs, zones. |
-| Preparation | [preprocess](../preprocess/) | Preparation ABI 3 and Quick Design preparation v2: properties, Nu closures, fixed D-F, 2D/3D and Quick preparation. |
-| Solver | [solver](../solver/) | Saved 2D ABI 5, saved 3D ABI 3, capture ABI 2, and Quick Design run v2. |
-| Result | [postprocess](../postprocess/) | Result ABI 3 (`float64` + `int32` labels): metrics, physical balances, applicability, zone statistics, and qualification. |
+| Geometry | [geometry](../native/geometry/) | Geometry ABI 2 and field ABI 3: cell geometry, chi/Kss, grids, ports, splines, sigmoid, LUTs, zones. |
+| Preparation | [preprocess](../native/preprocess/) | Preparation ABI 3 and Quick Design preparation v2: properties, Nu closures, fixed D-F, 2D/3D and Quick preparation. |
+| Solver | [solver](../native/solver/) | Saved 2D ABI 5, saved 3D ABI 3, capture ABI 2, and Quick Design run v2. |
+| Result | [postprocess](../native/postprocess/) | Result ABI 3 (`float64` + `int32` labels): metrics, physical balances, applicability, zone statistics, and qualification. |
 
 All active C++ stage interfaces normalize numeric buffers to `float64` and zone labels to `int32`.
 The [source map](../python/README.en.md) lists C++ edit locations by responsibility.
@@ -43,12 +43,12 @@ PR CI, merged-main CI, desktop delivery, cell-cap memory checks, real 3D BO, per
 
 ## Native geometry core
 
-The independent geometry core in [geometry](../geometry/) calculates standard, CO2, and asymmetric cell geometry, plus chi and solid conductivity.
+The independent geometry core in [geometry](../native/geometry/) calculates standard, CO2, and asymmetric cell geometry, plus chi and solid conductivity.
 It also calculates grids, ports, six-direction axis maps, continuous XY/XYZ splines, sigmoid fields, linear LUTs, discrete zones, and Gaussian filtering.
 One shared file (`tpmshx_geometry_shared`) provides all of these operations.
 It uses only the C++ standard library, the marching-cubes port, and a restricted C17 FITPACK subset.
 It does not link CoolProp, SuperLU, AMGCL, Eigen, or the solver runtime.
-See [architecture](architecture.md#native-grids-and-design-fields) for grid and field ownership, and [fields-sources.md](../geometry/fields-sources.md) for provenance and BSD notices.
+See [architecture](architecture.md#native-grids-and-design-fields) for grid and field ownership, and [fields-sources.md](../native/geometry/fields-sources.md) for provenance and BSD notices.
 
 `python/cpp_interface/_native_geometry.py` loads `tpmshx_geometry_shared` on demand through ctypes.
 Geometry, grid, and zone calls use geometry ABI 2, where status 2 reports a domain error.
@@ -97,7 +97,7 @@ Desktop packaging requires all four prebuilt libraries; see [desktop builds](des
 
 ## Native preparation core
 
-The independent preparation core in [preprocess](../preprocess/) calculates fluid properties, Nu closures, fixed D-F tables, experiment corrections, row projection, and complete 2D/3D/Quick preparation.
+The independent preparation core in [preprocess](../native/preprocess/) calculates fluid properties, Nu closures, fixed D-F tables, experiment corrections, row projection, and complete 2D/3D/Quick preparation.
 Its CMake targets (`tpmshx_preparation`, `tpmshx_preparation_c`, `tpmshx_preparation_shared`) reuse geometry and shared property implementations with the locked CoolProp static library.
 This project needs no solver runtime, `run_state`, SuperLU, or AMG.
 
@@ -146,11 +146,11 @@ Use `engineering/scripts/check_distributions.py --output-dir .cache/<dir>` to bu
 
 ## Native result core
 
-The independent result core in [postprocess](../postprocess/) implements Result ABI 3.
+The independent result core in [postprocess](../native/postprocess/) implements Result ABI 3.
 It calculates engineering metrics, signed physical balances, zone statistics, applicability checks, and qualification verdicts in `float64` with `int32` zone labels.
-The standalone `postprocess/` project uses only C++17 and system libraries.
+The standalone `native/postprocess/` project uses only C++17 and system libraries.
 It links no solver, preparation, geometry, CoolProp, Qt, or model-resource files.
-See [postprocess/sources.md](../postprocess/sources.md) for buffer layouts, error codes, and notices.
+See [native/postprocess/sources.md](../native/postprocess/sources.md) for buffer layouts, error codes, and notices.
 
 The query in `python/cpp_interface/result_evaluation.py` loads the result library on demand through `_native_result.py`.
 Pure Python imports and HDF5/JSON reads stay native-free.
@@ -173,7 +173,7 @@ The `minimal-postprocess` job runs on Ubuntu 24.04 with `result-build-linux-x86_
 
 ## Solver cores and execution interfaces
 
-The solver library in [solver](../solver/) implements full 2D, full 3D, Quick Design, SIMPLE flow, model-h, temperature, and T-SOU conservative energy drivers.
+The solver library in [solver](../native/solver/) implements full 2D, full 3D, Quick Design, SIMPLE flow, model-h, temperature, and T-SOU conservative energy drivers.
 The saved stage-run lifecycle is the only solver execution interface for Python and for C and C++ callers.
 The native bindings in `python/cpp_interface/` are `full_2d_stage.py`, `full_3d_stage.py`, and `quick_design.py`.
 The solver hosts in `python/solvers/full_2d.py`, `python/solvers/full_3d.py`, and `python/solvers/quick_design.py` validate saved cases and build the public `FieldResult`.
@@ -213,7 +213,7 @@ SOU recipe 2 applies six-sample Anderson proposals and accepts a proposal only w
 Only a complete ordinary PT/audit block can converge.
 `tpmshx_energy_algorithm_version_v1` reports the actual executed recipe version independently of the C ABI.
 
-`thermal_energy_audit` in `solver/enthalpy_sweeps.cpp` computes actual-state A/B/solid cell residuals and six outward signed boundary enthalpy duties.
+`thermal_energy_audit` in `native/solver/enthalpy_sweeps.cpp` computes actual-state A/B/solid cell residuals and six outward signed boundary enthalpy duties.
 Its coupled and equation ratios use `max(abs(Q_A), abs(Q_B), 1)` in W/m (2D) or W (3D).
 This operator applies no acceptance threshold; drivers enforce the `0.001` coupled and equation gates and the Kelvin update gate.
 Portable candidate results set `thermal_mode=conservative_energy` and record `boundary_fluxes.true_h.boundary_power`; heat is `-sum(boundary_power)` per side with no fallback reconstruction.

@@ -23,7 +23,7 @@ All SciPy links use **v1.18.1**. All NumPy links use **v2.5.4**.
 
 ### XY
 
-[geometry/continuous/xy_fitpack.c](continuous/xy_fitpack.c) retains `fpback`, `fpbspl`, `fpbisp`, `fpgivs`, `fprota` and the interpolation branch of `fpgrre`.
+[native/geometry/continuous/xy_fitpack.c](continuous/xy_fitpack.c) retains `fpback`, `fpbspl`, `fpbisp`, `fpgivs`, `fprota` and the interpolation branch of `fpgrre`.
 The knot assembly follows the first-fit `fpregr` branch.
 Smoothing search, continued fits, knot insertion and Python extension allocation are excluded.
 The wrapper owns storage and checks dimensions before numerical access.
@@ -35,7 +35,7 @@ It does not establish Windows arithmetic identity.
 
 ### XYZ and singleton XY
 
-[geometry/continuous/tensor_spline.cpp](continuous/tensor_spline.cpp) uses fixed-size basis storage and project-owned band storage.
+[native/geometry/continuous/tensor_spline.cpp](continuous/tensor_spline.cpp) uses fixed-size basis storage and project-owned band storage.
 Derivative, periodic and general SciPy extension branches are excluded.
 The scalar band solver uses partial pivoting. It does not copy or link LAPACK `gbsv` or vendor BLAS.
 Each axis is fitted and sampled before the next axis, in x/y/z order.
@@ -47,7 +47,7 @@ Existing raw spline `1e-13` and physical-polynomial `3e-14` checks do not establ
 
 ### Sigmoid and LUT
 
-[geometry/field_sigmoid.cpp](field_sigmoid.cpp) keeps the project sigmoid and ordered layer blending in `float64`.
+[native/geometry/field_sigmoid.cpp](field_sigmoid.cpp) keeps the project sigmoid and ordered layer blending in `float64`.
 It normalizes all real inputs to `float64` and uses `std::exp` on the clipped [-50, 50] domain.
 It does not replace the sequence with normalized layer weights.
 Field ABI 3 exposes the `float64` sigmoid functions without a float32 dispatch flag.
@@ -55,7 +55,7 @@ Geometry ABI 2 uses `float64` geometry inputs and outputs.
 The Python adapter keeps the supported exp warning policy and original call order.
 It does not emulate every NumPy ufunc error mode.
 
-[geometry/field_lut.cpp](field_lut.cpp) implements the two-table linear query in the original corner order.
+[native/geometry/field_lut.cpp](field_lut.cpp) implements the two-table linear query in the original corner order.
 Each table keeps its own fast64/general path, selected before double-buffer conversion.
 Current dtype, byte order and writability affect that choice.
 The Python DTO captures axes/table references and retains its creating library.
@@ -64,7 +64,7 @@ NPZ validation and cache I/O remain in Python. The native query adds no paramete
 
 ### Grids, ports and zones
 
-[geometry/grid.cpp](grid.cpp), [geometry/ports.cpp](ports.cpp) and [geometry/zones.cpp](zones.cpp) retain the original project rules.
+[native/geometry/grid.cpp](grid.cpp), [native/geometry/ports.cpp](ports.cpp) and [native/geometry/zones.cpp](zones.cpp) retain the original project rules.
 These include ordered assignment, scalar promotion, allocation ties, compensated Python-float sum prefixes and endpoint compensation.
 The pressure solver and preparation use one lightweight port owner.
 No second solver or EOS dependency is introduced.
@@ -78,15 +78,15 @@ The filter remains in grid-index units, including on a nonuniform mesh. Continuo
 
 ## Notices and delivery
 
-Retain the complete [SciPy BSD-3-Clause notice](../engineering/native_build/licenses/scipy-LICENSE.txt).
-Retain the original [Peter J. Verveer ndimage notice](../engineering/native_build/licenses/ndimage-LICENSE.txt).
-Retain the [NumPy BSD-3-Clause notice](../engineering/native_build/licenses/numpy-LICENSE.txt).
-The [scikit-image notice](../engineering/native_build/licenses/scikit-image-LICENSE.txt) still applies to the marching-cubes subset.
+Retain the complete [SciPy BSD-3-Clause notice](../../engineering/native_build/licenses/scipy-LICENSE.txt).
+Retain the original [Peter J. Verveer ndimage notice](../../engineering/native_build/licenses/ndimage-LICENSE.txt).
+Retain the [NumPy BSD-3-Clause notice](../../engineering/native_build/licenses/numpy-LICENSE.txt).
+The [scikit-image notice](../../engineering/native_build/licenses/scikit-image-LICENSE.txt) still applies to the marching-cubes subset.
 These files keep their original copyright text, conditions and disclaimers.
 Source distributions retain the notices. Binary distributions include them in accompanying materials.
 Upstream names must not endorse a derived product without permission.
 These duties also apply to a standalone geometry/design-field distribution.
-See [THIRD_PARTY_NOTICES.md](../engineering/native_build/licenses/THIRD_PARTY_NOTICES.md) for the complete native component record.
+See [THIRD_PARTY_NOTICES.md](../../engineering/native_build/licenses/THIRD_PARTY_NOTICES.md) for the complete native component record.
 
 No new runtime library, numerical framework, fallback or numerical callback into Python is added.
 Independent development references do not supply production results.

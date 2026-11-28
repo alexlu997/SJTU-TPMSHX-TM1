@@ -27,7 +27,7 @@ Missing native libraries, ABI mismatches, or missing active symbols fail explici
 ## Native grids and design fields
 
 The geometry library (`tpmshx_geometry_shared`) owns grid generation, physical ports, level-set cell geometry, and spatial design fields.
-See [geometry build and deployment](cpp-migration.md#native-geometry-core) for build paths and publication, and [fields-sources.md](../geometry/fields-sources.md) for fixed sources and BSD notices.
+See [geometry build and deployment](cpp-migration.md#native-geometry-core) for build paths and publication, and [fields-sources.md](../native/geometry/fields-sources.md) for fixed sources and BSD notices.
 
 | Owner | Numerical contract |
 | --- | --- |
@@ -54,7 +54,7 @@ The geometry library exports geometry ABI 2 and field ABI 3 with distinct status
 
 ### Preparation and inlet queries
 
-`preprocess/preparation_case.cpp` owns 2D and 3D case preparation (`tpmshx_preparation_2d_*_v1`, `tpmshx_preparation_3d_*_v1`) and the scalar inlet query (`tpmshx_query_inlet_properties_v2`).
+`native/preprocess/preparation_case.cpp` owns 2D and 3D case preparation (`tpmshx_preparation_2d_*_v1`, `tpmshx_preparation_3d_*_v1`) and the scalar inlet query (`tpmshx_query_inlet_properties_v2`).
 `python/cpp_interface/preparation_host.py` shares unified `tpmshx_preparation_callbacks_v1` cache transport, range-record decoding, and D-F application decoding across 2D and 3D.
 `tpmshx_preparation_df_experiment_scope_v1` shares experimental D-F layout and HX campaign-domain checks between 2D/3D preparation and static Python preflight.
 See [preparation builds](cpp-migration.md#native-preparation-core) and [inlet-property query](native-stages.md#inlet-property-query).
@@ -79,7 +79,7 @@ Before native release, they copy captured fields, records, execution views, and 
 | Strict fullCC temperature | Air/water full 2D and full 3D `Nz = 1` (`model_h_tface_sou_fou_strict_v3`) and `Nz > 1` (`model_h_tface_sou_sou_strict_v3`) reuse strict model-h drivers (`<= 1e-7` complete-boundary ledgers). See [shared finite-volume consumers](cpp-migration.md#shared-finite-volume-temperature-consumers). |
 | Quick Design | Prescribed-flow LTNE approximation (`quick_design_prepare_v2.cpp`, `quick_design_run.cpp`) with fixed analytical inlet pressure fractions, one const pass or two mean passes, and liquid-water guards after each pass. Length search (`solve_Lx`) accepts only cold-start converged feasible candidates. |
 
-- **Result evaluation (`postprocess/result_stage.cpp`)**: `python/postprocess/api.py` routes full 2D/3D and Quick Design evaluation, applicability, physical balance, and qualification queries to `tpmshx_result_stage_query_v3`. Postprocessing reads only recorded evidence and never reruns a solver.
+- **Result evaluation (`native/postprocess/result_stage.cpp`)**: `python/postprocess/api.py` routes full 2D/3D and Quick Design evaluation, applicability, physical balance, and qualification queries to `tpmshx_result_stage_query_v3`. Postprocessing reads only recorded evidence and never reruns a solver.
 
 ### Completed execution records
 
@@ -146,7 +146,7 @@ The separate `optimization` verdict permits sCO2 studies by postponing only that
 - **`CaseData`, `FieldResult`, `PerformanceResult`**: arrays crossing stage contracts are detached and immutable; metadata-only updates can share contiguous immutable byte buffers with separate headers. `data_types.metric_spec` enforces metric families, units, and definition versions across JSON, GUI, and multi-condition aggregation.
 - **Display contract (`postprocess.result_display`)**: Qt-free module owning field units, axes, 2D display aliases, zone statistics, extrapolation watermark formatting, and `RESULT_FIELD_SPECS` (canonical scalar keys, quantities, phases, symbols, stored/display units, and default colormaps: `coolwarm` for temperature, `viridis` for speed and pressure, and `turbo` for design geometry). Temperature and pressure aliases keep raw cell values; 3D display aliases share immutable buffers. Absolute pressure fields convert from Pa to kPa at the GUI display boundary while ΔP, raw arrays, and export keys stay unchanged.
 - **Public thermal and pressure definitions**: full thermal metrics use `native_boundary_v1`. `Q` is `abs(Q_A)` on the main grid, `Q_A`/`Q_B` are signed heat loss, and outlet temperature is mass-flux weighted. 2D Richardson duties stay separate as `Q_richardson_A/B`. Full pressure drop uses `pressure_face_v1` (extrapolated final SIMPLE pressure at physical inlet/outlet faces, weighted by geometric open area).
-- **Air inlet-pressure shooting (`numerics/pressure_reference.cpp`)**: iterates the outlet-cell anchor with a bounded `P^2` update until physical inlet open-area mean pressure matches `P_in` within `1e-4` relative error. Explicit `p_in_shooting = False` / `TPMSHX_P_IN_SHOOT = 0` is a diagnostic override that cannot establish convergence. Incompressible routes anchor the physical inlet-face open-area mean directly to `P_in`.
+- **Air inlet-pressure shooting (`native/numerics/pressure_reference.cpp`)**: iterates the outlet-cell anchor with a bounded `P^2` update until physical inlet open-area mean pressure matches `P_in` within `1e-4` relative error. Explicit `p_in_shooting = False` / `TPMSHX_P_IN_SHOOT = 0` is a diagnostic override that cannot establish convergence. Incompressible routes anchor the physical inlet-face open-area mean directly to `P_in`.
 - **2D inlet profile (`PartialBCConfig.uniform_inlet_2d`)**: selects geometric overlap without the historical four-cell taper. Desktop fixes this flag to `True`; scripted API configs keep the historical taper when `False`.
 
 <a id="native-3d-continuation"></a>
@@ -198,10 +198,10 @@ nTop CSV export writes XY or XYZ coordinates with full control provenance.
 Change these constraints only as an explicit physical-model revision with direct validation:
 
 1. **Compressible air**: air uses the ideal-gas density path; never use a constant-density or isothermal shortcut.
-2. **Porosity is split one time**: symmetric callers pass full porosity and the solver forms half-porosity streams. For nonzero `delta_levelset`, `preprocess/preparation_case.cpp` computes `eps_A` and `eps_B` summing to full porosity; kernels do not halve them again. Effective fluid conductivity is `K_ff_i = eps_i * k_i` (`eps_total/2 * k_i` when symmetric; offset factor `2 * split_i` applies once).
+2. **Porosity is split one time**: symmetric callers pass full porosity and the solver forms half-porosity streams. For nonzero `delta_levelset`, `native/preprocess/preparation_case.cpp` computes `eps_A` and `eps_B` summing to full porosity; kernels do not halve them again. Effective fluid conductivity is `K_ff_i = eps_i * k_i` (`eps_total/2 * k_i` when symmetric; offset factor `2 * split_i` applies once).
 3. **Mass-flux inlet**: compressible air uses the mass-flux inlet in 2D and 3D; solver velocities are interstitial, not superficial.
 4. **Darcy-Forchheimer ownership**: `physical_models.df_surrogate.predict.predict_K_cF()` is the pure geometry baseline (bilinear interpolation on `4..8 mm` by `0.3..0.6 mm` from water+sCO2 CFD, independent of Re or fluid). Production exposes only **CFD smooth-wall** (generic default) and **Experiment calibration** (one fixed reviewed factor per side applied before SIMPLE). Retired `gamma_df` and `rbf` modes raise an error ([legacy models](history/legacy-models.md)).
-5. **Nusselt ownership**: full runs evaluate Nu in [fluid_nusselt_ratio](../numerics/fluid_properties.cpp#L171) and [nu_point](../numerics/fluid_properties.cpp#L364), wrapped by [nu_correlations.py](../python/physical_models/nu_correlations.py). `python/model_configs/sco2_effective_nu.json` (`sco2_effective_nu_config()`) is the only sCO2 effective-Nu resource (`alpha_D`/`alpha_G` as total `Ceff` applied once before the Nu floor; see [model resources](model-resources.en.md#sco2-有效-nu-系数)). The [2D](../solver/full_2d.cpp#L539) and [3D](../solver/full_3d.cpp#L877) solvers compute local Re and Nu from cell-centered pore velocity magnitude `sqrt(uc^2 + vc^2 [+ wc^2])`.
+5. **Nusselt ownership**: full runs evaluate Nu in [fluid_nusselt_ratio](../native/numerics/fluid_properties.cpp#L171) and [nu_point](../native/numerics/fluid_properties.cpp#L364), wrapped by [nu_correlations.py](../python/physical_models/nu_correlations.py). `python/model_configs/sco2_effective_nu.json` (`sco2_effective_nu_config()`) is the only sCO2 effective-Nu resource (`alpha_D`/`alpha_G` as total `Ceff` applied once before the Nu floor; see [model resources](model-resources.en.md#sco2-有效-nu-系数)). The [2D](../native/solver/full_2d.cpp#L539) and [3D](../native/solver/full_3d.cpp#L877) solvers compute local Re and Nu from cell-centered pore velocity magnitude `sqrt(uc^2 + vc^2 [+ wc^2])`.
 6. **Compressible envelope**: `python/physical_models/envelope.py` rejects nonfinite states, pressure `<= 1000 Pa`, and `Mach >= 1`. Positive subsonic fields must also satisfy the inlet-pressure gate to converge.
 7. **Pressure reference**: on ideal-gas sides, `P_ref_abs` anchors outlet cells and local absolute pressure is `P_ref_abs + P`. Use geometric open-area means at physical port faces for inlet-pressure correction and diagnostics.
 8. **Units**: prepared contracts use K, Pa, and m; closures expecting mm receive explicit boundary conversions without changing persisted SI fields.

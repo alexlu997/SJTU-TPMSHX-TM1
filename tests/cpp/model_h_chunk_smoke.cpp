@@ -1,4 +1,4 @@
-#include "../../solver/model_h_common.hpp"
+#include "../../native/solver/model_h_common.hpp"
 #include <array>
 #include <cstdio>
 #include <stdexcept>

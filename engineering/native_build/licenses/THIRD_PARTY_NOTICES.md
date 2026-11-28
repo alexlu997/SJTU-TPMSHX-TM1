@@ -2,10 +2,10 @@
 
 The native solver and its component checks use the sources and build options in
 [`dependencies-lock.toml`](../dependencies-lock.toml). The geometry excerpts have separate
-versioned sources in the [geometry source record](../../../geometry/README.md#upstream-sources)
-and the [field source record](../../../geometry/fields-sources.md).
-Preparation arithmetic has a separate [source and change record](../../../preprocess/sources.md).
-Result arithmetic has a separate [source and interface record](../../../postprocess/sources.md).
+versioned sources in the [geometry source record](../../../native/geometry/README.md#upstream-sources)
+and the [field source record](../../../native/geometry/fields-sources.md).
+Preparation arithmetic has a separate [source and change record](../../../native/preprocess/sources.md).
+Result arithmetic has a separate [source and interface record](../../../native/postprocess/sources.md).
 The C++ targets use the applicable dependencies listed below. Build artifacts stay in
 the ignored `.cache/native-deps` directory. These notices must accompany each
 binary distribution that includes the corresponding components.
@@ -23,15 +23,15 @@ binary distribution that includes the corresponding components.
 | AMGCL 1.5.0 | [MIT notice](AMGCL.txt); [fixed source](https://github.com/ddemidov/amgcl/tree/f4614a7e9ccfe716c4c96df75dc349157229609a) | Staggered-temperature MAC candidate; serial builtin backend with `AMGCL_NO_BOOST`. Pressure uses the original PyAMG/SciPy algorithm excerpts below. |
 | PyAMG 5.3.0 algorithm excerpts | [MIT notice](pyamg-v5.3.0-LICENSE.txt); [source provenance](classical-amg-sources.md) | Six original strength, coarsening, interpolation and relaxation functions; the pressure solver ports the locked classical hierarchy and V-cycle without a Python runtime dependency. |
 | SciPy 1.17.1 CSR excerpts and 1.18.1 pseudo-inverse expression | [BSD-3-Clause notice](scipy-v1.17.1-LICENSE.txt); [source provenance](classical-amg-sources.md) | Seven original CSR functions preserve Galerkin product order. The native pressure solver retains the BiCGStab sequence and follows the current locked SciPy coarse pseudo-inverse expression. |
-| scikit-image 0.26.0 Lewiner implementation and lookup tables | [Complete release notice](scikit-image-LICENSE.txt); [source and changes](../../../geometry/README.md#upstream-sources) | C++17 port of the Cython cell, ambiguity tests and 47 non-classic lookup tables. The geometry library retains vertex precision, face order and degenerate faces. The applicable license is BSD-3-Clause. No Python scikit-image code runs in the library. |
-| SciPy 1.18.1 FITPACK, basis and linear LUT subsets | [BSD-3-Clause notice](scipy-LICENSE.txt); [fixed sources and changes](../../../geometry/fields-sources.md) | Restricted C17 bivariate `s=0` first fit; one-dimensional basis/interval/collocation rules; two-table linear LUT arithmetic. The scalar band solver is project code, not LAPACK/BLAS. No SciPy extension runs in the library. |
-| SciPy 1.18.1 ndimage Gaussian subset | [SciPy notice](scipy-LICENSE.txt); [original Peter J. Verveer notice](ndimage-LICENSE.txt); [fixed sources and changes](../../../geometry/fields-sources.md) | Fixed sigma=2, order=0, radius=8, reflect filtering and symmetric pair accumulation. This is not the full ndimage API. |
-| NumPy 2.5.4 numerical rules and pairwise reduction | [BSD-3-Clause notice](numpy-LICENSE.txt); [geometry sources](../../../geometry/README.md#upstream-sources); [field sources](../../../geometry/fields-sources.md); [preparation sources](../../../preprocess/sources.md); [result sources](../../../postprocess/sources.md) | Real pairwise sum for geometry area and filter normalization. Preparation keeps maximum operation order. Result calculations keep pairwise binary64 summation and float64 element operations. The libraries do not link or call NumPy. |
-| CPython 3.13.2 compensated float sum | [Complete release license](python-v3.13.2-LICENSE.txt); [result source and changes](../../../postprocess/sources.md) | Result sums keep the original float correction order. The port uses C++ storage and project error handling. The Python interpreter is not included in this subset. |
+| scikit-image 0.26.0 Lewiner implementation and lookup tables | [Complete release notice](scikit-image-LICENSE.txt); [source and changes](../../../native/geometry/README.md#upstream-sources) | C++17 port of the Cython cell, ambiguity tests and 47 non-classic lookup tables. The geometry library retains vertex precision, face order and degenerate faces. The applicable license is BSD-3-Clause. No Python scikit-image code runs in the library. |
+| SciPy 1.18.1 FITPACK, basis and linear LUT subsets | [BSD-3-Clause notice](scipy-LICENSE.txt); [fixed sources and changes](../../../native/geometry/fields-sources.md) | Restricted C17 bivariate `s=0` first fit; one-dimensional basis/interval/collocation rules; two-table linear LUT arithmetic. The scalar band solver is project code, not LAPACK/BLAS. No SciPy extension runs in the library. |
+| SciPy 1.18.1 ndimage Gaussian subset | [SciPy notice](scipy-LICENSE.txt); [original Peter J. Verveer notice](ndimage-LICENSE.txt); [fixed sources and changes](../../../native/geometry/fields-sources.md) | Fixed sigma=2, order=0, radius=8, reflect filtering and symmetric pair accumulation. This is not the full ndimage API. |
+| NumPy 2.5.4 numerical rules and pairwise reduction | [BSD-3-Clause notice](numpy-LICENSE.txt); [geometry sources](../../../native/geometry/README.md#upstream-sources); [field sources](../../../native/geometry/fields-sources.md); [preparation sources](../../../native/preprocess/sources.md); [result sources](../../../native/postprocess/sources.md) | Real pairwise sum for geometry area and filter normalization. Preparation keeps maximum operation order. Result calculations keep pairwise binary64 summation and float64 element operations. The libraries do not link or call NumPy. |
+| CPython 3.13.2 compensated float sum | [Complete release license](python-v3.13.2-LICENSE.txt); [result source and changes](../../../native/postprocess/sources.md) | Result sums keep the original float correction order. The port uses C++ storage and project error handling. The Python interpreter is not included in this subset. |
 
 The separate geometry target does not link the full solver, CoolProp, Eigen,
 SuperLU or AMGCL. Its C ABI has independent static and shared C callers.
-See [geometry build and interfaces](../../../geometry/README.md#build-and-interfaces).
+See [geometry build and interfaces](../../../native/geometry/README.md#build-and-interfaces).
 Its source and binary distributions must retain the scikit-image, NumPy, SciPy and ndimage notices for the included subsets.
 Keep their copyright text, license conditions and disclaimers unchanged.
 The BSD notices also prohibit endorsement with upstream names without permission.
@@ -56,7 +56,7 @@ The macOS include inventory was checked against compiler-generated dependency
 files, not merely the downloaded submodule list. Windows build and binary
 dependency inspection are still required before claiming Windows distribution
 acceptance. The narrow PyAMG/SciPy algorithm excerpts are distributed in
-`solver/classical_amg_kernels.hpp`; their complete license notices and exact source
+`native/solver/classical_amg_kernels.hpp`; their complete license notices and exact source
 revisions accompany them. Other upstream source checkouts remain in ignored cache.
 
 The macOS pressure qualification does not establish cross-platform bitwise

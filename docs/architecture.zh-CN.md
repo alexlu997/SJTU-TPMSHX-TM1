@@ -27,14 +27,14 @@ Quick Design、保存态工况运行、离线评估和运行恢复分别从对�
 
 | 共享库 | 源码目录 | 现行 ABI 与职责 |
 | --- | --- | --- |
-| `tpmshx_geometry_shared` | [geometry/](../geometry/) | geometry ABI 2 与 field ABI 3：TPMS 单元几何、chi/Kss、网格、端口、样条、sigmoid 场、LUT 与分区。 |
-| `tpmshx_preparation_shared` | [preprocess/](../preprocess/) | preparation ABI 3 与 Quick Design 准备 v2：物性、Nu 闭合、固定 D-F、二维／三维准备及标量入口查询。 |
-| `tpmshx_solver_shared` | [solver/](../solver/) | 二维保存态 ABI 5、三维保存态 ABI 3（捕获 ABI 2）与 Quick Design 运行 v2：SIMPLE 流动、model-h、温度与 T-SOU 保守能量。 |
-| `tpmshx_result_shared` | [postprocess/](../postprocess/) | result ABI 3（`float64` 数组与 `int32` 分区标签）：工程指标、物理平衡、适用性检查、分区统计与资格判断。 |
+| `tpmshx_geometry_shared` | [native/geometry/](../native/geometry/) | geometry ABI 2 与 field ABI 3：TPMS 单元几何、chi/Kss、网格、端口、样条、sigmoid 场、LUT 与分区。 |
+| `tpmshx_preparation_shared` | [native/preprocess/](../native/preprocess/) | preparation ABI 3 与 Quick Design 准备 v2：物性、Nu 闭合、固定 D-F、二维／三维准备及标量入口查询。 |
+| `tpmshx_solver_shared` | [native/solver/](../native/solver/) | 二维保存态 ABI 5、三维保存态 ABI 3（捕获 ABI 2）与 Quick Design 运行 v2：SIMPLE 流动、model-h、温度与 T-SOU 保守能量。 |
+| `tpmshx_result_shared` | [native/postprocess/](../native/postprocess/) | result ABI 3（`float64` 数组与 `int32` 分区标签）：工程指标、物理平衡、适用性检查、分区统计与资格判断。 |
 
 共享系数、范围与默认值统一来自 [model_parameters_v1.json](../python/model_configs/model_parameters_v1.json) 与 [preparation_df_v1.json](../python/model_configs/preparation_df_v1.json)。
 `engineering/scripts/generate_native_model_coefficients.py` 仅用 Python 标准库由上述文件生成 C++ 头文件。
-另见 [include/tpmshx/](../include/tpmshx/)、[tests/cpp/](../tests/cpp/)、[C++ 接入说明](cpp-migration.zh-CN.md#cpp-core-scope)、[原生阶段 SDK](native-stages.zh-CN.md)与[C++ 迁移与 ABI 演进历史](history/cpp-migration-history.zh-CN.md)。
+另见 [native/include/tpmshx/](../native/include/tpmshx/)、[tests/cpp/](../tests/cpp/)、[C++ 接入说明](cpp-migration.zh-CN.md#cpp-core-scope)、[原生阶段 SDK](native-stages.zh-CN.md)与[C++ 迁移与 ABI 演进历史](history/cpp-migration-history.zh-CN.md)。
 
 ## 源码、导入名与原生库路径映射
 
@@ -56,10 +56,10 @@ Python 目录的职责见 [Python 分层所有者](#python-分层所有者)表�
 
 | 路径 | 内容 |
 | --- | --- |
-| [preprocess/](../preprocess/)、[solver/](../solver/)、[postprocess/](../postprocess/) | C++ 前处理、求解与评估。 |
-| [geometry/](../geometry/) | C++ 几何。 |
-| [numerics/](../numerics/) | 通用数值函数。 |
-| [include/tpmshx/](../include/tpmshx/) | C 与 C++ 头文件。 |
+| [native/preprocess/](../native/preprocess/)、[native/solver/](../native/solver/)、[native/postprocess/](../native/postprocess/) | C++ 前处理、求解与评估。 |
+| [native/geometry/](../native/geometry/) | C++ 几何。 |
+| [native/numerics/](../native/numerics/) | 通用数值函数。 |
+| [native/include/tpmshx/](../native/include/tpmshx/) | C 与 C++ 头文件。 |
 | [tests/cpp/](../tests/cpp/) | 原生调用方测试。 |
 | [python/applications/](../python/applications/) | 应用工作流。GUI 组件位于 `gui/ui/`，控制器位于 `gui/controllers/`。 |
 | [python/preprocess/](../python/preprocess/) | Python 前处理阶段，生成新的 `CaseData`。 |
@@ -111,17 +111,17 @@ GUI 代码位于 `python/applications/gui/ui/`（`Main_Menu` 位于 `main_window
 
 交付的四个共享库之间不存在共享库链接环。
 每个 CMake 作用域独立构建库文件。
-仅 `preprocess/` 与 `solver/` 链接各自隔离的 CoolProp 静态归档；`geometry/` 与 `postprocess/` 不链接 CoolProp。
+仅 `native/preprocess/` 与 `native/solver/` 链接各自隔离的 CoolProp 静态归档；`native/geometry/` 与 `native/postprocess/` 不链接 CoolProp。
 以下六类编译期源码与头文件边跨目录存在：
 
 | 依赖边 | 源码或头文件位置 | 原因 |
 | --- | --- | --- |
-| `preprocess/` <-> `numerics/` | `preprocess/preparation_properties.hpp` 包含 `../numerics/property_kernels.hpp`。`numerics/df_summary.cpp` 包含 `tpmshx/preparation_df.hpp`。 | `preprocess/preparation_property_points.cpp` 定义六个前处理适配函数。`numerics/fluid_properties.cpp` 定义共用的物性内核。前处理和求解器的构建都使用同一个 D-F 汇总函数。 |
-| `solver/` -> `postprocess/` | `solver/CMakeLists.txt` 将 `postprocess/result_{core,arithmetic,metrics,balance}.cpp` 编译进隐藏静态目标 `tpmshx_capture_math`；`solver/stage_capture_2d.cpp` 包含 `../postprocess/result_zone_capture.hpp`。 | 在求解捕获阶段复用精确结果算术，同时保持 `tpmshx_result_shared` 独立部署而不依赖求解库。 |
-| `solver/` -> `preprocess/` | `solver/CMakeLists.txt` 编译 `preprocess/preparation_{df_corrections,flow}.cpp`；`solver/stage_saved_models.hpp` 包含 `../preprocess/preparation_nu.hpp`；`solver/quick_design_run.cpp` 包含 `../preprocess/preparation_c_boundary.hpp`。 | 复用 D-F 修正、`closure_geometry_ratio`、Nu 路线与 C 边界规则，无需链接 `tpmshx_preparation_shared`，使静态 CoolProp 注册表保持隔离。 |
-| `preprocess/`、`solver/` -> `geometry/` | 两个 CMake 工程均以子目录方式引入 `geometry/`；`preprocess/preparation_case.cpp` 包含 `../geometry/field_{continuous,lut,sigmoid}.hpp`；五个前处理与求解文件包含 `../geometry/field_c_boundary.hpp`。 | 将网格、端口、设计场与 C 边界辅助代码静态编入各自隔离的阶段构建。 |
-| `geometry/` <-> `numerics/` | `include/tpmshx/geometry.hpp` 为 `Topology` 包含 `tpmshx/fluid_properties.hpp`；`geometry/{grid,zones}.cpp` 包含 `../numerics/contiguous_sum.hpp`；`include/tpmshx/pressure_reference.hpp` 包含 `tpmshx/ports.hpp`，`pressure-reference.cmake` 直接链接 `tpmshx_grid`，`models.cmake` 传递链接 `tpmshx_grid`。 | 在几何与压力基准目标之间共享拓扑枚举、确定性求和辅助函数与物理端口分数计算。 |
-| 各阶段 -> `numerics/` 与共享 Quick 头文件 | `preprocess/` 与 `solver/` 包含 `../numerics/contiguous_sum.hpp` 并编译 `numerics/df_summary.cpp`；`preprocess/` 与 `postprocess/` 包含 `../numerics/scalar_range_samples.hpp`；`solver/` 与 `postprocess/` 编译 `numerics/recorded_report.cpp`；`include/tpmshx/quick_design_stage_c_api.h` 包含前处理、求解与结果 C 头文件。 | 在各阶段间共享确定性求和、范围采样、报告编码及统一的 Quick Design 阶段 C 接口。 |
+| `native/preprocess/` <-> `native/numerics/` | `native/preprocess/preparation_properties.hpp` 包含 `../numerics/property_kernels.hpp`。`native/numerics/df_summary.cpp` 包含 `tpmshx/preparation_df.hpp`。 | `native/preprocess/preparation_property_points.cpp` 定义六个前处理适配函数。`native/numerics/fluid_properties.cpp` 定义共用的物性内核。前处理和求解器的构建都使用同一个 D-F 汇总函数。 |
+| `native/solver/` -> `native/postprocess/` | `native/solver/CMakeLists.txt` 将 `native/postprocess/result_{core,arithmetic,metrics,balance}.cpp` 编译进隐藏静态目标 `tpmshx_capture_math`；`native/solver/stage_capture_2d.cpp` 包含 `../postprocess/result_zone_capture.hpp`。 | 在求解捕获阶段复用精确结果算术，同时保持 `tpmshx_result_shared` 独立部署而不依赖求解库。 |
+| `native/solver/` -> `native/preprocess/` | `native/solver/CMakeLists.txt` 编译 `native/preprocess/preparation_{df_corrections,flow}.cpp`；`native/solver/stage_saved_models.hpp` 包含 `../preprocess/preparation_nu.hpp`；`native/solver/quick_design_run.cpp` 包含 `../preprocess/preparation_c_boundary.hpp`。 | 复用 D-F 修正、`closure_geometry_ratio`、Nu 路线与 C 边界规则，无需链接 `tpmshx_preparation_shared`，使静态 CoolProp 注册表保持隔离。 |
+| `native/preprocess/`、`native/solver/` -> `native/geometry/` | 两个 CMake 工程均以子目录方式引入 `native/geometry/`；`native/preprocess/preparation_case.cpp` 包含 `../geometry/field_{continuous,lut,sigmoid}.hpp`；五个前处理与求解文件包含 `../geometry/field_c_boundary.hpp`。 | 将网格、端口、设计场与 C 边界辅助代码静态编入各自隔离的阶段构建。 |
+| `native/geometry/` <-> `native/numerics/` | `native/include/tpmshx/geometry.hpp` 为 `Topology` 包含 `tpmshx/fluid_properties.hpp`；`native/geometry/{grid,zones}.cpp` 包含 `../numerics/contiguous_sum.hpp`；`native/include/tpmshx/pressure_reference.hpp` 包含 `tpmshx/ports.hpp`，`pressure-reference.cmake` 直接链接 `tpmshx_grid`，`models.cmake` 传递链接 `tpmshx_grid`。 | 在几何与压力基准目标之间共享拓扑枚举、确定性求和辅助函数与物理端口分数计算。 |
+| 各阶段 -> `native/numerics/` 与共享 Quick 头文件 | `native/preprocess/` 与 `native/solver/` 包含 `../numerics/contiguous_sum.hpp` 并编译 `native/numerics/df_summary.cpp`；`native/preprocess/` 与 `native/postprocess/` 包含 `../numerics/scalar_range_samples.hpp`；`native/solver/` 与 `native/postprocess/` 编译 `native/numerics/recorded_report.cpp`；`native/include/tpmshx/quick_design_stage_c_api.h` 包含前处理、求解与结果 C 头文件。 | 在各阶段间共享确定性求和、范围采样、报告编码及统一的 Quick Design 阶段 C 接口。 |
 
 ## 详细契约索引
 

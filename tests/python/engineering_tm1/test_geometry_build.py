@@ -52,7 +52,7 @@ def test_geometry_build_uses_role_lock_and_standalone_source(geometry_build):
             '--output', str(generated)) in commands
     configure, = (command for command in commands if '-S' in command)
     assert configure[0] == str(cmake)
-    assert configure[configure.index('-S') + 1] == str(root / 'geometry')
+    assert configure[configure.index('-S') + 1] == str(root / 'native/geometry')
     assert configure[configure.index('-B') + 1] == str(cache / 'build' / ('geometry-' + host))
     assert not any('COOLPROP' in arg or 'dependency-pilot' in arg for arg in configure)
     build, = (command for command in commands if '--build' in command)

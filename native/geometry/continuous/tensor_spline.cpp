@@ -1,6 +1,6 @@
 /* Basis and band-solve steps follow the fixed SciPy source.
  * Copyright (c) 2001-2002 Enthought, Inc. 2003, SciPy Developers.
- * All rights reserved. See ../../engineering/native_build/licenses/scipy-LICENSE.txt.
+ * All rights reserved. See ../../../engineering/native_build/licenses/scipy-LICENSE.txt.
  * Source details are in ../../geometry/fields-sources.md.
  */
 #include "../field_continuous.hpp"

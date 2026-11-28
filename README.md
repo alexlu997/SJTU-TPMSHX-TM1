@@ -8,13 +8,13 @@ TM1 用于计算 TPMS 换热器的流动、换热量与压降，支持完整二�
 
 ```mermaid
 flowchart LR
-    prep["前处理 · preprocess/"]
-    subgraph sol["求解 · solver/"]
+    prep["前处理 · native/preprocess/"]
+    subgraph sol["求解 · native/solver/"]
         d2["完整二维 · full_2d.cpp"]
         d3["完整三维 · full_3d.cpp"]
         q["快速设计 · quick_design_driver.cpp"]
     end
-    result["后处理 · postprocess/"]
+    result["后处理 · native/postprocess/"]
     prep --> d2 --> result
     prep --> d3 --> result
     prep --> q --> result
@@ -24,11 +24,11 @@ flowchart LR
 
 | 计算阶段 | C++ 实现 | Python 入口 |
 | --- | --- | --- |
-| 准备工况 | [二维工况准备](preprocess/preparation_case.cpp#L1021) · [几何计算](geometry/) | [prepare_case](python/preprocess/api.py) |
-| 求解 | [完整二维](solver/full_2d.cpp#L1095) · [完整三维](solver/full_3d.cpp#L1505) · [快速设计](solver/quick_design_driver.cpp#L116) | [run_case](python/solvers/api.py) |
-| 评估结果 | [工程指标计算](postprocess/result_stage.cpp#L1164) | [evaluate](python/postprocess/api.py) |
+| 准备工况 | [二维工况准备](native/preprocess/preparation_case.cpp#L1021) · [几何计算](native/geometry/) | [prepare_case](python/preprocess/api.py) |
+| 求解 | [完整二维](native/solver/full_2d.cpp#L1095) · [完整三维](native/solver/full_3d.cpp#L1505) · [快速设计](native/solver/quick_design_driver.cpp#L116) | [run_case](python/solvers/api.py) |
+| 评估结果 | [工程指标计算](native/postprocess/result_stage.cpp#L1164) | [evaluate](python/postprocess/api.py) |
 
-改流体物性或共用数值方法，从 [numerics/](numerics/) 读起。改流动或热学模型、查场结果或续算，按[求解器阅读指南](solver/README.md)找对应文件。
+改流体物性或共用数值方法，从 [native/numerics/](native/numerics/) 读起。改流动或热学模型、查场结果或续算，按[求解器阅读指南](native/solver/README.md)找对应文件。
 
 <a id="first-run"></a><a id="从这里开始"></a>
 

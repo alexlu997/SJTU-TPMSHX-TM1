@@ -1,6 +1,6 @@
 // Test-only bridge for the typed prepared-data full 3D driver.
 #include "tpmshx/full_3d.hpp"
-#include "../../../../solver/full_3d_fields.hpp"
+#include "full_3d_fields.hpp"
 #include "tpmshx/full_3d_state.hpp"
 #include "tpmshx/thermal_c_api.h"
 #include <algorithm>
