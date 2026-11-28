@@ -183,7 +183,7 @@ macOS 尚未验收。继续复用 `.venv-path` 指定的现有锁定环境，环
 "$PYTHON" engineering/scripts/build_native_dependencies.py publish
 ```
 
-保留仍有消费者的旧缓存及其绝对路径。每个 CMake 构建目录都记录其源码路径。四个组件的源码移入 `native/` 后，须使用新的构建缓存。
+保留仍有消费者的旧缓存及其绝对路径。每个 CMake 构建目录都记录其源码路径。源码移入 `native/` 后，四个组件均须使用新的构建缓存。
 
 已有项目须选择一个尚未使用的缓存目录。以下以 `.cache/native-layout` 和基础环境锁为例；若 `.venv-path` 指向 BO 环境，将发布命令的锁换成对应的 `engineering/requirements/bo-macos.txt` 或 `engineering/requirements/bo-windows.txt`。
 
