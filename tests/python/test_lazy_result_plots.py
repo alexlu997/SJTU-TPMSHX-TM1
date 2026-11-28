@@ -240,6 +240,12 @@ def test_saved_3d_result_uses_selected_field_reader_for_single_view_and_full_loa
         result_field_loader.build_saved_compute_result(
             results_path, metrics_file=tmp_path / 'missing-metrics.json'
         )
+    with pytest.raises(ValueError, match='source_result_id'):
+        win.cache.set_result('3d', header_display, result_file=results_path)
+    with pytest.raises(ValueError, match='expected_result_id'):
+        result_field_loader.read_saved_display_field(
+            results_path, 'Ta', mode='3d', expected_result_id=''
+        )
 
     def _forbid_full_load(*_args, **_kwargs):
         raise AssertionError('full load_result must not run for single-field display')

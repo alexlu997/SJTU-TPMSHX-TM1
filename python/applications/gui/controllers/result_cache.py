@@ -55,16 +55,15 @@ class ResultCache(QObject):
         A non-None payload clears the drawn-tabs set for repainting.
         """
         self._check_mode(mode)
+        if payload is not None and result_file is not None:
+            if not isinstance(source_result_id, str) or not source_result_id:
+                raise ValueError('file-backed result requires a non-empty source_result_id')
         if payload is not None or mode == self._mode:
             self._result = payload
             self._mode = mode if payload is not None else None
             if payload is not None and result_file is not None:
                 self._result_file = Path(result_file)
-                self._source_result_id = (
-                    source_result_id
-                    if source_result_id is not None
-                    else payload.metadata.get('source_result_id')
-                )
+                self._source_result_id = source_result_id
                 self._available_fields = frozenset(available_fields)
             else:
                 self._result_file = None
@@ -116,7 +115,12 @@ class ResultCache(QObject):
         value = result.fields.get(key)
         if value is not None:
             return value
-        if self._result_file is not None and self._mode is not None and key in self._available_fields:
+        if (
+            self._result_file is not None
+            and self._mode is not None
+            and self._source_result_id is not None
+            and key in self._available_fields
+        ):
             return read_saved_display_field(
                 self._result_file,
                 key,
@@ -130,7 +134,7 @@ class ResultCache(QObject):
         result = self.get_result(mode)
         if result is None:
             return {}
-        if self._result_file is None or self._mode is None:
+        if self._result_file is None or self._mode is None or self._source_result_id is None:
             return dict(result.fields)
         merged = dict(result.fields)
         merged.update(

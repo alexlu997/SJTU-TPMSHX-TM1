@@ -27,7 +27,7 @@ def compute_result(config: ComputeConfig, *, control: RunControl = RunControl(),
     return display
 
 
-def _assemble_compute_result(record, performance, fields, *, za=None):
+def _assemble_compute_result(record, performance, fields):
     """Build one ComputeResult from a validated FieldResult or ResultHeader and performance record."""
     if performance.source_result_id != record.result_id:
         raise ValueError('performance belongs to another result')
@@ -59,7 +59,7 @@ def _assemble_compute_result(record, performance, fields, *, za=None):
             N_x=len(record.grid['dx']), N_y=len(record.grid['dy']),
             L=parameters['L'], H=parameters['H'],
             dir_A=parameters['dir_A'], dir_B=parameters['dir_B'], zone_config=zone,
-            za=za,
+            za=assembled_fields.get('za'),
         )
         residuals = {name: diagnostics[name] for name in
                      ('mass_imbalance_rel_A', 'mass_imbalance_rel_B', 'Q_A', 'Q_B', 'energy_imbalance_rel')}
@@ -138,20 +138,22 @@ def _assemble_compute_result(record, performance, fields, *, za=None):
         diagnostics=diagnostics, metadata=metadata)
 
 
-def to_compute_result(result, performance):
-    """No solve, preparation or metric reduction; use this run's archived data."""
+def extract_display_fields(result):
+    """Extract the mutable application display field arrays from one validated FieldResult."""
     dimension = result.grid['dimension']
     f = result.fields
     fields = {name: mutable_data(f[name]) for name in ('Ta', 'Tb', 'Ts')}
     fields.update({'P_f' + side: mutable_data(f.get('P_report_' + side)) for side in 'AB'})
     fields.update({name: mutable_data(f.get(name)) for name in ('ucA', 'vcA', 'ucB', 'vcB')})
-    za = None
     if dimension == 2:
         for side in 'AB':
             u, v = fields['uc' + side], fields['vc' + side]
             fields['vmag_' + side] = None if u is None or v is None else np.hypot(u, v)
-        if result.metadata['design_mode'] != 'uniform':
-            za = _legacy_zone_units(mutable_data(result.metadata['design_fields']))
+        fields['za'] = (
+            _legacy_zone_units(mutable_data(result.metadata['design_fields']))
+            if result.metadata['design_mode'] != 'uniform'
+            else None
+        )
     elif dimension == 3:
         fields.update({name: mutable_data(f.get(name)) for name in ('wcA', 'wcB', 'vmag_A', 'vmag_B')})
         fields.update(
@@ -160,9 +162,16 @@ def to_compute_result(result, performance):
             h_vA_field=mutable_data(f['h_vA']),
             h_vB_field=mutable_data(f['h_vB']),
         )
-    return _assemble_compute_result(result, performance, fields, za=za)
+    else:
+        raise ValueError(f'unsupported result dimension: {dimension}')
+    return fields
+
+
+def to_compute_result(result, performance):
+    """No solve, preparation or metric reduction; use this run's archived data."""
+    return _assemble_compute_result(result, performance, extract_display_fields(result))
 
 
 def to_compute_result_header(header, performance):
     """Map a validated ResultHeader and PerformanceResult without loading field arrays."""
-    return _assemble_compute_result(header, performance, {}, za=None)
+    return _assemble_compute_result(header, performance, {})
