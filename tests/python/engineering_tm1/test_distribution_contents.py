@@ -258,6 +258,8 @@ except SystemExit as error:
 else:
     raise AssertionError('CLI help must exit successfully')
 assert main([sys.argv[2], '--dry-run', '--json']) == 0
+from tm1.development.runs.cfd_asym import ingest_cfd_kappa
+assert 'tm1.development.runs.cfd_asym.kappa_asym' in sys.modules
 assert not {'PySide6', 'CoolProp', 'sympy', 'skimage'}.intersection(sys.modules)
 print('installed CLI, resources and retained tools passed')
 """

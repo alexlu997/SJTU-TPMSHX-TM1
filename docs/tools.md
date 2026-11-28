@@ -220,7 +220,7 @@ python -m tm1.development.runs.cfd_asym.asym_ntop_expressions_html
 旧 recipe 锚点；完整新旧名称见[数据目录](data-catalog.md)。正式离线流程要求的
 `Water-CFD/水数值模拟数据.xlsx` 仍缺失，两者不能互相替代。
 
-使用 `python -m tm1.development.runs.cfd_asym.ingest_cfd_kappa results.csv` 运行研究用导入器。新设计工作簿显示此命令。旧工作簿中的命令模块 `sjtu_tpmshx.physical_models.df_surrogate.ingest_cfd_kappa` 已退役。旧工作簿导出的 CSV 可直接用于新命令。
+使用 `python -m tm1.development.runs.cfd_asym.ingest_cfd_kappa results.csv` 运行研究用导入器。新设计工作簿显示此命令。使用 2026-11-25 提交 `45802c2d` 之前的生成器生成的工作簿可能显示已退役的命令模块 `sjtu_tpmshx.physical_models.df_surrogate.ingest_cfd_kappa`。旧工作簿导出的 CSV 可直接用于新命令。
 
 非对称 CFD 的两条 κ 研究路径使用不同分母：`ingest_cfd_kappa` 使用当前对称
 预测器，`asym_postproc_kappa` 使用配对 r=1 CFD 参考。不可把两者的 κ 数字直接

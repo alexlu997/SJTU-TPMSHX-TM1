@@ -1,4 +1,4 @@
-"""Check import boundaries and layer policy."""
+"""Tests of import boundaries and the layer policy."""
 import ast
 from graphlib import CycleError
 from pathlib import Path
@@ -122,7 +122,8 @@ def test_checker_detects_cycle_across_solver_directories(tmp_path):
     "import tm1.physical_models.df_surrogate.predict\n"
     "bad = {'tm1.physical_models.tpms_calc', 'tm1.physical_models.tpms_props'} & set(sys.modules)\n"
     "assert not bad, f'df_surrogate pulled kernel modules: {bad}'",
-    "import tm1.physical_models.df_surrogate.predict, tm1.preprocess.api, tm1.solvers.api\n"
+    "import tm1.physical_models.df_surrogate.predict, tm1.physical_models.df_surrogate.experimental_correction,"
+    " tm1.physical_models.df_surrogate.full_core_3cell_fixed_v2, tm1.preprocess.api, tm1.solvers.api\n"
     "offline = ('tm1.preprocess.offline', 'tm1.development', 'CoolProp')\n"
     "assert not any(name.startswith(offline) for name in sys.modules)",
     "import tm1.physical_models.tpms_props\n"
@@ -505,6 +506,11 @@ def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monke
      'Quick solve boundary -> tm1.data_types.case_data.CaseData', 1),
     ('cpp_interface/preparation_host.py', 'from ..data_types.field_result import FieldResult',
      'full preparation boundary -> tm1.data_types.field_result.FieldResult', 1),
+    ('run_control/probe.py', 'from tm1.physical_models import range_policy', None, 0),
+    ('run_control/probe.py', 'from tm1.physical_models import fluid_props',
+     'domain (L0) -> models (L0.5) (1x): UPWARD import', 1),
+    ('run_control/probe.py', 'import tm1.physical_models',
+     'domain (L0) -> models (L0.5) (1x): UPWARD import', 1),
 ])
 def test_layer_audit_applies_policy_to_each_import_spelling(tmp_path, monkeypatch, capsys,
                                                            filename, source, edge, exit_code):

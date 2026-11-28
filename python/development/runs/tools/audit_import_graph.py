@@ -111,6 +111,14 @@ def import_targets(node: ast.AST, package: str) -> list[str]:
     return []
 
 
+def _policy_targets(node: ast.AST, package: str) -> list[str]:
+    targets = import_targets(node, package)
+    if isinstance(node, ast.ImportFrom) and targets[0] == "tm1.physical_models" and len(targets) > 1:
+        # Classify named physical_models submodules by their own owners.
+        return targets[1:]
+    return targets
+
+
 def target_unit(name: str, units: set[str]) -> str | None:
     parts = name.split(".")
     if parts[0] == "tm1":
@@ -473,7 +481,7 @@ def _stage_boundary_violations(path, tree, package):
             modules = {name for name in modules if not name.endswith(".model_refs")}
             types = types - {"ModelRef"}
     for node in ast.walk(tree):
-        targets = import_targets(node, package)
+        targets = _policy_targets(node, package)
         if (((not host and binding != "native_preparation")
              or binding in {"full_2d_stage", "full_3d_stage", "solver_api"}
              or (host and binding in {"quick_design", "quick_preparation"}))
@@ -544,7 +552,7 @@ def main() -> int:
                    else '.'.join(('tm1', *py.relative_to(PKG).parts[:-1])))
         violations.extend(_stage_boundary_violations(py, tree, package))
         for node in ast.walk(tree):
-            names = import_targets(node, package)
+            names = _policy_targets(node, package)
             targets = {target_unit(name, units) for name in names}
             for dst in targets:
                 if dst and dst != src_unit and dst in units:
