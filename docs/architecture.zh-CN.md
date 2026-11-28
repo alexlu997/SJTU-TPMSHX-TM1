@@ -42,10 +42,11 @@ Quick Design、保存态工况运行、离线评估和运行恢复分别从对�
 | --- | --- |
 | 源码目录 [python/](../python/) | 存放 Python 源码树；[pyproject.toml](../pyproject.toml) 中的 `[tool.setuptools.package-dir]` 将 `tm1` 映射到 `python`。 |
 | 导入名 `tm1` | 仓库内全部导入与 CLI 模块命令使用的公开包名。 |
-| 检出加载器 [tm1.py](../tm1.py) | 从仓库根目录执行命令时，将 `python/__init__.py` 作为 `tm1` 加载。 |
+| 应用启动入口 [main.py](../main.py) | 唯一的应用启动入口，也是冻结包入口；在任何路由导入 Qt、VTK、Matplotlib 或 Torch 之前分派 `gui`（默认）、CLI 阶段、`summary`、`design` 与 `optimize`。命令行模式以 UTF-8 写入标准输出和标准错误。 |
+| 检出加载器 [tm1.py](../tm1.py) | 从仓库根目录执行命令时，将 `python/__init__.py` 作为 `tm1` 加载；源码检出中的 `main.py`、`tm1` 工具的模块命令和 pytest 使用它。 |
 | 安装态 wheel 布局 `tm1/` | 打包 Python 模块及 `pyproject.toml` 声明的 JSON、CSV 与图标资源，不含原生库。[check_types.py](../engineering/scripts/check_types.py) 通过 [python_source.py](../engineering/packaging/python_source.py) 构建相同目录树供 `mypy` 检查。 |
 | 别名解析器 [python/shared.py](../python/shared.py) | 在当前 `tm1` 包根下以零重复方式将 `tm1.shared.*` 与 `tm1.solvers.backends.cpp.*` 别名路径解析至规范所有者。[python/solvers/backends/cpp.py](../python/solvers/backends/cpp.py) 导入其搜索路径；[packaging_support.py](../tests/python/packaging_support.py)、[test_three_module_imports.py](../tests/python/architecture/test_three_module_imports.py) 与 [test_distribution_contents.py](../tests/python/engineering_tm1/test_distribution_contents.py) 在源码检出与安装 wheel 中测试这些别名。仍使用旧包根的本地 `.cache/` 脚本需更新导入或使用记录的原源码版本。 |
-| 现行原生库目录 `sjtu_tpmshx/solvers/native/lib/<host>/` | 被 Git 忽略的目录，由 [build_native_dependencies.py](../engineering/scripts/build_native_dependencies.py) 为源码运行发布四个原生库。`provenance.py` 定义 `PUBLISHED_LIBRARY_DIR`，`module_ports.py`、`stage_libraries.py`、`_native_geometry.py` 与 `launch-macos.command` 读取该目录；冻结桌面包从 `native/` 加载。使用 `.venv-path` 解释器运行 `build_native_dependencies.py verify-published` 执行[已发布原生库检查](verification.md#published-native-images)；该命令将已发布导出符号与几何、准备、求解和结果库的 `.exports` 清单比对，并输出各库构建记录（`build.json` 与 `*-build.json`）。 |
+| 现行原生库目录 `native/lib/<host>/` | 被 Git 忽略的目录，由 [build_native_dependencies.py](../engineering/scripts/build_native_dependencies.py) 为源码运行发布四个原生库。`provenance.py` 定义 `PUBLISHED_LIBRARY_DIR`，`module_ports.py`、`stage_libraries.py` 与 `_native_geometry.py` 读取该目录；冻结桌面包从 `native/` 加载。使用 `.venv-path` 解释器运行 `build_native_dependencies.py verify-published` 执行[已发布原生库检查](verification.md#published-native-images)；该命令将已发布导出符号与几何、准备、求解和结果库的 `.exports` 清单比对，并输出各库构建记录（`build.json` 与 `*-build.json`）。 |
 
 <a id="directory-owners"></a>
 
@@ -92,8 +93,8 @@ Python 目录的职责见 [Python 分层所有者](#python-分层所有者)表�
 ## Python 分层所有者
 
 Python 在 [python/](../python/) 下负责公共 API、配置、不可变 DTO、文件 I/O、缓存、警告格式化与应用工作流。
-数值代码保持不依赖 Qt。在 GUI 与 `python/desktop.py` 之外，只有离屏 GUI 冒烟工具 `python/development/runs/_smoke_boot.py` 和 `python/development/runs/smokes/` 导入 Qt。
-GUI 代码位于 `python/applications/gui/ui/`（`Main_Menu` 位于 `main_window.py`）和 `python/applications/gui/controllers/`。启动入口为 `python/applications/gui/main.py` 与 `python/desktop.py`。
+数值代码保持不依赖 Qt。在 GUI 之外，只有离屏 GUI 冒烟工具 `python/development/runs/_smoke_boot.py` 和 `python/development/runs/smokes/` 导入 Qt。
+GUI 代码位于 `python/applications/gui/ui/`（`Main_Menu` 位于 `main_window.py`）和 `python/applications/gui/controllers/`。根目录 [main.py](../main.py) 是唯一的应用启动入口：先调用 `freeze_support()`，再在任何路由导入 Qt、VTK、Matplotlib 或 Torch 之前分派 `gui`（默认）、CLI 阶段、`summary`、`design` 与 `optimize`。GUI 路由调用 `python/applications/gui/main.py`。
 主窗口组装 `SingleRun`、`OptimizationPage` 和 `QuickDesignPage`。每个任务所有者负责启动、取消和线程退出。`Workbench` 选择视图，`FieldResults` 发布结果，`ResultExport` 导出数据与图表，`CaseFiles` 读写算例、预设和工作区会话。优化输入和工况解码位于无 Qt 依赖的 `applications/optimization/optimization_job.py`。
 
 | 分层 | 所有者路径 | 职责 |

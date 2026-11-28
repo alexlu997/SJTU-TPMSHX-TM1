@@ -1,5 +1,6 @@
 """Zoned heat transfer follows physical cells through the prepared SI handoff."""
 import json
+from pathlib import Path
 import subprocess
 import sys
 from dataclasses import replace
@@ -288,10 +289,10 @@ def test_sigmoid_saved_execution_keeps_row_drag(monkeypatch, tmp_path):
     save_result(results[0], tmp_path / 'original-result.h5')
     save_result(results[1], tmp_path / 'loaded-result.h5')
 
-    completed = subprocess.run([sys.executable, '-m', 'tm1.applications.cli.stages',
+    completed = subprocess.run([sys.executable, str(Path(__file__).resolve().parents[3] / 'main.py'),
         'solve', str(tmp_path / 'case.yaml'), str(tmp_path / 'cli-result.h5'),
-        '--native-library', library, '--cpu-threads', '1'], capture_output=True, text=True, check=False)
-    (tmp_path / 'cli.log').write_text(completed.stdout + completed.stderr)
+        '--native-library', library, '--cpu-threads', '1'], capture_output=True, encoding='utf-8', check=False)
+    (tmp_path / 'cli.log').write_text(completed.stdout + completed.stderr, encoding='utf-8')
     assert completed.returncode == (0 if results[1].run_status['converged'] else 2), completed.stderr
     cli = load_result(tmp_path / 'cli-result.h5')
     assert cli.run_status == results[1].run_status

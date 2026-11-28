@@ -275,7 +275,7 @@ jobs:
           with tarfile.open('.cache/ci-native-build/native-binaries.tar') as archive:
               archive.extractall('.cache/native-deps/build', filter='data')
           host = 'windows-x64' if os.name == 'nt' else 'macos-arm64'
-          target = Path('sjtu_tpmshx/solvers/native/lib') / host
+          target = Path('native/lib') / host
           target.mkdir(parents=True, exist_ok=True)
           prefix, suffix = ('', '.dll') if os.name == 'nt' else ('lib', '.dylib')
           for component in ('solver', 'geometry', 'preparation', 'result'):
@@ -377,7 +377,7 @@ jobs:
           from pathlib import Path
           import shutil
           import tarfile
-          target = Path('sjtu_tpmshx/solvers/native/lib/macos-arm64')
+          target = Path('native/lib/macos-arm64')
           with tarfile.open('.cache/ci-native-build/native-binaries.tar') as archive:
               for component in ('geometry', 'preparation', 'result'):
                   name = 'libtpmshx_' + component + '_shared.dylib'
@@ -401,7 +401,7 @@ jobs:
           "$bo_python" -m tm1.development.runs.tools.check_locked_environment engineering/requirements/bo-macos.txt
           "$bo_python" -m pip check
           "$bo_python" -c 'import torch, botorch, gpytorch; print(f"torch={torch.__version__} botorch={botorch.__version__} gpytorch={gpytorch.__version__}")'
-          library=sjtu_tpmshx/solvers/native/lib/macos-arm64
+          library=native/lib/macos-arm64
           TPMSHX_GEOMETRY_LIBRARY="$PWD/$library/libtpmshx_geometry_shared.dylib" \
           TPMSHX_PREPARATION_LIBRARY="$PWD/$library/libtpmshx_preparation_shared.dylib" \
           TPMSHX_RESULT_LIBRARY="$PWD/$library/libtpmshx_result_shared.dylib" \
@@ -452,7 +452,7 @@ jobs:
           with tarfile.open('.cache/ci-native-build/native-binaries.tar') as archive:
               archive.extractall('.cache/native-deps/build', filter='data')
           host = 'windows-x64' if os.name == 'nt' else 'macos-arm64'
-          target = Path('sjtu_tpmshx/solvers/native/lib') / host
+          target = Path('native/lib') / host
           target.mkdir(parents=True, exist_ok=True)
           prefix, suffix = ('', '.dll') if os.name == 'nt' else ('lib', '.dylib')
           for component in ('solver', 'geometry', 'preparation', 'result'):
@@ -622,7 +622,7 @@ jobs:
                   member = folder + '-' + host + '/' + name
                   archive.extract(archive.getmember(member), '.cache/native-deps/build', filter='data')
                   source = Path('.cache/native-deps/build') / member
-                  target = Path('sjtu_tpmshx/solvers/native/lib') / host / name
+                  target = Path('native/lib') / host / name
                   target.parent.mkdir(parents=True, exist_ok=True)
                   shutil.copy2(source, target)
                   with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as output:

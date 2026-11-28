@@ -105,7 +105,7 @@ Separate publication runs C static, C shared and C++ kernel callers, then checks
 It writes `result-build.json` and retains a changed previous library with its matching record.
 It does not build the solver or change a solver checkpoint identity.
 
-Default source runtime paths are `solvers/native/lib/<host>/` under this package.
+Default source runtime paths are `native/lib/<host>/` under the repository root.
 macOS uses `libtpmshx_result_shared.dylib`, Windows uses `tpmshx_result_shared.dll`, and Linux uses `libtpmshx_result_shared.so`.
 Frozen applications use their `native/` directory.
 `TPMSHX_RESULT_LIBRARY` can select an absolute prebuilt file.

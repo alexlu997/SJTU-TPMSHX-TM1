@@ -37,12 +37,6 @@ test = [
 dev = ["ruff>=0.17", "mypy>=2.4"]
 desktop-build = ["pyinstaller==6.22.3"]
 
-[project.scripts]
-tpmshx-run = "tm1.cli:main"
-
-[project.gui-scripts]
-tpmshx-gui = "tm1.desktop:main"
-
 [tool.tpmshx.native-dependencies]
 # Explicit native builds; Python package installation does not provision these dependencies.
 requirements = ["CMake==4.4.4", "CoolProp==8.0.0", "SuperLU==7.0.1", "AMGCL==1.5.0"]
@@ -86,7 +80,7 @@ files = [
     "tm1/data_types/compute_result.py",
     "tm1/model_configs/__init__.py",
     "tm1/_version.py",
-    "tm1/cli.py",
+    "tm1/applications/cli/main.py",
     "tm1/physical_models/envelope.py",
     "tm1/data_types/case_data.py",
     "tm1/data_types/field_result.py",

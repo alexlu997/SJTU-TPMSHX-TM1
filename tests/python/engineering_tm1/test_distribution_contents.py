@@ -30,6 +30,7 @@ def project(tmp_path):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"original resource\n")
     files = {
+        "main.py": "",
         "tm1.py": "",
         "tests/__init__.py": "",
         "tests/python/__init__.py": "",
@@ -129,10 +130,11 @@ def test_source_archive_rejects_retired_numerics(project, tmp_path, name):
 
 
 @pytest.mark.parametrize("name", ["numerics/fluid_properties.cpp",
-    "sjtu_tpmshx/solvers/native/lib/macos-arm64/libtpmshx_preparation_shared.dylib",
+    "native/lib/macos-arm64/libtpmshx_preparation_shared.dylib",
     "tm1/physical_models/local_heat_transfer.py",
     "tm1/physical_models/quick_design.py",
     "tm1/preprocess/thermal_geometry.py",
+    "main.py",
     "tm1.py",
     "tm1/development/tests/native/reference.py",
     "tests/python/__init__.py",
@@ -213,7 +215,6 @@ def test_manifest_tool_keeps_write_errors(tmp_path, monkeypatch):
 
 
 _INSTALLED_SMOKE = r"""
-import importlib.metadata
 import importlib.util
 from importlib.resources import files
 import json
@@ -251,9 +252,7 @@ log.write_text('31.0s call test_case.py::test_case\n')
 assert manifest._DEF_OUT == installed / 'tm1/development/tests/_fast_tier_manifest.txt'
 assert manifest.main(['--log', str(log)]) == 0
 assert manifest._DEF_OUT.read_text().endswith('test_case.py::test_case\n')
-entry, = [item for item in importlib.metadata.distribution('tm1').entry_points
-          if item.group == 'console_scripts' and item.name == 'tpmshx-run']
-main = entry.load()
+from tm1.applications.cli.main import main
 try:
     main(['--help'])
 except SystemExit as error:

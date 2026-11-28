@@ -31,7 +31,7 @@ def test_real_three_process_handoff(tmp_path, dimension):
     def stage(name, source, target, environment, extra=()):
         launcher = '''
 import sys
-from tm1.cli import main
+from tm1.applications.cli.stages import main
 status = main(sys.argv[1:])
 stage = sys.argv[1]
 for prefix in (('tm1.solvers', 'numba', 'PySide6') if stage == 'prepare' else

@@ -7,7 +7,7 @@ import pytest
 import yaml
 
 from tm1.data_types.compute_config import ComputeConfig
-from tm1.applications.cli.main import main
+from tm1.applications.cli.stages import main
 from tm1.data_types.field_result import FieldResult
 from tm1.data_types.metric_spec import MetricSpec
 from tm1.data_types.performance_result import MetricValue, PerformanceResult

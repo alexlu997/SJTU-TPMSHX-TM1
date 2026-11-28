@@ -1,74 +1,94 @@
-"""The installed launcher must preserve CLI errors and use writable caches."""
+"""The root main.py routes each mode before heavy imports and keeps GUI caches writable."""
+from importlib.util import module_from_spec, spec_from_file_location
+import os
+from pathlib import Path
+import subprocess
 import sys
 
 import pytest
 from PySide6.QtCore import QStandardPaths
 
-from tm1 import desktop
+ROOT = Path(__file__).resolve().parents[3]
 
 
-@pytest.mark.skipif(sys.platform != 'darwin', reason='The source-folder launcher uses macOS zsh.')
-def test_macos_source_launcher_without_retired_cache(tmp_path, monkeypatch):
-    import shutil
-    import subprocess
-    from pathlib import Path
-
-    project = tmp_path / 'source folder'
-    project.mkdir()
-    launcher = project / 'launch-macos.command'
-    shutil.copy2(Path(__file__).resolve().parents[3] / launcher.name, launcher)
-    interpreter = project / 'configured python'
-    interpreter.write_text('#!/bin/sh\nprintf "%s\\n" "$PWD" "$MPLCONFIGDIR" "$XDG_CACHE_HOME" "$@"\n')
-    interpreter.chmod(0o755)
-    (project / '.venv-path').write_text(str(interpreter) + '\n')
-    library = project / 'sjtu_tpmshx/solvers/native/lib/macos-arm64/libtpmshx_solver_shared.dylib'
-    library.parent.mkdir(parents=True)
-    library.touch()
-    for component in ('geometry', 'preparation', 'result'):
-        library.with_name(f'libtpmshx_{component}_shared.dylib').touch()
-    monkeypatch.delenv('NUMBA_CACHE_DIR', raising=False)
-
-    run = subprocess.run(['/bin/zsh', str(launcher)], cwd=tmp_path,
-                         capture_output=True, text=True, check=False)
-
-    assert run.returncode == 0, run.stderr
-    caches = [project / '.cache' / name for name in ('matplotlib', 'xdg')]
-    assert all(path.is_dir() for path in caches)
-    assert run.stdout.splitlines() == [str(project), *(str(path) for path in caches),
-        '-m', 'tm1.main', '--backend', 'cpp', '--native-library', str(library),
-        '--native-table-directory', str(project / '.cache/native-deps/tables')]
+@pytest.fixture
+def entry():
+    spec = spec_from_file_location('tm1_root_main', ROOT / 'main.py')
+    module = module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
-def test_caches_respect_explicit_paths(tmp_path, monkeypatch):
+# A spawned child imports main.py as __mp_main__; the CLI routes stop at argparse help.
+# The top-level help ("--help" alone) lists the modes; Linux result hosts have no Qt.
+# The command-line modes write UTF-8, also where a pipe uses the Windows cp1252 code page.
+_CHILD = """
+import runpy, sys
+script, mode = sys.argv[1], sys.argv[2:]
+sys.argv = [script, *dict.fromkeys([*mode, '--help'])] if mode else [script]
+try:
+    runpy.run_path(script, run_name='__main__' if mode else '__mp_main__')
+except SystemExit as stop:
+    assert stop.code == 0, stop.code
+heavy = sorted(name for name in sys.modules
+               if name.split('.')[0] in {'PySide6', 'vtk', 'vtkmodules', 'pyvista', 'matplotlib', 'torch'})
+assert not heavy, heavy
+"""
+
+
+@pytest.mark.parametrize('mode', [[], ['--help'], ['run'], ['resume'], ['summary'], ['design'], ['optimize']],
+                         ids=lambda mode: mode[0] if mode else 'spawn-child')
+def test_cli_routes_and_spawn_children_import_no_gui_or_torch(mode):
+    run = subprocess.run([sys.executable, '-c', _CHILD, str(ROOT / 'main.py'), *mode],
+                         cwd=ROOT, env=dict(os.environ, PYTHONIOENCODING='cp1252:strict'),
+                         capture_output=True, encoding='utf-8', timeout=120)
+    assert run.returncode == 0, run.stdout + run.stderr
+    if mode == ['--help']:
+        assert all(name in run.stdout for name in ('prepare', 'summary', 'design', 'optimize'))
+
+
+def test_cli_route_writes_to_a_stream_without_reconfigure(entry):
+    import contextlib, io, json
+    # A text buffer has no reconfigure(); a closed stream (None) has none either.
+    output = io.StringIO()
+    with contextlib.redirect_stdout(output):
+        assert entry.main(['summary', str(ROOT / 'examples/three_module/air_2d.json'), '--dry-run', '--json']) == 0
+    assert json.loads(output.getvalue())['pipeline'] == 'Pipeline2D'
+
+
+def test_gui_caches_respect_explicit_paths(tmp_path, monkeypatch):
+    from tm1.applications.gui import main as gui
     monkeypatch.setattr(QStandardPaths, 'writableLocation', lambda *_: str(tmp_path))
     for name in ('MPLCONFIGDIR', 'XDG_CACHE_HOME'):
         monkeypatch.delenv(name, raising=False)
     explicit = tmp_path / 'chosen-matplotlib'
     monkeypatch.setenv('MPLCONFIGDIR', str(explicit))
-    desktop.configure_cache()
+    gui.configure_cache()
     assert explicit.is_dir()
     assert (tmp_path / 'SJTU-TPMSHX-TM1' / 'libraries').is_dir()
 
 
-def test_bundled_cli_dispatch_preserves_status(monkeypatch):
-    from tm1.applications.cli import main as cli
+def test_stage_route_preserves_status(entry, monkeypatch):
+    from tm1.applications.cli import stages
     calls = []
-    monkeypatch.setattr(desktop.multiprocessing, 'freeze_support', lambda: calls.append('freeze'))
-    monkeypatch.setattr(desktop, 'configure_cache', lambda: calls.append('cache'))
-    monkeypatch.setattr(cli, 'main', lambda args: calls.append(args) or 2)
-    assert desktop.main(['--cli', 'run', 'input.json', 'output']) == 2
-    assert calls == ['freeze', 'cache', ['run', 'input.json', 'output']]
+    monkeypatch.setattr(stages, 'main', lambda args: calls.append(args) or 2)
+    assert entry.main(['run', 'input.json', 'output']) == 2
+    assert calls == [['run', 'input.json', 'output']]
 
 
-def test_desktop_gui_forwards_backend_and_qt_arguments(monkeypatch):
+@pytest.mark.parametrize('prefix', [[], ['gui']])
+def test_gui_is_default_and_forwards_backend_and_qt_arguments(entry, monkeypatch, prefix):
     from tm1.applications.gui import main as gui
     calls = []
-    monkeypatch.setattr(desktop.multiprocessing, 'freeze_support', lambda: None)
-    monkeypatch.setattr(desktop, 'configure_cache', lambda: None)
     monkeypatch.setattr(gui, 'main', lambda args: calls.append(args) or 0)
     args = ['--backend', 'cpp', '--native-library', '/host/solver', '-platform', 'offscreen']
-    assert desktop.main(args) == 0
+    assert entry.main([*prefix, *args]) == 0
     assert calls == [args]
+
+
+def test_unknown_mode_fails(entry, capsys):
+    assert entry.main(['unknown']) == 2
+    assert "unknown mode 'unknown'" in capsys.readouterr().err
 
 
 def test_gui_app_disables_automatic_gc_with_main_thread_timer():

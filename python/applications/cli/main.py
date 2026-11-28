@@ -1,13 +1,12 @@
-"""Qt-free command line entry: ``python -m tm1.cli ...``.
+"""Qt-free summary route: ``python main.py summary CONFIG [--dry-run] [--json]``.
 
-``prepare``, ``solve``, ``postprocess``, ``run`` and ``resume`` dispatch to the public
-file-based workflow. A direct ComputeConfig JSON argument retains the summary
-interface, with ``--dry-run`` and ``--json`` options. GUI presets use a separate
+The root ``main.py`` routes ``prepare``, ``solve``, ``postprocess``, ``run`` and
+``resume`` to the public file-based workflow in ``stages.py``. This module solves one
+ComputeConfig JSON file and prints a summary. GUI presets use a separate
 format and must be restored through the GUI.
 
-Calculation exit codes are 0 for a successful stage and 2 for failed
-convergence/required-result checks. A saved pause returns 3; cancellation returns 130.
-Parsing and file errors exit nonzero. See README for each stage's contract.
+Exit codes are 0 for a passed summary or a dry run, and 2 for failed convergence,
+envelope or required-metric checks. Parsing and file errors exit nonzero.
 """
 from __future__ import annotations
 
@@ -30,26 +29,13 @@ def _json_values(value):
 
 
 def main(argv=None) -> int:
-    argv = list(sys.argv[1:] if argv is None else argv)
-    if argv and argv[0] in ('prepare', 'solve', 'postprocess', 'run', 'resume'):
-        from tm1.applications.cli.stages import main as module_main
-        return module_main(argv)
     ap = argparse.ArgumentParser(
-        prog='tpmshx-run',
-        usage='%(prog)s {prepare,solve,postprocess,run,resume} ...\n'
-              '       %(prog)s config [--dry-run] [--json]',
+        prog='main.py summary',
         description='Headless SJTU-TPMSHX solve: ComputeConfig JSON in, '
-                    'formal module files or a direct summary out. Qt is never imported.',
+                    'a direct summary out. Qt is never imported.',
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog='Public file workflow (use COMMAND --help for arguments):\n'
-               '  prepare       configuration -> case.yaml + case.h5\n'
-               '  solve         case.yaml -> results.h5\n'
-               '  postprocess   results.h5 -> metrics.json\n'
-               '  run           configuration -> all four files\n'
-               '  resume        checkpoint.h5 -> a new run directory\n\n'
-               'From a source checkout:\n'
-               '  python -m tm1.cli run INPUT OUTPUT_DIR --case-id ID\n'
-               'The direct config argument retains the summary interface;\n'
+        epilog='For the public file workflow, use main.py prepare, solve, postprocess,\n'
+               'run or resume (COMMAND --help gives the arguments).\n'
                'GUI saved sessions are not CLI configuration files.')
     ap.add_argument('config', help='ComputeConfig JSON file '
                                    '(canonical or legacy baseline shape)')
@@ -59,7 +45,7 @@ def main(argv=None) -> int:
                     help='machine-readable one-line JSON summary')
     from tm1.applications.cli.cli_options import add_run_control_arguments, run_control_from_args
     add_run_control_arguments(ap)
-    args = ap.parse_args(argv)
+    args = ap.parse_args(sys.argv[1:] if argv is None else argv)
     control = run_control_from_args(args)
 
     from tm1.data_types.compute_config import ComputeConfig
@@ -112,7 +98,3 @@ def main(argv=None) -> int:
         for reason in result.extrap_reasons:
             print(f"extrap_reason: {reason}")
     return 0 if ok else 2
-
-
-if __name__ == '__main__':
-    raise SystemExit(main())

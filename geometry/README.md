@@ -58,7 +58,7 @@ The shared library is `libtpmshx_geometry_shared.dylib` on macOS arm64.
 It is `tpmshx_geometry_shared.dll` on Windows x64.
 Both C callers and the kernel caller are placed beside the shared library.
 
-Source publication uses `sjtu_tpmshx/solvers/native/lib/<host>`.
+Source publication uses `native/lib/<host>`.
 A changed geometry library keeps its previous library and metadata under `previous/`.
 Geometry-only publication does not replace solver or run-state files.
 The runtime loader override is `TPMSHX_GEOMETRY_LIBRARY`.

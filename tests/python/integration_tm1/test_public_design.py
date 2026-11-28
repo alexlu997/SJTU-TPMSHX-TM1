@@ -47,7 +47,7 @@ if stage == 'prepare':
     save_case(replace(case, config_snapshot={}), target)
     status = 0
 else:
-    from tm1.cli import main
+    from tm1.applications.cli.stages import main
     status = main([stage, source, target])
 for prefix in (('tm1.solvers', 'numba', 'PySide6') if stage == 'prepare' else
                ('tm1.preprocess', 'tm1.pipelines', 'PySide6') if stage == 'solve' else

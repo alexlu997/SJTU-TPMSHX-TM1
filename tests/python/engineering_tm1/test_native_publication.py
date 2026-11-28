@@ -107,7 +107,7 @@ def publication(tmp_path, monkeypatch):
         for name in names:
             # The full publication takes preparation from its own build, not from the pilot build.
             (directory / name).write_bytes(f"new verified {build} {name}".encode())
-    target = tmp_path / "sjtu_tpmshx/solvers/native/lib/macos-arm64" / SOLVER_LIBRARY
+    target = tmp_path / "native/lib/macos-arm64" / SOLVER_LIBRARY
     target.parent.mkdir(parents=True)
     for name in PUBLISHED:
         target.with_name(name).write_bytes(

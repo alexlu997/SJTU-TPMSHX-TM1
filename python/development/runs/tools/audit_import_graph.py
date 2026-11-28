@@ -37,7 +37,7 @@ LAYERS = {
     "pipelines": 3, "optimization": 3, "workflows": 3, "compute": 3,
     "controllers": 4,
     "result_adapter": 4,
-    "ui": 5, "main": 5, "cli": 5, "desktop": 5,
+    "ui": 5, "main": 5, "cli": 5,
 }
 FREE = {"validation", "runs", "tests", "poc"}       # may import anything
 

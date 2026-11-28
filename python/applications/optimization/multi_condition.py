@@ -1,10 +1,12 @@
 """Fixed-flow preparation and equal-weight multi-condition objectives."""
 from collections.abc import Sequence
+from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import asdict, replace
 import json
 from math import fsum, isfinite
 from pathlib import Path
+import signal
 from uuid import uuid4
 
 import numpy as np
@@ -178,7 +180,29 @@ _batch_events = None
 _batch_pause = None
 
 
+@contextmanager
+def _terminal_interrupt_held():
+    """Hold Ctrl+C in this thread while it starts child processes.
+
+    A terminal sends Ctrl+C to all processes in the group. A new child inherits the
+    blocked signal, so it cannot stop before it ignores the signal. This process
+    gets the held signal after the start and pauses or cancels the batch.
+    Windows has no signal mask; there, each child ignores the signal after its start.
+    """
+    if not hasattr(signal, 'pthread_sigmask'):
+        yield
+        return
+    previous = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})
+    try:
+        yield
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous)
+
+
 def _init_condition_worker(cancel, events, pause):
+    # A terminal sends Ctrl+C to all processes in the group. The parent owns the
+    # pause and the cancellation; it stops this process through the shared events.
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
     global _batch_cancel, _batch_events, _batch_pause
     _batch_cancel, _batch_events, _batch_pause = cancel, events, pause
 
@@ -612,7 +636,9 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
             finish_condition(inputs[index][0], case, row, field, performance)
 
         context = get_context('spawn')
-        with context.Manager() as manager:
+        with _terminal_interrupt_held():
+            started = context.Manager()
+        with started as manager:
             cancel, events, pause = manager.Event(), manager.Queue(), manager.Event()
             pool = ProcessPoolExecutor(max_workers=worker_count, mp_context=context,
                 initializer=_init_condition_worker, initargs=(cancel, events, pause))
@@ -643,9 +669,10 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
                             case, _ = prepare_condition(inputs[index], row, root / row['directory'])
                             del case
                             check_stop()
-                            future = pool.submit(_run_native_condition, index,
-                                str(root / row['case_file']), str(root / row['directory']),
-                                control.native_library, worker_threads, row.get('resume_checkpoint'))
+                            with _terminal_interrupt_held():
+                                future = pool.submit(_run_native_condition, index,
+                                    str(root / row['case_file']), str(root / row['directory']),
+                                    control.native_library, worker_threads, row.get('resume_checkpoint'))
                             pending[future] = index
                             # CPython's submit() can wake the manager before it registers a new worker.
                             # Wake the manager again so its wait includes the new worker's sentinel.

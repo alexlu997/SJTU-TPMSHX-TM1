@@ -477,7 +477,8 @@ class ShellAppearance:
             return
         command = [sys.executable]
         if not getattr(sys, "frozen", False):
-            command.extend(["-m", "tm1.main"])
+            from tm1.run_control.provenance import SOURCE_ROOT
+            command.append(str(SOURCE_ROOT / "main.py"))
         command.extend(sys.argv[1:])
         try:
             os.execv(sys.executable, command)

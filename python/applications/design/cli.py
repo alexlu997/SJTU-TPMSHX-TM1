@@ -22,7 +22,7 @@ def _parse_nodes(s):          # "Diamond,Gyroid:6,7:0.4,0.5"
 def run(argv=None) -> int:
     default_rho = str(sizing.RHO_S).removesuffix(".0")
     default_ks = str(sizing.K_STEEL).removesuffix(".0")
-    ap = argparse.ArgumentParser(description="TPMS 快速设计 (单模块)")
+    ap = argparse.ArgumentParser(prog="main.py design", description="TPMS 快速设计 (单模块)")
     ap.add_argument("--xlsx", required=True)
     ap.add_argument("--mode", choices=["auto", "fixed"], default="auto",
                     help="fixed=baseline(固定 l,t); auto=优化(放开 l,t 枚举)")
@@ -105,6 +105,3 @@ def run(argv=None) -> int:
         detail = '；'.join(f'{reason} ({count})' for reason, count in reasons.items())
         print(f"无可行构型：{detail or '未生成候选构型'}", file=sys.stderr)
     return 0
-
-if __name__ == "__main__":
-    raise SystemExit(run())

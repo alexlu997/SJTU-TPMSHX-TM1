@@ -53,7 +53,7 @@ def _recoverable_run(args, control):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(prog='python -m tm1.applications.cli.stages')
+    parser = argparse.ArgumentParser(prog='main.py')
     commands = parser.add_subparsers(dest='stage', required=True)
     for stage in ('prepare', 'solve', 'postprocess', 'run', 'resume'):
         command = commands.add_parser(stage)
@@ -121,7 +121,3 @@ def main(argv=None):
         return 3
     except CancelledError:
         return 130
-
-
-if __name__ == '__main__':
-    raise SystemExit(main())

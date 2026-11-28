@@ -57,7 +57,7 @@ Call buffers are borrowed with explicit element counts, and failure leaves calle
 XY spline handles and LUT objects keep a reference to their creating library until release.
 
 Use `libtpmshx_geometry_shared.dylib` on macOS arm64 or `tpmshx_geometry_shared.dll` on Windows x64.
-Source checkouts load from `sjtu_tpmshx/solvers/native/lib/<host>/`, and frozen desktop packages load from `native/`.
+Source checkouts load from `native/lib/<host>/`, and frozen desktop packages load from `native/`.
 Set `TPMSHX_GEOMETRY_LIBRARY` to an absolute prebuilt path to select another geometry library.
 Historical result reading and offline postprocessing do not load this library.
 After any C++ or compiled model-data edit, rebuild the affected libraries and restart the process.
@@ -199,7 +199,7 @@ result = run_case(prepared_case, RunControl(
 Source CLI execution uses:
 
 ```bash
-"$PYTHON" -m tm1.cli solve case.h5 results.h5 --backend cpp \
+"$PYTHON" main.py solve case.h5 results.h5 --backend cpp \
   --native-library /absolute/path/to/libtpmshx_solver_shared.dylib
 ```
 

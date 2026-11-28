@@ -71,9 +71,9 @@ def test_default_and_frozen_paths_use_only_the_result_image(tmp_path, monkeypatc
     monkeypatch.delenv('TPMSHX_RESULT_LIBRARY', raising=False)
     monkeypatch.setattr(stage_libraries.sys, 'platform', system)
     monkeypatch.setattr(stage_libraries.platform, 'machine', lambda: machine)
-    monkeypatch.setattr(stage_libraries, 'PUBLISHED_LIBRARY_DIR', tmp_path / 'solvers/native/lib')
+    monkeypatch.setattr(stage_libraries, 'PUBLISHED_LIBRARY_DIR', tmp_path / 'native/lib')
     monkeypatch.setattr(stage_libraries.sys, 'frozen', False, raising=False)
-    selected = tmp_path / 'solvers/native/lib' / host / name
+    selected = tmp_path / 'native/lib' / host / name
     selected.parent.mkdir(parents=True)
     selected.write_bytes(b'path-selection fixture')
     assert native.result_library.path() == str(selected.resolve())

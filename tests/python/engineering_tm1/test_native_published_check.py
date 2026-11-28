@@ -137,7 +137,7 @@ def test_command_selects_the_host_directory_by_default(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, 'argv', ['build_native_dependencies.py', 'verify-published', '--directory', str(selected)])
     native.main()
     assert [call[0] for call in calls] == [
-        (tmp_path / 'sjtu_tpmshx/solvers/native/lib/macos-arm64').resolve(), selected.resolve()]
+        (tmp_path / 'native/lib/macos-arm64').resolve(), selected.resolve()]
     assert calls[0][1:3] == ('macos-arm64', 'all')
     monkeypatch.setattr(sys, 'argv', ['build_native_dependencies.py', 'verify', '--directory', str(selected)])
     with pytest.raises(SystemExit):

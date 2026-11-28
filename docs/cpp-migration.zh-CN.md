@@ -57,7 +57,7 @@ PR CI、合并主分支 CI、桌面交付、单元上限附近内存检查、真
 XY 样条句柄与 LUT 对象在释放前保留对其创建库的引用。
 
 macOS arm64 使用 `libtpmshx_geometry_shared.dylib`，Windows x64 使用 `tpmshx_geometry_shared.dll`。
-源码检出默认读取 `sjtu_tpmshx/solvers/native/lib/<host>/`，冻结桌面包读取 `native/`。
+源码检出默认读取 `native/lib/<host>/`，冻结桌面包读取 `native/`。
 可通过 `TPMSHX_GEOMETRY_LIBRARY` 指定绝对预构建路径以切换几何库。
 历史结果读取与离线后处理不加载该库。
 修改 C++ 函数或编入库的模型数据后，必须重新构建受影响的库并重启进程。
@@ -199,7 +199,7 @@ result = run_case(prepared_case, RunControl(
 源码 CLI 执行方式：
 
 ```bash
-"$PYTHON" -m tm1.cli solve case.h5 results.h5 --backend cpp \
+"$PYTHON" main.py solve case.h5 results.h5 --backend cpp \
   --native-library /absolute/path/to/libtpmshx_solver_shared.dylib
 ```
 

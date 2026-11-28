@@ -302,7 +302,7 @@ def test_result_publication_uses_its_platform_image_without_eos_records(result_b
     source = cache/'build'/f'result-{host}'/name
     source.parent.mkdir(parents=True)
     source.write_bytes(b'new verified result image')
-    target = root/'sjtu_tpmshx/solvers/native/lib'/host/name
+    target = root/'native/lib'/host/name
     target.parent.mkdir(parents=True)
     target.write_bytes(b'previous result image')
     record = target.with_name('result-build.json')

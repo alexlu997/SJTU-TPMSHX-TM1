@@ -269,7 +269,7 @@ jobs:
           from pathlib import Path
           import shutil
           from engineering.scripts.build_native_dependencies import stage_native_notices
-          notices = Path('sjtu_tpmshx/solvers/native/lib/linux-x86_64/licenses')
+          notices = Path('native/lib/linux-x86_64/licenses')
           stage_native_notices(Path.cwd(), notices / 'native')
           shutil.copy2('LICENSE', notices / 'LICENSE')
           PY
@@ -278,7 +278,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: result-build-linux-x86_64-${{ matrix.os }}
-          path: sjtu_tpmshx/solvers/native/lib/linux-x86_64/
+          path: native/lib/linux-x86_64/
           if-no-files-found: error
           retention-days: 7
           overwrite: true
@@ -307,7 +307,7 @@ jobs:
       OMP_NUM_THREADS: "1"
       TM1_REAL_HANDOFF_DIR: .cache/real-file-handoff
       TM1_WHEEL_DIR: .cache/python-distributions
-      TPMSHX_RESULT_LIBRARY: ${{ github.workspace }}/sjtu_tpmshx/solvers/native/lib/linux-x86_64/libtpmshx_result_shared.so
+      TPMSHX_RESULT_LIBRARY: ${{ github.workspace }}/native/lib/linux-x86_64/libtpmshx_result_shared.so
     steps:
       - uses: actions/checkout@v7
       - name: Require the expected native result
@@ -337,7 +337,7 @@ jobs:
         if: needs.scope.outputs.tier != 'docs'
         with:
           name: result-build-linux-x86_64-ubuntu-24.04
-          path: sjtu_tpmshx/solvers/native/lib/linux-x86_64
+          path: native/lib/linux-x86_64
       - uses: actions/download-artifact@v8
         if: needs.scope.outputs.tier != 'docs'
         with:
