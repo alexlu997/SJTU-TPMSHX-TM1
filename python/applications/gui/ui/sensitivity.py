@@ -1,10 +1,4 @@
-"""Sensitivity sweep — N×N surrogate evaluation of two parameters.
-
-Uses the air-only 0-D `tpms_calc.compute` correlation for Fluid A to rank
-cell size, wall thickness and velocity. Pressure loss uses the fixed CFD
-baseline; Q/volume uses an assumed 40 K difference. Click a valid heatmap
-cell to load that configuration into the main input fields.
-"""
+"""Show the sensitivity heatmap and load a selected point into the main inputs."""
 from __future__ import annotations
 
 import numpy as np
@@ -14,49 +8,10 @@ from PySide6.QtWidgets import (
     QLineEdit,
 )
 
+from tm1.applications.design.sensitivity import METRICS, SCOPE_NOTE, SWEEP_PARAMS, sweep_axis, sweep_row
+
 from .theme import get_theme, resolve_cmap
 from .matplotlib_canvas import MatplotlibCanvas
-
-
-# Available sweep parameters: (key, label, unit, default_min, default_max)
-_SWEEP_PARAMS = [
-    ('L_cell', 'TPMS cell L', 'mm', 4.0, 8.0),
-    ('t',     'Wall thickness t', 'mm', 0.3, 0.6),
-    ('u_A',   'Fluid A velocity', 'm/s', 1.0, 30.0),
-]
-
-# Metrics the heatmap can display
-_METRICS = [
-    ('Q_per_vol',   'Q / volume',       'W / m³'),
-    ('dP_per_L',    'ΔP / length',      'Pa / m'),
-    ('h_v',         'Volumetric h_v',   'W/m³·K'),
-    ('ratio',       'h_v / (ΔP/L)',     'W/(m²·K·Pa)'),
-]
-
-_SCOPE_NOTE = (
-    "Fluid A only: air correlations. Blank Fluid A pressure uses 101325 Pa. "
-    "Pressure loss uses the CFD baseline "
-    "without experimental correction. Q/volume = h_v × 40 K is a ranking "
-    "estimate. Click a valid cell to load parameters into the main inputs.")
-
-
-def _eval_surrogate(tpms, L_cell_mm, t_mm, u, T_in_K, P_in_Pa):
-    """One air-only surrogate evaluation; not a two-stream heat-duty solve."""
-    from tm1.physical_models.tpms_calc import compute as _tpms_compute
-    # k_s only affects the unused K_ss output; solid conduction is not ranked.
-    r = _tpms_compute(tpms, L_cell_mm, t_mm, u, T_in_K, P_in_Pa, 16.0)
-    h_v = r.get('h_v') or (
-        r['H_sf'] * r.get('A_0', 0.0))
-    dT = 40.0  # heuristic fluid→solid ΔT for ranking (cancels out for ratio)
-    Q_vol = h_v * dT
-    return {
-        'Q_per_vol': Q_vol,
-        'dP_per_L': r['dP_per_L'],
-        'h_v': h_v,
-        'ratio': h_v / max(r['dP_per_L'], 1e-9),
-        'Re': r['Re'],
-        'Nu': r['Nu'],
-    }
 
 
 class SensitivityDialog(QDialog):
@@ -81,12 +36,12 @@ class SensitivityDialog(QDialog):
         ctrl = QHBoxLayout(); ctrl.setSpacing(10)
         self._combo_x = QComboBox(); self._combo_y = QComboBox()
         self._combo_m = QComboBox()
-        for key, lbl, unit, *_ in _SWEEP_PARAMS:
+        for key, lbl, unit, *_ in SWEEP_PARAMS:
             self._combo_x.addItem(f"{lbl} [{unit}]", key)
             self._combo_y.addItem(f"{lbl} [{unit}]", key)
         self._combo_x.setCurrentIndex(0)
         self._combo_y.setCurrentIndex(1)
-        for key, lbl, unit in _METRICS:
+        for key, lbl, unit in METRICS:
             self._combo_m.addItem(f"{lbl} [{unit}]", key)
         self._combo_m.setCurrentIndex(3)  # default h_v/(dP/L) ratio
 
@@ -138,7 +93,7 @@ class SensitivityDialog(QDialog):
         root.addWidget(self._canvas, 1)
 
         # Hint footer
-        hint = self._hint = QLabel(_SCOPE_NOTE)
+        hint = self._hint = QLabel(SCOPE_NOTE)
         hint.setWordWrap(True)
         hint.setStyleSheet(
             f"color:{_sub}; font-size:9pt; font-style:italic;"
@@ -194,16 +149,10 @@ class SensitivityDialog(QDialog):
             'P_in': read('le_PinA', 'Fluid A inlet pressure (Pa)', default=pressure_default),
         }
         attrs = {'L_cell': 'le_Lcell', 't': 'le_t', 'u_A': 'le_uA'}
-        for key, label, unit, *_ in _SWEEP_PARAMS:
+        for key, label, unit, *_ in SWEEP_PARAMS:
             if key not in swept_keys:
                 fixed[key] = read(attrs[key], f"{label} ({unit})")
         return fixed
-
-    def _range_for(self, key):
-        for k, lbl, unit, lo, hi in _SWEEP_PARAMS:
-            if k == key:
-                return lo, hi
-        return 1.0, 10.0
 
     def _run_sweep(self):
         from .window_config import _parse_fluid_label
@@ -215,25 +164,23 @@ class SensitivityDialog(QDialog):
             if fluid != 'air':
                 self._invalidate_grid(message="Fluid A must be Air.")
                 self._hint.setText(
-                    f"Cannot run: Fluid A must be Air (selected: {fluid}). " + _SCOPE_NOTE)
+                    f"Cannot run: Fluid A must be Air (selected: {fluid}). " + SCOPE_NOTE)
                 return
-            self._hint.setText(_SCOPE_NOTE)
+            self._hint.setText(SCOPE_NOTE)
             if key_x == key_y:
                 self._window.dialogs.notify("扫描轴不能相同。", kind="warn", duration_ms=5000)
                 return
             fixed = self._collect_fixed_params((key_x, key_y))
         except ValueError as exc:
             self._invalidate_grid(message=str(exc))
-            self._hint.setText(f"Cannot run: {exc} " + _SCOPE_NOTE)
+            self._hint.setText(f"Cannot run: {exc} " + SCOPE_NOTE)
             return
         try:
             n = max(3, min(25, int(self._le_steps.text())))
         except Exception:
             n = 9
-        lo_x, hi_x = self._range_for(key_x)
-        lo_y, hi_y = self._range_for(key_y)
-        xs = np.linspace(lo_x, hi_x, n)
-        ys = np.linspace(lo_y, hi_y, n)
+        xs = sweep_axis(key_x, n)
+        ys = sweep_axis(key_y, n)
         grid = np.zeros((n, n))
         # The per-row event pump must not let visible selectors get ahead of
         # the input snapshot being evaluated.
@@ -245,20 +192,10 @@ class SensitivityDialog(QDialog):
         _fail_msg = ""
         try:
             for i, vx in enumerate(xs):
-                for j, vy in enumerate(ys):
-                    args = dict(fixed)
-                    args[key_x] = float(vx)
-                    args[key_y] = float(vy)
-                    try:
-                        out = _eval_surrogate(
-                            args['tpms'], args['L_cell'], args['t'],
-                            args['u_A'], args['T_in'], args['P_in'])
-                        grid[j, i] = out.get(key_m, 0.0)
-                    except Exception as _e:
-                        grid[j, i] = np.nan
-                        _fail_n += 1
-                        if not _fail_msg:
-                            _fail_msg = str(_e)
+                grid[:, i], row_failures, row_error = sweep_row(fixed, key_x, vx, key_y, ys, key_m)
+                _fail_n += row_failures
+                if not _fail_msg:
+                    _fail_msg = row_error
                 # Pump the event loop after each row so the dialog repaints
                 # and stays responsive on large N.
                 try:
@@ -282,7 +219,7 @@ class SensitivityDialog(QDialog):
             'fixed': fixed,
         }
         self._plot()
-        self._hint.setText(_SCOPE_NOTE)
+        self._hint.setText(SCOPE_NOTE)
         # Surface sweep failures explicitly (#4).
         if _fail_n:
             self._window.dialogs.notify(
@@ -314,8 +251,8 @@ class SensitivityDialog(QDialog):
         except Exception:
             pass
 
-        label_map = {k: (lbl, unit) for k, lbl, unit, *_ in _SWEEP_PARAMS}
-        m_map = {k: (lbl, unit) for k, lbl, unit in _METRICS}
+        label_map = {k: (lbl, unit) for k, lbl, unit, *_ in SWEEP_PARAMS}
+        m_map = {k: (lbl, unit) for k, lbl, unit in METRICS}
         x_lbl, x_unit = label_map.get(key_x, (key_x, ''))
         y_lbl, y_unit = label_map.get(key_y, (key_y, ''))
         m_lbl, m_unit = m_map.get(key_m, (key_m, ''))
@@ -357,7 +294,7 @@ class SensitivityDialog(QDialog):
                 raise ValueError("Fixed inputs changed — click ‘Run sweep’.")
         except ValueError as exc:
             self._invalidate_grid(message=str(exc))
-            self._hint.setText(f"Cannot load: {exc} " + _SCOPE_NOTE)
+            self._hint.setText(f"Cannot load: {exc} " + SCOPE_NOTE)
             return
         vx = float(xs[i]); vy = float(ys[j])
         self._window.case_files.invalidate_results_for_preset_load()

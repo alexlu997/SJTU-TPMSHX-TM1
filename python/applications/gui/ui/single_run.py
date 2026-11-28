@@ -564,50 +564,15 @@ class SingleRun(QObject):
         return False
 
     def preflight_grid(self, compute_cfg):
-        """Check captured inputs and request confirmation for grid warnings."""
-        from tm1.data_types.compute_config import bc_to_dict
-        from tm1.applications.gui.ui.preflight import FluidCfg, compute_preflight
-        geometry, solver = compute_cfg.geometry, compute_cfg.solver
+        """Show the preflight report and ask for confirmation of grid warnings."""
+        from tm1.preprocess.preflight import InvalidGeometryError, preflight_config
 
-        def _cfg(bc):
-            # Keep mixed widths for validation; typed configurations always have two fluids.
-            port = bc_to_dict(bc, geometry.L_dom_m, geometry.H_dom_m,
-                              side='B', with_z=compute_cfg.is_3d)
-            if port is None:
-                port = bc_to_dict(bc, geometry.L_dom_m, geometry.H_dom_m,
-                                  side='A', with_z=compute_cfg.is_3d)
-            return FluidCfg(
-                dir=port['dir'], in_ctr=port['in_ctr'], in_w=port['in_w'],
-                out_ctr=port['out_ctr'], out_w=port['out_w'],
-                z_in_ctr=port.get('in_z_ctr'), z_in_w=port.get('in_z_w'),
-                z_out_ctr=port.get('out_z_ctr'), z_out_w=port.get('out_z_w'))
-
-        # Geometry/D-F coverage is separate from Nu and calibration limits.
-        # Hard invalid geometry blocks; soft findings join the grid report.
         try:
-            from tm1.data_types.validator import validate_geometry
-            geometry_warnings = validate_geometry(
-                geometry.L_dom_m, geometry.H_dom_m, geometry.Lz_m,
-                geometry.L_cell_mm, geometry.t_wall_mm,
-                ks=geometry.k_s_W_mK, is_3d=compute_cfg.is_3d)
-        except ValueError as error:
+            report = preflight_config(compute_cfg)
+        except InvalidGeometryError as error:
             QMessageBox.critical(
                 self.window, "几何输入不合法", str(error))
             return False
-
-        report = compute_preflight(
-            L=geometry.L_dom_m, H=geometry.H_dom_m, Lz=geometry.Lz_m,
-            Nx=solver.Nx, Ny=solver.Ny, Nz=solver.Nz,
-            is_3d=compute_cfg.is_3d,
-            port_wall_refine=compute_cfg.flags.port_wall_refine,
-            zone_axis=compute_cfg.zones.axis if compute_cfg.zones.enabled else None,
-            fluid_A=_cfg(compute_cfg.bc_A), fluid_B=_cfg(compute_cfg.bc_B),
-            T_inA=compute_cfg.fluid_A.T_in_K, T_inB=compute_cfg.fluid_B.T_in_K)
-        for warning in geometry_warnings:
-            if warning.severity == 'error':
-                report.errors.append(warning.message)
-            else:
-                report.warnings.append(warning.message)
 
         if not report.errors and not report.warnings:
             if report.info:
