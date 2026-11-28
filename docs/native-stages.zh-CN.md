@@ -117,10 +117,10 @@ Preparation ABI 4 为全部四个二维几何族（`uniform`、`continuous`、`z
 - **事件与观测钩子**：`event`、`observe_range` 与 `observe_notice` 在调用线程上同步报告诊断、范围记录及通知（含几何外推原因）。
 - **宿主校验钩子**：`validate_host_input` 与 `validate_grid_stage`（`0` 或 `1`）保留 Python 对象检查顺序，不提供数值输出。`validate_grid_stage = 1` 要求 `validate_host_input` 非空。
 - 宿主通过动作 0 查询入口或 sigmoid 表，通过动作 1 发布新值。命中时，宿主提供只读视图，直到阶段调用返回。宿主在回调返回前复制新发布的数值。
-- 二维均匀与连续准备使用 `inlet_cache`。二维分区、sigmoid 与条带准备使用 `inlet_cache_at` 和 `sigmoid_lut_cache`。三维准备接受 `inlet_cache_at`，并要求 `validate_grid_stage = 0`。
+- 二维均匀与连续准备使用 `inlet_cache`。二维分区、sigmoid 与条带准备使用 `inlet_cache_at` 和 `sigmoid_lut_cache`。三维准备接受 `inlet_cache_at`，拒绝 `sigmoid_lut_cache`，并要求 `validate_grid_stage = 0`。
 - **隔离规则**：回调不得执行数值准备，返回视图不得与输出、失败或错误缓冲区重叠。回调返回非零值立即中止阶段，便于 Python 重新抛出原异常。
 
-准备库的 32,768 项标量几何缓存由完整准备、Quick Design 与独立查询共享。缓存键包含拓扑、以 mm 计的胞元尺寸和壁厚，以及体素分辨率。每次查询后按当前材料计算固体导热率。
+准备库的 32,768 项标量几何缓存由完整准备、Quick Design 与独立查询共享。缓存键包含拓扑、以 mm 计的胞元尺寸和壁厚，以及体素分辨率。准备库在进程内保留每种拓扑的 N=128 体素索引，其他分辨率共用两个索引缓存项。每次查询后按当前材料计算固体导热率。
 `python/physical_models/preparation_cache.py` 管理 4,096 项入口缓存。`python/cpp_interface/preparation_host.py` 复制宿主缓存数值并持有回调缓冲区。
 Python 保留 LUT 的内存与磁盘存储；缺表时 C++ 在体素分辨率 256 下构建 41×31 原生表。
 [空间缓存示例](../examples/cpp/prepare_spatial_cache_2d.cpp)在 Python 之外测试了这组带类型回调。

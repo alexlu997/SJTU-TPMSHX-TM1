@@ -326,6 +326,9 @@ def test_invalid_chi_preserves_error_and_only_completed_geometry(monkeypatch, fl
     assert original == [caught.value]
     assert caught.value.__notes__ == ['captured chi conversion']
     assert caught.value.diagnostic['code'] == 'material.invalid_chi'
+    details = caught.value.diagnostic['details']
+    assert (details['route'], details['side'], details['side_status']) == ('full_2d', None, 'not_recorded')
+    assert details['observations'] == ()
     assert geometry.cache_info() == (int(standard and warm), int(standard or warm), 32768, int(standard or warm))
     assert tpms_calc.compute.cache_info() == (0, 0, 4096, 0)
 

@@ -109,7 +109,7 @@ int main(void) {
         const char* fluids[]={"sco2","co2"};size_t fluid;
         for(fluid=0;fluid<2;++fluid) {
             double first;
-            const uint32_t id=fluid?TPMSHX_CACHE_CO2:TPMSHX_CACHE_SCO2;
+            const uint32_t id=fluid?TPMSHX_PREPARATION_CACHE_CO2:TPMSHX_PREPARATION_CACHE_SCO2;
             CHECK(!tpmshx_preparation_clear_cache_v1(id,error,sizeof(error)));
             raw=input();raw.fluids[0]=text(fluids[fluid]);dp=pressure();full=prepared();
             CHECK(tpmshx_quick_pressure_fractions_v3(&raw,&geometry_reason,&dp,error,sizeof(error))==0);

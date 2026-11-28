@@ -96,7 +96,7 @@ The shared cache contains the base values. CO₂ uses its fixed correction for e
 
 ## Spatial total mass flow
 
-Preparation ABI 4 provides `capacities`, `resolve_flow`, and `prepare_case` entries across all four 2D geometry families (`uniform`, `continuous`, `zoned`, `sigmoid`).
+Preparation ABI 4 has `capacities`, `resolve_flow`, and `prepare_case` entries across all four 2D geometry families (`uniform`, `continuous`, `zoned`, `sigmoid`).
 `tpmshx_preparation_2d_stripe_prepare_case_v1` also returns per-stripe A-side hydraulic radius:
 
 - **Uniform (`FlowInput2D`)**: both topologies and all 16 ordered air/water/sCO2/CO2 fluid pairs, with CFD or eligible experimental D-F.
@@ -120,11 +120,11 @@ Initialize `abi_version = TPMSHX_PREPARATION_CALLBACK_ABI_VERSION` (2) and `stru
 - **Event and observation hooks**: `event`, `observe_range`, and `observe_notice` report diagnostics, range records, and notices (including geometry extrapolation reasons) synchronously on the caller thread.
 - **Host validation hooks**: `validate_host_input` and `validate_grid_stage` (`0` or `1`) keep Python object-check order without numerical values. `validate_grid_stage = 1` requires non-null `validate_host_input`.
 - The host retrieves inlet and sigmoid table values with action 0 and publishes them with action 1. On a hit, the host lends a read-only view through the end of the stage call. The host copies newly published values before the callback returns.
-- Uniform and continuous 2D use `inlet_cache`. Zoned, sigmoid and stripe 2D use `inlet_cache_at` and `sigmoid_lut_cache`. 3D accepts `inlet_cache_at` and requires `validate_grid_stage = 0`.
+- Uniform and continuous 2D use `inlet_cache`. Zoned, sigmoid and stripe 2D use `inlet_cache_at` and `sigmoid_lut_cache`. 3D accepts `inlet_cache_at`, rejects `sigmoid_lut_cache`, and requires `validate_grid_stage = 0`.
 - **Isolation rules**: callbacks do no numerical preparation. Returned views must not overlap output, failure, or error storage. A nonzero callback return stops the stage immediately so Python can re-raise its saved exception.
 
-The preparation library shares 32,768 scalar geometry entries across full preparation, Quick Design and standalone queries. Keys contain topology, cell length and wall thickness in mm, and voxel resolution. Solid conductivity uses the current material after each lookup.
-`python/physical_models/preparation_cache.py` owns the 4,096 inlet entries. `python/cpp_interface/preparation_host.py` copies host cache values and retains callback buffers.
+The preparation library shares 32,768 scalar geometry entries across full preparation, Quick Design and standalone queries. Keys contain topology, cell length and wall thickness in mm, and voxel resolution. The library keeps each N=128 voxel index for the life of the process. Other resolutions share two index entries. Solid conductivity uses the current material after each lookup.
+`python/physical_models/preparation_cache.py` owns the 4,096 inlet entries. `python/cpp_interface/preparation_host.py` copies host cache values and keeps callback buffers.
 Python keeps disk/memory LUT storage; on a LUT miss, C++ builds the native 41×31 table at voxel resolution 256.
 The [spatial cache example](../examples/cpp/prepare_spatial_cache_2d.cpp) tests these typed callbacks outside Python.
 
@@ -140,7 +140,7 @@ The [offset example](../examples/cpp/offset_2d.cpp) prepares, runs, and evaluate
 
 ## Uniform 3D preparation
 
-`preparation_case_3d_c_api.h` provides two flat 3D preparation families covering all supported 3D geometries:
+`preparation_case_3d_c_api.h` has two flat 3D preparation families covering all supported 3D geometries:
 
 - **Spatial and uniform 3D (`SpatialInput3D`, `tpmshx_preparation_3d_spatial_{capacities,resolve_flow,prepare_case}_v1`)**: `geometry_mode = 0` prepares uniform 3D cases (both topologies, all 16 fluid pairs, CFD or eligible experimental D-F). `geometry_mode = 2` prepares XY grid rectangles with optional global `delta_levelset` (air/water CFD scope). Rectangles use domain fractions, later rectangles replace earlier matches, and uncovered cells use nominal `L`/`t`. Gaussian smoothing applies to `L` and `t` in grid-index units, and fields extrude along z.
 - **Continuous 3D (`ContinuousInput3D`, `tpmshx_preparation_3d_continuous_{capacities,resolve_flow,prepare_case}_v1`)**: `have_ctrl_z = 0` prepares XY extrusion controls. `have_ctrl_z = 1` prepares true XYZ controls (`L` values then `t` values, z fastest), sampled at physical cell centres with optional y symmetry.
@@ -193,7 +193,7 @@ Python full 3D execution validates saved cases and builds `FieldResult` in `pyth
 
 ## Quick Design stage
 
-`quick_design_stage_c_api.h` provides Quick Design preparation v3 and run v2 as flat `float64` C interfaces.
+`quick_design_stage_c_api.h` has Quick Design preparation v3 and run v2 as flat `float64` C interfaces.
 Quick Design is a prescribed-flow LTNE sizing approximation (`physical_validation=not_established`), not a SIMPLE solve.
 
 ### Preparation v3 and pressure query
