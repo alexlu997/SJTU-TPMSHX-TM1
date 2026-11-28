@@ -11,12 +11,12 @@
 ## 准备态输入
 
 `preprocess.api.prepare_quick_design` 接受既有 DesignCase，以及几何和尺寸设计选项。
-它调用 `tpmshx_prepare_quick_design_v2`，将具有独立所有权的场复制到 CaseData。
-C++ 负责数值顺序；固定具名宿主操作保留标量和对象协议、缓存项、警告及快照顺序。
+它调用 `tpmshx_prepare_quick_design_v3`，将具有独立所有权的场复制到 CaseData。
+C++ 负责数值顺序以及共享标量几何和 EOS 缓存。Python 执行对象协议、报告警告并按序记录快照。
 `config_snapshot` 记录原始 DesignCase，执行不使用它；保存 schema、单位和 ModelRef 版本不变。
 
 Quick 默认值通过 Python 加载器和生成的 C++ 常量统一来自 `python/model_configs/model_parameters_v1.json`。
-独立 `tpmshx_quick_pressure_fractions_v2` 查询供尺寸设计使用，不创建热网格或设计场数组。
+独立 `tpmshx_quick_pressure_fractions_v3` 查询供尺寸设计使用，不创建热网格或设计场数组。
 它保留较窄的校验顺序；仅在此查询中，所有非 `cross` 流向均使用逆流截面。
 此行为不扩大完整准备接受的标签或执行支持的流体范围。准备态数据包含：
 

@@ -10,7 +10,7 @@ import numpy as np
 from tm1.cpp_interface.quick_preparation import run_preparation
 from tm1.data_types.model_refs import ModelRef
 from tm1.model_configs.model_parameters import MODEL_VERSIONS, fixed_geometry_error, load_quick_design_parameters
-from tm1.physical_models import co2_props, fluid_props as registry, sco2_props, tpms_geometry
+from tm1.physical_models import fluid_props as registry, tpms_geometry
 from tm1.physical_models.df_surrogate.backend import resolve_method
 from tm1.run_control.run_environment import _resolve_chi_s, capture_environment
 from tm1.run_control.run_warnings import range_context, record_range
@@ -18,9 +18,7 @@ from tm1.run_control.run_warnings import range_context, record_range
 
 _Parameters = load_quick_design_parameters()
 K_STEEL, LTNE_TOL = _Parameters['k_s'], _Parameters['tol']
-_GEOMETRY = ('epsilon', 'epsilon_A', 'epsilon_B', 'A_0', 'D_h')
 _FLUIDS = ('air', 'water', 'sco2', 'co2')
-_EOS_KEYS = ('D', 'V', 'L', 'C')
 
 
 def _bind_pressure_options(compressible, options):
@@ -43,41 +41,15 @@ def _fluid_name(fluid):
     return name if name in _FLUIDS else registry.get(fluid).name
 
 
-def _geometry_cache(key, stored):
-    owner = tpms_geometry._compute_geometry_cached
-    if stored is None:
-        found, value = owner.lookup(key)
-        return tuple(value[name] for name in _GEOMETRY) if found else None
-    value = {name: (float if n < 3 else np.float64)(item)
-             for n, (name, item) in enumerate(zip(_GEOMETRY, stored))}
-    owner.store(key, None, value)
+def _record_inlet(state, fluid, pressure, replay_events):
+    events, limited, outlet_squared = pressure
+    replay_events(events)
+    if fluid == 'air' and limited:
+        from tm1.physical_models.df_surrogate.predict import _record_pressure_limit
+        _record_pressure_limit(state.topo, state.l, state.t, outlet_squared, state.strict)
 
 
-def _eos_cache(fluid, index, temperature, pressure, stored):
-    sco2 = fluid == 'sco2'
-    owner = sco2_props._prop if sco2 else co2_props._scalar
-    key = (_EOS_KEYS[index], temperature, pressure) if sco2 else (temperature, pressure)
-    if stored is None:
-        found, value = owner.lookup(key)
-        if found:
-            return (value,) if sco2 else tuple(value)
-    else:
-        owner.store(key, None, stored[0] if sco2 else stored)
-
-
-def _check_model_error(state, message):
-    if message == 'Wall thickness must satisfy 2*t < L, with usable pore space':
-        raise ValueError(f'Wall thickness t={state.t}mm >= L={state.l}mm, no pore space')
-    if message == 'L_mm must be positive':
-        raise ValueError(f'L_mm must be positive, got {state.l}')
-    if message == 't_mm must be positive':
-        raise ValueError(f't_mm must be positive, got {state.t}')
-    if message.startswith('Degenerate TPMS geometry:'):
-        raise ValueError(f'Degenerate TPMS geometry: {state.topo} L={state.l}mm t={state.t}mm '
-                         'has no usable pore space. Reduce t or increase L.') from ValueError(message)
-
-
-def _record_ranges(ranges, collect, warn):
+def _observe(state, warn, ranges, events, pressures, collect, replay_events):
     from tm1.physical_models.tpms_props import _range_notice
 
     for label, side, bounds, temperature in ranges:
@@ -89,18 +61,6 @@ def _record_ranges(ranges, collect, warn):
         message = _range_notice(name, temperature, temperature, *bounds)
         if message is not None:
             warn(message, UserWarning)
-
-
-def _record_inlet(state, fluid, pressure, replay_events):
-    events, limited, outlet_squared = pressure
-    replay_events(events)
-    if fluid == 'air' and limited:
-        from tm1.physical_models.df_surrogate.predict import _record_pressure_limit
-        _record_pressure_limit(state.topo, state.l, state.t, outlet_squared, state.strict)
-
-
-def _observe(state, warn, ranges, events, pressures, collect, replay_events):
-    _record_ranges(ranges, collect, warn)
     replay = partial(replay_events, warn=warn)
     replay(events)
     for fluid, pressure in zip(state.fluids, pressures):
@@ -108,9 +68,7 @@ def _observe(state, warn, ranges, events, pressures, collect, replay_events):
 
 
 def _operation(state, warn):
-    key = (state.topo, state.l, state.t, _Parameters['geometry_resolution'])
-    return run_preparation(state, geometry_cache=partial(_geometry_cache, key), eos_cache=_eos_cache,
-                           check_model_error=partial(_check_model_error, state), observe=partial(_observe, state, warn))
+    return run_preparation(state, observe=partial(_observe, state, warn))
 
 
 def _state(case, topo, l, t, s, length, arrangement, height, *, init, conductivity, prop_model,

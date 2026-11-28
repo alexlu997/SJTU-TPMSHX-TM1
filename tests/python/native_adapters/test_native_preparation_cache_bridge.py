@@ -1,6 +1,5 @@
 """Check shared cache transport without entering a numerical preparation stage."""
 
-import numpy as np
 import pytest
 
 from tm1.cpp_interface._native_values import read_text
@@ -8,7 +7,7 @@ from tm1.cpp_interface import preparation_host as bridge_module
 from tm1.data_types.compute_config import Sco2NuConfig
 from tm1.run_control.run_warnings import RangeRecord, range_context, warning_scope
 from tm1.cpp_interface import _native_preparation_case as native
-from tm1.physical_models.preparation_cache import scalar_cache
+from tm1.physical_models.preparation_cache import _ScalarCache
 from tm1.preprocess import preparation
 
 
@@ -17,11 +16,9 @@ def caches(monkeypatch):
     def numerical(*args, **kwargs):
         pytest.fail('The bridge must not enter a numerical cache function')
 
-    geometry = scalar_cache(maxsize=4)(numerical)
-    inlet = scalar_cache(maxsize=4)(numerical)
-    monkeypatch.setattr(preparation, 'geometry_cache', geometry)
+    inlet = _ScalarCache(4).wrap(numerical)
     monkeypatch.setattr(preparation, 'inlet_cache', inlet)
-    return geometry, inlet
+    return inlet
 
 
 def _bridge(error=None):
@@ -48,23 +45,8 @@ def _inlet_value():
     return value, buffers
 
 
-def test_geometry_keys_round_trip_float64_entries(caches):
-    geometry, _ = caches
-    bridge = _bridge()
-    source = native._GeometryCache(.75, .375, .375, 1200., .002)
-    assert not bridge.geometry_at(0, _geometry_key(), native._GeometryCache())
-    assert not bridge.geometry_at(1, _geometry_key(), source)
-    restored = native._GeometryCache()
-    assert bridge.geometry_at(0, _geometry_key(), restored)
-    assert bytes(restored) == bytes(source)
-    assert geometry.cache_info() == (1, 1, 4, 1)
-    hit, stored = geometry.lookup(('Gyroid', 6., .5, 128))
-    assert hit and isinstance(stored['A_0'], np.float64)
-    assert not geometry.lookup(('Diamond', 6., .5, 128))[0]
-
-
 def test_inlet_publication_retains_float64_values_and_current_result_geometry(caches):
-    _, inlet = caches
+    inlet = caches
     bridge = _bridge()
     value, buffers = _inlet_value()
     assert not bridge.inlet_at(0, _inlet_key(), native._InletCache())
@@ -88,7 +70,7 @@ def test_inlet_publication_retains_float64_values_and_current_result_geometry(ca
 
 
 def test_absent_nu_and_default_nu_keep_separate_inlet_entries(caches):
-    _, inlet = caches
+    inlet = caches
     bridge = _bridge()
     value, buffers = _inlet_value()
     zone = _inlet_key()
@@ -101,16 +83,6 @@ def test_absent_nu_and_default_nu_keep_separate_inlet_entries(caches):
     assert inlet.lookup(('Gyroid', 6., .5, 5., 380., 101325., 'air', None, False))[0]
     assert inlet.lookup(('Gyroid', 6., .5, 5., 380., 101325., 'air', Sco2NuConfig(), False))[0]
     assert buffers
-
-
-def test_geometry_publication_precedes_later_chi_error(caches):
-    geometry, _ = caches
-    error = ValueError('synthetic chi error')
-    bridge = _bridge(error)
-    with pytest.raises(ValueError) as caught:
-        bridge.geometry_at(1, _geometry_key(), native._GeometryCache(.75, .375, .375, 1200., .002))
-    assert caught.value is error
-    assert geometry.lookup(('Gyroid', 6., .5, 128))[0]
 
 
 def test_notice_and_unbound_range_use_current_warning_scope(caches):

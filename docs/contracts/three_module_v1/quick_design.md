@@ -13,13 +13,13 @@ representative-Pr caveat stays part of the emitted source warnings.
 ## Prepared input
 
 `preprocess.api.prepare_quick_design` accepts an existing DesignCase plus
-geometry and sizing options. It calls `tpmshx_prepare_quick_design_v2` and copies its owned fields into CaseData.
-C++ owns the numerical sequence. Fixed named host operations keep scalar and object protocols, cache entries, warnings and snapshot order.
+geometry and sizing options. It calls `tpmshx_prepare_quick_design_v3` and copies its owned fields into CaseData.
+C++ owns the numerical sequence and the shared scalar geometry and EOS caches. Python applies the object protocols, reports warnings and records the snapshot in order.
 `config_snapshot` records the original DesignCase and is not used by execution.
 The saved schema, units and ModelRef versions stay unchanged.
 
 Quick defaults come from `python/model_configs/model_parameters_v1.json` through the Python loader and generated C++ constants.
-The separate `tpmshx_quick_pressure_fractions_v2` query serves sizing without creating a thermal grid or design-field arrays.
+The separate `tpmshx_quick_pressure_fractions_v3` query serves sizing without creating a thermal grid or design-field arrays.
 It keeps its narrower validation sequence. Every non-`cross` arrangement uses counterflow sections in that query only.
 This behavior does not expand the accepted labels of complete preparation or the supported fluids of execution.
 The prepared data has:

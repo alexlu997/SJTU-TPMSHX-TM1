@@ -233,16 +233,20 @@ RawGeometry raw_geometry(const PhiIndex& index, const Calibration& model,
     return {epsilon, area};
 }
 
+void validate_scalar_dimensions(double cell_mm, double wall_mm) {
+    if (cell_mm <= 0.) throw ScalarGeometryError(ScalarGeometryReason::cell,"L_mm must be positive");
+    if (wall_mm <= 0.) throw ScalarGeometryError(ScalarGeometryReason::wall,"t_mm must be positive");
+    if (2.0 * wall_mm >= cell_mm)
+        throw ScalarGeometryError(ScalarGeometryReason::no_pore,"Wall thickness must satisfy 2*t < L, with usable pore space");
+}
+
 Geometry standard_geometry(const PhiIndex& index, const Calibration& model,
                            double cell_mm, double wall_mm) {
-    if (cell_mm <= 0.) throw std::invalid_argument("L_mm must be positive");
-    if (wall_mm <= 0.) throw std::invalid_argument("t_mm must be positive");
-    if (2.0 * wall_mm >= cell_mm)
-        throw std::invalid_argument("Wall thickness must satisfy 2*t < L, with usable pore space");
+    validate_scalar_dimensions(cell_mm, wall_mm);
     const auto raw = raw_geometry(index,model,cell_mm,wall_mm);
     const double diameter = raw.area_density > 0. ? hydraulic_diameter(raw.epsilon, raw.area_density) : 0.;
     if (raw.epsilon <= 1e-9 || raw.area_density <= 0. || diameter <= 0.)
-        throw std::invalid_argument("Degenerate TPMS geometry: no usable pore space");
+        throw ScalarGeometryError(ScalarGeometryReason::degenerate,"Degenerate TPMS geometry: no usable pore space");
     return geometry_values(raw, diameter);
 }
 

@@ -165,8 +165,6 @@ def _execute(config, action, *, targets=None, case_id=None, start_observations=N
         if stage == 10:
             if 'co2' not in (config.fluid_A.type, config.fluid_B.type):
                 hash((config.geometry.tpms, config.geometry.L_cell_mm, config.geometry.t_wall_mm, 128))
-            elif chi_error is not None:
-                raise chi_error
             if config.geometry.tpms not in _TOPOLOGIES:
                 from tm1.physical_models import tpms_props, co2_correlations
                 geometry_check = (co2_correlations.geometry if 'co2' in

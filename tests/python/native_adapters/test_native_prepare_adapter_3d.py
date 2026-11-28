@@ -250,7 +250,7 @@ def test_cached_3d_evidence_cannot_alias_diagnostics(alias):
         return False
 
     callbacks, errors = preparation_host._callback_bridge(lambda *args: None,
-        geometry_cache_at=lambda *args: False, inlet_cache_at=inlet)
+        inlet_cache_at=inlet)
     before = bytes(result), bytes(failure), bytes(error)
     bindings = preparation_host._volume_bindings(preparation_library.get().path)
     status = bindings.operations[binding._SpatialInput, 'prepare_flow_case'].call(ct.byref(source), ct.byref(options),
@@ -586,7 +586,7 @@ def test_all_3d_operations_release_owned_result_once(monkeypatch, mode, operatio
     for mode in ('uniform', 'xyz')
     for fault in (
         'detach', 'geometry_scalars', 'fixed_record', 'drag_evidence', 'model_text', 'model_evidence',
-        'cache_geometry', 'observe_range', 'host_stage_13',
+        'observe_range', 'host_stage_13',
     )
 ] + [('uniform', 'cache_inlet')])
 def test_injected_read_and_callback_failures_keep_exception_and_release_once(monkeypatch, mode, exc_cls, fault):
@@ -619,7 +619,7 @@ def test_injected_read_and_callback_failures_keep_exception_and_release_once(mon
         raise marker
 
     monkeypatch.setattr(preparation_host, '_volume_bindings', bindings)
-    callback_faults = {'cache_geometry', 'cache_inlet', 'observe_range', 'host_stage_13'}
+    callback_faults = {'cache_inlet', 'observe_range', 'host_stage_13'}
     if fault == 'detach':
         monkeypatch.setattr(binding, '_detach_array', fail)
     elif fault == 'geometry_scalars':
@@ -642,8 +642,6 @@ def test_injected_read_and_callback_failures_keep_exception_and_release_once(mon
         monkeypatch.setattr(binding, 'read_text', fail)
     elif fault == 'model_evidence':
         monkeypatch.setattr(preparation_host, 'model_evidence', fail)
-    elif fault == 'cache_geometry':
-        monkeypatch.setattr(PreparationCache, 'geometry', fail)
     elif fault == 'cache_inlet':
         monkeypatch.setattr(PreparationCache, 'inlet', fail)
     elif fault == 'observe_range':

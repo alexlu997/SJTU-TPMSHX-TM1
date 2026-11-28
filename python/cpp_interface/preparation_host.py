@@ -121,9 +121,9 @@ def _check_status(operation, status, error, failure, water_error):
     raise problem
 
 
-def _callback_bridge(validate_host_input, geometry_cache=None, inlet_cache=None,
+def _callback_bridge(validate_host_input, inlet_cache=None,
                      observe_range=None, observe_notice=None, observe_event=None, *,
-                     geometry_cache_at=None, inlet_cache_at=None, sigmoid_lut_cache=None,
+                     inlet_cache_at=None, sigmoid_lut_cache=None,
                      validate_grid_stage=False):
     """Own callbacks and preserve their first exception across the C boundary."""
     callback_errors = []
@@ -150,9 +150,6 @@ def _callback_bridge(validate_host_input, geometry_cache=None, inlet_cache=None,
                 return 1
         return signature(dispatch)
 
-    def geometry(action, value, hit):
-        hit[0] = geometry_cache(action, value.contents)
-
     def inlet(action, side, source, value, hit):
         hit[0] = inlet_cache(action, side, source.contents, value.contents)
 
@@ -164,9 +161,6 @@ def _callback_bridge(validate_host_input, geometry_cache=None, inlet_cache=None,
         if observe_notice is not None:
             observe_notice(kind, side, value, read_text(message))
 
-    def geometry_at(action, key, value, hit):
-        hit[0] = geometry_cache_at(action, key.contents, value.contents)
-
     def inlet_at(action, key, value, hit):
         hit[0] = inlet_cache_at(action, key.contents, value.contents)
 
@@ -174,23 +168,21 @@ def _callback_bridge(validate_host_input, geometry_cache=None, inlet_cache=None,
         hit[0] = sigmoid_lut_cache(action, topology, resolution, value.contents)
 
     callbacks = abi._Callbacks(
-        1, ct.sizeof(abi._Callbacks), None, int(bool(validate_grid_stage)),
+        2, ct.sizeof(abi._Callbacks), None, int(bool(validate_grid_stage)),
         abi._EventFunction(event),
         callback(abi._HostFunction, validate_host_input) if validate_host_input is not None else abi._HostFunction(),
-        callback(abi._GeometryCacheFunction, geometry) if geometry_cache is not None else abi._GeometryCacheFunction(),
         callback(abi._InletCacheFunction, inlet) if inlet_cache is not None else abi._InletCacheFunction(),
         callback(abi._RangeFunction, observe) if observe_range is not None else abi._RangeFunction(),
         callback(abi._NoticeFunction, notice) if observe_notice is not None else abi._NoticeFunction(),
-        callback(abi._GeometryAtFunction, geometry_at) if geometry_cache_at is not None else abi._GeometryAtFunction(),
         callback(abi._InletAtFunction, inlet_at) if inlet_cache_at is not None else abi._InletAtFunction(),
         callback(abi._LUTCacheFunction, lut_cache) if sigmoid_lut_cache is not None else abi._LUTCacheFunction(),
     )
     return callbacks, callback_errors
 
 
-def operation(name, source, options, validate_host_input, water_error, geometry_cache=None, inlet_cache=None,
+def operation(name, source, options, validate_host_input, water_error, inlet_cache=None,
               observe_range=None, observe_notice=None, observe_event=None, *,
-              geometry_cache_at=None, inlet_cache_at=None, sigmoid_lut_cache=None):
+              inlet_cache_at=None, sigmoid_lut_cache=None, chi_error=None):
     kind = type(source)
     if kind is abi._UniformInput:
         family = 'uniform'
@@ -204,10 +196,10 @@ def operation(name, source, options, validate_host_input, water_error, geometry_
         raise TypeError(f'unsupported 2D preparation input type {kind.__name__}')
     bindings = _bindings(preparation_library.path())
     key = (family, name)
-    bridge = _callback_bridge(validate_host_input, geometry_cache, inlet_cache, observe_range, observe_notice,
-        observe_event, geometry_cache_at=geometry_cache_at, inlet_cache_at=inlet_cache_at,
+    bridge = _callback_bridge(validate_host_input, inlet_cache, observe_range, observe_notice,
+        observe_event, inlet_cache_at=inlet_cache_at,
         sigmoid_lut_cache=sigmoid_lut_cache, validate_grid_stage=validate_host_input is not None)
-    return _owned_result(bindings, key, (source,), options, bridge, water_error)
+    return _owned_result(bindings, key, (source,), options, bridge, water_error, chi_error)
 
 
 @lru_cache(maxsize=1)
@@ -220,12 +212,12 @@ def volume_operation(name, source, options, validate_host_input, policy, water_e
     bindings = _volume_bindings(preparation_library.path())
     bridge = _callback_bridge(validate_host_input, observe_range=policy.observe_range, observe_notice=policy.observe_notice,
                               observe_event=policy.observe_event,
-                              geometry_cache_at=cache.geometry_at, inlet_cache_at=cache.inlet_at)
-    return _owned_result(bindings, (type(source), name), (source,), options, bridge, water_error)
+                              inlet_cache_at=cache.inlet_at)
+    return _owned_result(bindings, (type(source), name), (source,), options, bridge, water_error, policy.chi_error)
 
 
 @contextmanager
-def _owned_result(bindings, key, inputs, options, bridge, water_error):
+def _owned_result(bindings, key, inputs, options, bridge, water_error, chi_error):
     """Keep the callbacks and borrowed arrays alive until the consumer finishes."""
     call, result_type, version = bindings.operations[key]
     result = result_type(version, ct.sizeof(result_type))
@@ -236,6 +228,8 @@ def _owned_result(bindings, key, inputs, options, bridge, water_error):
                       ct.byref(result), ct.byref(failure), error, len(error))
         if callback_errors:
             raise callback_errors[0]
+        if status and failure.kind == 5 and chi_error is not None:
+            raise native_error('preparation', call.__name__, status, str(chi_error), kind=5, problem=chi_error)
         _check_status(call.__name__, status, error, failure, water_error)
         yield result
     finally:
@@ -469,19 +463,6 @@ class PreparationCacheBridge:
     def __init__(self, policy):
         self.policy = policy
         self.buffers = []
-
-    def geometry_at(self, action, key, value):
-        cache_key = self.policy.geometry_key(*_geometry_key(key))
-        return self.geometry(action, cache_key, value)
-
-    def geometry(self, action, key, value):
-        def read():
-            return geometry_scalars(value)
-
-        def write(read_geometry):
-            _write_fields(value, _GEOMETRY_FIELDS, read_geometry)
-
-        return self.policy.geometry(action, key, read, write)
 
     def inlet_at(self, action, key, value):
         settings = fixed_record(key.sco2_nu) if key.have_sco2_nu else None

@@ -22,7 +22,7 @@
 #  define TPMSHX_PREPARATION_CALL
 #endif
 
-#define TPMSHX_PREPARATION_ABI_VERSION 3u
+#define TPMSHX_PREPARATION_ABI_VERSION 4u
 #define TPMSHX_PREPARATION_FP_EVENT_COUNT 32u
 
 enum tpmshx_preparation_status_v1 {

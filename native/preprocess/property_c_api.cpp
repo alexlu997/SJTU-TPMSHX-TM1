@@ -1,5 +1,6 @@
 #include "tpmshx/property_c_api.h"
 #include "preparation_properties.hpp"
+#include "scalar_cache.hpp"
 #include "preparation_c_boundary.hpp"
 #include <CoolProp/CoolProp.h>
 #include <algorithm>
@@ -19,7 +20,7 @@ template<class T> Range write(T* values,std::size_t count) {return {values,count
 Range read(Input value) {return read(value.values,value.count);}
 
 template<class Function> int invoke(std::initializer_list<Range> buffers,Failure* failure,
-    char* error,std::size_t size,Function function) {
+    char* error,std::size_t size,Function function,std::size_t* cause_offset=nullptr) {
     // Error storage must be safe before a boundary can write its diagnostic.
     try {
         c::require_buffer(error,size);
@@ -44,8 +45,10 @@ template<class Function> int invoke(std::initializer_list<Range> buffers,Failure
         }
         if (failure) for (const auto& buffer:buffers)
             c::require_disjoint(failure,1,static_cast<const char*>(buffer.data),c::product(buffer.count,buffer.width));
+        if (cause_offset) *cause_offset=std::string::npos;
         try {function();}
         catch (const p::PropertyError& value) {
+            if (cause_offset) *cause_offset=value.cause_offset;
             if (failure) {const auto& f=value.failure;
                 *failure={f.reason,f.input,f.index,f.first_t_index,f.first_p_index,
                     f.temperature,f.pressure,f.detail,f.fp};}
@@ -116,17 +119,47 @@ extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_co2_validate_pt_v1(
         p::validate_co2_pt({temperature,count},{pressure,count});
     });
 }
-extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_co2_scalar_bundle_v1(
-    double temperature,double pressure,double* values,size_t value_count,Failure* failure,char* error,size_t error_capacity) {
-    return invoke({write(values,value_count)},failure,error,error_capacity,[&] {
-        c::require_output(values,value_count,5);
-        const auto value=p::co2_pt({}, {&temperature,1},{&pressure,1},true);publish(value,values,value_count);
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_cached_geometry_v1(
+    uint32_t topology,double cell_mm,double wall_mm,size_t resolution,double* values,size_t count,
+    Failure* failure,char* error,size_t capacity) {
+    return invoke({write(values,count)},failure,error,capacity,[&] {
+        c::require_output(values,count,5);
+        if (topology>1) throw std::invalid_argument("TPMS geometry supports Diamond and Gyroid only");
+        try {
+            const auto value=p::cached_geometry(static_cast<tpmshx::Topology>(topology),cell_mm,wall_mm,resolution);
+            const double result[]{value.epsilon,value.epsilon_a,value.epsilon_b,value.area_density,value.hydraulic_diameter};
+            std::copy_n(result,5,values);
+        } catch (const tpmshx::geometry::ScalarGeometryError& problem) {
+            if (failure) { *failure={}; failure->reason=static_cast<uint32_t>(problem.reason); }
+            throw;
+        }
     });
 }
-extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_co2_pt_v1(
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_read_cache_info_v1(
+    uint32_t id,tpmshx_preparation_cache_info_v1* result,char* error,size_t capacity) {
+    return invoke({write(result,1)},nullptr,error,capacity,[&] { *result=p::scalar_cache_info(id); });
+}
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_clear_cache_v1(uint32_t id,char* error,size_t capacity) {
+    return invoke({},nullptr,error,capacity,[&] { p::clear_scalar_cache(id); });
+}
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_cached_sco2_v1(
+    tpmshx_property_key_v1 key,double temperature,double pressure,double* result,Failure* failure,char* error,size_t capacity) {
+    return invoke({read(key.data,key.size),write(result,1)},failure,error,capacity,[&] {
+        *result=p::cached_sco2(key.size?std::string(key.data,key.size):std::string{},temperature,pressure);
+    });
+}
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_cached_co2_v1(
+    double temperature,double pressure,double* values,size_t count,size_t* cause_offset,Failure* failure,char* error,size_t capacity) {
+    return invoke({write(values,count),write(cause_offset,1)},failure,error,capacity,[&] {
+        c::require_output(values,count,5);
+        const auto result=p::cached_co2(temperature,pressure);
+        std::copy(result.begin(),result.end(),values);
+    },cause_offset);
+}
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_co2_pt_v2(
     const double* temperature,const double* pressure,size_t count,const uint32_t* keys,size_t key_count,
-    double* values,size_t value_count,Failure* failure,char* error,size_t error_capacity) {
-    return invoke({read(temperature,count),read(pressure,count),read(keys,key_count),write(values,value_count)},
+    double* values,size_t value_count,size_t* cause_offset,Failure* failure,char* error,size_t error_capacity) {
+    return invoke({read(temperature,count),read(pressure,count),read(keys,key_count),write(values,value_count),write(cause_offset,1)},
         failure,error,error_capacity,[&] {
         c::require_output(values,value_count,c::product(count,key_count));
         std::vector<std::uint32_t> requested;requested.reserve(key_count);
@@ -135,7 +168,7 @@ extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_co2_pt_v1(
             requested.push_back(keys[i]);
         }
         const auto value=p::co2_pt(requested,{temperature,count},{pressure,count},false);publish(value,values,value_count);
-    });
+    },cause_offset);
 }
 extern "C" int TPMSHX_PREPARATION_CALL tpmshx_preparation_sco2_validate_v1(
     const double* temperature,size_t temperature_count,const double* pressure,size_t pressure_count,

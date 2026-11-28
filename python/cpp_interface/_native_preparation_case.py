@@ -98,22 +98,19 @@ _LUTView = _struct('SigmoidLUTView', [(name, _Array) for name in
 
 _EventFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, ct.POINTER(_Event))
 _HostFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, _U)
-_GeometryCacheFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, ct.POINTER(_GeometryCache), ct.POINTER(_U))
 _InletCacheFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, _U, ct.POINTER(_Inlet),
                                    ct.POINTER(_InletCache), ct.POINTER(_U))
 _RangeFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, ct.POINTER(_Range), _U, _U, _D)
 _NoticeFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, _U, _D, _Text)
-_GeometryAtFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, ct.POINTER(_GeometryKey),
-                                   ct.POINTER(_GeometryCache), ct.POINTER(_U))
 _InletAtFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, ct.POINTER(_InletKey),
                                 ct.POINTER(_InletCache), ct.POINTER(_U))
 _LUTCacheFunction = ct.CFUNCTYPE(ct.c_int, ct.c_void_p, _U, _U, _S, ct.POINTER(_LUTView), ct.POINTER(_U))
 _Callbacks = _structure('Callbacks', [('abi_version', _U), ('struct_size', _S),
     ('context', ct.c_void_p), ('validate_grid_stage', _U),
     ('event', _EventFunction), ('validate_host_input', _HostFunction),
-    ('geometry_cache', _GeometryCacheFunction), ('inlet_cache', _InletCacheFunction),
+    ('inlet_cache', _InletCacheFunction),
     ('observe_range', _RangeFunction), ('observe_notice', _NoticeFunction),
-    ('geometry_cache_at', _GeometryAtFunction), ('inlet_cache_at', _InletAtFunction),
+    ('inlet_cache_at', _InletAtFunction),
     ('sigmoid_lut_cache', _LUTCacheFunction)])
 
 _Flow = _struct('FlowResult', [('input', _Input), ('have_capacities', _U),

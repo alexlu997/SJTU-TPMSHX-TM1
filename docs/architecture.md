@@ -26,7 +26,7 @@ Four independent C++ shared libraries own all production numerical work:
 | Library | Source | Active ABI and role |
 | --- | --- | --- |
 | `tpmshx_geometry_shared` | [native/geometry/](../native/geometry/) | Geometry ABI 2 and field ABI 3: TPMS cell geometry, chi/Kss, grids, ports, splines, sigmoid fields, LUTs, and zones. |
-| `tpmshx_preparation_shared` | [native/preprocess/](../native/preprocess/) | Preparation ABI 3 and Quick Design preparation v2: properties, Nu closures, fixed D-F, 2D/3D preparation, and scalar inlet queries. |
+| `tpmshx_preparation_shared` | [native/preprocess/](../native/preprocess/) | Preparation ABI 4 and Quick Design preparation v3. Properties, Nu, fixed D-F, 2D/3D preparation, inlet queries and shared scalar geometry and EOS caches. |
 | `tpmshx_solver_shared` | [native/solver/](../native/solver/) | Saved 2D ABI 5, saved 3D ABI 3 (capture ABI 2), and Quick Design run v2: SIMPLE flow, model-h, temperature, and T-SOU conservative energy. |
 | `tpmshx_result_shared` | [native/postprocess/](../native/postprocess/) | Result ABI 3 (`float64` arrays and `int32` zone labels): metrics, physical balances, applicability checks, zone statistics, and qualification. |
 
@@ -62,7 +62,7 @@ The [Python layer owners](#python-layer-owners) table gives the responsibilities
 | [python/solvers/](../python/solvers/) | Python solver stage. It produces new `FieldResult`. |
 | [python/postprocess/](../python/postprocess/) | Python evaluation stage. It produces new `PerformanceResult` and `MetricValue`. |
 | [python/data_types/](../python/data_types/) | Portable types, including the stage data types. |
-| [python/physical_models/](../python/physical_models/), [python/model_configs/](../python/model_configs/) | Models with standalone model queries and their caches, and model resources. |
+| [python/physical_models/](../python/physical_models/), [python/model_configs/](../python/model_configs/) | Standalone model queries, inlet and sigmoid table caches, and model resources. |
 | [python/file_io/](../python/file_io/), [python/run_control/](../python/run_control/) | File I/O and run controls. |
 | [python/cpp_interface/](../python/cpp_interface/) | Native calls. |
 | [tests/python/](../tests/python/) | Python tests. |
@@ -85,7 +85,8 @@ The same audit rejects import cycles between the modules of the `ui` owner and o
 
 ## Python layer owners
 
-Python owns public APIs, configuration, immutable DTOs, file I/O, caches, warning formatting, and applications under [python/](../python/).
+Python owns public APIs, configuration, immutable DTOs, file I/O, warning formatting, and applications under [python/](../python/).
+It keeps the full inlet cache and sigmoid tables. The preparation library shares scalar geometry and CO₂/sCO₂ property caches with standalone queries.
 Numerical code stays free of Qt. Outside the GUI, only the offscreen GUI smoke tools `python/development/runs/_smoke_boot.py` and `python/development/runs/smokes/` import Qt.
 GUI code is in `python/applications/gui/ui/` (`Main_Menu` is in `main_window.py`) and `python/applications/gui/controllers/`. The root [main.py](../main.py) is the only application start. It calls `freeze_support()` and routes `gui` (the default), the CLI stages, `summary`, `design` and `optimize` before a route imports Qt, VTK, Matplotlib or Torch. The GUI route calls `python/applications/gui/main.py`.
 The window creates `SingleRun`, `OptimizationPage` and `QuickDesignPage`. Each owner starts and cancels its job and tracks worker exit. `Workbench` selects views. `FieldResults` publishes results, `ResultExport` writes data and figures, and `CaseFiles` reads and writes cases, presets and workspace sessions. The Qt-free `applications/optimization/optimization_job.py` decodes study inputs and conditions.

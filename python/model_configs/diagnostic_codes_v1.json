@@ -242,8 +242,12 @@
       "image": "preparation",
       "stage": "property",
       "operations": [
-        "tpmshx_preparation_co2_pt_v1",
-        "tpmshx_preparation_co2_scalar_bundle_v1",
+        "tpmshx_preparation_cached_co2_v1",
+        "tpmshx_preparation_cached_geometry_v1",
+        "tpmshx_preparation_cached_sco2_v1",
+        "tpmshx_preparation_clear_cache_v1",
+        "tpmshx_preparation_co2_pt_v2",
+        "tpmshx_preparation_read_cache_info_v1",
         "tpmshx_preparation_co2_validate_pt_v1",
         "tpmshx_preparation_empirical_v1",
         "tpmshx_preparation_inlet_re_pr_v1",
@@ -302,16 +306,16 @@
         "tpmshx_preparation_3d_spatial_resolve_flow_v1"
       ],
       "status": {"1": "stage.invalid_input", "2": "native.allocation", "3": "internal.error", "10": "fluid.water_state", "11": "fluid.co2_state", "12": "fluid.sco2_state"},
-      "kind": {"1": "stage.invalid_input", "2": "fluid.water_state", "3": "internal.error", "4": "capability.unsupported"}
+      "kind": {"1": "stage.invalid_input", "2": "fluid.water_state", "3": "internal.error", "4": "capability.unsupported", "5": "material.invalid_chi"}
     },
     "quick_preparation": {
       "image": "preparation",
       "stage": "quick_preparation",
       "operations": [
-        "tpmshx_prepare_quick_design_v2",
-        "tpmshx_quick_pressure_fractions_v2"
+        "tpmshx_prepare_quick_design_v3",
+        "tpmshx_quick_pressure_fractions_v3"
       ],
-      "status": {"1": "stage.invalid_input", "2": "native.allocation", "3": "internal.error", "10": "fluid.water_state", "11": "fluid.co2_state", "12": "fluid.sco2_state", "13": "numeric.zero_division", "20": "contract.unknown_status"}
+      "status": {"1": "stage.invalid_input", "2": "native.allocation", "3": "internal.error", "10": "fluid.water_state", "11": "fluid.co2_state", "12": "fluid.sco2_state", "13": "numeric.zero_division"}
     },
     "full_2d": {
       "image": "solver",

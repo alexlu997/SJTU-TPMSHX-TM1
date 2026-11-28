@@ -94,15 +94,10 @@ def test_forward_labels_without_extra_property_or_thermal_calls(
     f = importlib.import_module('tm1.applications.design.forward')
     execution = importlib.import_module('tm1.solvers.quick_design')
     postprocess = importlib.import_module('tm1.postprocess.api')
-    from tm1.preprocess import quick_design as quick_prepare
-    from tm1.physical_models import design_fluids as fluids
-    from tm1.physical_models import tpms_props
-    from tm1.cpp_interface._native_result_checks import record_range
-    from tm1.run_control.run_warnings import range_context, warning_messages
-    calls, solves, diagnostics = [], [], []
+    from tm1.run_control.run_warnings import warning_messages
+    solves, diagnostics, inlets = [], [], []
     evaluate, native_run = postprocess.evaluate, execution.run_case
     record_native = execution._record_pass
-    original_ranges, temperatures = quick_prepare._record_ranges, tpms_props.record_temperature_ranges
 
     def evaluated(*args, **kwargs):
         performance = evaluate(*args, **kwargs)
@@ -117,50 +112,41 @@ def test_forward_labels_without_extra_property_or_thermal_calls(
         diagnostics.append(metrics.get('energy_imbalance_rel'))
         return replace(performance, metrics=metrics)
 
-    def observe_ranges(output, collect, warn):
-        original_ranges(output, collect, warn)
-        for side, fluid, temperature in (('A', 'water', 500.), ('B', 'sco2', 350.)):
-            calls.append((fluid, temperature))
-            with range_context(side=side, stage='design-dp-inlet', layout='scalar'):
-                record_range(('property', fluid), temperature, (0., 1.),
-                             label=fluid, quantity='T', unit='K')
-
-    def ranges(fluid, temperature, *args, **kwargs):
-        temperatures(fluid, temperature, *args, **kwargs)
-        record_range(('property', fluid), temperature, (0., 1.),
-                     label=fluid, quantity='T', unit='K')
-
     nu_contexts = set()
 
     def evidence(records):
-        before = len(calls)
         record_native(records)
         nu_contexts.update(key[-1][:2] for key in execution.current_warnings() if key[0] == 'nu')
-        assert len(calls) == before
 
     def solve(case, control):
+        inlets.extend(case.metadata['applicability_inputs'])
         result = native_run(case, control)
         solves.append(result)
         return result
 
-    monkeypatch.setattr(quick_prepare, '_record_ranges', observe_ranges)
-    monkeypatch.setattr(fluids, 'record_temperature_ranges', ranges)
-    monkeypatch.setattr(tpms_props, 'record_temperature_ranges', ranges)
     monkeypatch.setattr(execution, '_record_pass', evidence)
     monkeypatch.setattr(execution, 'run_case', solve)
     monkeypatch.setattr(postprocess, 'evaluate', evaluated)
     c = replace(_case(), hot_fluid='water', cold_fluid='sco2',
                 T_in_h=500., T_in_c=350., P_in_h=3e6, P_in_c=9e6,
                 mdot_h=.2, mdot_c=.2)
+    cold_repeat = model == 'mean' and diagnostic_state == 'available'
+    if cold_repeat:
+        from tm1.physical_models import sco2_props, tpms_geometry
+        sco2_props._prop.cache_clear()
+        tpms_geometry.compute_geometry.cache_clear()
     with warning_scope({}) as records:
         result = f.forward(c, 'Diamond', 7., .5, .1, .025, prop_model=model)
-    assert len(solves) == 1 and len(calls) == 2
+    assert len(solves) == 1
     assert len(solves[0].run_status['passes']) == passes
     assert result.Q_hot > 0. and result.Q_cold > 0.
     assert len(diagnostics) == 1 and result.energy_imbalance is diagnostics[0]
     messages = '\n'.join(warning_messages(records))
-    for side in ('A', 'B'):
-        assert f'side={side}, stage=design-dp-inlet' in messages
+    assert [(r['source'][1], r['side'], r['stage'], r['layout']) for r in inlets] == [
+        (name, 'A', 'design-dp-inlet', 'scalar')
+        for name in ('water_density', 'water_viscosity', 'water_conductivity', 'water_cp')]
+    assert all(r['minimum'][0] == r['maximum'][0] == 500. for r in inlets)
+    assert 'side=A, stage=design-dp-inlet' in messages
     stages = ['design-inlet-pass', 'design-mean-pass'][:passes]
     assert {(side, stage) for side in ('A', 'B') for stage in stages} <= nu_contexts
     assert 'side=A, stage=design-inlet-pass' in messages
@@ -168,6 +154,13 @@ def test_forward_labels_without_extra_property_or_thermal_calls(
         assert 'side=A, stage=design-mean-pass' in messages
     assert '480 K' in messages and '9 MPa' in messages
     assert 'joint qualification' in messages
+    if cold_repeat:
+        cold_inputs = tuple(inlets)
+        with warning_scope({}) as warm_records:
+            warm = f.forward(c, 'Diamond', 7., .5, .1, .025, prop_model=model)
+        assert (warm.Q_hot, warm.Q_cold) == (result.Q_hot, result.Q_cold)
+        assert tuple(warning_messages(warm_records)) == tuple(warning_messages(records))
+        assert inlets == [*cold_inputs, *cold_inputs]
 
 
 def test_source_notices_survive_global_suppression_and_repeated_scopes():

@@ -168,21 +168,15 @@ def test_spatial_saved_case_round_trip(monkeypatch, tmp_path, mode):
 
 
 @pytest.mark.parametrize('operation,targets', [('full', None), ('capacity', None), ('full', (.001, .001))])
-def test_geometry_cache_queries_receive_initialized_storage(monkeypatch, tmp_path, operation, targets):
-    from tm1.cpp_interface.preparation_host import PreparationCacheBridge
-    original = PreparationCacheBridge.geometry_at
-    lookups = []
-
-    def observed(self, action, key, value):
-        if not action:
-            assert all(getattr(value, name) == 0. for name, _ in value._fields_)
-            lookups.append((key.cell_length_mm, key.wall_thickness_mm))
-        return original(self, action, key, value)
+def test_spatial_geometry_is_available_to_standalone_queries(monkeypatch, tmp_path, operation, targets):
+    from tm1.physical_models.tpms_geometry import compute_geometry
 
     config = configuration(monkeypatch, tmp_path, 'x')
-    monkeypatch.setattr(PreparationCacheBridge, 'geometry_at', observed)
     _capture(monkeypatch, api, operation, config, targets)
-    assert lookups
+    before = compute_geometry.cache_info()
+    compute_geometry(config.geometry.tpms, config.geometry.L_cell_mm, config.geometry.t_wall_mm)
+    after = compute_geometry.cache_info()
+    assert after.hits == before.hits + 1 and after.misses == before.misses
 
 
 @pytest.mark.parametrize('value', [0., -1., float('nan'), float('inf')])

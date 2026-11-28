@@ -16,7 +16,7 @@ import traceback
 
 
 ROOT = Path(__file__).resolve().parents[3]
-EOS_CALLS = {'water_pt', 'co2_scalar_bundle', 'co2_pt', 'sco2_pt', 'sco2_hp_scalar', 'sco2_hp'}
+EOS_CALLS = {'water_pt', 'cached_co2', 'cached_sco2', 'co2_pt', 'sco2_pt', 'sco2_hp_scalar', 'sco2_hp'}
 EXCLUDED_RAW_PATHS = {'flow.0.last.pressure.solve_seconds', 'flow.1.last.pressure.solve_seconds'}
 RAW_KIND = 'NativeIsolationRawV1'
 SOLVE_SYMBOL = 'tpmshx_run_saved_case_3d_v3'
@@ -229,7 +229,11 @@ def child(plan_file):
             function = original_function(owner, name)
             if name not in EOS_CALLS:
                 return function
-            return lambda *args: trace.call(function, 'tpmshx_preparation_' + name + '_v1', 'prep', args)
+            from functools import wraps
+            @wraps(function)
+            def call(*args):
+                return trace.call(function, function.__name__, 'prep', args)
+            return call
 
         preparation_library.load = monitored_load
         _native_properties._function = traced_property

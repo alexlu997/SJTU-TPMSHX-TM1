@@ -52,9 +52,8 @@ typedef struct {
     tpmshx_result_evidence_v1 evidence;
 } tpmshx_quick_run_result_v1;
 
-/* V2 uses float64 values and stored controls. V1 layouts stay unchanged. */
+/* The v3 preparation operations use the v2 input and output descriptor layouts. */
 #define TPMSHX_QUICK_PREPARATION_ABI_VERSION 2u
-#define TPMSHX_QUICK_HOST_FAILURE 20
 #define TPMSHX_QUICK_RANGE_CAPACITY 8u
 
 enum tpmshx_quick_value_v2 {
@@ -115,20 +114,6 @@ typedef struct {
     size_t range_count;
 } tpmshx_quick_pressure_v2;
 
-/* Cache hooks transport completed values only. They never calculate them.
- * geometry_cache: action 0 looks up and sets hit to 0 or 1; action 1 publishes.
- * eos_cache: fluid 2 (sCO2) stores one value for property_index 0..3
- * (rho, mu, k, cp). Fluid 3 (CO2) stores the five-value D,V,L,C,H bundle.
- * Action 0 looks up: the host writes count values and sets hit. Action 1
- * publishes count values. A nonzero return stops the call with status 20.
- */
-typedef struct {
-    uint32_t abi_version; size_t struct_size; void* context;
-    int (TPMSHX_PREPARATION_CALL *geometry_cache)(void*,uint32_t,
-        tpmshx_preparation_geometry_cache_v3*,uint32_t*);
-    int (TPMSHX_PREPARATION_CALL *eos_cache)(void*,uint32_t action,uint32_t fluid,uint32_t property_index,
-        double temperature_K,double pressure_Pa,double* values,size_t capacity,size_t* count,uint32_t* hit);
-} tpmshx_quick_callbacks_v2;
 
 #ifdef __cplusplus
 extern "C" {
@@ -171,14 +156,16 @@ TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL tpmshx_quick_run_release_v1(
  * The pressure-only query skips full validation and allocates no thermal grid.
  * Every non-cross arrangement uses counter sections for that query only.
  * Results require version=2, exact struct_size and owner=NULL where present.
- * Failure preserves results. Borrowed callbacks and their data must outlive
- * the call. Release full output with the same preparation library.
+ * Failure preserves the result. Optional geometry_reason receives the scalar
+ * geometry reason on failure (1 cell, 2 wall, 3 closed pore, 4 degenerate).
+ * A successful call sets it to zero.
+ * Release full output with the same preparation library.
  */
-TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_quick_design_v2(
-    const tpmshx_quick_input_v2*,const tpmshx_quick_callbacks_v2*,
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_prepare_quick_design_v3(
+    const tpmshx_quick_input_v2*,uint32_t* geometry_reason,
     tpmshx_quick_prepared_v2*,char*,size_t);
-TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_quick_pressure_fractions_v2(
-    const tpmshx_quick_input_v2*,const tpmshx_quick_callbacks_v2*,
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_quick_pressure_fractions_v3(
+    const tpmshx_quick_input_v2*,uint32_t* geometry_reason,
     tpmshx_quick_pressure_v2*,char*,size_t);
 TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_quick_prepared_release_v2(
     tpmshx_quick_prepared_v2*);

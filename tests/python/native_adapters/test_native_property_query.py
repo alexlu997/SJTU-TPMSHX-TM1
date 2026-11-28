@@ -344,7 +344,7 @@ def test_raw_query_matches_float64_oracle(raw_query, speed):
 @pytest.mark.parametrize('invalid', ['version', 'size'])
 def test_raw_query_rejects_bad_metadata_without_output_changes(raw_query, field, invalid):
     source, result, failure, error = _raw_buffers()
-    callbacks = abi._Callbacks(1, ct.sizeof(abi._Callbacks))
+    callbacks = abi._Callbacks(2, ct.sizeof(abi._Callbacks))
     target = {'source': source, 'result': result, 'failure': failure, 'callbacks': callbacks}[field]
     if invalid == 'version':
         target.abi_version = 99
@@ -357,15 +357,12 @@ def test_raw_query_rejects_bad_metadata_without_output_changes(raw_query, field,
     assert error.value
 
 
-@pytest.mark.parametrize('slot', ['geometry_cache', 'inlet_cache',
-                                  'geometry_cache_at', 'inlet_cache_at', 'sigmoid_lut_cache'])
+@pytest.mark.parametrize('slot', ['inlet_cache', 'inlet_cache_at', 'sigmoid_lut_cache'])
 def test_raw_query_rejects_cache_hooks(raw_query, slot):
     source, result, failure, error = _raw_buffers()
-    callbacks = abi._Callbacks(1, ct.sizeof(abi._Callbacks))
+    callbacks = abi._Callbacks(2, ct.sizeof(abi._Callbacks))
     factory = {
-        'geometry_cache': abi._GeometryCacheFunction,
         'inlet_cache': abi._InletCacheFunction,
-        'geometry_cache_at': abi._GeometryAtFunction,
         'inlet_cache_at': abi._InletAtFunction,
         'sigmoid_lut_cache': abi._LUTCacheFunction,
     }[slot]
@@ -380,7 +377,7 @@ def test_raw_query_rejects_cache_hooks(raw_query, slot):
 @pytest.mark.parametrize('storage', ['source', 'result', 'failure', 'callbacks', 'text'])
 def test_raw_query_rejects_diagnostic_and_text_aliases(raw_query, storage):
     source, result, failure, error = _raw_buffers()
-    callbacks = abi._Callbacks(1, ct.sizeof(abi._Callbacks))
+    callbacks = abi._Callbacks(2, ct.sizeof(abi._Callbacks))
     target = {'source': source, 'result': result, 'failure': failure, 'callbacks': callbacks}
     if storage == 'text':
         source.inlet.sco2_nu.source = abi._Text(ct.cast(ct.byref(result), ct.POINTER(ct.c_char)), 8)
@@ -395,7 +392,7 @@ def test_raw_query_rejects_diagnostic_and_text_aliases(raw_query, storage):
 @pytest.mark.parametrize('checkpoint', ['host', 'range'])
 def test_raw_query_callback_cancellation_keeps_result(raw_query, checkpoint):
     source, result, failure, error = _raw_buffers()
-    callbacks = abi._Callbacks(1, ct.sizeof(abi._Callbacks))
+    callbacks = abi._Callbacks(2, ct.sizeof(abi._Callbacks))
     observed = []
 
     def validate(_context, stage, step):

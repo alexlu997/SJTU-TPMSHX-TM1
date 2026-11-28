@@ -14,7 +14,7 @@ Numerical code stays free of Qt; GUI code lives only in `python/applications/gui
 The import-layering check maps source modules to their dependency owners and enforces these boundaries.
 
 - **Public entry points**: `compute` ([python/compute.py](../python/compute.py)) runs `prepare_case`, `run_case`, and `evaluate`, and manages progress, cancellation, stage timings, and warnings. `applications/result_adapter.compute_result` and `to_compute_result` map `FieldResult` and `PerformanceResult` for GUI, CLI, and validation tools.
-- **Input normalization and caches**: `python/cpp_interface/` loads the four native libraries on demand. It normalizes real inputs to `float64` and labels to `int32`, and emits fixed `RuntimeWarning` diagnostics. `python/physical_models/preparation_cache.py` owns the 32,768-entry geometry cache and 4,096-entry inlet-property cache; material conductivity and chi are never cached.
+- **Input normalization and caches**: `python/cpp_interface/` loads the four native libraries on demand. It normalizes real inputs to `float64` and labels to `int32`, and emits fixed `RuntimeWarning` diagnostics. The preparation library owns 32,768 scalar geometry entries and 4,096 entries each for CO₂ and sCO₂ properties. `python/physical_models/preparation_cache.py` owns 4,096 inlet entries. Each call applies its current material conductivity and chi.
 - **Configuration, I/O, and models**: `python/data_types/` owns `ComputeConfig`, `CaseData`, `FieldResult`, `PerformanceResult`, and `metric_spec`. `python/file_io/` owns YAML, HDF5, JSON, VTK, and checkpoint I/O. `python/physical_models/` and `python/model_configs/` own model queries, `zone_units.py`, and versioned resources.
 - **Postprocessing and ledger helpers**: `python/postprocess/result_math.py` keeps the raw pressure query and public `compute_phase2a` conservation certificate. `python/solvers/physical_ledger.py` keeps the `ports_complete` check for injected ledgers.
 - **Applications and research**: `python/applications/` owns GUI, CLI, Quick Design sizing, multi-condition BO, and run recovery. `python/preprocess/offline/` and `python/development/` own explicit offline fitting, validation, and diagnostic tools.
@@ -55,7 +55,7 @@ The geometry library exports geometry ABI 2 and field ABI 3 with distinct status
 ### Preparation and inlet queries
 
 `native/preprocess/preparation_case.cpp` owns 2D and 3D case preparation (`tpmshx_preparation_2d_*_v1`, `tpmshx_preparation_3d_*_v1`) and the scalar inlet query (`tpmshx_query_inlet_properties_v2`).
-`python/cpp_interface/preparation_host.py` shares unified `tpmshx_preparation_callbacks_v1` cache transport, range-record decoding, and D-F application decoding across 2D and 3D.
+`python/cpp_interface/preparation_host.py` shares unified `tpmshx_preparation_callbacks_v2` cache transport, range-record decoding, and D-F application decoding across 2D and 3D.
 `tpmshx_preparation_df_experiment_scope_v1` shares experimental D-F layout and HX campaign-domain checks between 2D/3D preparation and static Python preflight.
 See [preparation builds](cpp-migration.md#native-preparation-core) and [inlet-property query](native-stages.md#inlet-property-query).
 

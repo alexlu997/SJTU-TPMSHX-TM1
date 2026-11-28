@@ -1,11 +1,12 @@
 """Adapt property data and error policy for the native preparation library."""
 import ctypes as ct
+from collections import namedtuple
 import sys
 import warnings
 
 import numpy as np
 
-from ._native_values import real_scalar
+from ._native_values import geometry_topology, real_scalar
 from ._native_diagnostics import native_error
 from .stage_libraries import preparation_library
 
@@ -15,6 +16,7 @@ _Uint = ct.c_uint32
 _DoubleP = ct.POINTER(ct.c_double)
 _UintP = ct.POINTER(_Uint)
 _EVENTS = 32
+GEOMETRY_CACHE, CO2_CACHE, SCO2_CACHE = range(3)
 
 
 class _Input(ct.Structure):
@@ -51,8 +53,10 @@ _SIGNATURES = {
     'empirical': [_Uint, _Input, _Input, _Output],
     'water_pt': [_DoubleP, _DoubleP, _Size],
     'co2_validate_pt': [_DoubleP, _DoubleP, _Size],
-    'co2_scalar_bundle': [ct.c_double, ct.c_double, _DoubleP, _Size],
-    'co2_pt': [_DoubleP, _DoubleP, _Size, _UintP, _Size, _DoubleP, _Size],
+    'cached_co2': [ct.c_double, ct.c_double, _DoubleP, _Size, ct.POINTER(_Size)],
+    'cached_sco2': [_Key, ct.c_double, ct.c_double, _DoubleP],
+    'cached_geometry': [_Uint, ct.c_double, ct.c_double, _Size, _DoubleP, _Size],
+    'co2_pt': [_DoubleP, _DoubleP, _Size, _UintP, _Size, _DoubleP, _Size, ct.POINTER(_Size)],
     'sco2_validate': [_DoubleP, _Size, _DoubleP, _Size],
     'sco2_pt': [_Uint, ct.POINTER(_Key), _Size, _DoubleP, _DoubleP, _Size, _DoubleP, _Size],
     'sco2_hp_scalar': [ct.c_double, ct.c_double, _DoubleP, _Size],
@@ -71,23 +75,32 @@ _SIGNATURES = {
 
 
 def _function(owner, name):
-    return owner.bind(f'tpmshx_preparation_{name}_v1',
+    version = 2 if name == 'co2_pt' else 1
+    return owner.bind(f'tpmshx_preparation_{name}_v{version}',
                       _SIGNATURES[name] + [ct.POINTER(_Failure), ct.POINTER(ct.c_char), _Size])
 
 
-def _call(name, *arguments):
+def _call(name, *arguments, geometry=None):
     owner = preparation_library.get()
     failure, error = _Failure(), ct.create_string_buffer(4096)
-    status = _function(owner, name)(*arguments, ct.byref(failure), error, len(error))
+    function = _function(owner, name)
+    cause = _Size(-1)
+    if name in ('cached_co2', 'co2_pt'):
+        arguments = (*arguments, ct.byref(cause))
+    status = function(*arguments, ct.byref(failure), error, len(error))
     if not status:
         return
     _floating_events(failure.fp.events[:failure.fp.event_count])
     text = error.value.decode('utf-8', errors='replace')
-    problem = native_error('preparation', f'tpmshx_preparation_{name}_v1', status, text,
+    if geometry is not None and status == 1 and failure.reason:
+        raise_geometry_error(function.__name__, failure.reason, *geometry, text)
+    problem = native_error('preparation', function.__name__, status, text,
                            cause=failure.fp.python_cause, events=tuple(failure.fp.events[:failure.fp.event_count]))
     if status in (10, 11, 12):
         state = StateError(status, text, failure)
         state.diagnostic = problem.diagnostic
+        state.native_cause = (error.value[cause.value:].decode('utf-8', errors='replace')
+                              if cause.value != _Size(-1).value else text)
         raise state
     raise problem
 
@@ -219,10 +232,78 @@ def paired_state(name, temperature, pressure):
     return shape, buffers
 
 
-def co2_scalar_bundle(temperature, pressure):
+_CacheInfo = namedtuple('CacheInfo', 'hits misses maxsize currsize')
+
+
+class _Info(ct.Structure):
+    _fields_ = [(name, _Size) for name in _CacheInfo._fields]
+
+
+def cache_controls(cache_id):
+    """Attach the cache controls of the selected preparation image."""
+    def info():
+        result, error = _Info(), ct.create_string_buffer(256)
+        call = preparation_library.get().bind('tpmshx_preparation_read_cache_info_v1',
+            [_Uint, ct.POINTER(_Info), ct.POINTER(ct.c_char), _Size])
+        status = call(cache_id, ct.byref(result), error, len(error))
+        if status:
+            raise native_error('preparation', call.__name__, status, error.value.decode('utf-8'))
+        return _CacheInfo(*(getattr(result, field) for field in _CacheInfo._fields))
+
+    def clear():
+        error = ct.create_string_buffer(256)
+        call = preparation_library.get().bind('tpmshx_preparation_clear_cache_v1',
+            [_Uint, ct.POINTER(ct.c_char), _Size])
+        status = call(cache_id, error, len(error))
+        if status:
+            raise native_error('preparation', call.__name__, status, error.value.decode('utf-8'))
+
+    def attach(function):
+        function.cache_info = info
+        function.cache_clear = clear
+        function.cache_parameters = lambda: {'maxsize': info().maxsize, 'typed': False}
+        return function
+    return attach
+
+
+def raise_geometry_error(operation, reason, topology, cell, wall, text):
+    evidence = dict(topology=topology, L_cell_mm=float(cell), t_wall_mm=float(wall),
+                    reason={1: 'cell', 2: 'wall', 3: 'no_pore', 4: 'degenerate'}[reason])
+    if reason == 1:
+        message = f'L_mm must be positive, got {cell}'
+    elif reason == 2:
+        message = f't_mm must be positive, got {wall}'
+    elif reason == 3:
+        message = f'Wall thickness t={wall}mm >= L={cell}mm, no pore space'
+    else:
+        message = (f'Degenerate TPMS geometry: {topology} L={cell}mm t={wall}mm '
+                   'has no usable pore space. Reduce t or increase L.')
+        cause = native_error('preparation', operation, 1, text, **evidence)
+        raise native_error('preparation', operation, 1, message, causes=(cause.diagnostic,), **evidence) from cause
+    raise native_error('preparation', operation, 1, message, **evidence)
+
+
+def cached_geometry(topology, cell, wall, resolution):
     output = np.empty(5, dtype=np.float64)
-    _call('co2_scalar_bundle', temperature, pressure, _pointer(output), output.size)
+    _call('cached_geometry', geometry_topology(topology), real_scalar(cell, allow_nonfinite=True),
+          real_scalar(wall, allow_nonfinite=True), resolution, _pointer(output), output.size,
+          geometry=(topology, cell, wall))
+    return output
+
+
+def cached_co2(temperature, pressure):
+    output = np.empty(5, dtype=np.float64)
+    _call('cached_co2', temperature, pressure, _pointer(output), output.size)
     return tuple(float(value) for value in output)
+
+
+def cached_sco2(key, temperature, pressure):
+    encoded = key.encode('utf-8')
+    storage = ct.create_string_buffer(encoded)
+    result = ct.c_double()
+    _call('cached_sco2', _Key(ct.cast(storage, ct.POINTER(ct.c_char)), len(encoded)),
+          temperature, pressure, ct.byref(result))
+    return result.value
 
 
 def co2_pt(keys, temperature, pressure):
@@ -250,7 +331,7 @@ def sco2_scalar_pressure(pressure):
         raise ValueError(f'sCO2 pressure must be within {lo/1e6:g}..{hi/1e6:g} MPa') from None
 
 
-def sco2_pt(key, temperature, pressure, *, scalar=False):
+def sco2_pt(key, temperature, pressure):
     keys = (key,) if isinstance(key, str) else tuple(key)
     encoded = [value.encode('utf-8') for value in keys]
     storage = [ct.create_string_buffer(value) for value in encoded]
@@ -258,11 +339,9 @@ def sco2_pt(key, temperature, pressure, *, scalar=False):
                                     for index, value in enumerate(storage)))
     shape, buffers, _ = _inputs((temperature, pressure))
     output = np.empty((len(keys),) + shape, dtype=np.float64)
-    form = 0 if scalar else 1 if isinstance(key, str) else 2
+    form = 1 if isinstance(key, str) else 2
     _call('sco2_pt', form, key_buffer, len(keys), _pointer(buffers[0]), _pointer(buffers[1]), buffers[0].size,
           _pointer(output), output.size)
-    if scalar:
-        return float(output[0])
     if not keys and not buffers[0].size:
         # The original empty tuple path fails at this shape operation.
         output.reshape(-1, 0)

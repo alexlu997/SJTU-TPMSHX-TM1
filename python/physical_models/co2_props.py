@@ -5,7 +5,6 @@ saturation. All actual states must be finite, single phase, above the triple
 point; exceptions are propagated with their T/p context. Not a solid-CO2 model.
 """
 from __future__ import annotations
-from .preparation_cache import scalar_cache
 import numpy as np
 from tm1.cpp_interface import _native_properties
 
@@ -27,23 +26,15 @@ def _evaluate(keys,t,p):
     try:
         return _native_properties.co2_pt(tuple(_KEYS.index(key) for key in keys), t, p)
     except _native_properties.StateError as error:
-        prefix = ('CO2 requires a stable single-phase PT state; '
-                  'saturation, two-phase and critical-point states are unsupported. ')
-        text = str(error)
-        cause = ValueError(text[len(prefix):] if text.startswith(prefix) else text)
-        raise ValueError(text) from cause
+        raise ValueError(str(error)) from ValueError(error.native_cause)
 
 
-@scalar_cache(maxsize=4096)
+@_native_properties.cache_controls(_native_properties.CO2_CACHE)
 def _scalar(T,P):
     try:
-        return _native_properties.co2_scalar_bundle(T, P)
+        return _native_properties.cached_co2(T, P)
     except _native_properties.StateError as error:
-        prefix = ('CO2 requires a stable single-phase PT state; '
-                  'saturation, two-phase and critical-point states are unsupported. ')
-        text = str(error)
-        cause = ValueError(text[len(prefix):] if text.startswith(prefix) else text)
-        raise ValueError(text) from cause
+        raise ValueError(str(error)) from ValueError(error.native_cause)
 
 
 def co2_prop(keys,T,P):

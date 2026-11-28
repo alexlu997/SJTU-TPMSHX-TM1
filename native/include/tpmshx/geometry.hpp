@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <stdexcept>
 #include <vector>
 
 namespace tpmshx::geometry {
@@ -50,6 +51,13 @@ private:
     std::vector<std::int64_t> face_prefix_;
 };
 
+enum class ScalarGeometryReason : std::uint32_t { cell=1, wall=2, no_pore=3, degenerate=4 };
+class ScalarGeometryError : public std::invalid_argument {
+public:
+    ScalarGeometryError(ScalarGeometryReason reason,const char* text) : std::invalid_argument(text),reason(reason) {}
+    ScalarGeometryReason reason;
+};
+
 struct RawGeometry {
     double epsilon, area_density;
 };
@@ -74,6 +82,7 @@ struct MinimumGeometry {
 
 RawGeometry raw_geometry(const PhiIndex& index, const Calibration& model,
                          double cell_mm, double wall_mm);
+void validate_scalar_dimensions(double cell_mm, double wall_mm);
 Geometry standard_geometry(const PhiIndex& index, const Calibration& model,
                            double cell_mm, double wall_mm);
 std::vector<Geometry> standard_geometry_batch(const PhiIndex& index, const Calibration& model,

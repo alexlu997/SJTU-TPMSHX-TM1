@@ -6,7 +6,7 @@ import warnings
 import numpy as np
 
 from tm1.data_types.compute_config import Sco2NuConfig
-from tm1.physical_models.preparation_cache import geometry_cache, inlet_cache, _InletCacheValue
+from tm1.physical_models.preparation_cache import inlet_cache, _InletCacheValue
 from tm1.physical_models.preparation_notices import range_notices
 from tm1.run_control.logutil import get_logger
 from tm1.run_control.run_warnings import RangeRecord, current_warnings, record_warning, warning_messages
@@ -66,10 +66,6 @@ class PreparationCache:
         self.extrap_reasons = []
 
     @staticmethod
-    def geometry_key(topology, cell, wall):
-        return topology, cell, wall, 128
-
-    @staticmethod
     def inlet_key(geometry, speed, temperature, pressure, fluid, settings, co2):
         selection = None
         if settings is not None:
@@ -79,18 +75,6 @@ class PreparationCache:
                 parameter_version=settings.parameter_version, source=settings.source,
                 applicability=settings.applicability)
         return (*geometry, speed, temperature, pressure, fluid, selection, co2)
-
-    def geometry(self, action, key, read, write):
-        if action:
-            geometry_cache.store(key, None, geometry_values(read()))
-            hit = False
-        else:
-            hit, saved = geometry_cache.lookup(key)
-            if hit:
-                write(lambda index: saved[GEOMETRY[index]])
-        if (action or hit) and self.chi_error is not None:
-            raise self.chi_error
-        return hit
 
     def inlet(self, action, key, read, write):
         co2 = key[-1] or key[6] == 'co2'

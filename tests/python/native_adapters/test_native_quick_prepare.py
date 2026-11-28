@@ -216,14 +216,80 @@ def test_eos_scalar_caches_share_external_warming_and_clear(pressure, fluid):
     owner.cache_clear()
     prepare(**arguments)
     cold = owner.cache_info()
-    assert (cold.currsize, cold.misses) == (warm.currsize, warm.misses)
+    assert cold == ((0, 4, 4096, 4) if fluid == 'sco2' else (3, 1, 4096, 1))
     assert tuple(get(key, case.T_in_h, case.P_in_h) for key in keys) == expected
     assert owner.cache_info().hits == cold.hits + 4
+    enthalpy = get('H', case.T_in_h, case.P_in_h)
+    assert type(enthalpy) is float
+    assert owner.cache_info().misses == cold.misses + int(fluid == 'sco2')
+
+
+@pytest.mark.parametrize('cell,wall,message', [
+    (0., .5, 'L_mm must be positive, got 0.0'),
+    (7., 0., 't_mm must be positive, got 0.0'),
+    (7., 3.5, 'Wall thickness t=3.5mm >= L=7.0mm, no pore space'),
+])
+def test_scalar_geometry_errors_preserve_public_order(cell, wall, message):
+    with pytest.raises(ValueError) as standalone:
+        compute_geometry('Diamond', cell, wall, N=0)
+    with pytest.raises(ValueError) as pressure:
+        production.pressure_fractions(**_args(l=cell, t=wall))
+    assert str(standalone.value) == str(pressure.value) == message
+    assert compute_geometry.cache_info().currsize == 0
 
 
 def test_sco2_missing_pressure_raises_value_error():
     with pytest.raises(ValueError, match='sCO2 properties require pressure P'):
         production.pressure_fractions(**_args(case=_case(hot_fluid='sco2', P_in_h=None)))
+
+
+def test_concurrent_full_and_quick_preparation_and_solver_keep_serial_fields():
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from tm1.physical_models import tpms_calc
+    from tm1.preprocess.api import prepare_case
+    from tm1.solvers.api import run_case
+    from tests.python.native_preparation_abi import _configuration_mass_flow
+
+    full_config = _configuration_mass_flow('Diamond', ('water', 'air'))
+    full_config.geometry.L_cell_mm, full_config.geometry.t_wall_mm = 7., .5
+    quick_args = _args(case=_case(hot_fluid='sco2', cold_fluid='water', T_in_c=350., P_in_c=2e5))
+    saved = prepare_quick_design(**quick_args, case_id='serial-quick')
+
+    def values(operation):
+        with warning_scope({}) as records:
+            if operation == 'solver':
+                result = run_case(saved)
+                fields = {key: result.fields[key] for key in ('Ta', 'Tb', 'Ts')}
+                observations = result.metadata['diagnostics']['warnings_list']
+            else:
+                case = (prepare_case(full_config, case_id='full') if operation == 'full'
+                        else prepare_quick_design(**quick_args, case_id='quick'))
+                names = ('eps_arr', 'K_ss_arr') if operation == 'full' else ('eps', 'eps_A', 'K_ss')
+                fields = {key: case.design_fields[key] for key in names}
+                observations = case.metadata['applicability_inputs']
+        return ({key: np.asarray(value).tobytes() for key, value in fields.items()},
+                observations, range_observations(records))
+
+    def clear():
+        for owner in (compute_geometry, co2_props._scalar, sco2_props._prop, tpms_calc.compute):
+            owner.cache_clear()
+
+    operations = ('quick', 'full', 'solver')
+    reference = {}
+    for operation in operations:
+        clear()
+        reference[operation] = values(operation)
+    clear()
+    barrier = Barrier(len(operations))
+
+    def concurrent(operation):
+        barrier.wait(timeout=30)
+        return values(operation)
+
+    with ThreadPoolExecutor(max_workers=len(operations)) as pool:
+        results = dict(zip(operations, pool.map(concurrent, operations), strict=True))
+    assert results == reference
 
 
 def test_valid_chi_does_not_change_final_quick_solid_fields(monkeypatch):
@@ -241,6 +307,38 @@ def test_property_range_records_keep_source_side_and_stage():
     assert {key[-1][0] for key in records} == {'A', 'B'}
     assert all(key[-1][1:] == ('design-dp-inlet', 'scalar') for key in records)
     assert any(row['high'] for row in range_observations(records))
+
+
+@pytest.mark.parametrize('side', ['A', 'B'])
+def test_water_and_sco2_preserve_inlet_evidence_on_cold_and_warm_calls(side):
+    water_hot = side == 'A'
+    case = _case(hot_fluid='water' if water_hot else 'sco2', cold_fluid='sco2' if water_hot else 'water',
+                 T_in_h=500. if water_hot else 350., T_in_c=350. if water_hot else 500.,
+                 P_in_h=3e6 if water_hot else 9e6, P_in_c=9e6 if water_hot else 3e6)
+    scopes = []
+    for _ in range(2):
+        with warning_scope({}) as records:
+            fractions = production.pressure_fractions(**_args(case=case))
+        scopes.append((fractions, range_observations(records)))
+    assert scopes[0] == scopes[1]
+    assert [(r['source'], r['side'], r['stage'], r['minimum'][0]) for r in scopes[0][1]] == [
+        (('property', name), side, 'design-dp-inlet', 500.)
+        for name in ('water_density', 'water_viscosity', 'water_conductivity', 'water_cp')]
+    assert sco2_props._prop.cache_info() == (4, 4, 4096, 4)
+
+
+def test_first_inlet_observer_failure_keeps_preceding_record_only():
+    class StopAfterFirst(dict):
+        def __setitem__(self, key, value):
+            if self:
+                raise LookupError('inlet observer stopped')
+            super().__setitem__(key, value)
+
+    with warning_scope(StopAfterFirst()) as records:
+        with pytest.raises(LookupError, match='inlet observer stopped'):
+            production.pressure_fractions(**_args(case=_case(hot_fluid='water', T_in_h=500., P_in_h=3e6)))
+    first, = range_observations(records)
+    assert (first['source'], first['side'], first['stage']) == (('property', 'water_density'), 'A', 'design-dp-inlet')
 
 
 def test_prepared_values_survive_release_and_a_second_preparation(monkeypatch):
@@ -301,42 +399,9 @@ def test_axis_copy_stop_iteration_preserves_exception_and_releases_owner(monkeyp
     assert released == [True]
 
 
-@pytest.mark.parametrize('cache', ['geometry', 'sco2'])
-def test_cache_callback_failure_preserves_the_exception_and_release_count(monkeypatch, cache):
-    from tm1.physical_models import tpms_geometry
-
-    arguments = _args(case=_case(hot_fluid='sco2'))
-    bindings = wire._bindings(wire.preparation_library.path())
-    release = bindings.release
-    releases = []
-
-    def counted(pointer):
-        release(pointer)
-        releases.append(True)
-
-    failure = LookupError(cache)
-    def fail_lookup(*args):
-        raise failure
-
-    monkeypatch.setattr(bindings, 'release', counted)
-    pressure = production.pressure_fractions(**arguments)
-    assert len(pressure) == 2 and not releases
-    owner = tpms_geometry._compute_geometry_cached if cache == 'geometry' else sco2_props._prop
-    monkeypatch.setattr(owner, 'lookup', fail_lookup)
-    with pytest.raises(LookupError) as full_error:
-        prepare_quick_design(**arguments, case_id='callback')
-    assert full_error.value is failure and len(releases) == 1
-    with pytest.raises(LookupError) as pressure_error:
-        production.pressure_fractions(**arguments)
-    assert pressure_error.value is failure and len(releases) == 1
-
-
 @pytest.mark.parametrize('pressure', [False, True], ids=['full', 'sizing'])
-@pytest.mark.parametrize('source', ['geometry lookup', 'cache key', 'overflow warning'])
-def test_stop_iteration_from_preparation_preserves_cause_and_release(monkeypatch, pressure, source):
+def test_stop_iteration_from_preparation_preserves_cause_and_release(monkeypatch, pressure):
     from tm1.applications.design.sizing import dP_fracs
-    from tm1.physical_models import tpms_geometry
-
     bindings = wire._bindings(wire.preparation_library.path())
     release = bindings.release
     released = []
@@ -345,13 +410,7 @@ def test_stop_iteration_from_preparation_preserves_cause_and_release(monkeypatch
         released.append(bool(ctypes.cast(pointer, ctypes.POINTER(wire._Prepared)).contents.owner))
         release(pointer)
 
-    failure = StopIteration(source)
-    def stop_lookup(key):
-        raise failure
-
-    class InterruptedLength(float):
-        def __hash__(self):
-            raise failure
+    failure = StopIteration("overflow warning")
 
     def stop_warning(message, category, *args, **kwargs):
         assert category is RuntimeWarning and str(message) == 'overflow encountered in power'
@@ -360,21 +419,16 @@ def test_stop_iteration_from_preparation_preserves_cause_and_release(monkeypatch
     monkeypatch.setattr(bindings, 'release', record_release)
     arguments = _args()
     with warnings.catch_warnings(), np.errstate(over='warn'):
-        if source == 'geometry lookup':
-            monkeypatch.setattr(tpms_geometry._compute_geometry_cached, 'lookup', stop_lookup)
-        elif source == 'cache key':
-            arguments['l'] = InterruptedLength(arguments['l'])
-        else:
-            arguments['case'] = _case(mdot_h=1e180)
-            warnings.simplefilter('always', RuntimeWarning)
-            monkeypatch.setattr(warnings, 'showwarning', stop_warning)
+        arguments['case'] = _case(mdot_h=1e180)
+        warnings.simplefilter('always', RuntimeWarning)
+        monkeypatch.setattr(warnings, 'showwarning', stop_warning)
         with pytest.raises(RuntimeError, match='^generator raised StopIteration$') as caught:
             if pressure:
                 dP_fracs(**arguments)
             else:
                 prepare_quick_design(**arguments, case_id='interrupted')
     assert type(caught.value) is RuntimeError and caught.value.__cause__ is failure
-    assert released == ([] if pressure else [source == 'overflow warning'])
+    assert released == ([] if pressure else [True])
 
 
 def _host_site(function, statement):
@@ -514,7 +568,14 @@ from tm1.applications.design.sizing import dP_fracs
 from tm1.preprocess.api import prepare_quick_design
 from tm1.run_control.run_warnings import range_observations, warning_scope
 from tests.python.native_adapters.test_native_quick_prepare import _args, _case
-for fluid in (_case(T_in_h=1200.), _case(hot_fluid='sco2', T_in_c=1200.)):
+from tm1.physical_models import co2_props, sco2_props
+from tm1.physical_models.tpms_geometry import compute_geometry
+assert compute_geometry('Diamond', 7., .5)['D_h'] > 0.
+from math import isfinite
+assert isfinite(co2_props.co2_prop('H', 480., 9e6))
+assert isfinite(sco2_props.sco2_prop('H', 480., 9e6))
+for fluid in (_case(T_in_h=1200.), _case(hot_fluid='sco2', T_in_c=1200.),
+              _case(hot_fluid='co2', T_in_c=1200.)):
     args = _args(case=fluid)
     case = prepare_quick_design(**args, case_id='one-image')
     with warning_scope({}) as records:

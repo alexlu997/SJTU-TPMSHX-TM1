@@ -240,7 +240,7 @@ def _copy_case(result):
 
 def run_preparation(action, source, *, chi, allow, validate, policy, water_error):
     """Run one 3D preparation operation and return detached Python values."""
-    options = native._Options(1, ct.sizeof(native._Options), chi is not None, allow, chi or 0.)
+    options = native._Options(1, ct.sizeof(native._Options), 2 if policy.chi_error is not None else int(chi is not None), allow, chi or 0.)
     with host.volume_operation(action, source, options, validate, policy, water_error) as result:
         flow = result.flow
         if action == 'prepare_inlet_mass_capacities':

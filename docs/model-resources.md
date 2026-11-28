@@ -53,7 +53,7 @@ C++ 头文件生成器直接读取资源，不再导入数值模型。
 Python 保留配置、类型适配、数据对象、I/O、缓存、应用编排及明确的研究接口。
 资源归集与语言迁移保持原模型身份、单位、拟合系数和实验结论；实现与退休记录见[C++ 范围](cpp-migration.zh-CN.md#cpp-core-scope)。
 
-Python 几何接口保留类型、缓存与逐次调用的 chi 显式值／环境值／拟合选择，不保留数值 fallback。
+准备库拥有标量几何缓存。Python 几何接口保留原有类型，每次调用使用显式、环境或拟合 chi。
 修改 C++ 函数或资源中编入库的参数后，须重新构建各受影响原生库并重启进程。
 构建、路径及四库运行边界见[原生准备核心](cpp-migration.zh-CN.md#native-preparation-core)和[独立结果核心](cpp-migration.zh-CN.md#native-result-core)。
 XY、XYZ、LUT 与 Gaussian 的固定来源和局部数值处理见[设计场来源说明](../native/geometry/fields-sources.md)。

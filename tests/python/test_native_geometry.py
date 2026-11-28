@@ -461,6 +461,73 @@ def test_phi_cache_is_read_only_and_does_not_build_an_index(geometry, monkeypatc
         native._cached_phi.cache_clear()
 
 
+def test_offscreen_startup_warms_the_first_full_preparation(monkeypatch, tmp_path):
+    from time import monotonic
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QApplication
+    from tm1.applications.gui.controllers import session_manager
+    from tm1.applications.gui.ui import main_window
+    from tm1.physical_models.tpms_geometry import compute_geometry
+    from tm1.preprocess.api import prepare_case
+    from tests.python.native_preparation_abi import _configuration_mass_flow
+
+    app = QApplication.instance() or QApplication(['pytest', '-platform', 'offscreen'])
+    monkeypatch.setattr(session_manager, 'user_data_dir', lambda: tmp_path)
+    compute_geometry.cache_clear()
+    finished = threading.Event()
+    geometry = main_window.tpms_geometry
+
+    def observe(*args, **kwargs):
+        result = geometry(*args, **kwargs)
+        if threading.current_thread().name == 'tpms-geometry-prewarm':
+            finished.set()
+        return result
+
+    monkeypatch.setattr(main_window, 'tpms_geometry', observe)
+    window = main_window.Main_Menu()
+    try:
+        deadline = monotonic() + 30.
+        while not finished.is_set() and monotonic() < deadline:
+            QTest.qWait(20)
+        assert finished.is_set()
+        warm = compute_geometry.cache_info()
+        config = _configuration_mass_flow(window.combo_tpms.currentText(), ('air', 'air'))
+        config.geometry.L_cell_mm = float(window.le_Lcell.text())
+        config.geometry.t_wall_mm = float(window.le_t.text())
+        prepared = prepare_case(config, case_id='first-gui-geometry')
+        assert np.all(prepared.design_fields['eps_arr'] > 0.)
+        after = compute_geometry.cache_info()
+        assert after.misses == warm.misses and after.hits > warm.hits
+    finally:
+        window.close()
+        window.deleteLater()
+        app.processEvents()
+
+
+@pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
+def test_scalar_geometry_uses_preparation_image_and_actual_resolution(geometry, topology, monkeypatch, tmp_path):
+    from tm1.physical_models.tpms_geometry import compute_geometry
+
+    missing = str(tmp_path / 'missing-library')
+    with monkeypatch.context() as isolated:
+        for role in ('PREPARATION', 'SOLVER', 'NATIVE_SOLVER', 'RESULT'):
+            isolated.setenv(f'TPMSHX_{role}_LIBRARY', missing)
+        expected = {}
+        for resolution in (32, 128, 256):
+            raw = geometry.standard_scalar(topology, 7., .5, N=resolution)
+            expected[resolution] = tuple(value.item() for value in raw.values())
+        geometry._cached_index.cache_clear()
+    for role in ('GEOMETRY', 'SOLVER', 'NATIVE_SOLVER', 'RESULT'):
+        monkeypatch.setenv(f'TPMSHX_{role}_LIBRARY', missing)
+    compute_geometry.cache_clear()
+    for resolution in (32, 128, 256, 32):
+        result = compute_geometry(topology, 7., .5, N=resolution)
+        assert np.asarray(tuple(result.values())).tobytes() == np.asarray(expected[resolution]).tobytes()
+    assert compute_geometry.cache_info() == (1, 3, 32768, 3)
+    compute_geometry.cache_clear()
+    assert tuple(result.values()) == expected[32]
+
+
 def test_public_scalar_cache_does_not_cache_the_current_material_setting(geometry, monkeypatch):
     from tm1.physical_models import tpms_geometry, tpms_props
 

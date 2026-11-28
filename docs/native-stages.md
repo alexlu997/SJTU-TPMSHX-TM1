@@ -4,7 +4,7 @@
 
 ## Active C ABI
 
-Preparation ABI 3, Quick Design v2, 2D saved stage ABI 5, and 3D saved stage ABI 3 define the active computation C interfaces.
+Preparation ABI 4, Quick Design preparation v3, Quick Design run v2, 2D saved stage ABI 5, and 3D saved stage ABI 3 define the active computation C interfaces.
 Result ABI 3 defines the independent evaluation interface.
 All preparation and saved-run descriptors are flat structs with one top-level `(abi_version, struct_size)` header and no nested `values` chain.
 All stage numeric buffers use `float64`, and zone labels use `int32`.
@@ -12,9 +12,9 @@ The libraries export no earlier version of these stage operations.
 
 | Stage | Active C entries |
 | --- | --- |
-| 2D preparation (ABI 3) | `tpmshx_preparation_2d_{uniform,continuous,zoned,sigmoid}_{capacities,resolve_flow,prepare_case}_v1`, `tpmshx_preparation_2d_stripe_prepare_case_v1`, `tpmshx_query_inlet_properties_v2`, `tpmshx_preparation_sigmoid_lut_{create,release}_v7`, `tpmshx_preparation_df_experiment_scope_v1`, `tpmshx_preparation_collect_range_v1` |
-| 3D preparation (ABI 3) | `tpmshx_preparation_3d_{continuous,spatial}_{capacities,resolve_flow,prepare_case}_v1` |
-| Quick Design preparation | `tpmshx_prepare_quick_design_v2`, `tpmshx_quick_pressure_fractions_v2`, `tpmshx_quick_prepared_release_v2` |
+| 2D preparation (ABI 4) | `tpmshx_preparation_2d_{uniform,continuous,zoned,sigmoid}_{capacities,resolve_flow,prepare_case}_v1`, `tpmshx_preparation_2d_stripe_prepare_case_v1`, `tpmshx_query_inlet_properties_v2`, `tpmshx_preparation_sigmoid_lut_{create,release}_v7`, `tpmshx_preparation_df_experiment_scope_v1`, `tpmshx_preparation_collect_range_v1` |
+| 3D preparation (ABI 4) | `tpmshx_preparation_3d_{continuous,spatial}_{capacities,resolve_flow,prepare_case}_v1` |
+| Quick Design preparation | `tpmshx_prepare_quick_design_v3`, `tpmshx_quick_pressure_fractions_v3`, `tpmshx_quick_prepared_release_v2` |
 | 2D stage run (saved ABI 5) | `tpmshx_stage_run_2d_abi_version`, `tpmshx_run_saved_case_2d_v5`, `tpmshx_stage_run_2d_{create,restore}_saved_v5`, `tpmshx_stage_run_2d_{advance_step,finish,phase,snapshot,take_result,release_run,release}_v1`, `tpmshx_stage_run_2d_{records,execution_view,get_capture,zone_temperatures,report}_v1`, `tpmshx_stage_borrow_mesh_v1`, `tpmshx_stage_port_windows_fit_2d_v1`, `tpmshx_stage_run_2d_check_experiment_v4` |
 | 3D stage run (saved ABI 3, capture ABI 2) | `tpmshx_stage_run_3d_abi_version`, `tpmshx_stage_capture_3d_abi_version`, `tpmshx_run_saved_case_3d_v3`, `tpmshx_stage_run_3d_{create,restore}_saved_v3`, `tpmshx_stage_run_3d_{advance_step,finish,phase,snapshot,take_result,release_run,release}_v1`, `tpmshx_stage_run_3d_{records,execution_view,get_capture,report}_v1` |
 | Raw stage-result queries | `tpmshx_full_{2,3}d_abi_version`, `tpmshx_full_2d_get_{energy_evidence,energy_update_scale,energy_effective_settings,model_enthalpy_evidence,last_closure_ranges,physical_heat_ledger,property_sampling,model_h_iterations,flow_methods}_v1`, `tpmshx_full_3d_get_{energy_evidence,energy_update_scale,energy_effective_settings,bootstrap_trace,model_enthalpy_evidence,last_closure_ranges,physical_heat_ledger,property_sampling,model_h_iterations,model_h_acceleration}_v1`, `tpmshx_run_state_release_v1` |
@@ -51,7 +51,7 @@ You can set a positive `cpu_threads` value, including a value above eight, when 
 
 - **Units**: design inputs (`cell_length_mm`, `wall_thickness_mm`) use mm; saved physical design fields use m. Keep the mm-to-m-to-mm order when forming transport and closure ratios. Heat uses W/m in 2D and W in 3D; mass flow uses kg/s; temperature uses K; pressure uses Pa(abs).
 - **Array layout**: requested and actual grid counts stay distinct fields. Physical 2D fields use shape `(nx, ny)` in C order; 3D fields use `(nx, ny, nz)` in C order; flow fields use `(cross, stream)` order per side.
-- **Single-owner release**: every owned output has one outer `owner` pointer; nested views have null owners. Release each owned result through the library that created it after the last view use. Scalar-only queries (`tpmshx_query_inlet_properties_v2`, `tpmshx_quick_pressure_fractions_v2`) return values and need no release.
+- **Single-owner release**: every owned output has one outer `owner` pointer; nested views have null owners. Release each owned result through the library that created it after the last view use. Scalar-only queries (`tpmshx_query_inlet_properties_v2`, `tpmshx_quick_pressure_fractions_v3`) return values and need no release.
 - **Disjoint buffers**: output, failure, diagnostic, and error buffers must not overlap inputs, callbacks, or any live view owned by a result. Overlapping calls return invalid status without mutating result or diagnostic storage.
 - **Library boundaries**: preparation and solver link their separate locked CoolProp static libraries; the result library links no preparation, solver, CoolProp, or Qt code.
 - **Result ABI 3 queries**: `tpmshx_result_stage_query_v3` accepts flat `tpmshx_stage_input_v3` with borrowed `float64` arrays, `int32` labels, and raw C-string mode/unit labels. It delivers floating-point events before returning, and the Python adapter emits `RuntimeWarning` for divide-by-zero, overflow, and invalid values.
@@ -89,14 +89,14 @@ It evaluates four-fluid properties, Nu, and fixed CFD drag in their production o
 
 `tpmshx_preparation_inlet_query_result_v1` (`abi_version = 1`, `struct_size = sizeof(tpmshx_preparation_inlet_query_result_v1)`) returns 12 `float64` values (`double values[12]`).
 This query allocates no owner and requires no release call.
-Pass optional `tpmshx_preparation_callbacks_v1` with null cache hooks and `validate_grid_stage = 0` to record range, notice, and floating-point events synchronously.
+Pass optional `tpmshx_preparation_callbacks_v2` with null cache hooks and `validate_grid_stage = 0` to record range, notice, and floating-point events synchronously.
 Standalone `tpms_calc.compute` selects the registered fluid, geometry, shared cache, per-call `K_ss` and warning policy. Its `inlet_query` uses `python/cpp_interface/inlet_properties.py` to call this entry.
 The optional keyword `df_mode` defaults to `cfd_smooth`. With `experimental`, the query applies the selected correction to the returned permeability, inertial coefficient and pressure gradient.
 The shared cache contains the base values. CO₂ uses its fixed correction for either mode.
 
 ## Spatial total mass flow
 
-Preparation ABI 3 provides `capacities`, `resolve_flow`, and `prepare_case` entries across all four 2D geometry families (`uniform`, `continuous`, `zoned`, `sigmoid`).
+Preparation ABI 4 provides `capacities`, `resolve_flow`, and `prepare_case` entries across all four 2D geometry families (`uniform`, `continuous`, `zoned`, `sigmoid`).
 `tpmshx_preparation_2d_stripe_prepare_case_v1` also returns per-stripe A-side hydraulic radius:
 
 - **Uniform (`FlowInput2D`)**: both topologies and all 16 ordered air/water/sCO2/CO2 fluid pairs, with CFD or eligible experimental D-F.
@@ -114,16 +114,17 @@ This interface defines the result only for these two codes.
 
 ## Spatial host cache interface
 
-All 2D and 3D preparation entries accept one unified flat callback struct: `tpmshx_preparation_callbacks_v1` (`PreparationCallbacks` in `stages.hpp`).
-Initialize `abi_version = TPMSHX_PREPARATION_CASE_ABI_VERSION` (1) and `struct_size = sizeof(tpmshx_preparation_callbacks_v1)`.
+All 2D and 3D preparation entries accept one unified flat callback struct: `tpmshx_preparation_callbacks_v2` (`PreparationCallbacks` in `stages.hpp`).
+Initialize `abi_version = TPMSHX_PREPARATION_CALLBACK_ABI_VERSION` (2) and `struct_size = sizeof(tpmshx_preparation_callbacks_v2)`.
 
 - **Event and observation hooks**: `event`, `observe_range`, and `observe_notice` report diagnostics, range records, and notices (including geometry extrapolation reasons) synchronously on the caller thread.
 - **Host validation hooks**: `validate_host_input` and `validate_grid_stage` (`0` or `1`) keep Python object-check order without numerical values. `validate_grid_stage = 1` requires non-null `validate_host_input`.
-- **Cache hooks (`action = 0` lookup, `action = 1` publish)**: `geometry_cache`, `inlet_cache`, `geometry_cache_at`, `inlet_cache_at`, and `sigmoid_lut_cache` exchange completed values with host caches. On a hit (`hit = 1`), the host returns borrowed read-only views that stay valid until the stage call returns. On a miss (`hit = 0`), C++ computes values and publishes read-only views that the host copies before callback return.
-- **Family hook rules**: untyped (`geometry_cache`, `inlet_cache`) and keyed (`geometry_cache_at`, `inlet_cache_at`, `sigmoid_lut_cache`) hooks cannot be combined. Uniform and continuous 2D accept untyped hooks only; zoned, sigmoid, and stripe 2D accept keyed hooks only. 3D accepts `geometry_cache_at` and `inlet_cache_at` only and rejects `sigmoid_lut_cache` and `validate_grid_stage != 0`.
+- The host retrieves inlet and sigmoid table values with action 0 and publishes them with action 1. On a hit, the host lends a read-only view through the end of the stage call. The host copies newly published values before the callback returns.
+- Uniform and continuous 2D use `inlet_cache`. Zoned, sigmoid and stripe 2D use `inlet_cache_at` and `sigmoid_lut_cache`. 3D accepts `inlet_cache_at` and requires `validate_grid_stage = 0`.
 - **Isolation rules**: callbacks do no numerical preparation. Returned views must not overlap output, failure, or error storage. A nonzero callback return stops the stage immediately so Python can re-raise its saved exception.
 
-`python/preprocess/preparation.py` supplies the cache and warning callbacks for both dimensions. `python/physical_models/preparation_cache.py` owns the 32,768-entry geometry cache and the 4,096-entry inlet-property cache. `python/cpp_interface/preparation_host.py` copies cache values and keeps callback buffers alive.
+The preparation library shares 32,768 scalar geometry entries across full preparation, Quick Design and standalone queries. Keys contain topology, cell length and wall thickness in mm, and voxel resolution. Solid conductivity uses the current material after each lookup.
+`python/physical_models/preparation_cache.py` owns the 4,096 inlet entries. `python/cpp_interface/preparation_host.py` copies host cache values and retains callback buffers.
 Python keeps disk/memory LUT storage; on a LUT miss, C++ builds the native 41×31 table at voxel resolution 256.
 The [spatial cache example](../examples/cpp/prepare_spatial_cache_2d.cpp) tests these typed callbacks outside Python.
 
@@ -192,12 +193,12 @@ Python full 3D execution validates saved cases and builds `FieldResult` in `pyth
 
 ## Quick Design stage
 
-`quick_design_stage_c_api.h` provides Quick Design preparation v2 and run v2 as flat `float64` C interfaces.
+`quick_design_stage_c_api.h` provides Quick Design preparation v3 and run v2 as flat `float64` C interfaces.
 Quick Design is a prescribed-flow LTNE sizing approximation (`physical_validation=not_established`), not a SIMPLE solve.
 
-### Preparation v2 and pressure query
+### Preparation v3 and pressure query
 
-`tpmshx_prepare_quick_design_v2` and `tpmshx_quick_pressure_fractions_v2` accept `tpmshx_quick_input_v2` (`abi_version = 2`, exact `struct_size`) with 13 `float64` scalar slots (`TPMSHX_QUICK_VALUE_COUNT`).
+`tpmshx_prepare_quick_design_v3` and `tpmshx_quick_pressure_fractions_v3` accept `tpmshx_quick_input_v2` (`abi_version = 2`, exact `struct_size`) with 13 `float64` scalar slots (`TPMSHX_QUICK_VALUE_COUNT`).
 These slots hold cell length (mm), wall thickness (mm), span (m), length (m), height (m), solid conductivity (W/(m·K)), and tolerance.
 The remaining slots hold two mass flows (kg/s), two temperatures (K), and two pressures (Pa(abs)).
 Setting `have_height = 0` uses span as height.
@@ -206,9 +207,11 @@ Default grid counts (`(60, 40, 1)` crossflow, `(60, 1, 2)` counterflow), conduct
 Absent counterflow `q_relative_tolerance` and `chunk_iterations` stay marked absent (`0` in C, `None` in `CaseData`).
 
 - Full preparation validates warm-start inputs, labels, positive scalars, shape, geometry/material, grids, inlet properties, cross-sections, analytical D-F pressure fractions, and SI design fields. Release `tpmshx_quick_prepared_v2` with `tpmshx_quick_prepared_release_v2`.
-- `tpmshx_quick_pressure_fractions_v2` skips thermal grids and design-field arrays, treats every non-`cross` arrangement as counterflow, and returns `tpmshx_quick_pressure_v2` by value (no release needed).
+- `tpmshx_quick_pressure_fractions_v3` skips thermal grids and design-field arrays, treats every non-`cross` arrangement as counterflow, and returns `tpmshx_quick_pressure_v2` by value (no release needed).
 - Both outputs record ordered `floating_events[4]` (A properties, A Prandtl, B properties, B Prandtl) and fitted empirical property `ranges`.
-- Optional `tpmshx_quick_callbacks_v2` provides only `geometry_cache` and `eos_cache` hooks (lookup `action = 0`, publish `action = 1`; nonzero return stops with status 20). Callbacks transport completed values only and never execute numerical code.
+- Both operations share the preparation library’s scalar geometry and EOS caches. The optional `geometry_reason` output identifies a scalar geometry failure.
+- `tpmshx_preparation_cached_co2_v1` returns D/V/L/C/H together. `tpmshx_preparation_cached_sco2_v1` returns one named property. Each EOS cache holds 4,096 entries.
+- `tpmshx_preparation_cached_geometry_v1` returns the five geometry scalars. Use `tpmshx_preparation_read_cache_info_v1` and `tpmshx_preparation_clear_cache_v1` with the cache ID from `property_c_api.h`.
 
 ### Prepared execution and evaluation
 

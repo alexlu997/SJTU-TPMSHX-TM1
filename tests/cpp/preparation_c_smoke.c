@@ -31,7 +31,8 @@ static int properties(void) {
     }
     if (tpmshx_preparation_water_pt_v1(&temperature, &liquid_pressure, 1, &failure,
                                      error, sizeof(error))) return 16;
-    if (tpmshx_preparation_co2_scalar_bundle_v1(co2_temperature, co2_pressure, bundle, 5,
+    size_t cause_offset;
+    if (tpmshx_preparation_cached_co2_v1(co2_temperature, co2_pressure, bundle, 5, &cause_offset,
                                              &failure, error, sizeof(error))) return 17;
     {
         size_t index;

@@ -180,20 +180,20 @@ def _copy_case(result):
     return case
 
 
-def run_preparation(name, source, *, chi, allow, validate, policy, geometry_key, inlet_cache, lut, water_error, finish):
+def run_preparation(name, source, *, chi, allow, validate, policy, inlet_cache, lut, water_error, finish):
     """Run one planar operation and deliver its flow or detached case to the host."""
-    options = native._Options(1, ct.sizeof(native._Options), chi is not None, allow, chi or 0.)
+    options = native._Options(1, ct.sizeof(native._Options), 2 if policy.chi_error is not None else int(chi is not None), allow, chi or 0.)
     cache = host.PreparationCacheBridge(policy)
     if isinstance(source, (native._ZonedInput, native._SigmoidInput)):
-        hooks = dict(geometry_cache_at=cache.geometry_at, inlet_cache_at=cache.inlet_at, sigmoid_lut_cache=_lut_cache(lut))
+        hooks = dict(inlet_cache_at=cache.inlet_at, sigmoid_lut_cache=_lut_cache(lut))
     else:
         def inlet(action, side, source_inlet, value):
             def transfer(key):
                 return cache.inlet(action, key, value)
             return inlet_cache(action, side, source_inlet.velocity_m_s, transfer)
 
-        hooks = dict(geometry_cache=lambda action, value: cache.geometry(action, geometry_key, value), inlet_cache=inlet)
+        hooks = dict(inlet_cache=inlet)
     with host.operation(name, source, options, validate, water_error, observe_range=policy.observe_range,
-                        observe_notice=policy.observe_notice, observe_event=policy.observe_event, **hooks) as result:
+                        observe_notice=policy.observe_notice, observe_event=policy.observe_event, chi_error=policy.chi_error, **hooks) as result:
         return finish(tuple(result.flow.capacities), tuple(result.flow.speeds),
                       partial(_copy_case, result), partial(_copy_metadata, result))

@@ -282,8 +282,8 @@ std::vector<double> co2_pt(const std::vector<std::uint32_t>& requested,
         return output;
     } catch (const std::exception& error) {
         const auto* typed=dynamic_cast<const PropertyError*>(&error);
-        throw PropertyError(11,"CO2 requires a stable single-phase PT state; saturation, two-phase and critical-point states are unsupported. "
-            +std::string(error.what()),typed?typed->failure:PropertyFailure{});
+        constexpr char prefix[]="CO2 requires a stable single-phase PT state; saturation, two-phase and critical-point states are unsupported. ";
+        throw PropertyError(11,prefix+std::string(error.what()),typed?typed->failure:PropertyFailure{},sizeof(prefix)-1);
     }
 }
 std::vector<double> sco2_pt(std::uint32_t form,const std::vector<std::string>& keys,
