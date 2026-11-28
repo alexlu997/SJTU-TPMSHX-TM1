@@ -109,7 +109,7 @@ void failures() {
     failure.cell_length_m=-123.;
     const auto original=failure;char error[4096]{};
     const auto rejected=[&](const char* message) {
-        require(tpmshx_prepare_quick_design_v2(&source,nullptr,&failure,error,sizeof(error))!=0,message);
+        require(tpmshx_prepare_quick_design_v3(&source,nullptr,&failure,error,sizeof(error))!=0,message);
         require(std::memcmp(&failure,&original,sizeof(failure))==0,"failed prepare changed output");
         input(point);
     };
@@ -118,10 +118,10 @@ void failures() {
     source.values[TPMSHX_QUICK_TOLERANCE]=std::numeric_limits<double>::quiet_NaN();rejected("invalid tolerance accepted");
     source.arrangement=text("parallel");rejected("invalid arrangement accepted");
     source.values[TPMSHX_QUICK_TEMPERATURE_B]=500.;
-    require(tpmshx_prepare_quick_design_v2(&source,nullptr,&failure,error,sizeof(error))==TPMSHX_PREPARATION_WATER_STATE,
+    require(tpmshx_prepare_quick_design_v3(&source,nullptr,&failure,error,sizeof(error))==TPMSHX_PREPARATION_WATER_STATE,
         "water state rejection changed");
     input(point);
-    require(tpmshx_prepare_quick_design_v2(&source,nullptr,&failure,reinterpret_cast<char*>(&source),sizeof(source))==1,
+    require(tpmshx_prepare_quick_design_v3(&source,nullptr,&failure,reinterpret_cast<char*>(&source),sizeof(source))==1,
         "aliased preparation error storage accepted");
     auto prepared=prepare_quick_design(source);
     tpmshx_quick_run_result_v1 run{};run.abi_version=1;run.struct_size=sizeof(run);run.raw.completed_passes=91;

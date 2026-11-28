@@ -31,7 +31,8 @@ static int properties(void) {
     }
     if (tpmshx_preparation_water_pt_v1(&temperature, &liquid_pressure, 1, &failure,
                                      error, sizeof(error))) return 16;
-    if (tpmshx_preparation_co2_scalar_bundle_v1(co2_temperature, co2_pressure, bundle, 5,
+    size_t cause_offset;
+    if (tpmshx_preparation_cached_co2_v1(co2_temperature, co2_pressure, bundle, 5, &cause_offset,
                                              &failure, error, sizeof(error))) return 17;
     {
         size_t index;
@@ -41,6 +42,21 @@ static int properties(void) {
     if (tpmshx_preparation_sco2_hp_scalar_v1(bundle[4], co2_pressure, &inverse, 1,
                                           &failure, error, sizeof(error))) return 20;
     if (fabs(inverse-co2_temperature) > 2e-8) return 21;
+    {
+        const double saturation_pressure = 6713078.06290996;
+        const uint32_t density_key = 0;
+        char short_error[64];
+        if (tpmshx_preparation_cached_co2_v1(temperature, saturation_pressure, bundle, 5, &cause_offset,
+                &failure, short_error, sizeof(short_error)) != TPMSHX_PREPARATION_CO2_STATE
+                || cause_offset != SIZE_MAX) return 22;
+        if (tpmshx_preparation_co2_pt_v2(&temperature, &saturation_pressure, 1, &density_key, 1,
+                &value, 1, &cause_offset, &failure, short_error, sizeof(short_error)) != TPMSHX_PREPARATION_CO2_STATE
+                || cause_offset != SIZE_MAX) return 23;
+    }
+    if (tpmshx_preparation_cached_geometry_v1(0, -1., .5, 32, bundle, 5, &failure, error, sizeof(error))
+            != TPMSHX_PREPARATION_INVALID || failure.reason != 1 || failure.index != SIZE_MAX
+            || failure.first_t_index != SIZE_MAX || failure.first_p_index != SIZE_MAX
+            || !isnan(failure.temperature) || !isnan(failure.pressure) || !isnan(failure.detail)) return 24;
     return 0;
 }
 

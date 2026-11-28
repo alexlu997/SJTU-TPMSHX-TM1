@@ -78,14 +78,6 @@ class _ScalarCache:
         return wrapped
 
 
-def scalar_cache(*, maxsize: int):
-    """Give each decorated function an independent scalar cache."""
-    if not isinstance(maxsize, int) or maxsize <= 0:
-        raise ValueError('maxsize must be a positive integer')
-    return lambda function: _ScalarCache(maxsize).wrap(function)
-
-
-geometry_cache = _ScalarCache(32768)
 inlet_cache = _ScalarCache(4096)
 
 

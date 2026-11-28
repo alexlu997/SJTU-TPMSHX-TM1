@@ -40,12 +40,13 @@ struct PropertyFailure {
 };
 class PropertyError : public std::runtime_error {
 public:
-    PropertyError(int status,const std::string& text,PropertyFailure failure={})
-        :std::runtime_error(text),status(status),failure(failure) {
+    PropertyError(int status,const std::string& text,PropertyFailure failure={},std::size_t cause_offset=std::string::npos)
+        :std::runtime_error(text),status(status),failure(failure),cause_offset(cause_offset) {
         if (status==3 && !this->failure.fp.python_cause) this->failure.fp.python_cause=3;
     }
     int status;
     PropertyFailure failure;
+    std::size_t cause_offset;
 };
 
 PropertyNumber reynolds_point(PropertyNumber rho,PropertyNumber speed,PropertyNumber diameter,

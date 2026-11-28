@@ -296,18 +296,78 @@ def test_public_cache_and_native_preparation_share_float64_entries(monkeypatch):
     assert second_geom[0] > first_geom[0] and second_inlet[0] > first_inlet[0]
 
 
-@pytest.mark.parametrize('cache_name,missing', [('geometry', 'A_0'), ('inlet', 'rho')])
-def test_warm_cache_converts_each_field_before_reading_the_next(cache_name, missing):
+@pytest.mark.parametrize('fluid', ['air', 'co2'])
+@pytest.mark.parametrize('warm', [False, True])
+def test_invalid_chi_preserves_error_and_only_completed_geometry(monkeypatch, fluid, warm):
+    from tm1.run_control import run_environment
+
+    config = native_preparation_abi._configuration_mass_flow(pair=(fluid, 'water'))
+    geometry = tpms_geometry.compute_geometry
+    geometry.cache_clear()
+    tpms_calc.compute.cache_clear()
+    standard = fluid == 'air'
+    if warm:
+        geometry(config.geometry.tpms, config.geometry.L_cell_mm, config.geometry.t_wall_mm)
+    monkeypatch.setenv('TPMSHX_CHI_S', 'invalid')
+    resolve = run_environment._resolve_chi_s
+    original = []
+
+    def capture(*args, **kwargs):
+        try:
+            return resolve(*args, **kwargs)
+        except ValueError as error:
+            error.add_note('captured chi conversion')
+            original.append(error)
+            raise
+
+    monkeypatch.setattr(run_environment, '_resolve_chi_s', capture)
+    with pytest.raises(ValueError, match='could not convert string to float') as caught:
+        api.prepare_case(config, case_id='chi-selection')
+    assert original == [caught.value]
+    assert caught.value.__notes__ == ['captured chi conversion']
+    assert caught.value.diagnostic['code'] == 'material.invalid_chi'
+    details = caught.value.diagnostic['details']
+    assert (details['route'], details['side'], details['side_status']) == ('full_2d', None, 'not_recorded')
+    assert details['observations'] == ()
+    assert geometry.cache_info() == (int(standard and warm), int(standard or warm), 32768, int(standard or warm))
+    assert tpms_calc.compute.cache_info() == (0, 0, 4096, 0)
+
+
+def test_shared_geometry_applies_each_material_after_lookup(monkeypatch):
+    from tm1.preprocess.quick_design import pressure_fractions
+    from tests.python.native_adapters.test_native_quick_prepare import _args
+
+    config = native_preparation_abi._configuration_mass_flow('Diamond', ('air', 'water'))
+    geo = config.geometry
+    scalar = tpms_geometry.compute_geometry
+    scalar.cache_clear()
+    nominal = scalar(geo.tpms, geo.L_cell_mm, geo.t_wall_mm)
+    args = _args(topo=geo.tpms, l=geo.L_cell_mm, t=geo.t_wall_mm)
+    pressure_fractions(**args)
+    assert scalar.cache_info() == (1, 1, 32768, 1)
+    for conductivity, chi in ((16., '.25'), (22., '.7')):
+        geo.k_s_W_mK = conductivity
+        monkeypatch.setenv('TPMSHX_CHI_S', chi)
+        warm = api.prepare_case(config, case_id='shared-material')
+        assert scalar.cache_info().misses == 1
+        solid = tpms_props.geometry(geo.tpms, geo.L_cell_mm, geo.t_wall_mm, conductivity)
+        assert solid['D_h'] == nominal['D_h']
+        assert np.all(warm.design_fields['K_ss_arr'] == solid['K_ss'])
+        scalar.cache_clear()
+        tpms_calc.compute.cache_clear()
+        cold = api.prepare_case(config, case_id='cold-material')
+        _same(warm.design_fields, cold.design_fields)
+        _same(warm.parameters['static_properties'], cold.parameters['static_properties'])
+
+
+def test_warm_inlet_converts_each_field_before_reading_the_next():
     config = native_preparation_abi._configuration_mass_flow()
-    shared.geometry_cache.clear()
     shared.inlet_cache.clear()
     with warning_scope({}):
         api.prepare_case(config, case_id='warm')
-        cache = shared.geometry_cache if cache_name == 'geometry' else shared.inlet_cache
-        entry = next(iter(cache.values.values()))
-        properties = entry if cache_name == 'geometry' else entry[0]
+        properties, _ = next(iter(shared.inlet_cache.values.values()))
         properties['epsilon'] = 'bad-real'
-        del properties[missing]
+        del properties['rho']
         with pytest.raises(TypeError, match='^must be real number, not str$') as caught:
             api.prepare_case(config, case_id='warm')
     assert caught.value.__cause__ is None
@@ -430,7 +490,7 @@ def test_fault_keeps_exception_and_releases_once(monkeypatch, fault):
     if fault == 'copy':
         monkeypatch.setattr(native_preparation, 'copy_array', fail)
     elif fault == 'cache':
-        monkeypatch.setattr(shared.PreparationCache, 'geometry', fail)
+        monkeypatch.setattr(shared.PreparationCache, 'inlet', fail)
     else:
         read = native_preparation.read_text
 

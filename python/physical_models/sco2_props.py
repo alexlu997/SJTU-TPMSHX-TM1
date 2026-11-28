@@ -15,7 +15,6 @@ from functools import lru_cache
 from tm1.model_configs.model_parameters import load_model_parameters
 from tm1.data_types.compute_config import SCO2_P_RANGE_PA as P_RANGE_PA  # noqa: F401 - public range constant
 from tm1.cpp_interface import _native_properties
-from .preparation_cache import scalar_cache
 T_RANGE_K = tuple(load_model_parameters()['sco2']['temperature_range_K'])
 
 
@@ -57,12 +56,11 @@ def _raise_state_error(message, failure, T, P, *, where=None):
     raise ValueError(message) from None
 
 
-@scalar_cache(maxsize=4096)
+@_native_properties.cache_controls(_native_properties.SCO2_CACHE)
 def _prop(key: str, T_K: float, P_Pa: float) -> float:
     """Cache scalar CoolProp queries for repeated identical (key, T, P)."""
-    _validate_state(T_K, P_Pa)
     try:
-        return _native_properties.sco2_pt(key, float(T_K), float(P_Pa), scalar=True)
+        return _native_properties.cached_sco2(key, float(T_K), float(P_Pa))
     except _native_properties.StateError as error:
         raise ValueError(str(error)) from None
 

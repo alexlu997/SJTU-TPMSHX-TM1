@@ -49,8 +49,7 @@ Python keeps configuration, type adaptation, data objects, I/O, caches, applicat
 Resource consolidation and language migration preserve model identities, units, fitted coefficients and experimental conclusions.
 See [C++ implementation and retirement scope](cpp-migration.md#cpp-core-scope).
 
-Python geometry interfaces keep types, caches and per-call explicit/environment/fit selection for chi.
-They have no numerical fallback.
+The preparation library owns the scalar geometry cache. Python geometry interfaces keep their types and select explicit, environment or fitted chi for each call.
 Rebuild each affected native library after changing C++ functions or compiled resource parameters. Then restart the process.
 See the [native preparation core](cpp-migration.md#native-preparation-core) and [independent result core](cpp-migration.md#native-result-core) for builds, paths and four-library runtime boundaries.
 The [field source record](../native/geometry/fields-sources.md) identifies fixed XY, XYZ, LUT and Gaussian sources and local numerical changes.

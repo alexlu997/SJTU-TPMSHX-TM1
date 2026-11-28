@@ -11,17 +11,9 @@ void check(bool accepted) {
 }
 struct Cache {
     tpmshx_preparation_sigmoid_lut_view_v6 lut{};
-    std::size_t geometry_reads{},geometry_writes{},inlet_reads{},inlet_writes{},lut_reads{};
+    std::size_t inlet_reads{},inlet_writes{},lut_reads{};
     bool nominal{},spatial{};
 };
-int TPMSHX_PREPARATION_CALL geometry(void* context,std::uint32_t action,
-    const tpmshx_preparation_geometry_key_v9* key,tpmshx_preparation_geometry_cache_v3* value,std::uint32_t* hit) {
-    auto& cache=*static_cast<Cache*>(context);
-    if (key->topology!=1 || !(key->cell_length_mm>0.) || !(key->wall_thickness_mm>0.)) return 1;
-    if (action) {++cache.geometry_writes;if (!(value->epsilon>0. && value->epsilon<1.)) return 1;}
-    else {++cache.geometry_reads;*hit=0;}
-    return 0;
-}
 int TPMSHX_PREPARATION_CALL inlet(void* context,std::uint32_t action,
     const tpmshx_preparation_inlet_key_v9* key,tpmshx_preparation_inlet_cache_v3* value,std::uint32_t* hit) {
     auto& cache=*static_cast<Cache*>(context);
@@ -68,7 +60,7 @@ int main() {
         Cache cache;
         PreparationCallbacks callbacks;
         callbacks.context=&cache;
-        callbacks.geometry_cache_at=geometry;callbacks.inlet_cache_at=inlet;callbacks.sigmoid_lut_cache=lut;
+        callbacks.inlet_cache_at=inlet;callbacks.sigmoid_lut_cache=lut;
         PreparationOptions options;options.allow_extrapolation=1;
         std::array<double,2> zone_targets{},sigmoid_targets{};
         auto zones=[&] {
@@ -93,7 +85,7 @@ int main() {
         std::copy(zone_targets.begin(),zone_targets.end(),zone_input.explicit_targets_kg_s);
         auto zone_result=prepare_case(zone_input,options,&callbacks);
         check_prepared(zone_result.view());
-        check(cache.nominal && cache.spatial && cache.geometry_reads && cache.geometry_writes);
+        check(cache.nominal && cache.spatial);
         check(cache.inlet_reads && cache.inlet_writes);
 
         auto sigmoid=[&] {
@@ -129,8 +121,7 @@ int main() {
         std::copy(sigmoid_targets.begin(),sigmoid_targets.end(),sigmoid_input.explicit_targets_kg_s);
         auto sigmoid_result=prepare_case(sigmoid_input,options,&callbacks);
         check_prepared(sigmoid_result.view());
-        std::cout<<"Prepared flat spatial cases with "<<cache.geometry_reads<<" geometry reads, "
-                 <<cache.inlet_reads<<" inlet reads and "<<cache.lut_reads<<" LUT reads\n";
+        std::cout<<"Prepared flat spatial cases with "<<cache.inlet_reads<<" inlet reads and "<<cache.lut_reads<<" LUT reads\n";
         return 0;
     } catch (const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
 }

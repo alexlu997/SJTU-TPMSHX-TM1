@@ -28,7 +28,7 @@ Quick Design、保存态工况运行、离线评估和运行恢复分别从对�
 | 共享库 | 源码目录 | 现行 ABI 与职责 |
 | --- | --- | --- |
 | `tpmshx_geometry_shared` | [native/geometry/](../native/geometry/) | geometry ABI 2 与 field ABI 3：TPMS 单元几何、chi/Kss、网格、端口、样条、sigmoid 场、LUT 与分区。 |
-| `tpmshx_preparation_shared` | [native/preprocess/](../native/preprocess/) | preparation ABI 3 与 Quick Design 准备 v2：物性、Nu 闭合、固定 D-F、二维／三维准备及标量入口查询。 |
+| `tpmshx_preparation_shared` | [native/preprocess/](../native/preprocess/) | preparation ABI 4 与 Quick Design 准备 v3。负责物性、Nu、固定 D-F、二维／三维准备、入口查询及共享的标量几何和 EOS 缓存。 |
 | `tpmshx_solver_shared` | [native/solver/](../native/solver/) | 二维保存态 ABI 5、三维保存态 ABI 3（捕获 ABI 2）与 Quick Design 运行 v2：SIMPLE 流动、model-h、温度与 T-SOU 保守能量。 |
 | `tpmshx_result_shared` | [native/postprocess/](../native/postprocess/) | result ABI 3（`float64` 数组与 `int32` 分区标签）：工程指标、物理平衡、适用性检查、分区统计与资格判断。 |
 
@@ -66,7 +66,7 @@ Python 目录的职责见 [Python 分层所有者](#python-分层所有者)表�
 | [python/solvers/](../python/solvers/) | Python 求解阶段，生成新的 `FieldResult`。 |
 | [python/postprocess/](../python/postprocess/) | Python 评估阶段，生成新的 `PerformanceResult` 与 `MetricValue`。 |
 | [python/data_types/](../python/data_types/) | 可移植类型，包括各阶段数据类型。 |
-| [python/physical_models/](../python/physical_models/)、[python/model_configs/](../python/model_configs/) | 模型及独立模型查询与其缓存，以及模型资源。 |
+| [python/physical_models/](../python/physical_models/)、[python/model_configs/](../python/model_configs/) | 独立模型查询、入口缓存、sigmoid 表缓存与模型资源。 |
 | [python/file_io/](../python/file_io/)、[python/run_control/](../python/run_control/) | 文件 I/O 与运行控制。 |
 | [python/cpp_interface/](../python/cpp_interface/) | 原生调用。 |
 | [tests/python/](../tests/python/) | Python 测试。 |
@@ -91,7 +91,8 @@ Python 目录的职责见 [Python 分层所有者](#python-分层所有者)表�
 
 ## Python 分层所有者
 
-Python 在 [python/](../python/) 下负责公共 API、配置、不可变 DTO、文件 I/O、缓存、警告格式化与应用工作流。
+Python 在 [python/](../python/) 下负责公共 API、配置、不可变 DTO、文件 I/O、警告格式化与应用工作流。
+Python 保留全算例入口缓存与 sigmoid 表。准备库与独立查询共用标量几何及 CO₂／sCO₂ 物性缓存。
 数值代码保持不依赖 Qt。在 GUI 之外，只有离屏 GUI 冒烟工具 `python/development/runs/_smoke_boot.py` 和 `python/development/runs/smokes/` 导入 Qt。
 GUI 代码位于 `python/applications/gui/ui/`（`Main_Menu` 位于 `main_window.py`）和 `python/applications/gui/controllers/`。根目录 [main.py](../main.py) 是唯一的应用启动入口：先调用 `freeze_support()`，再在任何路由导入 Qt、VTK、Matplotlib 或 Torch 之前分派 `gui`（默认）、CLI 阶段、`summary`、`design` 与 `optimize`。GUI 路由调用 `python/applications/gui/main.py`。
 主窗口组装 `SingleRun`、`OptimizationPage` 和 `QuickDesignPage`。每个任务所有者负责启动、取消和线程退出。`Workbench` 选择视图，`FieldResults` 发布结果，`ResultExport` 导出数据与图表，`CaseFiles` 读写算例、预设和工作区会话。优化输入和工况解码位于无 Qt 依赖的 `applications/optimization/optimization_job.py`。

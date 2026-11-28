@@ -7,7 +7,11 @@ from threading import Event
 import numpy as np
 import pytest
 
-from tm1.physical_models.preparation_cache import scalar_cache
+from tm1.physical_models.preparation_cache import _ScalarCache
+
+
+def inlet_cache(*, maxsize):
+    return _ScalarCache(maxsize).wrap
 
 
 class _String(str):
@@ -29,50 +33,47 @@ def test_call_keys_match_functools(calls):
         return tuple(type(value) for value in args), tuple(
             (name, type(value)) for name, value in kwargs.items())
 
-    cached = scalar_cache(maxsize=16)(describe)
+    cached = inlet_cache(maxsize=16)(describe)
     reference = lru_cache(maxsize=16)(describe)
     for args, kwargs in calls:
         assert cached(*args, **kwargs) == reference(*args, **kwargs)
         assert cached.cache_info() == reference.cache_info()
 
 
-GEOMETRY = ('Gyroid', 7., .5, 128)
 INLET = ('Gyroid', 7., .5, 5., 380., 101325., 'air', None, False)
 
 
 @pytest.mark.parametrize('calls,misses', [
-    ([GEOMETRY, ('Gyroid', np.float64(7), np.float32(.5), np.int64(128)), ('Gyroid', 7, .5, 128.)], 1),
-    ([GEOMETRY, ('Diamond', 7., .5, 128), ('Gyroid', 7.25, .5, 128), ('Gyroid', 7., .5, 64)], 4),
     ([INLET, INLET[:-1] + (0,), INLET[:-1] + (np.bool_(False),), INLET[:-1] + (True,),
       INLET[:-1] + (1,), INLET[:-1] + (1.,)], 2),
     ([INLET, INLET[:-2] + (_String('x'), False), INLET[:6] + ('water', None, False)], 3),
     ([(value,) for value in (1, True, 1., np.int64(1), np.bool_(True))], 1),
     ([(value,) for value in ('x', _String('x'))], 1),
-], ids=['geometry-equal', 'geometry-distinct', 'inlet-bool', 'inlet-text',
+], ids=['inlet-bool', 'inlet-text',
         'single-number', 'single-string'])
 def test_equal_arguments_hit_and_distinct_arguments_miss(calls, misses):
     """Use value equality for every call shape, as the cached physical functions need."""
-    cached = scalar_cache(maxsize=16)(lambda *args: args)
+    cached = inlet_cache(maxsize=16)(lambda *args: args)
     results = [cached(*args) for args in calls]
     assert cached.cache_info() == (len(calls) - misses, misses, 16, misses)
     assert all(result == args for result, args in zip(results, calls))
 
 
 def test_native_entries_serve_equal_python_calls():
-    @scalar_cache(maxsize=2)
+    @inlet_cache(maxsize=2)
     def cached(*args):
         pytest.fail('The native entry must satisfy the equal Python call')
 
-    cached.store(GEOMETRY, None, 'native geometry')
-    assert cached('Gyroid', np.float64(7), np.float64(.5), np.int64(128)) == 'native geometry'
-    assert cached.lookup(('Gyroid', 7, .5, 128)) == (True, 'native geometry')
-    assert cached.lookup(('Gyroid', 7., .5), {'N': 128}) == (False, None)
+    cached.store(INLET, None, 'native inlet')
+    assert cached('Gyroid', np.float64(7), np.float64(.5), *INLET[3:]) == 'native inlet'
+    assert cached.lookup(INLET) == (True, 'native inlet')
+    assert cached.lookup(INLET[:-1], {'co2_geometry': False}) == (False, None)
     assert cached.cache_info() == (2, 1, 2, 1)
 
 
 @pytest.mark.parametrize('value', [[], {}, np.array([1])], ids=['list', 'dict', 'array'])
 def test_unhashable_calls_do_not_change_statistics(value):
-    for decorate in (scalar_cache, lru_cache):
+    for decorate in (inlet_cache, lru_cache):
         @decorate(maxsize=2)
         def cached(item):
             pytest.fail('Unhashable arguments must fail before calculation')
@@ -89,7 +90,7 @@ def test_cache_management_and_exception_behavior_match_functools():
             raise ValueError('failed calculation')
         return value
 
-    cached = scalar_cache(maxsize=2)(calculate)
+    cached = inlet_cache(maxsize=2)(calculate)
     reference = lru_cache(maxsize=2)(calculate)
     assert cached.__wrapped__ is calculate
     assert cached.__name__ == calculate.__name__
@@ -114,7 +115,7 @@ def test_cache_management_and_exception_behavior_match_functools():
 
 
 def test_native_lookup_and_store_share_results_and_lru_order():
-    @scalar_cache(maxsize=2)
+    @inlet_cache(maxsize=2)
     def cached(*args, **kwargs):
         pytest.fail('The native result must satisfy the Python call')
 
@@ -178,14 +179,14 @@ def _concurrent_calls(decorate, clear=False):
 
 @pytest.mark.parametrize('clear', [False, True], ids=['concurrent-miss', 'concurrent-clear'])
 def test_concurrent_publication_and_clear_match_functools(clear):
-    assert _concurrent_calls(scalar_cache, clear) == _concurrent_calls(lru_cache, clear)
+    assert _concurrent_calls(inlet_cache, clear) == _concurrent_calls(lru_cache, clear)
 
 
 def test_native_publication_wins_over_a_pending_python_result():
     started = Event()
     release = Event()
 
-    @scalar_cache(maxsize=2)
+    @inlet_cache(maxsize=2)
     def cached(value):
         started.set()
         assert release.wait(5)
@@ -202,9 +203,3 @@ def test_native_publication_wins_over_a_pending_python_result():
         assert pending.result(timeout=5) == 'python result'
     assert cached('a') == 'native result'
     assert cached.cache_info() == (1, 2, 2, 1)
-
-
-@pytest.mark.parametrize('maxsize', [0, -1, None, 1.5])
-def test_cache_size_must_be_positive(maxsize):
-    with pytest.raises(ValueError, match='positive integer'):
-        scalar_cache(maxsize=maxsize)

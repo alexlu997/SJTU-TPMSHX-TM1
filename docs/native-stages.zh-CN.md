@@ -4,16 +4,16 @@
 
 ## 现行 C ABI
 
-Preparation ABI 3、Quick Design v2、二维保存态阶段 ABI 5、三维保存态阶段 ABI 3 与 Result ABI 3 定义了现行 C 阶段接口。
+Preparation ABI 4、Quick Design 准备 v3、Quick Design 运行 v2、二维保存态阶段 ABI 5、三维保存态阶段 ABI 3 与 Result ABI 3 定义了现行 C 阶段接口。
 所有准备与保存态运行描述符均为扁平结构体，仅含顶层 `(abi_version, struct_size)` 字段头，不含嵌套 `values` 链。
 所有阶段数值缓冲区均使用 `float64`，分区标签使用 `int32`。
 各共享库不再导出这些阶段操作的旧版本入口。
 
 | 阶段 | 现行 C 入口 |
 | --- | --- |
-| 二维准备（ABI 3） | `tpmshx_preparation_2d_{uniform,continuous,zoned,sigmoid}_{capacities,resolve_flow,prepare_case}_v1`、`tpmshx_preparation_2d_stripe_prepare_case_v1`、`tpmshx_query_inlet_properties_v2`、`tpmshx_preparation_sigmoid_lut_{create,release}_v7`、`tpmshx_preparation_df_experiment_scope_v1`、`tpmshx_preparation_collect_range_v1` |
-| 三维准备（ABI 3） | `tpmshx_preparation_3d_{continuous,spatial}_{capacities,resolve_flow,prepare_case}_v1` |
-| Quick Design 准备 | `tpmshx_prepare_quick_design_v2`、`tpmshx_quick_pressure_fractions_v2`、`tpmshx_quick_prepared_release_v2` |
+| 二维准备（ABI 4） | `tpmshx_preparation_2d_{uniform,continuous,zoned,sigmoid}_{capacities,resolve_flow,prepare_case}_v1`、`tpmshx_preparation_2d_stripe_prepare_case_v1`、`tpmshx_query_inlet_properties_v2`、`tpmshx_preparation_sigmoid_lut_{create,release}_v7`、`tpmshx_preparation_df_experiment_scope_v1`、`tpmshx_preparation_collect_range_v1` |
+| 三维准备（ABI 4） | `tpmshx_preparation_3d_{continuous,spatial}_{capacities,resolve_flow,prepare_case}_v1` |
+| Quick Design 准备 | `tpmshx_prepare_quick_design_v3`、`tpmshx_quick_pressure_fractions_v3`、`tpmshx_quick_prepared_release_v2` |
 | 二维阶段运行（保存态 ABI 5） | `tpmshx_stage_run_2d_abi_version`、`tpmshx_run_saved_case_2d_v5`、`tpmshx_stage_run_2d_{create,restore}_saved_v5`、`tpmshx_stage_run_2d_{advance_step,finish,phase,snapshot,take_result,release_run,release}_v1`、`tpmshx_stage_run_2d_{records,execution_view,get_capture,zone_temperatures,report}_v1`、`tpmshx_stage_borrow_mesh_v1`、`tpmshx_stage_port_windows_fit_2d_v1`、`tpmshx_stage_run_2d_check_experiment_v4` |
 | 三维阶段运行（保存态 ABI 3，捕获 ABI 2） | `tpmshx_stage_run_3d_abi_version`、`tpmshx_stage_capture_3d_abi_version`、`tpmshx_run_saved_case_3d_v3`、`tpmshx_stage_run_3d_{create,restore}_saved_v3`、`tpmshx_stage_run_3d_{advance_step,finish,phase,snapshot,take_result,release_run,release}_v1`、`tpmshx_stage_run_3d_{records,execution_view,get_capture,report}_v1` |
 | 阶段原始结果查询 | `tpmshx_full_{2,3}d_abi_version`、`tpmshx_full_2d_get_{energy_evidence,energy_update_scale,energy_effective_settings,model_enthalpy_evidence,last_closure_ranges,physical_heat_ledger,property_sampling,model_h_iterations,flow_methods}_v1`、`tpmshx_full_3d_get_{energy_evidence,energy_update_scale,energy_effective_settings,bootstrap_trace,model_enthalpy_evidence,last_closure_ranges,physical_heat_ledger,property_sampling,model_h_iterations,model_h_acceleration}_v1`、`tpmshx_run_state_release_v1` |
@@ -49,7 +49,7 @@ Preparation ABI 3、Quick Design v2、二维保存态阶段 ABI 5、三维保存
 
 - **单位**：设计输入（`cell_length_mm`、`wall_thickness_mm`）使用 mm；保存的物理设计场使用 m。构建输运与闭合比例时保留既有 mm-to-m-to-mm 转换顺序。换热量在二维为 W/m、三维为 W；质量流量为 kg/s；温度为 K；压力为 Pa(abs)。
 - **数组布局**：请求网格数与实际网格数分开保存。二维物理场为 `(nx, ny)` C 序，三维物理场为 `(nx, ny, nz)` C 序，各侧流场为 `(cross, stream)` 序。
-- **单一所有者释放**：每个拥有动态存储的输出仅有一个外层 `owner` 指针，嵌套视图的 `owner` 为空。最后一次使用后须通过创建该对象的库释放。纯标量查询（`tpmshx_query_inlet_properties_v2`、`tpmshx_quick_pressure_fractions_v2`）按值返回，无需释放。
+- **单一所有者释放**：每个拥有动态存储的输出仅有一个外层 `owner` 指针，嵌套视图的 `owner` 为空。最后一次使用后须通过创建该对象的库释放。纯标量查询（`tpmshx_query_inlet_properties_v2`、`tpmshx_quick_pressure_fractions_v3`）按值返回，无需释放。
 - **互斥缓冲区**：输出、失败、诊断与错误缓冲区不得与输入、回调或任何存活结果的视图重叠。重叠调用返回无效状态，且不修改结果与诊断缓冲区。
 - **库边界**：准备库与求解库各自链接锁定的 CoolProp 静态库；结果库不链接准备库、求解库、CoolProp 或 Qt。
 - **Result ABI 3 查询**：`tpmshx_result_stage_query_v3` 接收扁平的 `tpmshx_stage_input_v3`，包含借用的 `float64` 数组、`int32` 标签以及原始 C 字符串模式／单位标签。接口返回前同步传递浮点事件，Python 适配器对除零、溢出和无效值发出 `RuntimeWarning`。
@@ -87,14 +87,14 @@ Python 按原顺序去重合并算例通知与运行期 `nu-evidence` 警告，�
 
 `tpmshx_preparation_inlet_query_result_v1`（`abi_version = 1`、`struct_size = sizeof(tpmshx_preparation_inlet_query_result_v1)`）返回 12 个纯 `float64` 标量（`double values[12]`）。
 该查询不创建所有者，无需释放调用。
-可传入将缓存钩子置空且 `validate_grid_stage = 0` 的 `tpmshx_preparation_callbacks_v1`，以同步接收范围、通知和浮点事件。
+可传入将缓存钩子置空且 `validate_grid_stage = 0` 的 `tpmshx_preparation_callbacks_v2`，以同步接收范围、通知和浮点事件。
 独立的 `tpms_calc.compute` 选择注册流体、几何、共享缓存、逐次 `K_ss` 查询及警告策略。其 `inlet_query` 通过 `python/cpp_interface/inlet_properties.py` 调用此入口。
 可选关键字参数 `df_mode` 默认为 `cfd_smooth`。选择 `experimental` 时，返回的渗透率、惯性系数和压降梯度应用所选实验修正。
 共享缓存保存基准值。CO₂ 在两种模式下均使用固定修正。
 
 ## 空间几何总质量流量
 
-Preparation ABI 3 为全部四个二维几何族（`uniform`、`continuous`、`zoned`、`sigmoid`）提供 `capacities`、`resolve_flow` 与 `prepare_case` 入口，并为条带提供返回逐条带 A 侧水力半径的 `tpmshx_preparation_2d_stripe_prepare_case_v1`：
+Preparation ABI 4 为全部四个二维几何族（`uniform`、`continuous`、`zoned`、`sigmoid`）提供 `capacities`、`resolve_flow` 与 `prepare_case` 入口，并为条带提供返回逐条带 A 侧水力半径的 `tpmshx_preparation_2d_stripe_prepare_case_v1`：
 
 - **均匀几何（`FlowInput2D`）**：支持两种拓扑与全部 16 组空气／水／sCO2／CO2 有序流体配对，以及 CFD 或符合条件的实验 D-F。
 - **连续 XY 场（`ContinuousInput2D`）**：样条控制（`n_ctrl_x`、`n_ctrl_y`、1–3 阶、`symmetric_y`、边界及 mm 单位的 `L`/`t` 决策向量）在物理单元中心采样，返回孔隙率、比表面积、水力直径、流体导热率及完整局部 `(cross, stream)` K/cF 场。CFD 模式支持全部 16 组流体；实验模式支持 CO2/CO2 固定因子及上海 Gyroid 空气 A／水 B 连续迁移。
@@ -111,16 +111,17 @@ Preparation ABI 3 为全部四个二维几何族（`uniform`、`continuous`、`z
 
 ## 空间几何宿主缓存接口
 
-所有二维与三维准备入口共用同一扁平回调结构 `tpmshx_preparation_callbacks_v1`（`stages.hpp` 中的 `PreparationCallbacks`）。
-初始化时须设置 `abi_version = TPMSHX_PREPARATION_CASE_ABI_VERSION`（1）与 `struct_size = sizeof(tpmshx_preparation_callbacks_v1)`。
+所有二维与三维准备入口共用同一扁平回调结构 `tpmshx_preparation_callbacks_v2`（`stages.hpp` 中的 `PreparationCallbacks`）。
+初始化时须设置 `abi_version = TPMSHX_PREPARATION_CALLBACK_ABI_VERSION`（2）与 `struct_size = sizeof(tpmshx_preparation_callbacks_v2)`。
 
 - **事件与观测钩子**：`event`、`observe_range` 与 `observe_notice` 在调用线程上同步报告诊断、范围记录及通知（含几何外推原因）。
 - **宿主校验钩子**：`validate_host_input` 与 `validate_grid_stage`（`0` 或 `1`）保留 Python 对象检查顺序，不提供数值输出。`validate_grid_stage = 1` 要求 `validate_host_input` 非空。
-- **缓存钩子（`action = 0` 查询，`action = 1` 发布）**：`geometry_cache`、`inlet_cache`、`geometry_cache_at`、`inlet_cache_at` 与 `sigmoid_lut_cache` 在宿主缓存间交换已完成值。命中（`hit = 1`）时宿主返回在阶段返回前保持有效的只读视图；未命中（`hit = 0`）时由 C++ 计算并在回调中发布只读视图，宿主须在回调返回前完成复制。
-- **按准备族划分的钩子规则**：无键钩子（`geometry_cache`、`inlet_cache`）与带键钩子（`geometry_cache_at`、`inlet_cache_at`、`sigmoid_lut_cache`）不得混用。二维均匀与连续操作仅接受无键钩子；二维分区、sigmoid 与条带操作仅接受带键钩子。三维操作仅接受 `geometry_cache_at` 与 `inlet_cache_at`，并拒绝 `sigmoid_lut_cache` 与 `validate_grid_stage != 0`。
+- 宿主通过动作 0 查询入口或 sigmoid 表，通过动作 1 发布新值。命中时，宿主提供只读视图，直到阶段调用返回。宿主在回调返回前复制新发布的数值。
+- 二维均匀与连续准备使用 `inlet_cache`。二维分区、sigmoid 与条带准备使用 `inlet_cache_at` 和 `sigmoid_lut_cache`。三维准备接受 `inlet_cache_at`，拒绝 `sigmoid_lut_cache`，并要求 `validate_grid_stage = 0`。
 - **隔离规则**：回调不得执行数值准备，返回视图不得与输出、失败或错误缓冲区重叠。回调返回非零值立即中止阶段，便于 Python 重新抛出原异常。
 
-`python/preprocess/preparation.py` 为二维和三维准备提供缓存与警告回调。`python/physical_models/preparation_cache.py` 管理 32,768 项几何缓存及 4,096 项入口物性缓存。`python/cpp_interface/preparation_host.py` 复制缓存值，并确保回调缓冲区在原生调用期间有效。
+准备库的 32,768 项标量几何缓存由完整准备、Quick Design 与独立查询共享。缓存键包含拓扑、以 mm 计的胞元尺寸和壁厚，以及体素分辨率。准备库在进程内保留每种拓扑的 N=128 体素索引，其他分辨率共用两个索引缓存项。每次查询后按当前材料计算固体导热率。
+`python/physical_models/preparation_cache.py` 管理 4,096 项入口缓存。`python/cpp_interface/preparation_host.py` 复制宿主缓存数值并持有回调缓冲区。
 Python 保留 LUT 的内存与磁盘存储；缺表时 C++ 在体素分辨率 256 下构建 41×31 原生表。
 [空间缓存示例](../examples/cpp/prepare_spatial_cache_2d.cpp)在 Python 之外测试了这组带类型回调。
 
@@ -186,21 +187,23 @@ Python 完整三维执行在 `python/solvers/full_3d.py` 中校验保存工况�
 
 ## Quick Design 阶段
 
-`quick_design_stage_c_api.h` 提供扁平 `float64` 布局的 Quick Design 准备 v2 与运行 v2 接口。
+`quick_design_stage_c_api.h` 提供扁平 `float64` 布局的 Quick Design 准备 v3 与运行 v2 接口。
 Quick Design 属于规定流量 LTNE 尺寸近似模式（`physical_validation=not_established`），并非 SIMPLE 求解。
 
-### 准备 v2 与压降查询
+### 准备 v3 与压降查询
 
-`tpmshx_prepare_quick_design_v2` 与 `tpmshx_quick_pressure_fractions_v2` 接受 `tpmshx_quick_input_v2`（`abi_version = 2` 与精确 `struct_size`），包含 13 个 `float64` 标量槽位（`TPMSHX_QUICK_VALUE_COUNT`）：胞元尺寸（mm）、壁厚（mm）、宽度（m）、长度（m）、高度（m）、固体导热率（W/(m·K)）、容差、两路质量流量（kg/s）、两路温度（K）与两路压力（Pa(abs)）。
+`tpmshx_prepare_quick_design_v3` 与 `tpmshx_quick_pressure_fractions_v3` 接受 `tpmshx_quick_input_v2`（`abi_version = 2` 与精确 `struct_size`），包含 13 个 `float64` 标量槽位（`TPMSHX_QUICK_VALUE_COUNT`）：胞元尺寸（mm）、壁厚（mm）、宽度（m）、长度（m）、高度（m）、固体导热率（W/(m·K)）、容差、两路质量流量（kg/s）、两路温度（K）与两路压力（Pa(abs)）。
 设置 `have_height = 0` 时以宽度替代高度。
 文本字段（`topology`、`arrangement`、`property_mode`、`fluids[2]`）均带显式字节长度。
 默认网格数（叉流 `(60, 40, 1)`、逆流 `(60, 1, 2)`）、导热率（`16 W/(m·K)`）、容差（`1e-5`）与几何分辨率（`128`）统一来自 `model_parameters_v1.json` 及生成的 C++ 常量。
 未设置的逆流 `q_relative_tolerance` 与 `chunk_iterations` 保持缺省标记（C 中为 `0`，`CaseData` 中为 `None`）。
 
 - 完整准备按原顺序执行热启动检查、标签检查、正数检查、形状、几何／材料、网格、入口物性、截面积、解析 D-F 压降分数与 SI 设计场生成。使用 `tpmshx_quick_prepared_release_v2` 释放 `tpmshx_quick_prepared_v2`。
-- `tpmshx_quick_pressure_fractions_v2` 跳过热学网格与设计场数组，仅在该查询内将所有非 `cross` 布置按逆流截面处理，并按值返回 `tpmshx_quick_pressure_v2`（无需释放）。
+- `tpmshx_quick_pressure_fractions_v3` 跳过热学网格与设计场数组，仅在该查询内将所有非 `cross` 布置按逆流截面处理，并按值返回 `tpmshx_quick_pressure_v2`（无需释放）。
 - 两类输出均按计算顺序记录 `floating_events[4]`（A 物性、A 普朗特数、B 物性、B 普朗特数）及经验物性拟合 `ranges`。
-- 可选的 `tpmshx_quick_callbacks_v2` 仅提供 `geometry_cache` 与 `eos_cache` 两个钩子（查询 `action = 0`，发布 `action = 1`；返回非零以状态 20 中止）。回调仅传输已完成值，不执行数值计算。
+- 两个操作共用准备库内的标量几何和 EOS 缓存。可选输出 `geometry_reason` 给出标量几何失败原因。
+- `tpmshx_preparation_cached_co2_v1` 同时返回 D/V/L/C/H。`tpmshx_preparation_cached_sco2_v1` 返回单个指定物性值。两种 EOS 缓存容量各为 4,096 项。
+- `tpmshx_preparation_cached_geometry_v1` 返回五个几何标量。传入 `property_c_api.h` 中的缓存编号，调用 `tpmshx_preparation_read_cache_info_v1` 查询统计，调用 `tpmshx_preparation_clear_cache_v1` 清空该缓存。
 
 ### 准备态执行与评估
 

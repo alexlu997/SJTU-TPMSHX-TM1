@@ -45,8 +45,8 @@ static int TPMSHX_PREPARATION_CALL check_host_input(void* context, uint32_t stag
     ++checks->count;
     return checks->count == checks->cancel_at;
 }
-static int TPMSHX_PREPARATION_CALL dummy_geometry_at(void* context, uint32_t action,
-    const tpmshx_preparation_geometry_key_v9* key, tpmshx_preparation_geometry_cache_v3* value, uint32_t* hit) {
+static int TPMSHX_PREPARATION_CALL dummy_inlet_at(void* context, uint32_t action,
+    const tpmshx_preparation_inlet_key_v9* key, tpmshx_preparation_inlet_cache_v3* value, uint32_t* hit) {
     (void)context; (void)action; (void)key; (void)value; *hit = 0; return 0;
 }
 static int TPMSHX_PREPARATION_CALL dummy_lut(void* context, uint32_t action, uint32_t topology,
@@ -59,7 +59,7 @@ static int check_uniform(void) {
     tpmshx_preparation_2d_uniform_case_v1 result = {1, sizeof(result)}, before;
     tpmshx_preparation_case_failure_v2 failure = {2, sizeof(failure)};
     tpmshx_preparation_case_options_v1 options = {1, sizeof(options), 0, 0, 0.};
-    tpmshx_preparation_callbacks_v1 callbacks = {1, sizeof(callbacks), NULL, 0, cancel_event};
+    tpmshx_preparation_callbacks_v2 callbacks = {2, sizeof(callbacks), NULL, 0, cancel_event};
     const tpmshx_preparation_case_2d_v1* prepared = &result.prepared;
     size_t calls = 0;
     char error[2048];
@@ -111,13 +111,13 @@ static int check_uniform(void) {
     CHECK(calls == 1 && strstr(error, "callback failed") && !memcmp(&before, &result, sizeof(result)));
     /* Flat callback validation: validate_grid_stage requires validate_host_input, uniform rejects keyed hooks. */
     {
-        tpmshx_preparation_callbacks_v1 bad = {1, sizeof(bad), NULL, 1};
+        tpmshx_preparation_callbacks_v2 bad = {2, sizeof(bad), NULL, 1};
         CHECK(tpmshx_preparation_2d_uniform_prepare_case_v1(&original, NULL, &bad, &result, &failure, error, sizeof(error)) == TPMSHX_PREPARATION_INVALID);
         CHECK(!memcmp(&before, &result, sizeof(result)));
-        bad.validate_grid_stage = 0; bad.geometry_cache_at = dummy_geometry_at;
+        bad.validate_grid_stage = 0; bad.inlet_cache_at = dummy_inlet_at;
         CHECK(tpmshx_preparation_2d_uniform_prepare_case_v1(&original, NULL, &bad, &result, &failure, error, sizeof(error)) == TPMSHX_PREPARATION_INVALID);
         CHECK(!memcmp(&before, &result, sizeof(result)));
-        bad.geometry_cache_at = NULL; bad.sigmoid_lut_cache = dummy_lut;
+        bad.inlet_cache_at = NULL; bad.sigmoid_lut_cache = dummy_lut;
         CHECK(tpmshx_preparation_2d_uniform_prepare_case_v1(&original, NULL, &bad, &result, &failure, error, sizeof(error)) == TPMSHX_PREPARATION_INVALID);
         CHECK(!memcmp(&before, &result, sizeof(result)));
     }
@@ -133,7 +133,7 @@ static int check_fluids(void) {
     tpmshx_preparation_2d_uniform_case_v1 result = {1, sizeof(result)}, before;
     tpmshx_preparation_case_failure_v2 failure = {2, sizeof(failure)};
     tpmshx_preparation_case_options_v1 options = {1, sizeof(options), 0, 1, 0.};
-    tpmshx_preparation_callbacks_v1 callbacks = {1, sizeof(callbacks), NULL, 0, cancel_event};
+    tpmshx_preparation_callbacks_v2 callbacks = {2, sizeof(callbacks), NULL, 0, cancel_event};
     const tpmshx_preparation_case_2d_v1* prepared = &result.prepared;
     char version[] = "saved-version", provenance[] = "saved-source", scope[] = "saved-scope";
     char error[4096];
@@ -198,12 +198,11 @@ typedef struct {
     int valid;
 } saved_cache;
 typedef struct {
-    tpmshx_preparation_geometry_cache_v3 geometry;
     saved_cache sides[2];
-    size_t geometry_reads, geometry_writes, inlet_reads, inlet_writes;
+    size_t inlet_reads, inlet_writes;
     size_t live_ranges, cached_ranges, notices;
     int cancel_observation, invalid_observation;
-    int geometry_valid, mode, cancel, publish_only;
+    int mode, cancel, publish_only;
     void* alias;
     tpmshx_preparation_range_v1 range;
     tpmshx_preparation_text_v1 source, warning;
@@ -239,13 +238,6 @@ static int save_cache(saved_cache* target, const tpmshx_preparation_inlet_cache_
     for (i = 0; i < input->evidence.warning_count; ++i)
         if (copy_cache_text(target, &target->warnings[i], input->evidence.warnings[i])) return 1;
     target->valid = 1; return 0;
-}
-static int TPMSHX_PREPARATION_CALL cache_geometry(void* context, uint32_t action,
-    tpmshx_preparation_geometry_cache_v3* value, uint32_t* hit) {
-    cache_checks* checks = (cache_checks*)context;
-    if (action) { ++checks->geometry_writes; checks->geometry = *value; checks->geometry_valid = 1; }
-    else { ++checks->geometry_reads; *hit = (uint32_t)checks->geometry_valid; if (*hit) *value = checks->geometry; }
-    return 0;
 }
 static int TPMSHX_PREPARATION_CALL cache_inlet(void* context, uint32_t action, uint32_t side,
     const tpmshx_preparation_inlet_2d_v1* inlet,
@@ -319,32 +311,29 @@ static int TPMSHX_PREPARATION_CALL observe_notice(void* context, uint32_t kind, 
 }
 static int check_cache(const tpmshx_preparation_2d_uniform_input_v1* source) {
     cache_checks checks = {0};
-    tpmshx_preparation_callbacks_v1 callbacks = {1, sizeof(callbacks), &checks, 0, NULL, NULL,
-        cache_geometry, cache_inlet, observe_range, observe_notice, NULL, NULL, NULL}, callbacks_before;
+    tpmshx_preparation_callbacks_v2 callbacks = {2, sizeof(callbacks), &checks, 0, NULL, NULL,
+        cache_inlet, observe_range, observe_notice, NULL, NULL}, callbacks_before;
     tpmshx_preparation_2d_uniform_case_v1 result = {1, sizeof(result)}, before;
     tpmshx_preparation_case_failure_v2 failure = {2, sizeof(failure)}, failure_before;
     tpmshx_preparation_case_options_v1 options = {1, sizeof(options), 0, 1, 0.};
     union { double align; char data[4096]; } error, saved_error;
-    double rho[2], kss; size_t counts[4], side, target; int mode, cancel, publish, status;
+    double rho[2], kss; size_t counts[2], side, target; int mode, cancel, publish, status;
     CHECK(!tpmshx_preparation_2d_uniform_prepare_case_v1(source, &options, &callbacks, &result, &failure, error.data, sizeof(error.data)));
-    CHECK(checks.geometry_writes == 1 && checks.inlet_writes == 2 && result.owner);
+    CHECK(checks.inlet_writes == 2 && result.owner);
     CHECK(checks.live_ranges && checks.notices && !checks.invalid_observation);
     for (side = 0; side < 2; ++side) rho[side] = result.prepared.sides[side].properties.rho;
     kss = result.prepared.uniform_solid_conductivity;
-    counts[0] = checks.geometry_reads; counts[1] = checks.geometry_writes;
-    counts[2] = checks.inlet_reads; counts[3] = checks.inlet_writes;
+    counts[0] = checks.inlet_reads; counts[1] = checks.inlet_writes;
     before = result; failure_before = failure;
     memcpy(saved_error.data, result.prepared.cell_length.data, sizeof(double));
     CHECK(tpmshx_preparation_2d_uniform_prepare_case_v1(source, &options, &callbacks, &result, &failure,
         (char*)result.prepared.cell_length.data, sizeof(double)) == TPMSHX_PREPARATION_INVALID);
     CHECK(!memcmp(&result, &before, sizeof(result)) && !memcmp(&failure, &failure_before, sizeof(failure)));
     CHECK(!memcmp(saved_error.data, result.prepared.cell_length.data, sizeof(double)));
-    CHECK(checks.geometry_reads == counts[0] && checks.geometry_writes == counts[1]);
-    CHECK(checks.inlet_reads == counts[2] && checks.inlet_writes == counts[3]);
+    CHECK(checks.inlet_reads == counts[0] && checks.inlet_writes == counts[1]);
     tpmshx_preparation_2d_uniform_case_release_v1(&result); result.abi_version = 1; result.struct_size = sizeof(result);
     CHECK(!tpmshx_preparation_2d_uniform_prepare_case_v1(source, &options, &callbacks, &result, &failure, error.data, sizeof(error.data)));
-    CHECK(checks.geometry_reads > counts[0] && checks.geometry_writes == counts[1]);
-    CHECK(checks.inlet_reads == counts[2] + 2 && checks.inlet_writes == counts[3]);
+    CHECK(checks.inlet_reads == counts[0] + 2 && checks.inlet_writes == counts[1]);
     CHECK(checks.cached_ranges && !checks.invalid_observation);
     for (side = 0; side < 2; ++side) CHECK(result.prepared.sides[side].properties.rho == rho[side]);
     CHECK(result.prepared.uniform_solid_conductivity == kss);
@@ -369,19 +358,19 @@ static int check_cache(const tpmshx_preparation_2d_uniform_input_v1* source) {
     CHECK(tpmshx_preparation_2d_uniform_prepare_case_v1(source, &options, &callbacks, &result, &failure, error.data, sizeof(error.data)) == TPMSHX_PREPARATION_RUNTIME);
     CHECK(failure.kind == 3 && error.data[0] && !memcmp(&result, &before, sizeof(result)));
     /* Mixing untyped and keyed cache hooks is rejected. */
-    callbacks.geometry_cache_at = dummy_geometry_at;
+    callbacks.inlet_cache_at = dummy_inlet_at;
     CHECK(tpmshx_preparation_2d_uniform_prepare_case_v1(source, &options, &callbacks, &result, &failure, error.data, sizeof(error.data)) == TPMSHX_PREPARATION_INVALID);
     CHECK(!memcmp(&result, &before, sizeof(result)));
-    callbacks.geometry_cache_at = NULL;
+    callbacks.inlet_cache_at = NULL;
     callbacks_before = callbacks; failure_before = failure;
     CHECK(tpmshx_preparation_2d_uniform_prepare_case_v1(source, &options, &callbacks, &result, &failure,
         (char*)&callbacks.observe_notice, sizeof(callbacks.observe_notice)) == TPMSHX_PREPARATION_INVALID);
     CHECK(!memcmp(&callbacks, &callbacks_before, sizeof(callbacks)) && !memcmp(&failure, &failure_before, sizeof(failure)));
     memset(error.data, 'Q', sizeof(error.data)); saved_error = error;
     CHECK(tpmshx_preparation_2d_uniform_prepare_case_v1(source, &options,
-        (const tpmshx_preparation_callbacks_v1*)((const char*)&callbacks + 1), &result, &failure, error.data, sizeof(error.data)) == TPMSHX_PREPARATION_INVALID);
+        (const tpmshx_preparation_callbacks_v2*)((const char*)&callbacks + 1), &result, &failure, error.data, sizeof(error.data)) == TPMSHX_PREPARATION_INVALID);
     CHECK(!memcmp(&error, &saved_error, sizeof(error)) && !memcmp(&failure, &failure_before, sizeof(failure)));
-    callbacks.geometry_cache = NULL; callbacks.inlet_cache = NULL;
+    callbacks.inlet_cache = NULL;
     for (mode = 1; mode <= 2; ++mode) {
         size_t ranges = checks.live_ranges, notices = checks.notices;
         checks.cancel_observation = mode;
@@ -399,7 +388,7 @@ static int check_flow(void) {
     tpmshx_preparation_2d_uniform_case_v1 result = {0}, before;
     tpmshx_preparation_case_failure_v2 failure = {2, sizeof(failure)}, failure_before;
     tpmshx_preparation_case_options_v1 options = {1, sizeof(options), 0, 1, 0.};
-    tpmshx_preparation_callbacks_v1 callbacks = {1, sizeof(callbacks), NULL, 0, cancel_event};
+    tpmshx_preparation_callbacks_v2 callbacks = {2, sizeof(callbacks), NULL, 0, cancel_event};
     char provenance[] = "mass-source", error[4096], preserved[sizeof(provenance)];
     size_t i, calls = 0;
     double expected_speeds[2], saved_target;
@@ -450,8 +439,8 @@ static int check_flow(void) {
     source.explicit_targets_kg_s[0] = saved_target;
     {
         host_checks checks = {0};
-        tpmshx_preparation_callbacks_v1 host = {1, sizeof(host), &checks, 0, NULL, check_host_input};
-        tpmshx_preparation_callbacks_v1 host_before;
+        tpmshx_preparation_callbacks_v2 host = {2, sizeof(host), &checks, 0, NULL, check_host_input};
+        tpmshx_preparation_callbacks_v2 host_before;
         CHECK(!tpmshx_preparation_2d_uniform_prepare_case_v1(&source, &options, &host, &result, &failure, error, sizeof(error)));
         CHECK(checks.count == 5 && checks.stage[0] == 1 && checks.stage[1] == 0 && checks.stage[2] == 1);
         CHECK(checks.stage[3] == 2 && checks.side[3] == 0 && checks.stage[4] == 2 && checks.side[4] == 1);
@@ -507,7 +496,7 @@ static int check_continuous(void) {
     tpmshx_preparation_2d_continuous_case_v1 result = {0}, before;
     tpmshx_preparation_case_failure_v2 failure = {0}, failure_before;
     tpmshx_preparation_case_options_v1 options = {1, sizeof(options), 0, 1, 0.};
-    tpmshx_preparation_callbacks_v1 callbacks = {1, sizeof(callbacks), NULL, 0, cancel_event};
+    tpmshx_preparation_callbacks_v2 callbacks = {2, sizeof(callbacks), NULL, 0, cancel_event};
     double decisions[] = {4.5, 6., 7.5, 5.4, .31, .42, .59, .36}, saved[8];
     char error[4096];
     size_t i, calls = 0;
@@ -530,7 +519,7 @@ static int check_continuous(void) {
     CHECK(!tpmshx_preparation_2d_continuous_resolve_flow_v1(&source, &options, NULL, &resolved, &failure, error, sizeof(error)));
     {
         host_checks checks = {0};
-        tpmshx_preparation_callbacks_v1 host = {1, sizeof(host), &checks, 0, NULL, check_host_input};
+        tpmshx_preparation_callbacks_v2 host = {2, sizeof(host), &checks, 0, NULL, check_host_input};
         CHECK(!tpmshx_preparation_2d_continuous_prepare_case_v1(&source, &options, &host, &result, &failure, error, sizeof(error)));
         CHECK(checks.count == 5 && checks.stage[0] == 1 && checks.stage[1] == 0 && checks.stage[2] == 1);
         CHECK(checks.stage[3] == 2 && checks.side[3] == 0 && checks.stage[4] == 2 && checks.side[4] == 1);
@@ -609,7 +598,7 @@ static int check_zoned(void) {
     tpmshx_preparation_2d_zoned_flow_v1 flow = {1, sizeof(flow)};
     tpmshx_preparation_case_failure_v2 failure = {2, sizeof(failure)}, failure_before;
     tpmshx_preparation_case_options_v1 options = {1, sizeof(options), 0, 1, 0.};
-    tpmshx_preparation_callbacks_v1 callbacks = {1, sizeof(callbacks), NULL, 0, cancel_event};
+    tpmshx_preparation_callbacks_v2 callbacks = {2, sizeof(callbacks), NULL, 0, cancel_event};
     tpmshx_preparation_zone_region_v5* source_regions = regions;
     size_t i, calls = 0;
     memcpy(saved_regions, regions, sizeof(regions));
@@ -652,10 +641,10 @@ static int check_zoned(void) {
     CHECK(!memcmp(&before, &result, sizeof(result)) && !memcmp(&failure_before, &failure, sizeof(failure)));
     memcpy(regions, saved_regions, sizeof(regions)); source = original;
     /* Spatial 2D rejects untyped cache hooks and invalid callback abi_version. */
-    callbacks.abi_version = 2;
+    callbacks.abi_version = 99;
     CHECK(tpmshx_preparation_2d_zoned_prepare_case_v1(&source, &options, &callbacks, &result, &failure, error, sizeof(error)) == TPMSHX_PREPARATION_INVALID);
     CHECK(!memcmp(&before, &result, sizeof(result)));
-    callbacks.abi_version = 1; callbacks.event = NULL; callbacks.geometry_cache = cache_geometry;
+    callbacks.abi_version = 2; callbacks.event = NULL; callbacks.inlet_cache = cache_inlet;
     CHECK(tpmshx_preparation_2d_zoned_prepare_case_v1(&source, &options, &callbacks, &result, &failure, error, sizeof(error)) == TPMSHX_PREPARATION_INVALID);
     CHECK(!memcmp(&before, &result, sizeof(result)));
     /* Capacity, explicit-target resolution and the stripe result use the same zoned input. */
@@ -802,7 +791,7 @@ static int check_inlet_query(void) {
     tpmshx_preparation_inlet_query_input_v1 source = {0}, original;
     tpmshx_preparation_inlet_query_result_v1 result = {1, sizeof(result)}, before;
     tpmshx_preparation_case_failure_v2 failure = {2, sizeof(failure)};
-    tpmshx_preparation_callbacks_v1 callbacks = {0};
+    tpmshx_preparation_callbacks_v2 callbacks = {0};
     host_checks checks = {0};
     char error[4096]; size_t i;
     source.abi_version = 1; source.struct_size = sizeof(source);
@@ -825,7 +814,7 @@ static int check_inlet_query(void) {
     CHECK(tpmshx_query_inlet_properties_v2(&source, NULL, &result, &failure, error, sizeof(error)) == TPMSHX_PREPARATION_INVALID);
     CHECK(!memcmp(&result, &before, sizeof(result)));
     source = original; checks.cancel_at = 1;
-    callbacks.abi_version = 1; callbacks.struct_size = sizeof(callbacks);
+    callbacks.abi_version = 2; callbacks.struct_size = sizeof(callbacks);
     callbacks.context = &checks; callbacks.validate_host_input = check_host_input;
     CHECK(tpmshx_query_inlet_properties_v2(&source, &callbacks, &result, &failure, error, sizeof(error)) == TPMSHX_PREPARATION_RUNTIME);
     CHECK(checks.count == 1 && checks.stage[0] == 4 && checks.side[0] == 0);
@@ -834,10 +823,10 @@ static int check_inlet_query(void) {
     callbacks.validate_grid_stage = 1;
     CHECK(tpmshx_query_inlet_properties_v2(&source, &callbacks, &result, &failure, error, sizeof(error)) == TPMSHX_PREPARATION_INVALID);
     CHECK(!memcmp(&result, &before, sizeof(result)));
-    callbacks.validate_grid_stage = 0; callbacks.geometry_cache_at = dummy_geometry_at;
+    callbacks.validate_grid_stage = 0; callbacks.inlet_cache_at = dummy_inlet_at;
     CHECK(tpmshx_query_inlet_properties_v2(&source, &callbacks, &result, &failure, error, sizeof(error)) == TPMSHX_PREPARATION_INVALID);
     CHECK(!memcmp(&result, &before, sizeof(result)));
-    callbacks.geometry_cache_at = NULL; callbacks.geometry_cache = cache_geometry;
+    callbacks.inlet_cache_at = NULL; callbacks.inlet_cache = cache_inlet;
     CHECK(tpmshx_query_inlet_properties_v2(&source, &callbacks, &result, &failure, error, sizeof(error)) == TPMSHX_PREPARATION_INVALID);
     CHECK(!memcmp(&result, &before, sizeof(result)));
     return 0;

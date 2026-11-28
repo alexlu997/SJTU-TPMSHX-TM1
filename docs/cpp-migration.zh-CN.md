@@ -29,7 +29,7 @@ Linux x86_64 仅支持独立结果评估。
 | 共享库 | 源码目录 | 现行 ABI 与职责 |
 | --- | --- | --- |
 | 几何库 | [geometry](../native/geometry/) | Geometry ABI 2 与 Field ABI 3：单元几何、chi/Kss、网格、端口、样条、sigmoid、LUT 与分区。 |
-| 准备库 | [preprocess](../native/preprocess/) | Preparation ABI 3 与 Quick Design 准备 v2：物性、Nu 闭合、固定 D-F、二维／三维及 Quick 准备。 |
+| 准备库 | [preprocess](../native/preprocess/) | Preparation ABI 4 与 Quick Design 准备 v3：物性、Nu 闭合、固定 D-F、二维／三维及 Quick 准备。 |
 | 求解库 | [solver](../native/solver/) | 二维保存态 ABI 5、三维保存态 ABI 3、捕获 ABI 2 及 Quick Design 运行 v2。 |
 | 结果库 | [postprocess](../native/postprocess/) | Result ABI 3（`float64` + `int32` 标签）：工程指标、物理平衡、适用性、分区统计与资格判断。 |
 
@@ -101,8 +101,8 @@ Python wheel 仅包含 Python 模块与模型资源，不含原生库。
 其 CMake 目标（`tpmshx_preparation`、`tpmshx_preparation_c`、`tpmshx_preparation_shared`）复用几何核心、共享物性实现与锁定的 CoolProp 静态库。
 该工程不依赖求解器运行库、`run_state`、SuperLU 或 AMG。
 
-`python/cpp_interface/stage_libraries.py` 按需独立加载 preparation ABI 3。
-Preparation ABI 3 采用扁平的 `(abi_version, struct_size)` 输入结构、统一的 `tpmshx_preparation_callbacks_v1` 以及简洁的 `v1` 族入口名称。
+`python/cpp_interface/stage_libraries.py` 按需独立加载 preparation ABI 4。
+Preparation ABI 4 采用扁平的 `(abi_version, struct_size)` 输入结构、统一的 `tpmshx_preparation_callbacks_v2` 以及简洁的 `v1` 族入口名称。
 状态码 0 表示成功，1 表示输入无效，2 表示分配失败，3 表示运行时错误。
 状态码 10、11、12 分别表示水、CO2、sCO2 状态错误。
 流动和快速设计准备入口在标量除零时返回状态码 13。
@@ -110,10 +110,10 @@ Preparation ABI 3 采用扁平的 `(abi_version, struct_size)` 输入结构、�
 
 - [入口物性查询](native-stages.zh-CN.md#入口物性查询)：`tpmshx_query_inlet_properties_v2` 返回 12 个 `float64` 标量，无需网格或求解器。
 - [空间几何总质量流量](native-stages.zh-CN.md#空间几何总质量流量)：均匀、连续 XY、离散分区与 sigmoid 输入的容量查询、流量解析和完整二维准备。
-- [空间几何宿主缓存接口](native-stages.zh-CN.md#空间几何宿主缓存接口)：`preparation_host.py` 与 `tpmshx_preparation_callbacks_v1` 传输缓存值，不在宿主回调中执行数值计算。
+- [空间几何宿主缓存接口](native-stages.zh-CN.md#空间几何宿主缓存接口)：`preparation_host.py` 与 `tpmshx_preparation_callbacks_v2` 传输缓存值，不在宿主回调中执行数值计算。
 - [既有偏移几何](native-stages.zh-CN.md#既有偏移几何)：非零 `delta_levelset` 的名义热侧几何与分流规则。
 - [均匀三维准备](native-stages.zh-CN.md#均匀三维准备)：基于 `preparation_case_3d_c_api.h` 的均匀、连续 XY/XYZ 与 XY 网格矩形三维准备。
-- [Quick Design 阶段](native-stages.zh-CN.md#quick-design-阶段)：`tpmshx_prepare_quick_design_v2`、`tpmshx_quick_pressure_fractions_v2` 及 `tpmshx_quick_callbacks_v2`。
+- [Quick Design 阶段](native-stages.zh-CN.md#quick-design-阶段)：`tpmshx_prepare_quick_design_v3`、`tpmshx_quick_pressure_fractions_v3`。
 
 共享 JSON 与 CSV 权威来源见[模型资源](model-resources.md#当前资源与研究输出)。
 二维与三维准备共用 `tpmshx_preparation_df_experiment_scope_v1` 执行布局与 HX 实验域检查。

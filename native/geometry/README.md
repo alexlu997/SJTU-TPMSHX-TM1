@@ -62,6 +62,9 @@ Source publication uses `native/lib/<host>`.
 A changed geometry library keeps its previous library and metadata under `previous/`.
 Geometry-only publication does not replace solver or run-state files.
 The runtime loader override is `TPMSHX_GEOMETRY_LIBRARY`.
+The raw C and C++ geometry interfaces need only this geometry target.
+Python `tpms_geometry.compute_geometry` and the GUI prewarm use the scalar cache in the preparation library.
+Publish preparation for those calls, or set `TPMSHX_PREPARATION_LIBRARY` to its build output.
 Desktop packaging uses a separate prebuilt input, `TPMSHX_NATIVE_GEOMETRY_LIBRARY`.
 It places geometry beside the solver, preparation and result libraries in the bundle's `native/` directory.
 The new static targets do not add a distributed library or change these commands and paths.
@@ -107,7 +110,7 @@ Returned arrays do not borrow native temporary storage.
 
 See [field sources and local changes](fields-sources.md) for algorithms, fusion rules and license duties.
 The separate [preparation core](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/main/docs/cpp-migration.md#native-preparation-core) calculates properties, DF and preparation values.
-It uses preparation ABI 3 and its own error mapping.
+It uses preparation ABI 4 and its own error mapping.
 The independent [result core](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/main/docs/cpp-migration.md#native-result-core) calculates metrics, balances, zone statistics and numerical checks.
 It uses result ABI 3 and does not link geometry.
 See [scope and delivery records](https://github.com/alexlu997/SJTU-TPMSHX-TM1/blob/main/docs/cpp-migration.md#cpp-core-scope).

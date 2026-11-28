@@ -30,6 +30,7 @@ add_library(tpmshx_preparation STATIC "${TPMSHX_ROOT}/native/preprocess/preparat
     "${TPMSHX_ROOT}/native/preprocess/preparation_df_corrections.cpp"
     "${TPMSHX_ROOT}/native/numerics/df_summary.cpp"
     "${TPMSHX_ROOT}/native/preprocess/preparation_df_projection.cpp"
+    "${TPMSHX_ROOT}/native/preprocess/scalar_cache.cpp"
     "${TPMSHX_ROOT}/native/preprocess/preparation_case.cpp")
 target_include_directories(tpmshx_preparation PUBLIC "${TPMSHX_ROOT}/native/include")
 target_link_libraries(tpmshx_preparation PUBLIC tpmshx_geometry tpmshx_models)

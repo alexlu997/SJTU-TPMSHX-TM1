@@ -28,6 +28,11 @@ typedef struct {
     tpmshx_preparation_fp_failure_v1 fp;
 } tpmshx_property_failure_v1;
 
+enum tpmshx_preparation_cache_id {
+    TPMSHX_PREPARATION_CACHE_GEOMETRY=0, TPMSHX_PREPARATION_CACHE_CO2=1, TPMSHX_PREPARATION_CACHE_SCO2=2
+};
+typedef struct {size_t hits,misses,maxsize,currsize;} tpmshx_preparation_cache_info_v1;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -47,15 +52,31 @@ TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_water_pt_v
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_co2_validate_pt_v1(
     const double* temperature,const double* pressure,size_t count,
     tpmshx_property_failure_v1* failure,char* error,size_t error_capacity);
-TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_co2_scalar_bundle_v1(
-    double temperature,double pressure,double* values,size_t value_count,
+/* Scalar geometry returns epsilon, epsilon A, epsilon B, area density (1/m) and diameter (m).
+ * On a geometry error, failure.reason is 1=cell, 2=wall, 3=closed pore or 4=degenerate.
+ */
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_cached_geometry_v1(
+    uint32_t topology,double cell_mm,double wall_mm,size_t resolution,double* values,size_t value_count,
+    tpmshx_property_failure_v1* failure,char* error,size_t error_capacity);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_read_cache_info_v1(
+    uint32_t id,tpmshx_preparation_cache_info_v1* result,char* error,size_t error_capacity);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_clear_cache_v1(
+    uint32_t id,char* error,size_t error_capacity);
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_cached_sco2_v1(
+    tpmshx_property_key_v1 key,double temperature,double pressure,double* result,
+    tpmshx_property_failure_v1* failure,char* error,size_t error_capacity);
+/* Both CO2 queries require a non-null cause_offset. It receives the byte offset of the first
+ * cause byte in error, or SIZE_MAX if the buffer contains no cause bytes.
+ */
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_cached_co2_v1(
+    double temperature,double pressure,double* values,size_t value_count,size_t* cause_offset,
     tpmshx_property_failure_v1* failure,char* error,size_t error_capacity);
 /* Keys: 0=D, 1=V, 2=L, 3=C, 4=H. Values use [key][point] order.
  * An empty key list still checks Phase. Empty CO2 states are rejected.
  */
-TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_co2_pt_v1(
+TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_co2_pt_v2(
     const double* temperature,const double* pressure,size_t count,
-    const uint32_t* keys,size_t key_count,double* values,size_t value_count,
+    const uint32_t* keys,size_t key_count,double* values,size_t value_count,size_t* cause_offset,
     tpmshx_property_failure_v1* failure,char* error,size_t error_capacity);
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_sco2_validate_v1(
     const double* temperature,size_t temperature_count,const double* pressure,size_t pressure_count,

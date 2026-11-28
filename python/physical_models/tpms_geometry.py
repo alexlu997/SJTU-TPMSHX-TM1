@@ -1,15 +1,14 @@
-"""TPMS geometry entry points backed by the native geometry core.
+"""TPMS geometry entry points backed by the native geometry and preparation libraries.
 
 Cell length and full wall thickness use mm. Area density uses 1/m.
 Hydraulic diameter uses m. The default voxel resolution remains N=128.
 The native core owns phi generation, inclusive counts and calibrated geometry.
 """
-from .preparation_cache import geometry_cache
 
 import numpy as np
 
 from tm1.model_configs.model_parameters import load_model_parameters
-from tm1.cpp_interface import _native_geometry
+from tm1.cpp_interface import _native_geometry, _native_properties
 from tm1.cpp_interface._native_values import TOPOLOGIES, real_array
 
 
@@ -66,36 +65,18 @@ def minimum_solid_geometry(tpms_type, L_bounds, t_bounds):
     return {key: float(result[key]) for key in ('L_mm', 't_mm', 'epsilon')}
 
 
-@geometry_cache.wrap
-def _compute_geometry_cached(tpms_type: str, L_mm: float, t_mm: float,
-                             N: int = 128) -> dict:
-    """Cache scalar geometry without material or environment state."""
+@_native_properties.cache_controls(_native_properties.GEOMETRY_CACHE)
+def compute_geometry(tpms_type: str, L_mm: float, t_mm: float, N: int = 128) -> dict:
+    """Return a fresh mapping for the cached scalar geometry."""
     if tpms_type not in TOPOLOGIES:
         raise ValueError(f"tpms_type must be 'Diamond' or 'Gyroid', got '{tpms_type}'")
-    if L_mm <= 0:
-        raise ValueError(f"L_mm must be positive, got {L_mm}")
-    if t_mm <= 0:
-        raise ValueError(f"t_mm must be positive, got {t_mm}")
-    if 2 * t_mm >= L_mm:
-        raise ValueError(f"Wall thickness t={t_mm}mm >= L={L_mm}mm, no pore space")
     try:
-        values = _native_geometry.standard_scalar(tpms_type, L_mm, t_mm, N=N)
-    except ValueError as error:
-        if str(error).startswith('Degenerate TPMS geometry:'):
-            raise ValueError(
-                f"Degenerate TPMS geometry: {tpms_type} L={L_mm}mm t={t_mm}mm "
-                "has no usable pore space. Reduce t or increase L.") from error
-        raise
-    result = {key: values[key][()] for key in _GEOMETRY_KEYS}
-    for key in ('epsilon', 'epsilon_A', 'epsilon_B'):
-        result[key] = float(result[key])
-    return result
-
-
-def compute_geometry(tpms_type: str, L_mm: float, t_mm: float,
-                     N: int = 128) -> dict:
-    """Return a fresh scalar geometry mapping from the process-local cache."""
-    return dict(_compute_geometry_cached(tpms_type, L_mm, t_mm, N))
+        resolution = _native_geometry._resolution(N)
+    except ValueError:
+        # The native operation reports invalid dimensions before an invalid resolution.
+        resolution = 0
+    values = _native_properties.cached_geometry(tpms_type, L_mm, t_mm, resolution)
+    return dict(zip(_GEOMETRY_KEYS, (float(values[0]), float(values[1]), float(values[2]), *values[3:]), strict=True))
 
 
 def compute_geometry_fields(tpms_type: str, L_field_mm, t_field_mm,
@@ -119,8 +100,3 @@ def compute_geometry_fields(tpms_type: str, L_field_mm, t_field_mm,
         raise ValueError('geometry resolution N must be a positive integer')
     values = _native_geometry.standard_fields(tpms_type, length, wall, 1., N=N)
     return {key: values[key] for key in _GEOMETRY_KEYS}
-
-
-compute_geometry.cache_clear = _compute_geometry_cached.cache_clear
-compute_geometry.cache_info = _compute_geometry_cached.cache_info
-compute_geometry.cache_parameters = _compute_geometry_cached.cache_parameters

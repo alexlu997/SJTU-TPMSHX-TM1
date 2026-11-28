@@ -97,6 +97,7 @@ struct CaseInput3D {
 struct PreparationOptions {
     std::optional<double> chi_override;
     bool allow_extrapolation=false;
+    bool invalid_chi=false;
 };
 // Keep each C interface's scope checks in the shared validation order.
 enum class CaseScope { air_cfd_v1, uniform_fluids_v2, uniform_mass_v3, continuous_v4, offset_v10 };
@@ -170,7 +171,6 @@ struct PreparationCallbacks {
     // This optional hook checks host objects, never physical values.
     void (*validate_host_input)(void*,std::uint32_t,std::uint32_t)=nullptr;
     // Cache hooks transport completed values. A miss uses the native calculation.
-    bool (*geometry_cache)(void*,bool,geometry::Geometry&)=nullptr;
     bool (*inlet_cache)(void*,bool,std::uint32_t,const InletInput2D&,PreparationInletCache&)=nullptr;
     // Observe at the source. Cached records do not repeat standalone notices.
     void (*observe_range)(void*,const PreparationRange&,bool,std::optional<double>)=nullptr;
@@ -178,7 +178,6 @@ struct PreparationCallbacks {
     void (*observe_notice)(void*,std::uint32_t,std::uint32_t,double,const std::string&)=nullptr;
     void (*validate_grid)(void*)=nullptr;
     // Spatial and 3D stages identify each actual scalar cache access.
-    bool (*geometry_cache_at)(void*,bool,const PreparationGeometryKey&,geometry::Geometry&)=nullptr;
     bool (*inlet_cache_at)(void*,bool,const PreparationInletKey&,PreparationInletCache&)=nullptr;
     bool (*sigmoid_lut_cache)(void*,bool,Topology,std::size_t,SigmoidLUT2D&)=nullptr;
 };

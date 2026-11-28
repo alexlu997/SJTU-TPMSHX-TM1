@@ -225,13 +225,13 @@ def _execute(config, operation, *, targets=None, case_id=None, start_observation
     cache = shared.PreparationCache(chi_error, _nominal_grid_warning)
     cache_keys, side_geometry = {}, {}
     co2 = 'co2' in (config.fluid_A.type, config.fluid_B.type)
-    geometry_key = cache.geometry_key(config.geometry.tpms, config.geometry.L_cell_mm, config.geometry.t_wall_mm)
+    geometry_key = (config.geometry.tpms, config.geometry.L_cell_mm, config.geometry.t_wall_mm)
 
     def inlet_cache(action, side, velocity, transfer):
         if not action:
             fluid = getattr(config, 'fluid_' + 'AB'[side])
             speed = velocity if targets is not None or fluid.mass_flow_kg_s is not None else fluid.u_mps
-            cache_keys[side] = (*geometry_key[:3], speed, fluid.T_in_K, fluid.P_in_Pa,
+            cache_keys[side] = (*geometry_key, speed, fluid.T_in_K, fluid.P_in_Pa,
                                 fluid.type, config.sco2_nu, co2)
         key = cache_keys[side]
         hit = transfer(key)
@@ -244,10 +244,8 @@ def _execute(config, operation, *, targets=None, case_id=None, start_observation
             if start_observations is not None:
                 start_observations()
         elif stage == 1:
-            if 'co2' not in (config.fluid_A.type, config.fluid_B.type):
+            if not co2:
                 hash((config.geometry.tpms, config.geometry.L_cell_mm, config.geometry.t_wall_mm, 128))
-            if co2 and chi_error is not None:
-                raise chi_error
         elif stage == 2:
             fluid = getattr(config, 'fluid_' + 'AB'[side])
             speed = 0. if targets is not None or fluid.mass_flow_kg_s is not None else fluid.u_mps
@@ -281,7 +279,7 @@ def _execute(config, operation, *, targets=None, case_id=None, start_observation
 
     spatial = config.zones.enabled and config.zones.axis != 'continuous'
     return native_preparation.run_preparation(operation, source, chi=chi, allow=allow, validate=host_input,
-        policy=cache, geometry_key=geometry_key, inlet_cache=inlet_cache, lut=_lut_cache() if spatial else None,
+        policy=cache, inlet_cache=inlet_cache, lut=_lut_cache() if spatial else None,
         water_error=WaterStateError, finish=finish)
 
 

@@ -140,8 +140,7 @@ extern "C" {
  * input.input.abi_version=1, input.input.struct_size=sizeof(input.input),
  * failure.abi_version=2, failure.struct_size=sizeof(*failure), and result.owner=NULL.
  * Input buffers and callbacks are borrowed until return. Callbacks use
- * tpmshx_preparation_callbacks_v1, accept keyed geometry_cache_at and
- * inlet_cache_at only, and reject untyped cache hooks, sigmoid_lut_cache, and
+ * tpmshx_preparation_callbacks_v2, accept inlet_cache_at only, and reject untyped cache hooks, sigmoid_lut_cache, and
  * validate_grid_stage != 0. Host validation uses stages 10-19 with side=2.
  * Fields use physical C order (x,y,z). Masks use physical (cross1,cross2).
  * Side porosity includes the symmetric split. K/cF fields are unscaled;
@@ -150,15 +149,15 @@ extern "C" {
  */
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_3d_continuous_capacities_v1(
     const tpmshx_preparation_3d_continuous_input_v1*,const tpmshx_preparation_case_options_v1*,
-    const tpmshx_preparation_callbacks_v1*,tpmshx_preparation_3d_continuous_flow_v1*,
+    const tpmshx_preparation_callbacks_v2*,tpmshx_preparation_3d_continuous_flow_v1*,
     tpmshx_preparation_case_failure_v2*,char*,size_t);
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_3d_continuous_resolve_flow_v1(
     const tpmshx_preparation_3d_continuous_input_v1*,const tpmshx_preparation_case_options_v1*,
-    const tpmshx_preparation_callbacks_v1*,tpmshx_preparation_3d_continuous_flow_v1*,
+    const tpmshx_preparation_callbacks_v2*,tpmshx_preparation_3d_continuous_flow_v1*,
     tpmshx_preparation_case_failure_v2*,char*,size_t);
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_3d_continuous_prepare_case_v1(
     const tpmshx_preparation_3d_continuous_input_v1*,const tpmshx_preparation_case_options_v1*,
-    const tpmshx_preparation_callbacks_v1*,tpmshx_preparation_3d_continuous_case_v1*,
+    const tpmshx_preparation_callbacks_v2*,tpmshx_preparation_3d_continuous_case_v1*,
     tpmshx_preparation_case_failure_v2*,char*,size_t);
 TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_3d_continuous_flow_release_v1(
     tpmshx_preparation_3d_continuous_flow_v1*);
@@ -167,15 +166,15 @@ TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_3d_contin
 
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_3d_spatial_capacities_v1(
     const tpmshx_preparation_3d_spatial_input_v1*,const tpmshx_preparation_case_options_v1*,
-    const tpmshx_preparation_callbacks_v1*,tpmshx_preparation_3d_spatial_flow_v1*,
+    const tpmshx_preparation_callbacks_v2*,tpmshx_preparation_3d_spatial_flow_v1*,
     tpmshx_preparation_case_failure_v2*,char*,size_t);
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_3d_spatial_resolve_flow_v1(
     const tpmshx_preparation_3d_spatial_input_v1*,const tpmshx_preparation_case_options_v1*,
-    const tpmshx_preparation_callbacks_v1*,tpmshx_preparation_3d_spatial_flow_v1*,
+    const tpmshx_preparation_callbacks_v2*,tpmshx_preparation_3d_spatial_flow_v1*,
     tpmshx_preparation_case_failure_v2*,char*,size_t);
 TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_3d_spatial_prepare_case_v1(
     const tpmshx_preparation_3d_spatial_input_v1*,const tpmshx_preparation_case_options_v1*,
-    const tpmshx_preparation_callbacks_v1*,tpmshx_preparation_3d_spatial_case_v1*,
+    const tpmshx_preparation_callbacks_v2*,tpmshx_preparation_3d_spatial_case_v1*,
     tpmshx_preparation_case_failure_v2*,char*,size_t);
 TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_3d_spatial_flow_release_v1(
     tpmshx_preparation_3d_spatial_flow_v1*);

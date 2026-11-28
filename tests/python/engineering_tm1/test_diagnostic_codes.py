@@ -44,9 +44,9 @@ def test_public_class_identity():
     ('solver', 'tpmshx_run_quick_design_v2', 6, {}, 'run.cancelled', CancelledError),
     ('solver', 'tpmshx_solve_quick_design_v1', 6, {}, 'contract.unknown_status', RuntimeError),
     ('solver', 'tpmshx_solve_quick_design_v1', 0, {'stop': 2}, 'run.cancelled', CancelledError),
-    ('preparation', 'tpmshx_prepare_quick_design_v2', 2, {}, 'native.allocation', MemoryError),
-    ('preparation', 'tpmshx_prepare_quick_design_v2', 4, {}, 'contract.unknown_status', RuntimeError),
-    ('preparation', 'tpmshx_prepare_quick_design_v2', 20, {}, 'contract.unknown_status', RuntimeError),
+    ('preparation', 'tpmshx_prepare_quick_design_v3', 2, {}, 'native.allocation', MemoryError),
+    ('preparation', 'tpmshx_prepare_quick_design_v3', 4, {}, 'contract.unknown_status', RuntimeError),
+    ('preparation', 'tpmshx_prepare_quick_design_v3', 20, {}, 'contract.unknown_status', RuntimeError),
     ('preparation', 'tpmshx_preparation_2d_uniform_prepare_case_v1', 3, {'kind': 4},
      'capability.unsupported', NotImplementedError),
     ('result', 'tpmshx_result_stage_query_v3', 4, {'cause': 97}, 'contract.unknown_status', RuntimeError),
@@ -71,18 +71,21 @@ def test_budget_stop_and_operation_specific_overflow():
     assert property_error.args == (errno.ERANGE, os.strerror(errno.ERANGE))
 
 
-@pytest.mark.parametrize('status,outer_type,code,second_kind,second_type,second_code', [
-    (3, diagnostics.WaterStateError, 'fluid.water_state', 4, NotImplementedError, 'capability.unsupported'),
-    (2, MemoryError, 'native.allocation', 2, diagnostics.WaterStateError, 'fluid.water_state'),
+@pytest.mark.parametrize('status,outer_kind,outer_type,code,second_kind,second_type,second_code', [
+    (3, 2, diagnostics.WaterStateError, 'fluid.water_state', 4, NotImplementedError, 'capability.unsupported'),
+    (2, 2, MemoryError, 'native.allocation', 2, diagnostics.WaterStateError, 'fluid.water_state'),
+    (2, 5, MemoryError, 'native.allocation', 2, diagnostics.WaterStateError, 'fluid.water_state'),
 ])
-def test_preparation_failure_copies_ordered_causes(status, outer_type, code, second_kind, second_type, second_code):
+def test_preparation_failure_copies_ordered_causes(
+        status, outer_kind, outer_type, code, second_kind, second_type, second_code):
     from tm1.cpp_interface import _native_preparation_case as wire, preparation_host
-    failure = wire._Failure(kind=2, side=1, cause_count=2)
+    failure = wire._Failure(kind=outer_kind, side=1, cause_count=2)
     for item, kind, message in zip(failure.causes, (1, second_kind), (b'first', b'second'), strict=True):
         item.kind, item.message = kind, message
     with pytest.raises(outer_type) as caught:
         preparation_host._check_status('tpmshx_preparation_2d_uniform_prepare_case_v1', status,
-                                       ct.create_string_buffer(b'outer'), failure, diagnostics.WaterStateError)
+                                       ct.create_string_buffer(b'outer'), failure, diagnostics.WaterStateError,
+                                       chi_error=ValueError('invalid chi'))
     failure.causes[0].message = b'released'
     outer = caught.value
     assert type(outer) is outer_type and outer.diagnostic['code'] == code

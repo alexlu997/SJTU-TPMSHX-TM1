@@ -23,7 +23,7 @@ Complete preparation keeps its existing physical guards.
 
 `query_inlet_properties` accepts supplied geometry scalars and creates no mesh or solver state.
 `native/preprocess/preparation_case_c_api.cpp` exposes `tpmshx_query_inlet_properties_v2` with `float64` inline values and no owner.
-Optional `tpmshx_preparation_callbacks_v1` callbacks keep synchronous observations and host-object checks; all cache hooks must be NULL and `validate_grid_stage` must be 0.
+Optional `tpmshx_preparation_callbacks_v2` callbacks keep synchronous observations and host-object checks; all cache hooks must be NULL and `validate_grid_stage` must be 0.
 `python/physical_models/tpms_calc.py` keeps public calls, shared caches, geometry selection and the per-call material query.
 `python/cpp_interface/inlet_properties.py` packs the inlet query. It uses `python/cpp_interface/preparation_host.py` for range observations and callbacks.
 The pure empirical fluid-property formulas in `tests/python/property_reference.py` and Nusselt correlation formulas in `tests/python/nu_reference.py` supply independent numerical expectations.
@@ -42,17 +42,20 @@ The [external spatial cache caller](../../examples/cpp/prepare_spatial_cache_2d.
 ## Spatial host cache transport
 
 V9 adds `float64` geometry and inlet probes without changing v1-v8 layouts.
+Preparation ABI 4 owns scalar geometry for standalone, full, and Quick queries.
+It also owns the CO₂ bundle and sCO₂ single-property caches.
+The raw grid and geometry SDK entries use the geometry library.
 Its spatial model carries the conductivity value in `float64`.
 Spatial material uses the accepted spatial value; nominal calculations keep their own value.
-The probes carry L/t, fluid state and optional Nu selection in `float64`.
-`python/preprocess/preparation.py` selects and updates entries in the shared model caches.
+The inlet probes carry L/t, fluid state and the optional Nu selection.
+`python/preprocess/preparation.py` selects and updates entries in the host inlet cache.
 `python/cpp_interface/preparation_host.py` copies the cache values and range evidence.
 `ZonedCache` uses those hooks when supplied; native code calculates each miss.
 The original per-call cache remains available for independent native callers.
 The LUT hook exchanges tables at each path's original geometry checkpoint.
 Python owns disk/memory I/O. `build_sigmoid_lut_2d` owns missing-table construction.
 The [external cache caller](../../examples/cpp/prepare_spatial_cache_2d.cpp)
-checks all six v9 operations, typed probes and copied LUT lifetime.
+uses the inlet and LUT hooks and keeps the copied LUT alive.
 Public zone/sigmoid combination queries retain standalone consumers.
 Their later migration must preserve supplied properties and custom controls.
 
@@ -95,7 +98,8 @@ The raw owner copies rectangle inputs and keeps borrowed nested views with null 
 The v1/v2/v3 C layouts and their original scope remain unchanged.
 These raw interfaces add no 3D solve or capture.
 Python 3D preparation uses host v5 through the existing v3/v4 inputs and owned results.
-The shared v9 descriptor transports typed geometry and inlet cache values and evidence.
+The v9 descriptor transported typed geometry and inlet cache values and evidence.
+The current descriptor shares the inlet cache and range evidence with the host.
 Native code owns grid, geometry, flow resolution and final preparation.
 Python keeps configuration conversion, cache policy, warnings, environment parsing and immutable CaseData assembly.
 The replaced 3D Python bodies and exclusive `shared/models/grid_3d.py` and `asym_split.py` helpers are removed.

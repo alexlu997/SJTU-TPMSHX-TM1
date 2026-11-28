@@ -7,6 +7,7 @@
 #include "tpmshx/preparation_flow.hpp"
 #include "preparation_c_boundary.hpp"
 #include "preparation_properties.hpp"
+#include "scalar_cache.hpp"
 
 #include <algorithm>
 #include <array>
@@ -48,14 +49,6 @@ uint32_t fluid(std::string x) {
     if(x=="co2")return 3;
     throw std::invalid_argument("unknown quick-design fluid; known: air, co2, sco2, water");
 }
-const geo::PhiIndex& index(uint32_t tp) {
-    if(!tp) {
-        static const auto value=geo::PhiIndex::from_topology(tpmshx::Topology::diamond,data::quick_design_geometry_resolution);
-        return value;
-    }
-    static const auto value=geo::PhiIndex::from_topology(tpmshx::Topology::gyroid,data::quick_design_geometry_resolution);
-    return value;
-}
 tpmshx_preparation_geometry_cache_v3 packed_geometry(const geo::Geometry& x) {
     return {x.epsilon,x.epsilon_a,x.epsilon_b,x.area_density,x.hydraulic_diameter};
 }
@@ -81,7 +74,6 @@ void combine(uint32_t& target,const std::array<uint32_t,p::property_event_count>
 
 struct Engine {
     tpmshx_quick_input_v2 input;
-    const tpmshx_quick_callbacks_v2* callbacks;
     const unsigned char* destination;size_t destination_size;
     char* error;size_t error_size;
     tpmshx_quick_prepared_v2 result{};
@@ -93,9 +85,9 @@ struct Engine {
     std::array<uint32_t,2> fluids{};
     uint32_t tp=0;
 
-    Engine(const tpmshx_quick_input_v2& source,const tpmshx_quick_callbacks_v2* hooks,
+    Engine(const tpmshx_quick_input_v2& source,
            const void* output,size_t output_size,char* message,size_t capacity)
-        :input(source),callbacks(hooks),destination(static_cast<const unsigned char*>(output)),
+        :input(source),destination(static_cast<const unsigned char*>(output)),
          destination_size(output_size),error(message),error_size(capacity) {
         result.abi_version=2;result.struct_size=sizeof(result);
         if(!input.have_height)input.values[TPMSHX_QUICK_HEIGHT]=input.values[TPMSHX_QUICK_SPAN];
@@ -131,17 +123,8 @@ struct Engine {
     size_t cells() const {return p::c_api::product(p::c_api::product(result.shape[0],result.shape[1]),result.shape[2]);}
     void prepare_geometry(bool full) {
         tp=topology(text(input.topology));
-        uint32_t hit=0;
-        if(callbacks && callbacks->geometry_cache && callbacks->geometry_cache(callbacks->context,0,&result.geometry,&hit))
-            throw p::c_api::StateError(TPMSHX_QUICK_HOST_FAILURE,"quick-design geometry cache lookup failed");
-        flag(hit);
-        if(!hit) {
-            const auto model=geo::calibration(static_cast<tpmshx::Topology>(tp));
-            result.geometry=packed_geometry(geo::standard_geometry(index(tp),model,
-                input.values[TPMSHX_QUICK_CELL],input.values[TPMSHX_QUICK_WALL]));
-            if(callbacks && callbacks->geometry_cache && callbacks->geometry_cache(callbacks->context,1,&result.geometry,&hit))
-                throw p::c_api::StateError(TPMSHX_QUICK_HOST_FAILURE,"quick-design geometry cache publication failed");
-        }
+        result.geometry=packed_geometry(p::cached_geometry(static_cast<tpmshx::Topology>(tp),
+            input.values[TPMSHX_QUICK_CELL],input.values[TPMSHX_QUICK_WALL],data::quick_design_geometry_resolution));
         material(false,full);
     }
     // The final solid field uses chi=1. The nominal call checks the selected chi.
@@ -170,31 +153,12 @@ struct Engine {
     template<class Function> auto property_call(Function function,uint32_t side) {
         try {return function();}catch(const p::PropertyError& problem){state_failure(problem,side);}
     }
-    std::vector<double> eos_values(uint32_t side,uint32_t at,double t,double pressure) {
-        const auto kind=fluids[side];const size_t expected=kind==3?5u:1u;
-        std::array<double,5> stored{};size_t count=0;uint32_t hit=0;
-        if(callbacks && callbacks->eos_cache) {
-            if(callbacks->eos_cache(callbacks->context,0,kind,at,t,pressure,stored.data(),stored.size(),&count,&hit))
-                throw p::c_api::StateError(TPMSHX_QUICK_HOST_FAILURE,"quick-design EOS cache lookup failed");
-            flag(hit);
-            if(hit) {
-                if(count!=expected)throw std::invalid_argument("Quick EOS cache extent is incorrect");
-                return {stored.begin(),stored.begin()+static_cast<std::ptrdiff_t>(count)};
-            }
-        }
+    double eos_value(uint32_t side,uint32_t at,double t,double pressure) {
         constexpr const char* keys[]{"D","V","L","C"};
-        auto values=property_call([&]{
-            if(kind==3)return p::co2_pt({},{&t,1},{&pressure,1},true);
-            p::validate_sco2({&t,1},{&pressure,1});
-            return p::sco2_pt(0,{keys[at]},{&t,1},{&pressure,1});
+        return property_call([&] {
+            if (fluids[side]==3) return p::cached_co2(t,pressure).at(at);
+            return p::cached_sco2(keys[at],t,pressure);
         },side);
-        if(values.size()!=expected)throw std::runtime_error("Quick EOS result extent is incorrect");
-        if(callbacks && callbacks->eos_cache) {
-            std::copy(values.begin(),values.end(),stored.begin());count=values.size();
-            if(callbacks->eos_cache(callbacks->context,1,kind,at,t,pressure,stored.data(),stored.size(),&count,&hit))
-                throw p::c_api::StateError(TPMSHX_QUICK_HOST_FAILURE,"quick-design EOS cache publication failed");
-        }
-        return values;
     }
     void prepare_properties(uint32_t side) {
         fluids[side]=fluid(text(input.fluids[side]));
@@ -213,8 +177,7 @@ struct Engine {
                 const auto output=property_call([&]{return p::empirical(getter,{{&t,1}},{{&pressure,1}});},side);
                 combine(result.floating_events[side*2],output.events);properties[side][at]=output.values.at(0);
             } else {
-                const auto values=eos_values(side,at,t,pressure);
-                properties[side][at]=fluids[side]==3?values.at(at):values.at(0);
+                properties[side][at]=eos_value(side,at,t,pressure);
             }
         }
         const auto& q=properties[side];
@@ -258,41 +221,51 @@ template<class T>void version(const T* value) {
     require_buffer(value,1);
     if(value->abi_version!=2 || value->struct_size!=sizeof(T))throw std::invalid_argument("quick-design v2 ABI version or struct size is invalid");
 }
-template<class T>void buffers(const tpmshx_quick_input_v2* input,const tpmshx_quick_callbacks_v2* callbacks,T* output,char* error,size_t capacity) {
+template<class T>void buffers(const tpmshx_quick_input_v2* input,uint32_t* geometry_reason,T* output,char* error,size_t capacity) {
     require_disjoint(error,capacity,input,input?1:0);require_disjoint(error,capacity,output,output?1:0);
-    require_disjoint(error,capacity,callbacks,callbacks?1:0);version(input);version(output);
-    if(callbacks)version(callbacks);
-    require_disjoint(input,1,output,1);require_disjoint(callbacks,callbacks?1:0,output,1);
+    require_disjoint(error,capacity,geometry_reason,geometry_reason?1:0);version(input);version(output);
+    require_disjoint(input,1,output,1);
+    require_disjoint(input,1,geometry_reason,geometry_reason?1:0);
+    require_disjoint(output,1,geometry_reason,geometry_reason?1:0);
     for(auto value:{input->topology,input->arrangement,input->property_mode,input->fluids[0],input->fluids[1]}) {
+        require_disjoint(geometry_reason,geometry_reason?1:0,value.data,value.size);
         require_disjoint(error,capacity,value.data,value.size);require_disjoint(output,1,value.data,value.size);
     }
     flag(input->have_height);flag(input->have_chi);flag(input->strict);flag(input->warm_start);
     if(input->warm_start)for(auto value:input->initial) {
+        require_disjoint(geometry_reason,geometry_reason?1:0,value.data,value.size);
         require_disjoint(error,capacity,value.data,value.size);require_disjoint(output,1,value.data,value.size);
     }
 }
-template<class T,class Function>int boundary(const tpmshx_quick_input_v2* input,const tpmshx_quick_callbacks_v2* callbacks,
+template<class T,class Function>int boundary(const tpmshx_quick_input_v2* input,uint32_t* geometry_reason,
     T* output,char* error,size_t capacity,Function operation) {
     if(!tpmshx::fields::c_api::error_buffer_valid(error,capacity))return TPMSHX_PREPARATION_INVALID;
-    try {buffers(input,callbacks,output,error,capacity);}catch(...){return TPMSHX_PREPARATION_INVALID;}
-    return p::c_api::boundary<TPMSHX_PREPARATION_SCALAR_DIVISION>(error,capacity,operation);
+    try {buffers(input,geometry_reason,output,error,capacity);}catch(...){return TPMSHX_PREPARATION_INVALID;}
+    if (geometry_reason) *geometry_reason=0;
+    return p::c_api::boundary<TPMSHX_PREPARATION_SCALAR_DIVISION>(error,capacity,[&] {
+        try { operation(); }
+        catch (const geo::ScalarGeometryError& problem) {
+            if (geometry_reason) *geometry_reason=static_cast<uint32_t>(problem.reason);
+            throw;
+        }
+    });
 }
 } // namespace
 
-extern "C" int TPMSHX_PREPARATION_CALL tpmshx_prepare_quick_design_v2(
-    const tpmshx_quick_input_v2* input,const tpmshx_quick_callbacks_v2* callbacks,
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_prepare_quick_design_v3(
+    const tpmshx_quick_input_v2* input,uint32_t* geometry_reason,
     tpmshx_quick_prepared_v2* output,char* error,size_t capacity) {
-    return boundary(input,callbacks,output,error,capacity,[&]{
+    return boundary(input,geometry_reason,output,error,capacity,[&]{
         if(output->owner)throw std::invalid_argument("release the previous Quick prepared owner before reuse");
-        auto owner=std::make_unique<Engine>(*input,callbacks,output,sizeof(*output),error,capacity);
+        auto owner=std::make_unique<Engine>(*input,output,sizeof(*output),error,capacity);
         owner->run(true);owner->result.owner=owner.get();*output=owner->result;owner.release();
     });
 }
-extern "C" int TPMSHX_PREPARATION_CALL tpmshx_quick_pressure_fractions_v2(
-    const tpmshx_quick_input_v2* input,const tpmshx_quick_callbacks_v2* callbacks,
+extern "C" int TPMSHX_PREPARATION_CALL tpmshx_quick_pressure_fractions_v3(
+    const tpmshx_quick_input_v2* input,uint32_t* geometry_reason,
     tpmshx_quick_pressure_v2* output,char* error,size_t capacity) {
-    return boundary(input,callbacks,output,error,capacity,[&]{
-        Engine owner(*input,callbacks,output,sizeof(*output),error,capacity);owner.run(false);
+    return boundary(input,geometry_reason,output,error,capacity,[&]{
+        Engine owner(*input,output,sizeof(*output),error,capacity);owner.run(false);
         tpmshx_quick_pressure_v2 value{};value.abi_version=2;value.struct_size=sizeof(value);
         std::copy(std::begin(owner.result.fractions),std::end(owner.result.fractions),std::begin(value.fractions));
         std::copy(std::begin(owner.result.inlet_pressure),std::end(owner.result.inlet_pressure),std::begin(value.inlet_pressure));
