@@ -819,7 +819,7 @@ def test_result_display_table_maps_real_2d_and_3d_results_by_dimension_and_phase
         metadata = mutable_data(fields.metadata)
         metadata['diagnostics']['dir_B'] = None
         metadata['parameters']['fluid_B_cfg'] = None
-        # Mirror solver/stage_capture_3d.cpp:478, which omits inactive-B flow arrays.
+        # Mirror native/solver/stage_capture_3d.cpp:478, which omits inactive-B flow arrays.
         inactive_keys = ('P_gauge_B', 'P_report_B', 'P_fB_display', 'ucB', 'vcB', 'wcB', 'vmag_B')
         reduced_fields = {k: v for k, v in fields.fields.items() if k not in inactive_keys}
         reduced_field_meta = {

@@ -15,7 +15,7 @@ venv/
 # Per-machine shared Python interpreter pointer and writable runtime caches
 /.venv-path
 /.cache/
-# Published native libraries for this host (engineering/scripts/build_native_dependencies.py).
+# Track native sources. Ignore published libraries and build records for this host.
 /native/lib/
 
 # Historical model artifacts (retired tools are indexed in docs/history/)

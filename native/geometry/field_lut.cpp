@@ -1,6 +1,6 @@
 /* Linear LUT arithmetic follows SciPy v1.18.1 _rgi.py/_rgi_cython.pyx.
  * Copyright (c) 2001-2002 Enthought, Inc. 2003, SciPy Developers.
- * All rights reserved. See ../engineering/native_build/licenses/scipy-LICENSE.txt.
+ * All rights reserved. See ../../engineering/native_build/licenses/scipy-LICENSE.txt.
  * Source details are in ../geometry/fields-sources.md.
  */
 #include "field_lut.hpp"

@@ -11,9 +11,9 @@ _ROOT = Path(__file__).resolve().parents[3]
 
 @pytest.mark.skipif(os.name == 'nt', reason='GNU Make runs on macOS; NMake runs in Windows CI')
 @pytest.mark.parametrize('target,header,source', [
-    ('enthalpy_sweeps.o', 'solver/energy_fv_rows.hpp', 'solver/enthalpy_sweeps.cpp'),
-    ('enthalpy_sweeps.o', 'include/tpmshx/conservative_energy.hpp', 'solver/enthalpy_sweeps.cpp'),
-    ('temperature_driver.o', 'solver/temperature_run_state.hpp', 'solver/temperature_driver.cpp'),
+    ('enthalpy_sweeps.o', 'native/solver/energy_fv_rows.hpp', 'native/solver/enthalpy_sweeps.cpp'),
+    ('enthalpy_sweeps.o', 'native/include/tpmshx/conservative_energy.hpp', 'native/solver/enthalpy_sweeps.cpp'),
+    ('temperature_driver.o', 'native/solver/temperature_run_state.hpp', 'native/solver/temperature_driver.cpp'),
 ])
 def test_header_change_rebuilds_native_target(tmp_path, target, header, source):
     output = tmp_path / target
@@ -27,9 +27,9 @@ def test_header_change_rebuilds_native_target(tmp_path, target, header, source):
 
 
 @pytest.mark.parametrize('target,header', [
-    ('$(BUILD_DIR)/enthalpy_sweeps.obj', 'solver/energy_fv_rows.hpp'),
-    ('$(BUILD_DIR)/enthalpy_sweeps.obj', 'include/tpmshx/conservative_energy.hpp'),
-    ('$(BUILD_DIR)/temperature_driver.obj', 'solver/temperature_run_state.hpp'),
+    ('$(BUILD_DIR)/enthalpy_sweeps.obj', 'native/solver/energy_fv_rows.hpp'),
+    ('$(BUILD_DIR)/enthalpy_sweeps.obj', 'native/include/tpmshx/conservative_energy.hpp'),
+    ('$(BUILD_DIR)/temperature_driver.obj', 'native/solver/temperature_run_state.hpp'),
 ])
 def test_nmake_rule_tracks_shared_headers(target, header):
     lines = (_ROOT / 'engineering/native_build/Makefile.msvc').read_text(encoding='utf-8').replace('\\', '/').splitlines()

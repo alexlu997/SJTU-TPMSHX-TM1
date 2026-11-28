@@ -28,7 +28,7 @@ and NumPy's integer aliases use standard C++ equivalents.
 - `csr_binop_csr_canonical`: `scipy-v1.17.1/scipy/sparse/sparsetools/csr.h:781-855`
 - `csr_binop_csr`: `scipy-v1.17.1/scipy/sparse/sparsetools/csr.h:889-907`
 
-`solver/classical_amg.cpp` translates the orchestration in PyAMG's
+`native/solver/classical_amg.cpp` translates the orchestration in PyAMG's
 `classical/classical.py`, `classical/interpolate.py`, `classical/split.py`,
 `strength.py`, and `multilevel.py`, plus SciPy's
 `sparse/linalg/_isolve/iterative.py:bicgstab`. Coarse solves retain SciPy
@@ -36,8 +36,8 @@ and NumPy's integer aliases use standard C++ equivalents.
 `Vh.T @ ((1/s)[:, None] * U.T)`, with the inverse stored in C order. The sparse
 excerpts above retain their original 1.17.1 provenance. On macOS the
 existing system Accelerate dependency supplies the locked SciPy wheel's LP64
-DGESDD through `solver/classical_amg_svd_lp64.cpp` and the locked NumPy wheel's
-ILP64 BLAS dot/matmul/matvec calls through `solver/classical_amg.cpp`. These ABI
+DGESDD through `native/solver/classical_amg_svd_lp64.cpp` and the locked NumPy wheel's
+ILP64 BLAS dot/matmul/matvec calls through `native/solver/classical_amg.cpp`. These ABI
 choices concern integer arguments; both paths retain double arithmetic. The original sparse
 excerpts retain that wheel's multiply/add contraction; the wrapper's CSR
 matvec explicitly uses FMA while NumPy-style vector updates remain strict.

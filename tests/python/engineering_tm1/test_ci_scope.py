@@ -21,7 +21,7 @@ from engineering.scripts.pre_push_check import CONSUMERS, select
     ('pull_request', ['docs/contracts/three_module_v1/files.md'], 'full'),
     ('pull_request', ['tests/python/fixture.md'], 'full'),
     ('pull_request', ['README.md', 'engineering/requirements/base.txt'], 'full'),
-    ('pull_request', ['solver/full_3d.cpp', 'docs/old.md'], 'full'),
+    ('pull_request', ['native/solver/full_3d.cpp', 'docs/old.md'], 'full'),
     ('pull_request', ['.github/workflows/ci.yml'], 'full'),
     ('pull_request', ['new-package/readme.md'], 'full'),
 ])
@@ -107,8 +107,8 @@ def test_rename_from_code_to_docs_still_requires_full_ci(tmp_path, event, monkey
     git('commit', '-qm', 'Record the CI layout before the native jobs')
     previous = git('rev-parse', 'HEAD')
     shutil.copytree(root / '.github/workflows', workflows, dirs_exist_ok=True)
-    (tmp_path / 'solver').mkdir()
-    (tmp_path / 'solver/model.cpp').write_text('unchanged content\n', encoding='utf-8')
+    (tmp_path / 'native/solver').mkdir(parents=True)
+    (tmp_path / 'native/solver/model.cpp').write_text('unchanged content\n', encoding='utf-8')
     for path in ('docs/native-stages.md', 'docs/native-stages.zh-CN.md'):
         assert select_scope(event, [path]) == 'full'
     git('add', '.')
@@ -136,7 +136,7 @@ def test_rename_from_code_to_docs_still_requires_full_ci(tmp_path, event, monkey
     assert candidates == [2, 1]
     assert ci_scope.restore_pair(candidates, hosts)
     assert restored == list(matching.values())
-    git('mv', 'solver/model.cpp', 'README.md')
+    git('mv', 'native/solver/model.cpp', 'README.md')
     git('commit', '-qm', 'Move source')
     result = subprocess.check_output(
         [sys.executable, '-S', str(script), 'select', '--event', event,
@@ -145,6 +145,6 @@ def test_rename_from_code_to_docs_still_requires_full_ci(tmp_path, event, monkey
     assert ci_scope.native_candidates(base) == []
 
     git('switch', '-q', '--detach', base)
-    (tmp_path / 'solver/model.cpp').write_text('changed content\n', encoding='utf-8')
+    (tmp_path / 'native/solver/model.cpp').write_text('changed content\n', encoding='utf-8')
     git('commit', '-qam', 'Change the source at the same path')
     assert ci_scope.native_candidates(base) == []

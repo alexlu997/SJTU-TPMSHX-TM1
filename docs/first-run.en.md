@@ -158,7 +158,7 @@ For an old layout, first prepare a new cache as described below.
 ```
 
 Keep old caches and their absolute paths while consumers still use them.
-The old pilot build directory records the previous source location. It cannot configure the new layout.
+Each CMake build directory records its source path. After the move to `native/`, use a new cache for the four components.
 
 For an existing checkout, select an unused cache directory. These examples use `.cache/native-layout` and the base environment lock.
 If `.venv-path` selects a BO environment, use `engineering/requirements/bo-macos.txt` or `engineering/requirements/bo-windows.txt` for publication instead.

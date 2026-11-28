@@ -9,15 +9,15 @@ The full application retains its macOS arm64 and Windows x64 platforms.
 
 | Source | Responsibility |
 | --- | --- |
-| `postprocess/result_core.cpp` | Checked contiguous `float64` array views, `int32` label views and diagnostic helpers. |
-| `postprocess/result_arithmetic.cpp` | Private `float64` arithmetic and reductions used by named result calculations. |
-| `postprocess/result_metrics.cpp` | Pressure faces, duties, mass flow, outlet values, integrated mass and Quick Design metrics. |
-| `postprocess/result_balance.cpp` | Independent signed mass and energy balances, residual norms and zone statistics. |
-| `postprocess/result_checks.cpp` | Range observations, qualification predicates, envelope helpers and physical mass bounds. |
-| `numerics/scalar_range_samples.hpp` | Select scalar observations and collect extrema and bound counts. Preparation uses the same code. |
-| `postprocess/result_stage.cpp` | Full metric selection, definitions, statuses, applicability, physical balances and qualification. |
-| `postprocess/result_stage_c_api.cpp` | Owned stage reports, borrowed evidence and versioned host event/error control. |
-| `postprocess/result_c_api.cpp` and family C interfaces | Versioned C functions with checked buffers and ordered floating-point diagnostics. |
+| `native/postprocess/result_core.cpp` | Checked contiguous `float64` array views, `int32` label views and diagnostic helpers. |
+| `native/postprocess/result_arithmetic.cpp` | Private `float64` arithmetic and reductions used by named result calculations. |
+| `native/postprocess/result_metrics.cpp` | Pressure faces, duties, mass flow, outlet values, integrated mass and Quick Design metrics. |
+| `native/postprocess/result_balance.cpp` | Independent signed mass and energy balances, residual norms and zone statistics. |
+| `native/postprocess/result_checks.cpp` | Range observations, qualification predicates, envelope helpers and physical mass bounds. |
+| `native/numerics/scalar_range_samples.hpp` | Select scalar observations and collect extrema and bound counts. Preparation uses the same code. |
+| `native/postprocess/result_stage.cpp` | Full metric selection, definitions, statuses, applicability, physical balances and qualification. |
+| `native/postprocess/result_stage_c_api.cpp` | Owned stage reports, borrowed evidence and versioned host event/error control. |
+| `native/postprocess/result_c_api.cpp` and family C interfaces | Versioned C functions with checked buffers and ordered floating-point diagnostics. |
 
 `scalar_range_samples.hpp` is a private source dependency.
 Preparation and result compile it separately; preparation does not link the result library.
@@ -36,11 +36,11 @@ The result core runs all metric, balance, zone and check calculations in IEEE-75
 It does not link or call NumPy or the Python runtime.
 
 - NumPy 2.5.4 pairwise reduction rules use the existing
-  [complete BSD notice](../engineering/native_build/licenses/numpy-LICENSE.txt).
+  [complete BSD notice](../../engineering/native_build/licenses/numpy-LICENSE.txt).
   The reduction reference is `numpy/_core/src/umath/loops_utils.h.src`.
   `result_arithmetic.cpp` retains pairwise binary64 summation and `float64` element operations.
 - CPython 3.13.2 compensated float summation uses the existing
-  [complete release license](../engineering/native_build/licenses/python-v3.13.2-LICENSE.txt).
+  [complete release license](../../engineering/native_build/licenses/python-v3.13.2-LICENSE.txt).
   The reference is `Python/bltinmodule.c`, `CompensatedSum` and the float path of `builtin_sum_impl`.
   The equivalent CPython 3.12.9 float path is also used by the supported Windows interpreter.
   The port accepts a finite sequence of binary64 values already converted at the Python boundary.
@@ -55,7 +55,7 @@ The source distributions also retain the CMake project, export lists, headers an
 Result ABI 3 is separate from the solver, geometry, field and preparation ABIs.
 The query function keeps its `_v1` query signature and returns `3`.
 The adapter rejects earlier library ABIs before binding numerical calls.
-Its declarations are in `include/tpmshx/result_c_api.h` and the family and stage headers.
+Its declarations are in `native/include/tpmshx/result_c_api.h` and the family and stage headers.
 Only the symbols in `result.exports` and `result.map` are public.
 There is no public arithmetic opcode evaluator or callback that supplies complete metrics.
 

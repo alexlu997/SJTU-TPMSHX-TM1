@@ -18,8 +18,7 @@ TIERS = ('docs', 'application', 'full')
 PLATFORMS = ('macos-15', 'windows-2022')
 # The build, installed SDK, generated headers, independent callers, and runtime notices.
 NATIVE_INPUTS = (
-    '.gitattributes', 'CMakeLists.txt', 'LICENSE', 'geometry', 'include', 'numerics',
-    'preprocess', 'solver', 'postprocess', 'tests/cpp', 'examples/cpp',
+    '.gitattributes', 'CMakeLists.txt', 'LICENSE', 'native', 'tests/cpp', 'examples/cpp',
     'engineering/native_build', 'engineering/requirements/base.txt',
     'engineering/__init__.py', 'engineering/scripts/__init__.py',
     'engineering/scripts/build_coolprop.py', 'engineering/scripts/build_native_dependencies.py',

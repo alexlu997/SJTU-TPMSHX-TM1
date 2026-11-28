@@ -6,7 +6,7 @@ The physical coefficients remain in the project model resources.
 
 | Source | Native use and changes | Notice |
 | --- | --- | --- |
-| [NumPy 2.5.4 maximum](https://github.com/numpy/numpy/blob/v2.5.4/numpy/_core/src/umath/loops_minmax.dispatch.c.src#L45) | The Reynolds floor in `preprocess/preparation_properties.cpp` keeps the AArch64 mixed-zero rule and the x86 equal-value rule. It does not include a NumPy dispatch layer. | [BSD-3-Clause notice](../engineering/native_build/licenses/numpy-LICENSE.txt) |
+| [NumPy 2.5.4 maximum](https://github.com/numpy/numpy/blob/v2.5.4/numpy/_core/src/umath/loops_minmax.dispatch.c.src#L45) | The Reynolds floor in `native/preprocess/preparation_properties.cpp` keeps the AArch64 mixed-zero rule and the x86 equal-value rule. It does not include a NumPy dispatch layer. | [BSD-3-Clause notice](../../engineering/native_build/licenses/numpy-LICENSE.txt) |
 
 The original notice must accompany source and binary distributions that contain this subset.
 Global floating-point options stay unchanged.
@@ -15,14 +15,14 @@ They do not call the native formulas that they check.
 
 ## Scalar inlet-property combination
 
-`preprocess/preparation_case.cpp::inlet_property_values` owns the scalar sequence for standalone queries and complete preparation.
+`native/preprocess/preparation_case.cpp::inlet_property_values` owns the scalar sequence for standalone queries and complete preparation.
 It calls the existing property, Re/Pr, Nu, surface-transfer, fixed DF, pressure-gradient and pore-conductivity implementations.
 All real scalar inputs normalize to `float64` before native evaluation.
 It keeps operation order, floating-point events and source range records.
 Complete preparation keeps its existing physical guards.
 
 `query_inlet_properties` accepts supplied geometry scalars and creates no mesh or solver state.
-`preprocess/preparation_case_c_api.cpp` exposes `tpmshx_query_inlet_properties_v2` with `float64` inline values and no owner.
+`native/preprocess/preparation_case_c_api.cpp` exposes `tpmshx_query_inlet_properties_v2` with `float64` inline values and no owner.
 Optional `tpmshx_preparation_callbacks_v1` callbacks keep synchronous observations and host-object checks; all cache hooks must be NULL and `validate_grid_stage` must be 0.
 `python/physical_models/tpms_calc.py` keeps public calls, shared caches, geometry selection and the per-call material query.
 `python/cpp_interface/inlet_properties.py` packs the inlet query. It uses `python/cpp_interface/preparation_host.py` for range observations and callbacks.
@@ -31,13 +31,13 @@ No physical model, coefficient source or external numerical dependency is added.
 
 ## Spatial flow stages
 
-`preprocess/preparation_case.cpp` owns raw spatial capacity, resolution and complete fixed-flow preparation.
+`native/preprocess/preparation_case.cpp` owns raw spatial capacity, resolution and complete fixed-flow preparation.
 `prepare_spatial_inlet_geometry` uses the existing zone/sigmoid geometry and port cores before any speed-dependent closure.
-`prepare_capacities` and `resolve_speeds` reuse `preprocess/preparation_flow.cpp` for capacity and target arithmetic.
+`prepare_capacities` and `resolve_speeds` reuse `native/preprocess/preparation_flow.cpp` for capacity and target arithmetic.
 Final preparation keeps the physical grid, spatial geometry and per-call cache, with the original requested-grid observations.
 Discrete design smoothing, sigmoid LUT geometry, thermal geometry and row D-F keep their separate owners and operation order.
-`preprocess/preparation_case_c_api.cpp` exposes the v10 inputs and owned views. The v8 and v9 input layouts stay nested in them.
-The [external spatial cache caller](../examples/cpp/prepare_spatial_cache_2d.cpp) uses installed headers and only the preparation library.
+`native/preprocess/preparation_case_c_api.cpp` exposes the v10 inputs and owned views. The v8 and v9 input layouts stay nested in them.
+The [external spatial cache caller](../../examples/cpp/prepare_spatial_cache_2d.cpp) uses installed headers and only the preparation library.
 
 ## Spatial host cache transport
 
@@ -51,7 +51,7 @@ The probes carry L/t, fluid state and optional Nu selection in `float64`.
 The original per-call cache remains available for independent native callers.
 The LUT hook exchanges tables at each path's original geometry checkpoint.
 Python owns disk/memory I/O. `build_sigmoid_lut_2d` owns missing-table construction.
-The [external cache caller](../examples/cpp/prepare_spatial_cache_2d.cpp)
+The [external cache caller](../../examples/cpp/prepare_spatial_cache_2d.cpp)
 checks all six v9 operations, typed probes and copied LUT lifetime.
 Public zone/sigmoid combination queries retain standalone consumers.
 Their later migration must preserve supplied properties and custom controls.
@@ -64,7 +64,7 @@ It runs at the original thermal checkpoint and keeps nominal sides separate from
 The owned complete result adds two thermal-side tuples and retains the existing split fraction.
 Capacity and fixed-flow entries keep their previous delta rejection and validation order.
 Earlier C layouts and scopes stay unchanged. No physical model is added.
-The [external offset caller](../examples/cpp/offset_2d.cpp) prepares, runs and evaluates the existing modes through installed headers.
+The [external offset caller](../../examples/cpp/offset_2d.cpp) prepares, runs and evaluates the existing modes through installed headers.
 
 ## 3D preparation
 
@@ -101,7 +101,7 @@ Python keeps configuration conversion, cache policy, warnings, environment parsi
 The replaced 3D Python bodies and exclusive `shared/models/grid_3d.py` and `asym_split.py` helpers are removed.
 The full-pipeline 3D Python reference is retired. Pure formula references and physical invariant checks remain in `tests/python/`.
 
-3D air-field observations use `numerics/scalar_range_samples.hpp`, also used by result range queries.
+3D air-field observations use `native/numerics/scalar_range_samples.hpp`, also used by result range queries.
 The selection keeps the original scalar notices, extrema and last sample with at most eight host observations per side.
 Full raw-array range records keep every cell and their original sample denominator.
 Preparation and result compile this rule separately; preparation does not link the result library.

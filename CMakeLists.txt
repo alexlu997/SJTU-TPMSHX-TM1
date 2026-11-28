@@ -31,7 +31,7 @@ foreach(component IN LISTS TPMSHX_COMPONENTS)
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT component STREQUAL "result")
         message(FATAL_ERROR "Linux supports only the result component")
     endif()
-    set(source "${TPMSHX_ROOT}/${component_${component}}")
+    set(source "${TPMSHX_ROOT}/native/${component_${component}}")
     set(options "-DTPMSHX_NATIVE_DEPS_ROOT:PATH=${TPMSHX_NATIVE_DEPS_ROOT}"
         "-DTPMSHX_MODEL_INCLUDE_DIR:PATH=${TPMSHX_MODEL_INCLUDE_DIR}"
         "-DTPMSHX_BUILD_QUALIFICATION:BOOL=OFF"
@@ -109,7 +109,7 @@ set(sdk_headers
     temperature_evidence_c_api.h
     thermal_c_api.h
     zones_c_api.h)
-list(TRANSFORM sdk_headers PREPEND "${TPMSHX_ROOT}/include/tpmshx/")
+list(TRANSFORM sdk_headers PREPEND "${TPMSHX_ROOT}/native/include/tpmshx/")
 install(FILES ${sdk_headers} DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/tpmshx")
 configure_package_config_file("${TPMSHX_ROOT}/engineering/native_build/cmake/tpmshxConfig.cmake.in"
     "${CMAKE_BINARY_DIR}/tpmshxConfig.cmake"

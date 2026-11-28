@@ -212,7 +212,7 @@ class SolverConfig:
     Ny: int = field(default=60, metadata=_quantity('N_y', '1'))
     Nz: int = field(default=1, metadata=_quantity('N_z', '1'))
     T_s_init_K: Optional[float] = field(
-        default=None, metadata=_quantity('T_s,0', 'K', 'solver/full_2d.cpp:validate (2D)'))
+        default=None, metadata=_quantity('T_s,0', 'K', 'native/solver/full_2d.cpp:validate (2D)'))
     convergence_mode: Optional[str] = None      # None -> pipelines resolve 'f2' (env wins)
     mom_tol: Optional[float] = None
     mass_local_tol: Optional[float] = None
@@ -353,7 +353,7 @@ class ZoneInputConfig:
     grid: Optional[Dict[str, Any]] = None  # cells / tpms_type / k_s
     config: Optional[Any] = None  # 1D ZoneConfig or canonical 1D/continuous dictionary
     pareto_x_decision: Optional[Any] = field(
-        default=None, metadata=_quantity('L, t', 'mm', 'preprocess/preparation_case.cpp:sigmoid_geometry',
+        default=None, metadata=_quantity('L, t', 'mm', 'native/preprocess/preparation_case.cpp:sigmoid_geometry',
                                          dimensions=(2,)))
     pareto_y_trans_inlet: float = field(
         default=0.2, metadata=_quantity('y_in/H', '1', None, dimensions=(2,)))
