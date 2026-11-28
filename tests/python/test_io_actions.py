@@ -15,9 +15,11 @@ import numpy as np
 import pytest
 
 from tm1.data_types.compute_result import ComputeResult
+from tests.python import gui_workbench_support
 from tests.python.gui_io_support import win as win
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+export_window = gui_workbench_support.win
 
 
 def test_figure_export_records_current_source_and_version(tmp_path, monkeypatch, win):
@@ -826,12 +828,12 @@ def test_export_results_no_data_shows_dialog(monkeypatch, win):
     assert hits, 'expected the No Results dialog'
 
 
-def test_export_results_writes_2d_values(tmp_path, monkeypatch, win):
+def test_export_results_writes_2d_values(tmp_path, monkeypatch, export_window):
     from PySide6.QtWidgets import QFileDialog
 
     out = tmp_path / 'results.csv'
     # Explicitly absent status must remain unknown in the exported file.
-    win.cache.set_result('2d', ComputeResult(
+    export_window.cache.set_result('2d', ComputeResult(
         Q_W=123.5, dP_A_Pa=45., dP_B_Pa=6., converged=None,
         warnings=None, extrap_reasons=None, metadata=None,
         fields={'Ta': np.array([[300., 301.], [302., 303.]]), 'L': .2, 'H': .1}))
@@ -840,7 +842,7 @@ def test_export_results_writes_2d_values(tmp_path, monkeypatch, win):
         staticmethod(lambda *a, **k: (str(out), 'CSV')),
     )
 
-    win.result_export.export_results()
+    export_window.result_export.export_results()
 
     with out.open(encoding='utf-8', newline='') as stream:
         records = list(csv.reader(stream))
@@ -1447,6 +1449,7 @@ def test_optimization_volume_copy_and_export_require_current_render(
     panel = SimpleNamespace(
         _grid=object(), _field='L_mm', _volume_actor=object(), _data_actors=set(),
         _available_fields=('L_mm', 't_mm'), _arrays={'L_mm': object(), 't_mm': object()},
+        _field_loader=None,
         _scale_mode='global', _display_mode='surface', _geometry='simple', _lattice_pending=None,
         plotter=plotter, status=Mock(), colorbar=Mock(), lattice_card=Mock(), grab=Mock(), field_changed=Mock(),
         _viewport_host=Mock(width=lambda: 0, height=lambda: 0),

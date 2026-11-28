@@ -2,7 +2,7 @@
 
 import pytest
 
-from tm1.applications.gui.ui.preflight import FluidCfg, compute_preflight
+from tm1.preprocess.preflight import FluidCfg, compute_preflight
 
 
 def _shanghai_A():

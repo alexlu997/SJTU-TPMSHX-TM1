@@ -565,7 +565,7 @@ def test_dialog_theme_applies_first_and_changed_styles_only(monkeypatch):
 def test_preflight_dialogs_use_active_theme_tokens(win, monkeypatch, theme_name):
     """Input and grid preflight HTML must use active theme tokens."""
     from PySide6.QtWidgets import QMessageBox
-    from tm1.applications.gui.ui.preflight import Preflight
+    from tm1.preprocess.preflight import Preflight
     from tm1.applications.gui.ui.theme import get_theme, get_theme_name, set_theme
     from tm1.applications.gui.ui.window_config import config_from_window
 
@@ -577,8 +577,8 @@ def test_preflight_dialogs_use_active_theme_tokens(win, monkeypatch, theme_name)
         QMessageBox, 'exec',
         lambda box: dialogs.append(box.text()) or QMessageBox.StandardButton.Ok)
     monkeypatch.setattr(
-        'tm1.applications.gui.ui.preflight.compute_preflight',
-        lambda **_kwargs: Preflight(
+        'tm1.preprocess.preflight.preflight_config',
+        lambda _config: Preflight(
             errors=['grid error'], warnings=['grid warning'], info=['grid info']))
     try:
         cfg = config_from_window(win, strict=True)

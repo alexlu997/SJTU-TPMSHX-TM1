@@ -1,8 +1,4 @@
-"""Grid-legality preflight.
-
-Pure functions (no PySide6) so the rules are testable in isolation. The
-UI wrapper in ``main_window.py`` passes captured compute inputs to
-``compute_preflight`` and shows the findings in a QMessageBox.
+"""Grid and geometry checks for a captured compute configuration.
 
 Rules:
   * Use the physical grid constructors and the captured zone state.
@@ -24,7 +20,8 @@ from typing import List, Optional
 
 import numpy as np
 
-from tm1.data_types.validator import cross_axes_for_dir
+from tm1.data_types.compute_config import ComputeConfig, bc_to_dict
+from tm1.data_types.validator import cross_axes_for_dir, validate_geometry
 from tm1.physical_models.grid import (
     build_grid_2d, build_port_wall_grid,
 )
@@ -205,3 +202,48 @@ def compute_preflight(
                 f"long wait. Reduce Nx/Ny or skip Richardson post-hoc.")
 
     return out
+
+
+class InvalidGeometryError(ValueError):
+    """The geometry is invalid before grid construction."""
+
+
+def preflight_config(config: ComputeConfig) -> Preflight:
+    """Return grid and geometry findings. Invalid geometry raises InvalidGeometryError."""
+    geometry, solver = config.geometry, config.solver
+
+    def port_config(bc):
+        # Keep mixed widths for validation. Both fluids use a full face for two zero widths.
+        port = bc_to_dict(bc, geometry.L_dom_m, geometry.H_dom_m,
+                          side='B', with_z=config.is_3d)
+        if port is None:
+            port = bc_to_dict(bc, geometry.L_dom_m, geometry.H_dom_m,
+                              side='A', with_z=config.is_3d)
+        return FluidCfg(
+            dir=port['dir'], in_ctr=port['in_ctr'], in_w=port['in_w'],
+            out_ctr=port['out_ctr'], out_w=port['out_w'],
+            z_in_ctr=port.get('in_z_ctr'), z_in_w=port.get('in_z_w'),
+            z_out_ctr=port.get('out_z_ctr'), z_out_w=port.get('out_z_w'))
+
+    try:
+        geometry_warnings = validate_geometry(
+            geometry.L_dom_m, geometry.H_dom_m, geometry.Lz_m,
+            geometry.L_cell_mm, geometry.t_wall_mm,
+            ks=geometry.k_s_W_mK, is_3d=config.is_3d)
+    except ValueError as error:
+        raise InvalidGeometryError(str(error)) from error
+
+    report = compute_preflight(
+        L=geometry.L_dom_m, H=geometry.H_dom_m, Lz=geometry.Lz_m,
+        Nx=solver.Nx, Ny=solver.Ny, Nz=solver.Nz,
+        is_3d=config.is_3d,
+        port_wall_refine=config.flags.port_wall_refine,
+        zone_axis=config.zones.axis if config.zones.enabled else None,
+        fluid_A=port_config(config.bc_A), fluid_B=port_config(config.bc_B),
+        T_inA=config.fluid_A.T_in_K, T_inB=config.fluid_B.T_in_K)
+    for warning in geometry_warnings:
+        if warning.severity == 'error':
+            report.errors.append(warning.message)
+        else:
+            report.warnings.append(warning.message)
+    return report

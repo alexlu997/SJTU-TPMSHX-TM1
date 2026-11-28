@@ -107,6 +107,9 @@ See [C++ builds](../docs/cpp-migration.md#native-geometry-core) for separate com
 | [applications](applications/) | [GUI](applications/gui/), [CLI](applications/cli/), [Quick Design](applications/design/), [Bayesian optimization](applications/optimization/), and [run recovery](applications/execution/recovery.py). |
 | [development](development/) | Validation, diagnostics, and developer tools. Automated tests live in [tests/python](../tests/python/). |
 
+[Grid and geometry preflight](preprocess/preflight.py) reads a captured `ComputeConfig`. [Sensitivity screening](applications/design/sensitivity.py) evaluates one row at a time for air on side A.
+The GUI shows preflight warnings, sweep progress, and the heatmap.
+
 Old local scripts that use retired module paths must update their imports or use the recorded source revision.
 Start applications with the root [main.py](../main.py). It routes the GUI to [applications/gui/main.py](applications/gui/main.py), the file stages to [applications/cli/stages.py](applications/cli/stages.py), `summary` to [applications/cli/main.py](applications/cli/main.py), `design` to [applications/design/cli.py](applications/design/cli.py), and `optimize` to [applications/optimization/cli.py](applications/optimization/cli.py).
 Computation code calls the four entries above directly.

@@ -34,6 +34,7 @@ def test_flow_glyphs_use_independent_physical_port_locations(direction, expected
     panel = SimpleNamespace(
         plotter=Mock(), _grid=object(), _L_mm=(182., 42., 42.),
         _flow_dir=None, _flow_dir_B=direction, _arrays={'Tb': object()},
+        _available_fields=('Tb',),
         _ports={'B': ports}, _field='Tb', _display_mode='surface',
     )
     panel._faint_port_sides = MethodType(ThreeDVisPanel._faint_port_sides, panel)
@@ -170,6 +171,8 @@ def _make_stub_panel():
             '_faint_port_sides', '_add_flow_glyph',
             'active_field', 'available_fields', 'select_field',
             'set_display_mode', 'set_slice_position', 'refresh_colormaps',
+            '_shared_group_for', '_ensure_field', '_ensure_field_for_display',
+            '_configure_grid_and_show', 'set_field_source',
             '_reset_lattice', '_request_lattice', '_render_lattice_actors', '_restore_shown_lattice',
             '_on_lattice_progress', '_on_lattice_ready', '_on_lattice_failed', '_cancel_lattice',
             '_on_toolbar_geometry_changed', '_on_toolbar_detail_changed', 'set_lattice_geometry',
