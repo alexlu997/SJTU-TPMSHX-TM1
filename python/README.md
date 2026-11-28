@@ -105,6 +105,9 @@ $tm1Python = Get-Content .venv-path -TotalCount 1
 | [applications/](applications/) | [GUI](applications/gui/)、[CLI](applications/cli/)、[快速设计](applications/design/)、[BO 优化](applications/optimization/)和[历史运行恢复](applications/execution/recovery.py)。 |
 | [development/](development/) | 数值与实验验证、诊断和开发工具。自动测试位于 [tests/python/](../tests/python/)。 |
 
+[网格与几何预检](preprocess/preflight.py)读取已捕获的 `ComputeConfig`。[灵敏度筛选](applications/design/sensitivity.py)逐行估算 A 侧为空气时的指标。
+GUI 显示预检警告、扫描进度和热图。
+
 仍使用已退役模块路径的本地脚本需更新导入，或使用记录的原源码版本。
 使用根目录 [main.py](../main.py) 启动应用。它将 GUI 分派到 [applications/gui/main.py](applications/gui/main.py)，文件阶段分派到 [applications/cli/stages.py](applications/cli/stages.py)，`summary` 分派到 [applications/cli/main.py](applications/cli/main.py)，`design` 分派到 [applications/design/cli.py](applications/design/cli.py)，`optimize` 分派到 [applications/optimization/cli.py](applications/optimization/cli.py)。
 计算代码直接调用上述四个入口。

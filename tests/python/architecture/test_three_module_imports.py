@@ -134,6 +134,8 @@ def test_checker_detects_cycle_across_solver_directories(tmp_path):
     "import tm1.preprocess.two_d.preparation, tm1.preprocess.three_d.preparation\n"
     "bad = [m for m in sys.modules if m.startswith('tm1.applications.gui.controllers')]\n"
     "assert not bad, f'preparation pulled controllers: {bad}'",
+    "import tm1.preprocess.preflight, tm1.applications.design.sensitivity\n"
+    "assert 'PySide6' not in sys.modules",
     "from tm1.data_types.compute_config import ComputeConfig, ZoneInputConfig\n"
     "from tm1.data_types.validator import validate_geometry\n"
     "spec = dict(n_ctrl_x=1, n_ctrl_y=1, spline_order=1, symmetric_y=False,\n"
@@ -142,7 +144,7 @@ def test_checker_detects_cycle_across_solver_directories(tmp_path):
     "validate_geometry(.1, .1, None, 7., .5)\n"
     "if 'tm1.physical_models' in sys.modules: raise SystemExit('Geometry validation imported physical models')",
 ], ids=['df-surrogate-below-kernel', 'runtime-without-offline', 'tpms-props-leaf',
-        'preparation-without-controllers', 'geometry-validation'])
+        'preparation-without-controllers', 'preflight-and-sensitivity-without-qt', 'geometry-validation'])
 def test_lower_modules_import_without_upper_modules(probe):
     result = subprocess.run([sys.executable, '-c', 'import sys\n' + probe], cwd=REPO,
                             capture_output=True, text=True, timeout=300)

@@ -166,7 +166,7 @@ def test_run_captures_once_for_preflight_advice_and_worker(win, monkeypatch, dim
 @pytest.mark.parametrize('dimension', [0, 1])
 @pytest.mark.parametrize('zone_axis', [None, 'x', 'y', 'grid', 'continuous'])
 def test_grid_preflight_uses_captured_geometry_ports_and_temperatures(run, win, monkeypatch, dimension, zone_axis):
-    from tm1.applications.gui.ui.preflight import Preflight
+    from tm1.preprocess.preflight import Preflight
 
     win.combo_dim.setCurrentIndex(dimension)
     win.le_Nz.setText('4')
@@ -181,7 +181,7 @@ def test_grid_preflight_uses_captured_geometry_ports_and_temperatures(run, win, 
         captured.append(kwargs)
         return Preflight()
 
-    monkeypatch.setattr('tm1.applications.gui.ui.preflight.compute_preflight', preflight)
+    monkeypatch.setattr('tm1.preprocess.preflight.compute_preflight', preflight)
     assert run.preflight_grid(cfg)
     inputs = captured[0]
     assert (inputs['L'], inputs['H'], inputs['Lz']) == (
@@ -203,7 +203,7 @@ def test_grid_preflight_uses_captured_geometry_ports_and_temperatures(run, win, 
                          [(False, d) for d in range(4)] + [(True, d) for d in range(6)])
 def test_zero_width_ports_use_prepared_full_face_geometry(run, win, monkeypatch, graded, is_3d, direction):
     from tm1.preprocess.api import prepare_case
-    from tm1.applications.gui.ui.preflight import Preflight, compute_preflight
+    from tm1.preprocess.preflight import Preflight, compute_preflight
 
     win.combo_dim.setCurrentIndex(int(is_3d))
     win.combo_grid.setCurrentIndex(win.combo_grid.findData(graded))
@@ -227,7 +227,7 @@ def test_zero_width_ports_use_prepared_full_face_geometry(run, win, monkeypatch,
         captured.update(kwargs, report=compute_preflight(**kwargs))
         return Preflight()
 
-    monkeypatch.setattr('tm1.applications.gui.ui.preflight.compute_preflight', preflight)
+    monkeypatch.setattr('tm1.preprocess.preflight.compute_preflight', preflight)
     assert run.preflight_grid(cfg)
     report = captured['report']
     assert not report.errors, report.errors
@@ -285,8 +285,8 @@ def test_mixed_zero_width_ports_still_block_preflight(run, win, is_3d, side, emp
 def test_captured_invalid_geometry_still_blocks_grid_checks(run, monkeypatch):
     cfg = ComputeConfig()
     cfg.geometry.L_dom_m = -1.
-    with patch.object(QMessageBox, 'critical') as error, \
-         patch('tm1.applications.gui.ui.preflight.compute_preflight') as grid:
+    monkeypatch.setattr('tm1.preprocess.preflight.compute_preflight',
+                        lambda **kwargs: pytest.fail('grid construction after invalid geometry'))
+    with patch.object(QMessageBox, 'critical') as error:
         assert not run.preflight_grid(cfg)
-    error.assert_called_once()
-    grid.assert_not_called()
+    assert error.call_args.args == (run.window, '几何输入不合法', 'L_dom must be > 0, got -1.0')

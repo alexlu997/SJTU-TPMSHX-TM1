@@ -17,12 +17,12 @@ data/raw_data/
 ├── experiments/
 │   ├── air/           Air specimen test summaries
 │   ├── water_air/     Water–air exchanger tests and water pressure-drop tables
-│   └── sco2/
+│   └── sco2/          D/G exchanger values summary and 83-case acceptance manifest
 │       └── d76/       Current arranged and numeric D7 / 0.6 mm wall versions
 ├── cfd/
 │   ├── water/         Existing historical water CFD results
 │   └── sco2/          Supercritical CO2, still grouped by Diamond/Gyroid
-├── archive/           Ordinary CO2, old water dP, sCO2 formulas, REFPROP files
+├── archive/           Ordinary CO2, old water dP, sCO2 formula originals, REFPROP files
 └── plans/
     └── water/         Water CFD worklists, not simulation results
 ```
@@ -45,7 +45,7 @@ Dates come only from explicit experimental dates in source files. Modification t
 | `7-6-Water-dp.xlsx` | `experiments/water_air/water-air_DG7-t0p6_hx_water-dp_with-air-temperature.xlsx` | Water pressure-drop table. The D sheet also contains air inlet temperature. The current water HX reader uses this table. |
 | `换热器压损——20260407-G-7-6+20260609-D_7_6.xlsx` | `archive/water_air/water-air_DG7-t0p6_hx_water-dp.xlsx` | Another pressure-drop table without the additional D-sheet air temperature column. It is not merged with the preceding table. |
 | `试验记录表_整理版.xlsx` | `experiments/air/air_DG_specimen_experiment_summary.xlsx` | Electrically heated air specimen tests, including CFD comparison columns. These are not water CFD results. |
-| `sCO2-Experient.xlsx` | `experiments/sco2/sco2_DG7-t0p6_hx_experiment_summary.xlsx` | D/G sCO2 exchanger summary, with separate column mappings for each topology. |
+| `sCO2-Experient.xlsx` | `experiments/sco2/sco2_DG7-t0p6_hx_experiment_summary.xlsx` | D/G sCO2 exchanger summary, with separate column mappings for each topology. From 2026-11-28, this path holds the values version. The formula original moved to `archive/sco2/sco2_DG7-t0p6_hx_experiment_summary_formulas.xlsx`. |
 | `D-7-6实验数据-sCO2.xlsx` | `experiments/sco2/d76/sco2_D7-t0p6_hx_experiment_arranged.xlsx` | Original `整理版`/`无公式` layout, 47 columns. |
 | `D-7-6-sCO2/D-7-6实验数据-V1.xlsx` | `experiments/sco2/d76/sco2_D7-t0p6_hx_experiment_values_v1.xlsx` | Original V1, `无公式` sheet, 48 columns. |
 | `D-7-6-sCO2/D-7-6实验数据-formula.xlsx` | `archive/sco2/d76/sco2_D7-t0p6_hx_experiment_formulas.xlsx` | Original formula version, including REFPROP external links and caches. |
@@ -103,6 +103,53 @@ This correction changes GUI presets only. It does not change the F/H nominal-flo
 Calibration members, coefficients, thresholds and historical results stay unchanged.
 Distinguish recorded-flow experiment comparisons from nominal-flow benchmarks.
 Grid and convergence controls remain numerical settings, not measurements.
+
+<a id="sco2-values-and-manifest-2026-11-28"></a>
+
+## sCO2 exchanger values workbook and 83-case acceptance manifest, 2026-11-28
+
+`data-revision.txt` now pins private data commit `30eb545095e8dce682427b2d9b709224c78007d0` (`alexlu997/SJTU-TPMSHX-data` PR #3).
+This update switches the sCO2 exchanger summary to a values workbook, archives the formula original, and adds the 83-case heat-transfer acceptance manifest.
+
+### Values workbook and formula original
+
+TM1 reads Diamond and Gyroid exchanger measurements from `experiments/sco2/sco2_DG7-t0p6_hx_experiment_summary.xlsx` without REFPROP.
+All 3,586 formulas across the five worksheets became their last saved cached values.
+Cell positions, number formats, completion status, and remarks stay unchanged.
+The values workbook contains no formulas, external links, or calculation chain.
+The formula original moved byte for byte to `archive/sco2/sco2_DG7-t0p6_hx_experiment_summary_formulas.xlsx`.
+That archive file keeps its REFPROP external links and cached values for formula checks.
+
+Rows 10–41 of `物性计算` reserve empty temperature and pressure inputs (`B10:C41`).
+The values workbook keeps the 160 existing empty-input diagnostic strings in those rows verbatim.
+Experimental cases for both topologies come from their `实验数据处理` worksheets.
+TM1 readers (`load_exp`, case screening, manifest loading, and `fit_experimental_effective.evaluate_sco2`) return identical frames and outputs on the original and values workbooks.
+
+### 83-case heat-transfer acceptance manifest
+
+`experiments/sco2/sco2_DG7-t0p6_hx_q-acceptance_83-cases.meta.json` is the fixed sCO2 heat-transfer acceptance manifest.
+It specifies 83 cases: 43 Diamond cases and 40 Gyroid cases.
+`python -m tm1.development.validation.cases.validate_sco2_exp_q --case-manifest <file>` reads this manifest directly.
+
+An earlier cache cleanup removed the original manifest file.
+The 83 case IDs come from `docs/plans/three-module-graph/evidence/real-experiments/fixed166-comparison.json` in TM1 Git commit `1f9bc07`.
+The historical filter rule reproduces the same 83 cases on this workbook.
+That rule excludes cancelled and redo rows.
+It requires |heat balance| ≤ 0.15, temperatures in 280–700 K, and gauge pressure in 8.0–16.0 MPa.
+The manifest records separate SHA-256 hashes for the active values workbook and the archived formula original.
+The archived formula original matches `实验数据处理与分析_物性自动计算，需配置Refprop.xlsx` from the project closeout files byte for byte.
+
+Current `--all-valid` screening selects 86 cases.
+It adds 3 cases and removes none.
+Gyroid 1 and 37 enter after gauge-to-absolute pressure conversion (+101325 Pa) raises hot-side pressure above 8.0 MPa.
+Diamond 48 enters after the lower pressure limit changes from 8.0 MPa to 7.9 MPa.
+On 2026-11-28, the user approved these 83 cases for sCO2 experimental acceptance in TM1 restructure steps 4 and 5.
+This keeps comparison parity with historical acceptance results.
+Filtering only by the completed status under current pressure limits also gives 83 cases (41 Diamond and 42 Gyroid).
+Those members differ, so that filter must not replace this manifest.
+
+This data update changes no experimental measurements, column mappings, pressure conventions, or acceptance thresholds.
+It does not show solver or experimental accuracy acceptance.
 
 <a id="水-cfd-计划孔隙率修订2026-09-12"></a>
 

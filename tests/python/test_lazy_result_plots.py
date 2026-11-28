@@ -242,7 +242,7 @@ def test_saved_3d_result_uses_selected_field_reader_for_single_view_and_full_loa
         )
     with pytest.raises(ValueError, match='source_result_id'):
         win.cache.set_result('3d', header_display, result_file=results_path)
-    with pytest.raises(ValueError, match='expected_result_id'):
+    with pytest.raises(ValueError, match='source_result_id'):
         result_field_loader.read_saved_display_field(
             results_path, 'Ta', mode='3d', expected_result_id=''
         )
@@ -400,3 +400,49 @@ def test_panel_select_field_surfaces_reader_error_in_status():
     assert panel.active_field() == 'Ta'
     assert shown['visible'] is True
     assert 'source_result_id mismatch' in shown['text']
+
+
+@pytest.mark.parametrize('initial_field, toggle_kwargs', [
+    ('Ta', {'sync_temp': True}),
+    ('P_kPa', {'shared_pressure': True}),
+])
+def test_panel_set_scale_sharing_surfaces_reader_error_in_status(initial_field, toggle_kwargs):
+    from tests.python.test_volume_render_batching import _make_stub_panel
+    from tm1.applications.gui.ui.panel_vis_3d import ThreeDVisPanel
+
+    panel = _make_stub_panel()
+    try:
+        panel._sync_temp_scale = False
+        panel._shared_pressure_scale = False
+        shown = {'text': '', 'visible': False}
+        panel.status = SimpleNamespace(
+            setText=lambda text: shown.__setitem__('text', text),
+            setToolTip=lambda text: None,
+            show=lambda: shown.__setitem__('visible', True),
+            hide=lambda: shown.__setitem__('visible', False),
+        )
+        widths = [np.full(n, 0.001) for n in (2, 2, 2)]
+        base = np.full((2, 2, 2), 320.0)
+
+        def _loader(key):
+            if key in ('Tb', 'P_B_kPa'):
+                raise ValueError('source_result_id mismatch')
+            return base
+
+        ThreeDVisPanel.set_field_source(
+            panel,
+            available_fields=('Ta', 'Tb', 'P_kPa', 'P_B_kPa'),
+            field_loader=_loader,
+            dx=widths[0],
+            dy=widths[1],
+            dz=widths[2],
+            initial_field=initial_field,
+        )
+        panel.set_scale_sharing(**toggle_kwargs)
+        assert shown['visible'] is True
+        assert '场读取失败' in shown['text']
+        assert 'source_result_id mismatch' in shown['text']
+        assert panel._sync_temp_scale is toggle_kwargs.get('sync_temp', False)
+        assert panel._shared_pressure_scale is toggle_kwargs.get('shared_pressure', False)
+    finally:
+        panel.colorbar.deleteLater()
