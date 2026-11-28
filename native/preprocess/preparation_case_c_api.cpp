@@ -29,7 +29,7 @@ namespace p=tpmshx::preparation;
 using p::c_api::require_buffer;
 using p::c_api::require_disjoint;
 
-enum class CallbackMode { inlet_query, uniform_2d, spatial_2d, three_d };
+enum class CallbackMode { inlet_query, two_d, three_d };
 
 tpmshx_preparation_text_v1 text(const std::string& value) {return {value.data(),value.size()};}
 tpmshx_preparation_text_v1 text(const char* value) {return {value,std::strlen(value)};}
@@ -690,7 +690,7 @@ template<class Source,class Result,class Function> int flow_boundary(
         version(source);version(&source->input);version(result);
         failure_version(failure);
         if (selected) version(selected);
-        validate_callbacks(callbacks,is_spatial?CallbackMode::spatial_2d:CallbackMode::uniform_2d);
+        validate_callbacks(callbacks,CallbackMode::two_d);
         staged_failure.abi_version=TPMSHX_PREPARATION_FAILURE_ABI_VERSION;
         staged_failure.struct_size=sizeof(staged_failure);staged_failure.side=2;failure_ready=true;
         try {

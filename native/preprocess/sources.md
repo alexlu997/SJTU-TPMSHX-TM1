@@ -24,7 +24,8 @@ Complete preparation keeps its existing physical guards.
 `query_inlet_properties` accepts supplied geometry scalars and creates no mesh or solver state.
 `native/preprocess/preparation_case_c_api.cpp` exposes `tpmshx_query_inlet_properties_v2` with `float64` inline values and no owner.
 Optional `tpmshx_preparation_callbacks_v3` callbacks deliver synchronous observations and host validation. Direct inlet queries require `validate_grid_stage = 0`.
-`python/physical_models/tpms_calc.py` keeps public calls, shared caches, geometry selection and the per-call material query.
+Standalone `tpms_calc.compute` calls `tpmshx_preparation_cached_inlet_v1`. The preparation image owns the shared inlet and geometry caches.
+`python/physical_models/tpms_calc.py` selects the registered fluid and query route, calculates `K_ss` for each call, and handles warnings.
 `python/cpp_interface/inlet_properties.py` packs the inlet query. It uses `python/cpp_interface/preparation_host.py` for range observations and callbacks.
 The pure empirical fluid-property formulas in `tests/python/property_reference.py` and Nusselt correlation formulas in `tests/python/nu_reference.py` supply independent numerical expectations.
 No physical model, coefficient source or external numerical dependency is added.

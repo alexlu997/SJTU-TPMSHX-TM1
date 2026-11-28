@@ -8,7 +8,7 @@ from ._native_values import geometry_topology, borrow_text, real_scalar
 from .stage_libraries import preparation_library
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=2)
 def _inlet_functions(owner, cached):
     symbol = 'tpmshx_preparation_cached_inlet_v1' if cached else 'tpmshx_query_inlet_properties_v2'
     call = owner.bind(symbol, [
@@ -20,9 +20,9 @@ def _inlet_functions(owner, cached):
 
 
 def query_values(topology, cell, wall, velocity, temperature, pressure, fluid_name,
-                 selection, geometry, observe, notice, observe_event, property_error, water_error, *, exact_co2_drag, co2_geometry=False, records=None,
-                 validate_geometry=None, validate_model=None):
-    """Pack one inlet and return its twelve inline float64 values."""
+                 selection, geometry, observe, notice, observe_event, property_error, water_error, *,
+                 records, exact_co2_drag, co2_geometry=False, validate_geometry=None, validate_model=None):
+    """Return the inlet values. A cached query also returns geometry and copies the source evidence into records."""
     buffers = []
 
     def real(value, name):

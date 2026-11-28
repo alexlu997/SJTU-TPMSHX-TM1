@@ -90,7 +90,9 @@ It evaluates four-fluid properties, Nu, and fixed CFD drag in their production o
 `tpmshx_preparation_inlet_query_result_v1` (`abi_version = 1`, `struct_size = sizeof(tpmshx_preparation_inlet_query_result_v1)`) returns 12 `float64` values (`double values[12]`).
 This query allocates no owner and requires no release call.
 Pass optional `tpmshx_preparation_callbacks_v3` with `validate_grid_stage = 0` to record range, notice, and floating-point events synchronously.
-Standalone `tpms_calc.compute` selects the registered fluid, geometry, shared cache, per-call `K_ss` and warning policy. It calls `tpmshx_preparation_cached_inlet_v1` and releases the owned result after it copies the source records.
+Standalone `tpms_calc.compute` selects the registered fluid, calculates `K_ss` for each call and handles warnings.
+It calls `tpmshx_preparation_cached_inlet_v1` in the preparation image, which owns the shared inlet cache.
+The binding copies the source records before it releases the native result.
 The optional keyword `df_mode` defaults to `cfd_smooth`. With `experimental`, the query applies the selected correction to the returned permeability, inertial coefficient and pressure gradient.
 The shared cache contains the base values. CO₂ uses its fixed correction for either mode.
 

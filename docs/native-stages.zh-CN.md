@@ -88,7 +88,9 @@ Python 按原顺序去重合并算例通知与运行期 `nu-evidence` 警告，�
 `tpmshx_preparation_inlet_query_result_v1`（`abi_version = 1`、`struct_size = sizeof(tpmshx_preparation_inlet_query_result_v1)`）返回 12 个纯 `float64` 标量（`double values[12]`）。
 该查询不创建所有者，无需释放调用。
 可传入设置 `validate_grid_stage = 0` 的 `tpmshx_preparation_callbacks_v3`，以同步接收范围、通知和浮点事件。
-独立的 `tpms_calc.compute` 选择注册流体、几何、共享缓存、逐次 `K_ss` 查询及警告策略。它调用 `tpmshx_preparation_cached_inlet_v1`，复制源记录后再释放结果。
+独立的 `tpms_calc.compute` 选择注册流体，逐次计算 `K_ss` 并处理警告。
+它调用准备库的 `tpmshx_preparation_cached_inlet_v1`，共享入口缓存由该库持有。
+绑定复制源记录后释放原生结果。
 可选关键字参数 `df_mode` 默认为 `cfd_smooth`。选择 `experimental` 时，返回的渗透率、惯性系数和压降梯度应用所选实验修正。
 共享缓存保存基准值。CO₂ 在两种模式下均使用固定修正。
 

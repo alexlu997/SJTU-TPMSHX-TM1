@@ -1744,11 +1744,6 @@ TableValue default_sigmoid_table(Topology topology,std::size_t cell_nodes,std::s
     return publish_table(topology,resolution,build_sigmoid_table(topology,std::move(axes),resolution));
 }
 
-SigmoidLUT2D build_sigmoid_lut_2d(Topology topology,std::size_t cell_nodes,
-    std::size_t wall_nodes,std::size_t resolution) {
-    return default_sigmoid_table(topology,cell_nodes,wall_nodes,resolution)->lut;
-}
-
 SigmoidLUT2D build_sigmoid_table(Topology topology,SigmoidLUT2D output,std::size_t resolution) {
     FloatingEnvironment floating_environment;
     const auto cells=count(output.cell_mm.size(),output.wall_mm.size());

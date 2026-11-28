@@ -355,7 +355,7 @@ typedef struct {
     tpmshx_preparation_spatial_model_2d_v9 model;
     /* Set defer_default_lut to request disk I/O on a default-table miss.
      * Initialize both input headers for resume. Pass the live prefix and selected table to the same entry.
-     * Pass NULL for resume options. The prefix owns the selected options.
+     * Pass NULL for resume options. The entry validates any supplied options and uses the values from the prefix.
      * Use a new result. Release the prefix result after resume or an I/O error. */
     uint32_t defer_default_lut;
     struct tpmshx_preparation_sigmoid_prefix_v1* prefix;
@@ -483,7 +483,8 @@ TPMSHX_PREPARATION_API int TPMSHX_PREPARATION_CALL tpmshx_preparation_cached_inl
 TPMSHX_PREPARATION_API void TPMSHX_PREPARATION_CALL tpmshx_preparation_cached_inlet_release_v1(
     tpmshx_preparation_cached_inlet_result_v1*);
 
-/* Build the training-range sigmoid LUT once; preparation borrows its arrays.
+/* Get the shared sigmoid LUT for the training range. Preparation borrows its arrays.
+ * The first published table supplies the values. It can come from a file or from the geometry kernel.
  * Initialize result.abi_version=1, struct_size=sizeof(*result) and owner=NULL.
  * Error storage must not overlap any owned LUT array.
  */

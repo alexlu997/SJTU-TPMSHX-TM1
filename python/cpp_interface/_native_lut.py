@@ -71,16 +71,13 @@ class Table:
         """Restore the original order, precision and dtype of each imported grid."""
         shape = self.view.cell_mm.size, self.view.wall_mm.size
         tables = []
-        for source, values, fast in zip(self.view.file_fields, (self.view.porosity, self.view.area_density_per_m),
-                                       (self.view.porosity_fast, self.view.area_fast)):
+        for source, values in zip(self.view.file_fields, (self.view.porosity, self.view.area_density_per_m)):
             if source.dtype.size:
                 dtype = np.dtype(ct.string_at(source.dtype.data, source.dtype.size).decode('ascii'))
                 storage = ct.string_at(source.data, source.size)
                 table = np.frombuffer(storage, dtype=dtype).copy().reshape(shape)
             else:
                 table = copy_array(values, shape)
-                if not fast:
-                    table = table.astype(np.dtype('f8').newbyteorder('S'))
                 if descending:
                     table = np.flip(table, axis=descending)
             tables.append(table)

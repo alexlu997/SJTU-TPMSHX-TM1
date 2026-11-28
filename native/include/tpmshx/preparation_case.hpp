@@ -152,8 +152,6 @@ struct PreparationEvent {
     std::string logger,message;
     std::uint32_t floating_event=0;
 };
-struct PreparationInletCache;
-struct SigmoidLUT2D;
 struct PreparationGeometryKey {
     Topology topology;
     double cell_length_mm,wall_thickness_mm;
@@ -360,9 +358,6 @@ PreparedCase2D prepare_case_2d(const CaseInput2D&,const PreparationOptions& = {}
 PreparedZonedCase2D prepare_zoned_case_2d(const ZonedInput2D&,
     const PreparationOptions& = {},const PreparationCallbacks& = {});
 
-// The caller retains this resource across preparations. Disk caches stay in the host.
-SigmoidLUT2D build_sigmoid_lut_2d(Topology,std::size_t cell_nodes=41,
-    std::size_t wall_nodes=31,std::size_t resolution=256);
 // The 3D stage owns physical (x,y,z) fields and unswapped physical port masks.
 PreparedCase3D prepare_case_3d(const CaseInput3D&,const PreparationOptions& = {},
                               const PreparationCallbacks& = {},CaseScope3D = CaseScope3D::symmetric_v3);
