@@ -161,7 +161,8 @@ def test_restart_saves_inputs_and_preserves_source_or_frozen_entry(win, frozen, 
     monkeypatch.setattr(os, 'execv', lambda executable, args: events.append((executable, args)))
     monkeypatch.setattr(win.case_files, 'save_session', lambda: events.append('saved') or True)
     win.appearance.restart()
-    expected = [sys.executable] + ([] if frozen else ['-m', 'tm1.main']) + ['--example-option']
+    from tm1.run_control.provenance import SOURCE_ROOT
+    expected = [sys.executable] + ([] if frozen else [str(SOURCE_ROOT / 'main.py')]) + ['--example-option']
     assert events == ['saved', (sys.executable, expected)]
 
 

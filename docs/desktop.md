@@ -32,7 +32,7 @@ macOS arm64：
 ```sh
 tm1_python="$(sed -n '1p' .venv-path)"
 export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
-"$tm1_python" -m tm1.main
+"$tm1_python" main.py
 ```
 
 也可显式指定默认目录之外的原生库：
@@ -41,7 +41,7 @@ export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
 export TPMSHX_GEOMETRY_LIBRARY="$PWD/.cache/native-deps/build/pilot-macos-arm64/libtpmshx_geometry_shared.dylib"
 export TPMSHX_PREPARATION_LIBRARY="$PWD/.cache/native-deps/build/preparation-macos-arm64/libtpmshx_preparation_shared.dylib"
 export TPMSHX_RESULT_LIBRARY="$PWD/.cache/native-deps/build/result-macos-arm64/libtpmshx_result_shared.dylib"
-"$tm1_python" -m tm1.main --backend cpp \
+"$tm1_python" main.py --backend cpp \
   --native-library "$PWD/.cache/native-deps/build/pilot-macos-arm64/libtpmshx_solver_shared.dylib" \
   --native-table-directory "$PWD/.cache/native-deps/tables"
 ```
@@ -52,7 +52,7 @@ Windows x64（PowerShell）：
 $tm1Python = Get-Content .venv-path -TotalCount 1
 $env:MPLCONFIGDIR = Join-Path $PWD '.cache/matplotlib'
 $env:XDG_CACHE_HOME = Join-Path $PWD '.cache/xdg'
-& $tm1Python -m tm1.main
+& $tm1Python main.py
 ```
 
 也可显式指定既有构建产物：
@@ -63,7 +63,7 @@ $env:TPMSHX_PREPARATION_LIBRARY = Join-Path $PWD '.cache/native-deps/build/prepa
 $env:TPMSHX_RESULT_LIBRARY = Join-Path $PWD '.cache/native-deps/build/result-windows-x64/tpmshx_result_shared.dll'
 $tm1Library = Join-Path $PWD '.cache/native-deps/build/pilot-windows-x64/tpmshx_solver_shared.dll'
 $tm1Tables = Join-Path $PWD '.cache/native-deps/tables'
-& $tm1Python -m tm1.main --backend cpp --native-library $tm1Library --native-table-directory $tm1Tables
+& $tm1Python main.py --backend cpp --native-library $tm1Library --native-table-directory $tm1Tables
 ```
 
 如库存放在其他文件夹，替换该路径。程序不搜索磁盘、编译库、下载或安装依赖。
@@ -74,8 +74,8 @@ CLI 的 `run` 和 `solve` 子命令接受同样的三个后端参数。
 
 GUI 的普通计算、快速设计和优化统一使用 C++，保留计算线程设置。
 源码 GUI 和 CLI 共用本机默认库：macOS 为
-`sjtu_tpmshx/solvers/native/lib/macos-arm64/libtpmshx_solver_shared.dylib`，Windows 为
-`sjtu_tpmshx/solvers/native/lib/windows-x64/tpmshx_solver_shared.dll`。使用默认库时，表目录默认为
+`native/lib/macos-arm64/libtpmshx_solver_shared.dylib`，Windows 为
+`native/lib/windows-x64/tpmshx_solver_shared.dll`。使用默认库时，表目录默认为
 `.cache/native-deps/tables`；显式参数优先。匹配库就位后无需后端参数。
 CLI、独立 C 调用和 CI 通过不代替两平台可见桌面验收。
 
@@ -98,7 +98,7 @@ macOS 名称为 `libtpmshx_result_shared.dylib`，Windows 为 `tpmshx_result_sha
 
 ## 可选冻结打包
 
-桌面入口是 `tm1.desktop`，调用现有 GUI 和公共三模块计算链。
+冻结入口是根目录 `main.py`，调用现有 GUI 和公共三模块计算链。
 `engineering/packaging/desktop.spec` 使用 PyInstaller 将解释器、锁定运行依赖、模型配置、
 DF 表和 SVG 图标打包；不包含原始实验数据、研究输出、测试代码或 Office 字体。
 默认构建与 `engineering/requirements/base.txt` 的功能范围一致，不含可选 Torch/BoTorch
@@ -151,7 +151,7 @@ $env:XDG_CACHE_HOME = Join-Path $PWD '.cache/desktop-build/xdg-cache'
 
 `PYINSTALLER_CONFIG_DIR` 是 PyInstaller 的官方构建缓存控制变量，参见
 [PyInstaller 环境变量说明](https://pyinstaller.org/en/stable/man/pyinstaller.html#environment-variables)。
-这些设置用于开发机上的构建过程；下文的安装程序启动缓存仍由桌面启动器管理。
+这些设置用于开发机上的构建过程；下文的安装程序启动缓存由 `main.py` 的 GUI 路由管理。
 
 ```text
 python -m tm1.development.runs.tools.check_locked_environment engineering/requirements/desktop.txt
@@ -182,8 +182,8 @@ $env:TPMSHX_NATIVE_RESULT_LIBRARY = 'C:\absolute\path\tpmshx_result_shared.dll'
 会使构建失败；不会悄悄省略任一原生库。只收集这四份预构建动态库及其实际运行依赖，
 不把 `.cache/native-deps` 的编译器、源码树、构建目录或物性表缓存装入程序包。
 
-示例中的 `python` 均替换为构建指针记录的绝对解释器。启动器在导入计算模块前
-设置 Matplotlib 与通用用户缓存目录，并执行 `multiprocessing.freeze_support()`；参见
+示例中的 `python` 均替换为构建指针记录的绝对解释器。根目录 `main.py` 先执行
+`multiprocessing.freeze_support()`；GUI 路由在导入 Matplotlib 前设置 Matplotlib 与通用用户缓存目录；参见
 [PyInstaller 多进程说明](https://pyinstaller.org/en/stable/common-issues-and-pitfalls.html#multi-processing)。
 几何查表缓存也遵从 `XDG_CACHE_HOME`，首次生成和再次使用均不写入程序目录；
 构建只收集白名单中的模型资源和图标，不携带开发机的会话或缓存。

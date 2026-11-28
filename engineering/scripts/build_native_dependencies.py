@@ -626,7 +626,7 @@ def publish(cache: Path, host: str, python: Path, lock: Path, component: str = "
     selected_component = component if component in {"geometry", "preparation", "result"} else "all"
     build(cache, host, python, lock, selected_component)
     verify(cache, host, selected_component)
-    destination = ROOT / "sjtu_tpmshx/solvers/native/lib" / host
+    destination = ROOT / "native/lib" / host
     libraries = ([(selected_component, selected_component + "-build.json")]
                  if selected_component != "all" else PUBLISHED_LIBRARIES)
     log = cache / "logs" / f"publish-{host}.log"
@@ -910,7 +910,7 @@ def main() -> None:
     elif args.action == "publish":
         publish(cache, host, python, args.python_lock.resolve(), args.component)
     elif args.action == "verify-published":
-        directory = args.directory or ROOT / "sjtu_tpmshx/solvers/native/lib" / host
+        directory = args.directory or ROOT / "native/lib" / host
         verify_published(directory.resolve(), host, args.component,
                          cache / "logs" / f"verify-published-{host}.log")
     else:

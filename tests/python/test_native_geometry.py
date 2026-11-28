@@ -494,13 +494,13 @@ def test_public_scalar_cache_does_not_cache_the_current_material_setting(geometr
 def test_loader_uses_the_selected_platform_and_package_layout(
         tmp_path, monkeypatch, system, machine, host, name, frozen):
     package, bundle = tmp_path / 'package', tmp_path / 'bundle'
-    path = bundle / 'native' / name if frozen else package / 'solvers/native/lib' / host / name
+    path = bundle / 'native' / name if frozen else package / 'native/lib' / host / name
     path.parent.mkdir(parents=True)
     path.touch()
     monkeypatch.delenv('TPMSHX_GEOMETRY_LIBRARY', raising=False)
     monkeypatch.setattr(native, 'sys', SimpleNamespace(platform=system, frozen=frozen, _MEIPASS=str(bundle)))
     monkeypatch.setattr(native, 'platform', SimpleNamespace(machine=lambda: machine))
-    monkeypatch.setattr(native, 'PUBLISHED_LIBRARY_DIR', package / 'solvers/native/lib')
+    monkeypatch.setattr(native, 'PUBLISHED_LIBRARY_DIR', package / 'native/lib')
     assert native._library_path() == str(path.resolve())
 
 

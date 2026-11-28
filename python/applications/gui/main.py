@@ -1,18 +1,29 @@
 """Launch the desktop GUI; compute.py owns the calculation sequence."""
+import os
+from pathlib import Path
 import sys
 
+from PySide6.QtCore import QStandardPaths
 from PySide6.QtWidgets import QApplication
 
-from tm1.applications.gui.ui.theme import (
-    set_theme,
-    apply_mpl_theme, set_density,
-)
+
+def configure_cache():
+    """Keep plotting and library caches outside the application bundle."""
+    root = Path(QStandardPaths.writableLocation(
+        QStandardPaths.StandardLocation.GenericCacheLocation)) / 'SJTU-TPMSHX-TM1'
+    for name, directory in (('MPLCONFIGDIR', 'matplotlib'),
+                            ('XDG_CACHE_HOME', 'libraries')):
+        path = Path(os.environ.setdefault(name, str(root / directory)))
+        path.mkdir(parents=True, exist_ok=True)
 
 
 # ── Entry point ───────────────────────────────────────────────
 def main(argv=None):
-    """Start the desktop interface from source or an installed launcher."""
+    """Start the desktop interface; the root main.py routes to this function."""
+    # Set the cache paths before a module imports Matplotlib.
+    configure_cache()
     import argparse
+    from tm1.applications.gui.ui.theme import apply_mpl_theme, set_density, set_theme
     from tm1.applications.cli.cli_options import add_run_control_arguments, run_control_from_args
     parser = argparse.ArgumentParser(description=__doc__)
     add_run_control_arguments(parser)
@@ -22,8 +33,7 @@ def main(argv=None):
     from PySide6.QtCore import Qt as _Qt
     QApplication.setHighDpiScaleFactorRoundingPolicy(
         _Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
-    import os as _os_main
-    _os_main.environ.setdefault('QT_ENABLE_HIGHDPI_SCALING', '1')
+    os.environ.setdefault('QT_ENABLE_HIGHDPI_SCALING', '1')
     app = QApplication.instance() or QApplication([sys.argv[0], *qt_args])
     from tm1.applications.gui.controllers import main_thread_gc
     main_thread_gc.install(app)
@@ -54,7 +64,3 @@ def main(argv=None):
     window = Main_Menu(control=control)
     window.showMaximized()
     return app.exec()
-
-
-if __name__ == "__main__":
-    sys.exit(main())

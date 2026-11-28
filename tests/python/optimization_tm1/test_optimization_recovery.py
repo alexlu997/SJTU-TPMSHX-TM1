@@ -279,3 +279,20 @@ def test_search_with_real_batches_resumes_moved_archive_like_uninterrupted_searc
     assert continued['resumed_from'] == str(target.resolve() / 'design_0001')
     assert [row['recovery_mode'] for row in continued['conditions']] == ['completed_copy', 'new']
     assert {path.relative_to(moved): path.read_bytes() for path in moved.rglob('*') if path.is_file()} == before
+
+
+def test_optimize_route_continues_or_repeats_a_saved_search(tmp_path, monkeypatch, capsys):
+    from tm1.applications.optimization.cli import run
+    _fake_batches(monkeypatch)
+    source = tmp_path / 'source'
+    with pytest.raises(PausedRun):
+        search.run_multi_condition_optimization(_conditions(), output_dir=source,
+            method='sobol', n_init=2, n_iter=0, workers=1, pause_check=lambda: True)
+    frozen = json.loads((source / 'optimization-input.json').read_text())
+    for name, target in (('optimization.json', 'resumed'), ('optimization-input.json', 'repeated')):
+        assert run([str(source / name), str(tmp_path / target), '--workers', '1']) == 0
+        result = _manifest(tmp_path / target)
+        assert result['status'] == 'completed' and result['n_usable'] == 2
+        assert json.loads((tmp_path / target / 'optimization-input.json').read_text()) == frozen
+    statuses = [line for line in capsys.readouterr().out.splitlines() if line.startswith('status = ')]
+    assert statuses == ['status = completed'] * 2

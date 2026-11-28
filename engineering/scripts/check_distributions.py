@@ -23,7 +23,7 @@ from packaging.requirements import Requirement
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = "tm1"
 NATIVE_SOURCES = ("preprocess", "solver", "postprocess", "geometry", "numerics", "include", "tests/cpp")
-RUNTIME = PurePosixPath("sjtu_tpmshx/solvers/native/lib")
+RUNTIME = PurePosixPath("native/lib")
 TESTS = PurePosixPath("tests")
 FORBIDDEN_PARTS = {".cache", ".git", ".venv", "__pycache__", ".pytest_cache", "_out", "opt_runs", "nTop_inputs", ".agents", "build", "dist"}
 FORBIDDEN_SUFFIXES = {".xlsx", ".xlsm", ".pyc", ".pyo", ".nbi", ".nbc", ".a", ".lib", ".dylib", ".dll", ".so",

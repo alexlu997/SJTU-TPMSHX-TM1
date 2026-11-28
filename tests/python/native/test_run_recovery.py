@@ -140,7 +140,7 @@ raise SystemExit(status)
     args = ['resume', str(moved / 'checkpoint.h5'), str(target), '--checkpoint-interval', '3600',
             '--native-library', str(moved / record['native_file']),
             '--native-table-directory', control.native_table_directory, '--cpu-threads', '3']
-    process = subprocess.run([sys.executable, '-m', 'tm1.cli', *args],
+    process = subprocess.run([sys.executable, str(Path(__file__).resolve().parents[3] / 'main.py'), *args],
                              capture_output=True, text=True, timeout=120)
     qualified = expected.run_status['converged'] and all(
         expected_metrics.metrics[name].status == 'available'

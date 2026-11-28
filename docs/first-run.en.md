@@ -70,9 +70,9 @@ PYTHON="$(head -n 1 .venv-path)"
 export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
 "$PYTHON" engineering/scripts/build_native_dependencies.py fetch
 "$PYTHON" engineering/scripts/build_native_dependencies.py publish
-"$PYTHON" -m tm1.cli run examples/three_module/air_2d.json .cache/first-run-2d --case-id first-run-2d
-"$PYTHON" -m tm1.cli run examples/three_module/air_3d.json .cache/first-run-3d --case-id first-run-3d
-"$PYTHON" -m tm1.main
+"$PYTHON" main.py run examples/three_module/air_2d.json .cache/first-run-2d --case-id first-run-2d
+"$PYTHON" main.py run examples/three_module/air_3d.json .cache/first-run-3d --case-id first-run-3d
+"$PYTHON" main.py
 ```
 
 On Windows:
@@ -83,9 +83,9 @@ $env:MPLCONFIGDIR = Join-Path $PWD '.cache/matplotlib'
 $env:XDG_CACHE_HOME = Join-Path $PWD '.cache/xdg'
 & $tm1Python engineering/scripts/build_native_dependencies.py fetch
 & $tm1Python engineering/scripts/build_native_dependencies.py publish
-& $tm1Python -m tm1.cli run examples/three_module/air_2d.json .cache/first-run-2d --case-id first-run-2d
-& $tm1Python -m tm1.cli run examples/three_module/air_3d.json .cache/first-run-3d --case-id first-run-3d
-& $tm1Python -m tm1.main
+& $tm1Python main.py run examples/three_module/air_2d.json .cache/first-run-2d --case-id first-run-2d
+& $tm1Python main.py run examples/three_module/air_3d.json .cache/first-run-3d --case-id first-run-3d
+& $tm1Python main.py
 ```
 
 Each compute command writes `case.yaml`, accompanying `case.h5`, `results.h5`, and `metrics.json`. The final command starts the GUI. CLI inputs differ from GUI sessions. These JSON files are CLI inputs. Open each `metrics.json`. Five basic metrics should be `available`.
@@ -121,17 +121,17 @@ Then do a check of the matching lock. Run `pip check`. Do not add optional depen
 
 This delivery keeps the Python/Qt application and source in a project folder with a matching precompiled C++ library. It does not create an `.app`. The supplied library targets the local macOS 27 / arm64 host. Other systems, machines, and older macOS versions are not accepted. Reuse the existing locked environment in `.venv-path` and the checks above.
 
-Double-click root `launch-macos.command`, or run:
+From the project folder, run:
 
 ```sh
-./launch-macos.command
+"$(head -n 1 .venv-path)" main.py
 ```
 
-The launcher enters its own project directory and writes caches under `.cache/`. It explicitly loads `sjtu_tpmshx/solvers/native/lib/macos-arm64/libtpmshx_solver_shared.dylib` with `--backend cpp` and passes `.cache/native-deps/tables`. The library, tables, and host `.venv-path` are local delivery resources, not automatically supplied by Git. A missing interpreter or library produces an explicit error. The launcher does not install dependencies or compile the library.
+`main.py` loads `native/lib/macos-arm64/libtpmshx_solver_shared.dylib` and uses `.cache/native-deps/tables`. The library, tables, and host `.venv-path` are local delivery resources, not automatically supplied by Git. A calculation reports a missing library. `main.py` does not install dependencies or compile the library.
 
 T-SOU uses checked HEOS PT properties and does not create EOS tables. The table-directory option remains for explicitly selected historical runtimes. Public APIs, CLI and direct module calls default to C++.
 
-For dependencies configured under the current source layout, publish all four launcher libraries after the relevant native regressions pass.
+For dependencies configured under the current source layout, publish all four libraries after the relevant native regressions pass.
 For an old layout, first prepare a new cache as described below.
 
 ```sh
@@ -171,7 +171,7 @@ Republishing identical contents keeps that backup. The solver uses `build.json`,
 Each record includes its build configuration, paths and available Git source information.
 A replacement failure restores selected files and metadata. A failed rollback keeps staging files and reports their recovery path.
 
-`sjtu_tpmshx/solvers/native/lib/` is an ignored local delivery directory.
+`native/lib/` is an ignored local delivery directory.
 Stop related programs before rollback. Restore the selected library and its matching record from `previous/`.
 Restore the matching source, Python environment and property version too.
 Publication checks do not replace numerical regressions or desktop acceptance. Daily startup performs no build, installation or download.
@@ -211,11 +211,11 @@ Native builds remain explicit steps after environment setup.
 
 The GUI uses C++ for ordinary computation, Quick Design and optimization. It has no backend selector. It uses the selected libraries or matching libraries in the local macOS or Windows delivery folder.
 
-Source GUI and CLI share the default lookup. macOS uses `sjtu_tpmshx/solvers/native/lib/macos-arm64/libtpmshx_solver_shared.dylib`; Windows uses `sjtu_tpmshx/solvers/native/lib/windows-x64/tpmshx_solver_shared.dll`. The default table directory is `.cache/native-deps/tables`. With a matching library in these locations, no backend argument is needed. Explicit library and table paths take priority. API callers can override host paths in `RunControl`.
+Source GUI and CLI share the default lookup. macOS uses `native/lib/macos-arm64/libtpmshx_solver_shared.dylib`; Windows uses `native/lib/windows-x64/tpmshx_solver_shared.dll`. The default table directory is `.cache/native-deps/tables`. With a matching library in these locations, no backend argument is needed. Explicit library and table paths take priority. API callers can override host paths in `RunControl`.
 
 A missing library produces an explicit error. Compute Threads controls the native run. Auto uses at most eight logical CPUs on the host. Selection is a window runtime setting. It is not saved in case files and does not change existing results.
 
-Windows x64 users and macOS users without the local launcher should follow [project-folder instructions](desktop.en.md#source-folder). Pass explicit library and writable table paths when using locations other than the defaults.
+Windows x64 users and macOS users without the published libraries should follow [project-folder instructions](desktop.en.md#source-folder). Pass explicit library and writable table paths when using locations other than the defaults.
 
 <a id="stage-api"></a>
 
@@ -243,12 +243,12 @@ In-process calls need not write files. Independent processes use formal handoff:
 ```bash
 PYTHON="$(head -n 1 .venv-path)"
 mkdir -p .cache/handoff
-"$PYTHON" -m tm1.cli prepare examples/three_module/air_2d.json .cache/handoff/case.yaml --case-id example
-"$PYTHON" -m tm1.cli solve .cache/handoff/case.yaml .cache/handoff/results.h5
-"$PYTHON" -m tm1.cli postprocess .cache/handoff/results.h5 .cache/handoff/metrics.json
+"$PYTHON" main.py prepare examples/three_module/air_2d.json .cache/handoff/case.yaml --case-id example
+"$PYTHON" main.py solve .cache/handoff/case.yaml .cache/handoff/results.h5
+"$PYTHON" main.py postprocess .cache/handoff/results.h5 .cache/handoff/metrics.json
 ```
 
-In PowerShell, use the same arguments with `& $tm1Python` instead of `"$PYTHON"`. First create the directory with `New-Item -ItemType Directory -Force .cache/handoff`. Inspect each stage with commands such as `"$PYTHON" -m tm1.cli prepare --help`. PowerShell again uses `& $tm1Python`.
+In PowerShell, use the same arguments with `& $tm1Python` instead of `"$PYTHON"`. First create the directory with `New-Item -ItemType Directory -Force .cache/handoff`. Inspect each stage with commands such as `"$PYTHON" main.py prepare --help`. PowerShell again uses `& $tm1Python`.
 
 Case YAML references accompanying HDF5. [Schemas](contracts/three_module_v1/README.md) define result/VTK export and strict metric JSON limits. CLI outputs must be separate from current inputs and accompanying Case HDF5. Overlapping paths fail before stage execution. Separate existing outputs can still be updated. All CLI stages reject writes into directories with `run.json` or `checkpoint.h5`, including their subdirectories. Select a new directory to preserve the saved run and its native library.
 
@@ -257,8 +257,8 @@ Cancellation and failure do not become completed results. Completed nonconverged
 Full C++ runs can save their iteration state in a new run directory:
 
 ```bash
-"$PYTHON" -m tm1.cli run examples/three_module/air_2d.json .cache/run-01 --case-id example --backend cpp --checkpoint-interval 60
-"$PYTHON" -m tm1.cli resume .cache/run-01/checkpoint.h5 .cache/run-02 --checkpoint-interval 60
+"$PYTHON" main.py run examples/three_module/air_2d.json .cache/run-01 --case-id example --backend cpp --checkpoint-interval 60
+"$PYTHON" main.py resume .cache/run-01/checkpoint.h5 .cache/run-02 --checkpoint-interval 60
 ```
 
 The CLI interval is explicit. Saving waits for the next complete solver step.

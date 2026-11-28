@@ -34,8 +34,7 @@ including retirement and necessary validation, without approval at each step.
    [environment checks](../AGENTS.md#3-work-setup-and-environment) before environment-dependent work.
    Use passing results again only while the interpreter, the lock, and the installed dependencies stay the same.
    Repeat both checks after an environment failure.
-5. Import project source from the current worktree. In a source worktree, use `python -m tm1.cli`.
-   Do not use the installed-only `tpmshx-run` command there.
+5. Import project source from the current worktree. Start applications with `python main.py` from the worktree root.
    For Matplotlib, Qt smoke, and pytest commands, set `MPLCONFIGDIR` and `XDG_CACHE_HOME` to ignored `.cache/` paths.
    Keep native table caches in that worktree's ignored `.cache/`.
    Record the actual native library and its source and build identity separately.

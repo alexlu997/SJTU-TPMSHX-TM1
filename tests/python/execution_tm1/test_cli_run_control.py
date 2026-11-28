@@ -50,14 +50,14 @@ def test_retired_python_backend_is_rejected():
 
 
 @pytest.mark.parametrize('platform,relative', [
-    ('darwin', 'sjtu_tpmshx/solvers/native/lib/macos-arm64/libtpmshx_solver_shared.dylib'),
-    ('win32', 'sjtu_tpmshx/solvers/native/lib/windows-x64/tpmshx_solver_shared.dll'),
+    ('darwin', 'native/lib/macos-arm64/libtpmshx_solver_shared.dylib'),
+    ('win32', 'native/lib/windows-x64/tpmshx_solver_shared.dll'),
 ])
 def test_source_cli_resolves_local_delivery_and_preserves_explicit_paths(
         tmp_path, monkeypatch, platform, relative):
     from tm1.run_control import module_ports
     monkeypatch.setattr(module_ports, 'SOURCE_ROOT', tmp_path)
-    monkeypatch.setattr(module_ports, 'PUBLISHED_LIBRARY_DIR', tmp_path / 'sjtu_tpmshx/solvers/native/lib')
+    monkeypatch.setattr(module_ports, 'PUBLISHED_LIBRARY_DIR', tmp_path / 'native/lib')
     monkeypatch.setattr(module_ports.sys, 'platform', platform)
     monkeypatch.setattr(module_ports.sys, 'frozen', False, raising=False)
     parser = argparse.ArgumentParser()
@@ -154,7 +154,6 @@ def test_recoverable_cli_uses_saved_run_and_restores_sigint(stage, outcome, code
                                                          tmp_path, monkeypatch, capsys):
     import signal
     from types import SimpleNamespace
-    from tm1.applications.cli import main as entry
     from tm1.data_types.compute_config import ComputeConfig
     from tm1.run_control.paused_run import PausedRun
     from tm1.applications.execution import recovery
@@ -187,7 +186,7 @@ def test_recoverable_cli_uses_saved_run_and_restores_sigint(stage, outcome, code
                  '--checkpoint-interval', '42']
     if stage == 'run':
         arguments += ['--case-id', 'recoverable-cli', '--backend', 'cpp']
-    assert entry.main(arguments) == code
+    assert cli.main(arguments) == code
     assert signal.getsignal(signal.SIGINT) == previous
     assert len(calls) == 1
     if stage == 'resume':

@@ -13,7 +13,7 @@ graft tests/python
 graft engineering
 graft docs
 graft examples
-prune sjtu_tpmshx/solvers/native/lib
+prune native/lib
 prune python/development/runs/_out
 prune python/opt_runs
 prune python/nTop_inputs

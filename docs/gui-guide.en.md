@@ -4,7 +4,7 @@
 
 ## Load a case, run it and view results
 
-1. Start `tm1.main`. Select Load in the left navigation rail to choose a preset or file. Press `Ctrl+\` to expand the 232 px navigation rail for workspaces and recent runs. The right push inspector drawer shows Geometry, Boundary, and Solver tabs on the Case page. Toggle it with the header control or `Ctrl+]`; each page remembers its own open state and selected tab.
+1. Start the GUI with `python main.py` from the repository root. Select Load in the left navigation rail to choose a preset or file. Press `Ctrl+\` to expand the 232 px navigation rail for workspaces and recent runs. The right push inspector drawer shows Geometry, Boundary, and Solver tabs on the Case page. Toggle it with the header control or `Ctrl+]`; each page remembers its own open state and selected tab.
    For 3D, each inlet can prescribe velocity or total mass flow in kg/s.
    In mass-flow mode, velocity is read-only and shows its last resolved value.
    Auto-fill or the next compute resolves it from current inlet state,
@@ -126,7 +126,7 @@ Quick Design opens in the main window. You can change pages while it runs. Compl
 
 Quick Design screens dimensions against fluid conditions, heat duty, and pressure-drop constraints using a prescribed-velocity approximation. Automatic Search / Fixed Cell map to `auto/fixed`. Crossflow / Counterflow map to `cross/counter`. Case tables use K, absolute kPa, kg/s, and kW. Pressure limits are fractions: enter `0.05` for 5%.
 
-Since 2026-11-25, the GUI and the CLI (`python -m tm1.applications.design.cli`) use the same defaults: `cross` flow, `mean` properties, and a square face. Default CLI and GUI results change when you omit these options. On 2026-11-25, the CLI default changed from `prop_model` `const` to `mean` (arrangement stays `cross`). The GUI default changed from Counterflow (`counter`) to Crossflow (`cross`), and its property model stays `mean`. To get the previous CLI default result, pass `--prop-model const`. To get the previous GUI default result, select Counterflow (`逆流`). Both flow and property options stay available in both interfaces (`--arrangement counter` on the CLI, and `const` in the GUI). To set a fixed rectangular face on the CLI, pass a positive finite `--height` value in mm. To set a fixed rectangular face in the GUI, select the fixed-height option.
+Since 2026-11-25, the GUI and the CLI (`python main.py design`) use the same defaults: `cross` flow, `mean` properties, and a square face. Default CLI and GUI results change when you omit these options. On 2026-11-25, the CLI default changed from `prop_model` `const` to `mean` (arrangement stays `cross`). The GUI default changed from Counterflow (`counter`) to Crossflow (`cross`), and its property model stays `mean`. To get the previous CLI default result, pass `--prop-model const`. To get the previous GUI default result, select Counterflow (`逆流`). Both flow and property options stay available in both interfaces (`--arrangement counter` on the CLI, and `const` in the GUI). To set a fixed rectangular face on the CLI, pass a positive finite `--height` value in mm. To set a fixed rectangular face in the GUI, select the fixed-height option.
 
 Result tables place volume near the front for comparison. Selection/refinement errors stop immediately and keep completed candidates. Parallel execution keeps only complete preceding batches. GUI and Excel distinguish failure from cancellation. Best labels apply only to the completed set.
 

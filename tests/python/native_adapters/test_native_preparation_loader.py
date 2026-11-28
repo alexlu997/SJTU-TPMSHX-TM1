@@ -13,8 +13,8 @@ def test_default_and_frozen_paths(tmp_path, monkeypatch, system, machine, host, 
     monkeypatch.delenv('TPMSHX_PREPARATION_LIBRARY', raising=False)
     monkeypatch.setattr(native.sys, 'platform', system)
     monkeypatch.setattr(native.platform, 'machine', lambda: machine)
-    monkeypatch.setattr(native, 'PUBLISHED_LIBRARY_DIR', tmp_path / 'solvers/native/lib')
-    selected = tmp_path/'solvers/native/lib'/host/name
+    monkeypatch.setattr(native, 'PUBLISHED_LIBRARY_DIR', tmp_path / 'native/lib')
+    selected = tmp_path/'native/lib'/host/name
     selected.parent.mkdir(parents=True)
     selected.write_bytes(b'prebuilt placeholder')
     assert native.preparation_library.path() == str(selected.resolve())

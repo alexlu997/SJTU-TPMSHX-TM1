@@ -109,8 +109,7 @@ See [C++ builds](../docs/cpp-migration.md#native-geometry-core) for separate com
 
 `python/shared.py` resolves `tm1.shared.*` and `tm1.solvers.backends.cpp.*` aliases under the current `tm1` root to their canonical owners without code duplication.
 Old local scripts that use the previous package root must update their imports or use the recorded source revision.
-GUI startup lives in [python/applications/gui/main.py](applications/gui/main.py), and CLI startup lives in [python/applications/cli/main.py](applications/cli/main.py).
-Package-level [python/main.py](main.py), [python/cli.py](cli.py), and [python/desktop.py](desktop.py) keep short entry wrappers.
-Use `python -m tm1.main` or `python -m tm1.cli`; computation code calls the four entries above directly.
+Start applications with the root [main.py](../main.py). It routes the GUI to [applications/gui/main.py](applications/gui/main.py), the file stages to [applications/cli/stages.py](applications/cli/stages.py), `summary` to [applications/cli/main.py](applications/cli/main.py), `design` to [applications/design/cli.py](applications/design/cli.py), and `optimize` to [applications/optimization/cli.py](applications/optimization/cli.py).
+Computation code calls the four entries above directly.
 Root [engineering](../engineering/) holds build and check scripts, packaging configuration, and dependency locks.
 [docs/contracts](../docs/contracts/) holds public file contracts, `.github/workflows/` holds CI workflows, and the [repository index](../docs/README.en.md) maps all root directories.

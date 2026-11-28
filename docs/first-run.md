@@ -82,9 +82,9 @@ PYTHON="$(head -n 1 .venv-path)"
 export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
 "$PYTHON" engineering/scripts/build_native_dependencies.py fetch
 "$PYTHON" engineering/scripts/build_native_dependencies.py publish
-"$PYTHON" -m tm1.cli run examples/three_module/air_2d.json .cache/first-run-2d --case-id first-run-2d
-"$PYTHON" -m tm1.cli run examples/three_module/air_3d.json .cache/first-run-3d --case-id first-run-3d
-"$PYTHON" -m tm1.main
+"$PYTHON" main.py run examples/three_module/air_2d.json .cache/first-run-2d --case-id first-run-2d
+"$PYTHON" main.py run examples/three_module/air_3d.json .cache/first-run-3d --case-id first-run-3d
+"$PYTHON" main.py
 ```
 
 Windows：
@@ -95,9 +95,9 @@ $env:MPLCONFIGDIR = Join-Path $PWD '.cache/matplotlib'
 $env:XDG_CACHE_HOME = Join-Path $PWD '.cache/xdg'
 & $tm1Python engineering/scripts/build_native_dependencies.py fetch
 & $tm1Python engineering/scripts/build_native_dependencies.py publish
-& $tm1Python -m tm1.cli run examples/three_module/air_2d.json .cache/first-run-2d --case-id first-run-2d
-& $tm1Python -m tm1.cli run examples/three_module/air_3d.json .cache/first-run-3d --case-id first-run-3d
-& $tm1Python -m tm1.main
+& $tm1Python main.py run examples/three_module/air_2d.json .cache/first-run-2d --case-id first-run-2d
+& $tm1Python main.py run examples/three_module/air_3d.json .cache/first-run-3d --case-id first-run-3d
+& $tm1Python main.py
 ```
 
 前两条计算命令分别输出 `case.yaml`、伴随 `case.h5`、`results.h5` 和
@@ -150,19 +150,18 @@ BoTorch 首次构造多目标 Log 采集函数时会尝试编译其可选 C++ �
 不制作 `.app`。随附库面向本机 macOS 27 / arm64；其他系统、机器和旧版
 macOS 尚未验收。继续复用 `.venv-path` 指定的现有锁定环境，环境检查同上。
 
-双击项目根目录的 `launch-macos.command`，或在终端运行：
+在项目根目录运行：
 
 ```sh
-./launch-macos.command
+"$(head -n 1 .venv-path)" main.py
 ```
 
-启动器进入自身所在项目目录，将缓存写入项目 `.cache/`，通过 `--backend cpp`
-显式加载 `sjtu_tpmshx/solvers/native/lib/macos-arm64/libtpmshx_solver_shared.dylib`，并传入
+`main.py` 加载 `native/lib/macos-arm64/libtpmshx_solver_shared.dylib`，并使用
 `.cache/native-deps/tables`。库、表和本机 `.venv-path` 属于本地交付资源，
-不随 Git 源码自动提供。缺少解释器或库会直接报告原因；启动器不安装依赖、
-或编译库。T-SOU 使用带检查的 HEOS PT 物性，不创建 EOS 表；表目录选项保留给显式选择的历史运行库。公共 API、CLI 和直接模块调用默认使用 C++。
+不随 Git 源码自动提供。计算开始时会报告缺少的库；`main.py` 不安装依赖，
+也不编译库。T-SOU 使用带检查的 HEOS PT 物性，不创建 EOS 表；表目录选项保留给显式选择的历史运行库。公共 API、CLI 和直接模块调用默认使用 C++。
 
-已有当前锁定原生依赖、pilot 构建目录已指向当前源码布局，且相关原生回归通过时，可显式发布启动器使用的求解库、几何库、准备库与结果库。旧布局项目须先按下文升级步骤准备新缓存。
+已有当前锁定原生依赖、pilot 构建目录已指向当前源码布局，且相关原生回归通过时，可显式发布求解库、几何库、准备库与结果库。旧布局项目须先按下文升级步骤准备新缓存。
 
 ```sh
 "$PYTHON" engineering/scripts/build_native_dependencies.py publish
@@ -192,7 +191,7 @@ Windows（PowerShell）：
 缺少锁定依赖或验证失败时停止。改变库内容前，旧库及匹配记录保存在同目录的 `previous/`；
 重复发布相同库保留已有回退副本。求解库使用 `build.json`，几何库使用 `geometry-build.json`，准备库使用 `preparation-build.json`，结果库使用 `result-build.json`，
 分别记录构建配置、路径和可用的 Git 来源。替换失败恢复选定库及元数据。回滚失败保留暂存文件并报告恢复路径。
-`sjtu_tpmshx/solvers/native/lib/` 是 Git 忽略的本地交付目录。停止相关程序后，回退选定组件时，
+`native/lib/` 是 Git 忽略的本地交付目录。停止相关程序后，回退选定组件时，
 从 `previous/` 恢复该库及对应记录，同时恢复匹配源码、Python 环境和物性版本。
 发布检查不替代数值回归或桌面验收。日常启动不执行构建、安装或下载。
 
@@ -232,12 +231,12 @@ GUI 不再提供后端切换；普通计算、快速设计和优化统一使用 
 不写入工况文件，也不改变已经生成的结果。
 
 源码 GUI 和 CLI 共用默认查找：macOS 使用
-`sjtu_tpmshx/solvers/native/lib/macos-arm64/libtpmshx_solver_shared.dylib`，Windows 使用
-`sjtu_tpmshx/solvers/native/lib/windows-x64/tpmshx_solver_shared.dll`；默认表目录为
+`native/lib/macos-arm64/libtpmshx_solver_shared.dylib`，Windows 使用
+`native/lib/windows-x64/tpmshx_solver_shared.dll`；默认表目录为
 `.cache/native-deps/tables`。匹配库已发布到这些位置时无需指定后端。
 显式库／表路径优先；API 可通过 `RunControl` 覆盖主机路径。
 
-Windows x64 和不使用本地 macOS 启动器的用户，按
+Windows x64 用户和没有已发布原生库的 macOS 用户，按
 [项目文件夹运行说明](desktop.md#source-folder)显式传入原生库与可写表目录。
 
 <a id="stage-api"></a>
@@ -268,14 +267,14 @@ metrics = evaluate(result)
 ```bash
 PYTHON="$(head -n 1 .venv-path)"
 mkdir -p .cache/handoff
-"$PYTHON" -m tm1.cli prepare examples/three_module/air_2d.json .cache/handoff/case.yaml --case-id example
-"$PYTHON" -m tm1.cli solve .cache/handoff/case.yaml .cache/handoff/results.h5
-"$PYTHON" -m tm1.cli postprocess .cache/handoff/results.h5 .cache/handoff/metrics.json
+"$PYTHON" main.py prepare examples/three_module/air_2d.json .cache/handoff/case.yaml --case-id example
+"$PYTHON" main.py solve .cache/handoff/case.yaml .cache/handoff/results.h5
+"$PYTHON" main.py postprocess .cache/handoff/results.h5 .cache/handoff/metrics.json
 ```
 
 PowerShell 使用相同参数，将 `"$PYTHON"` 改为 `& $tm1Python`，目录先用
 `New-Item -ItemType Directory -Force .cache/handoff` 创建。
-各阶段参数可用 `"$PYTHON" -m tm1.cli prepare --help` 等查看，PowerShell 同样使用 `& $tm1Python`。
+各阶段参数可用 `"$PYTHON" main.py prepare --help` 等查看，PowerShell 同样使用 `& $tm1Python`。
 
 Case YAML 引用伴随 HDF5；result/VTK 导出和严格指标 JSON 的限制见
 [schema](contracts/three_module_v1/README.zh-CN.md)。CLI 输出必须与本次输入文件及 Case 的伴随 HDF5
@@ -287,8 +286,8 @@ Case YAML 引用伴随 HDF5；result/VTK 导出和严格指标 JSON 的限制见
 C++ 完整计算可以将迭代状态保存在新的运行目录：
 
 ```bash
-"$PYTHON" -m tm1.cli run examples/three_module/air_2d.json .cache/run-01 --case-id example --backend cpp --checkpoint-interval 60
-"$PYTHON" -m tm1.cli resume .cache/run-01/checkpoint.h5 .cache/run-02 --checkpoint-interval 60
+"$PYTHON" main.py run examples/three_module/air_2d.json .cache/run-01 --case-id example --backend cpp --checkpoint-interval 60
+"$PYTHON" main.py resume .cache/run-01/checkpoint.h5 .cache/run-02 --checkpoint-interval 60
 ```
 
 CLI 保存间隔须显式指定；保存会等待下一个完整求解步骤结束。

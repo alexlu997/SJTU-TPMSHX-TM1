@@ -1,6 +1,7 @@
 """Build the locked base desktop application on the target operating system."""
 from pathlib import Path
 import os
+import shutil
 import sys
 from tempfile import TemporaryDirectory
 
@@ -87,8 +88,12 @@ with TemporaryDirectory(prefix='tm1-desktop-python-') as package_tree:
         destination = Path('licenses/native') / notice.relative_to(notices).parent
         data.append((str(notice), destination.as_posix()))
 
+    # Analysis puts the entry folder first in its module path. The repository root has the
+    # tm1.py source loader, so analyze a copy of main.py next to the built tm1 package.
+    entry = Path(package_tree) / 'main.py'
+    shutil.copyfile(root / 'main.py', entry)
     a = Analysis(
-        [str(root / 'engineering' / 'packaging' / 'desktop_entry.py')],
+        [str(entry)],
         pathex=[package_tree], binaries=binaries, datas=data, hiddenimports=hidden,
         # VTK's compatibility aggregator imports every optional VTK module.
         # The app and locked PyVista use vtkmodules directly; PyVista's type hints

@@ -106,7 +106,7 @@
 
 ### 2. 公开接口与边界规则
 
-- **Qt 边界规则**：仅允许在 `python/applications/gui/ui/`、`python/applications/gui/controllers/`、GUI 入口 [python/applications/gui/main.py](../python/applications/gui/main.py) 以及桌面启动器 [python/desktop.py](../python/desktop.py) 中导入 `PySide6`。
+- **Qt 边界规则**：仅允许在 `python/applications/gui/ui/`、`python/applications/gui/controllers/`、与 GUI 入口 [python/applications/gui/main.py](../python/applications/gui/main.py) 中导入 `PySide6`。根目录 [main.py](../main.py) 在分派模式前不导入 Qt。
   唯一的例外是离屏 GUI 冒烟工具 `python/development/runs/_smoke_boot.py` 和 `python/development/runs/smokes/`。
   下层模块（`data_types/`、`physical_models/`、`preprocess/`、`solvers/`、`postprocess/`、`file_io/`、`run_control/`、`cpp_interface/`）必须保持无 Qt 依赖。
 - 在[配置字段](../python/data_types/compute_config.py)上记录物理量的符号、存储单位、适用维度及范围来源。

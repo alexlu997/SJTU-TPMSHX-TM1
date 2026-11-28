@@ -288,7 +288,7 @@ def test_fresh_cli_case_solve_and_result_replay_without_python_kernels(native_pa
     code = '''
 import sys
 import numpy as np
-from tm1.cli import main
+from tm1.applications.cli.stages import main
 from tm1.file_io.case_io import load_case
 from tm1.file_io.result_io import load_result
 from tm1.file_io.metrics_io import load_metrics

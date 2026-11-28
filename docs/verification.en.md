@@ -54,7 +54,7 @@ They run multi-condition optimizer tests, including both real Log acquisition fu
 
 ### Published native image check
 
-Python loads the native images from `sjtu_tpmshx/solvers/native/lib/<platform>/` in the current checkout.
+Python loads the native images from `native/lib/<platform>/` in the current checkout.
 A `TPMSHX_*_LIBRARY` variable can select another geometry, preparation, or result file.
 `RunControl(native_library=...)` or CLI `--native-library` can select another solver file.
 This check does not examine such a file.
