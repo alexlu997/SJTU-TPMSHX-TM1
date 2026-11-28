@@ -13,13 +13,13 @@ import pytest
 from tests.python.native.result_reference import shared_math as original
 from tests.python.native.result_reference import metrics as original_metrics
 from tests.python.postprocess_tm1.test_reduction_reuse import native_result
-from sjtu_tpmshx.postprocess import api
+from tm1.postprocess import api
 from tests.python import result_primitive_wire as raw
-from sjtu_tpmshx.postprocess import result_math
-from sjtu_tpmshx.cpp_interface import _native_result_metrics as native
-from sjtu_tpmshx.cpp_interface import _native_result as wire
-from sjtu_tpmshx.data_types.field_result import FieldResult
-from sjtu_tpmshx.data_types.metric_spec import MetricSpec
+from tm1.postprocess import result_math
+from tm1.cpp_interface import _native_result_metrics as native
+from tm1.cpp_interface import _native_result as wire
+from tm1.data_types.field_result import FieldResult
+from tm1.data_types.metric_spec import MetricSpec
 
 
 def observe(function, *args, **kwargs):
@@ -270,7 +270,7 @@ def test_solid_mass_scalar_c_abi_returns_without_a_process_crash():
     code = '''
 import ctypes as ct
 import numpy as np
-from sjtu_tpmshx.cpp_interface import _native_result as wire
+from tm1.cpp_interface import _native_result as wire
 owners = [wire.array(value) for value in (np.array(.5), 1., np.ones(2), np.ones(3))]
 output = ct.c_double(17.)
 pointer = ct.POINTER(wire._Array)

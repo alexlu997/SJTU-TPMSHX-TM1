@@ -10,10 +10,10 @@ import pytest
 
 from tests.python import result_envelope_reference as original_envelope
 from tests.python import result_range_reference as original_range
-from sjtu_tpmshx.cpp_interface import _native_result_checks as checks
-from sjtu_tpmshx.physical_models import range_policy
-from sjtu_tpmshx.run_control import run_warnings
-from sjtu_tpmshx.physical_models import envelope
+from tm1.cpp_interface import _native_result_checks as checks
+from tm1.physical_models import range_policy
+from tm1.run_control import run_warnings
+from tm1.physical_models import envelope
 
 
 def observe(function, *args, **kwargs):

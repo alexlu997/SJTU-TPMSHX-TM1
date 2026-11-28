@@ -1,5 +1,5 @@
 """Shared B20 air input and its frozen public results."""
-from sjtu_tpmshx.data_types.compute_config import (
+from tm1.data_types.compute_config import (
     ComputeConfig, FluidConfig, GeometryConfig, SolverConfig, PartialBCConfig,
 )
 

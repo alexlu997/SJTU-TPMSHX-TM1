@@ -1,24 +1,24 @@
 """Real public-result mapping retains the GUI/export and diagnostic contract."""
 from dataclasses import replace
 from types import SimpleNamespace
-from sjtu_tpmshx.applications.gui.controllers.result_cache import ResultCache
-from sjtu_tpmshx.applications.gui.ui.field_results import FieldResults
-from sjtu_tpmshx.applications.gui.ui.workbench import Workbench
+from tm1.applications.gui.controllers.result_cache import ResultCache
+from tm1.applications.gui.ui.field_results import FieldResults
+from tm1.applications.gui.ui.workbench import Workbench
 import importlib
 
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.applications.result_adapter import to_compute_result
-from sjtu_tpmshx.data_types.compute_config import (
+from tm1.applications.result_adapter import to_compute_result
+from tm1.data_types.compute_config import (
     ComputeConfig, FluidConfig, GeometryConfig, SolverConfig,
     PartialBCConfig, ExtrapPolicy,
 )
-from sjtu_tpmshx.data_types.compute_result import ComputeResult
-from sjtu_tpmshx.data_types.portable_data import mutable_data
-from sjtu_tpmshx.postprocess.api import evaluate
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.api import run_case
+from tm1.data_types.compute_result import ComputeResult
+from tm1.data_types.portable_data import mutable_data
+from tm1.postprocess.api import evaluate
+from tm1.preprocess.api import prepare_case
+from tm1.solvers.api import run_case
 from tests.python.integration_tm1.integration_support import baseline_config
 from tests.python.integration_tm1.test_public_api import assert_slots, legacy_2d_result, native_3d_mapping_input
 
@@ -32,9 +32,9 @@ class _ResultWindow:
 
 def _synthetic_results(dimension=3, *, delta_levelset=0.0):
     """Mapping inputs with distinct original geometry and pressure states."""
-    from sjtu_tpmshx.data_types.field_result import FieldResult
-    from sjtu_tpmshx.data_types.metric_spec import MetricSpec
-    from sjtu_tpmshx.data_types.performance_result import MetricValue, PerformanceResult
+    from tm1.data_types.field_result import FieldResult
+    from tm1.data_types.metric_spec import MetricSpec
+    from tm1.data_types.performance_result import MetricValue, PerformanceResult
 
     cell = np.arange(24.).reshape(2, 3, 4) if dimension == 3 else np.arange(6.).reshape(2, 3)
     L_m, t_m = .004 + cell * .0001, .0003 + cell * .00001
@@ -118,7 +118,7 @@ def test_synthetic_3d_mapping_preserves_full_geometry_and_report_pressure():
     for name in ('dx', 'dy', 'dz'):
         np.testing.assert_array_equal(result.fields[name], grid[name])
     # The plot must use the accepted result's ports and t_mm, independently of draft inputs.
-    from sjtu_tpmshx.applications.gui.ui.plot_3d_results import finalize_plots_3d
+    from tm1.applications.gui.ui.plot_3d_results import finalize_plots_3d
     shown = {}
     window = SimpleNamespace(
         cache=SimpleNamespace(get_result=lambda mode: result),
@@ -142,8 +142,8 @@ def test_synthetic_3d_mapping_preserves_full_geometry_and_report_pressure():
 
 @pytest.mark.parametrize('dimension', [2, 3])
 def test_saved_display_aliases_do_not_replace_original_cells(tmp_path, dimension):
-    from sjtu_tpmshx.file_io.result_io import load_result, save_result
-    from sjtu_tpmshx.postprocess.result_display import describe_fields
+    from tm1.file_io.result_io import load_result, save_result
+    from tm1.postprocess.result_display import describe_fields
 
     native, performance = _synthetic_results(dimension)
     fields = dict(native.fields)
@@ -326,8 +326,8 @@ def native_result(request):
             solver=SolverConfig(Nx=8, Ny=10, Nz=1, max_outer_ltne=2, max_iter_simple=500),
             bc_A=PartialBCConfig(dir=0, in_ctr=.015, in_w=.014, out_ctr=.015, out_w=.014))
     module = importlib.import_module(
-        'sjtu_tpmshx.solvers.full_2d' if dimension == 2 else
-        'sjtu_tpmshx.solvers.full_3d')
+        'tm1.solvers.full_2d' if dimension == 2 else
+        'tm1.solvers.full_3d')
     captured = []
     capture_name = '_capture_result' if dimension == 2 else 'capture_result'
     capture = getattr(module, capture_name)
@@ -382,7 +382,7 @@ def native_result(request):
 
 @pytest.mark.parametrize('audit', [False, True])
 def test_native_3d_producer_preserves_optional_diagnostics(monkeypatch, audit):
-    from sjtu_tpmshx.solvers import full_3d as result_capture
+    from tm1.solvers import full_3d as result_capture
 
     config = _small_air_air_cfg()
     config.solver = replace(config.solver, max_outer_ltne=2, max_iter_simple=500)
@@ -706,8 +706,8 @@ def test_mapped_results_own_mutable_fields_and_nested_data(native_result):
 @pytest.mark.parametrize('native_result', [2], indirect=True)
 def test_nonuniform_zone_mapping_preserves_units_types_and_isolation(native_result, tmp_path):
     """Controlled nonuniform archive exercises mapping, without another solve."""
-    from sjtu_tpmshx.file_io.result_io import load_result, save_result
-    from sjtu_tpmshx.physical_models.zone_config import Zone, ZoneConfig
+    from tm1.file_io.result_io import load_result, save_result
+    from tm1.physical_models.zone_config import Zone, ZoneConfig
 
     native, _ = native_result
     metadata = mutable_data(native.metadata)
@@ -805,8 +805,8 @@ _EXPECTED_PANEL_KEYS = {
 def test_result_display_table_maps_real_2d_and_3d_results_by_dimension_and_phase(
         native_result, active_b):
     """Check 2: required display keys exist in real 2D/3D results by dimension and phase."""
-    from sjtu_tpmshx.data_types.persistence_validation import validate_result
-    from sjtu_tpmshx.postprocess.result_display import (
+    from tm1.data_types.persistence_validation import validate_result
+    from tm1.postprocess.result_display import (
         COLORMAP_CHOICES, COLORMAP_QUANTITIES, DEFAULT_COLORMAPS,
         PANEL_FIELD_SPECS, RESULT_FIELD_SPECS, field_spec,
     )

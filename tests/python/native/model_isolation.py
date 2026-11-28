@@ -196,8 +196,8 @@ def child(plan_file):
     plan_file = Path(plan_file)
     plan = json.loads(plan_file.read_text(encoding='utf-8'))
     directory = plan_file.parent
-    import sjtu_tpmshx
-    assert Path(sjtu_tpmshx.__file__).resolve().parent == ROOT / 'python'
+    import tm1
+    assert Path(tm1.__file__).resolve().parent == ROOT / 'python'
     os.environ['TPMSHX_PREPARATION_LIBRARY'] = plan['preparation']
     report, trace = {'state': 'running'}, None
     try:
@@ -211,8 +211,8 @@ def child(plan_file):
         if python_oracle is not None:
             assert {key: python_oracle[key] for key in ('version', 'revision')} == plan['coolprop']
         import numpy as np
-        from sjtu_tpmshx.cpp_interface import _native_properties
-        from sjtu_tpmshx.cpp_interface.stage_libraries import preparation_library
+        from tm1.cpp_interface import _native_properties
+        from tm1.cpp_interface.stage_libraries import preparation_library
         roles = (['prep-0'] if plan['mode'] == 'prep-reference' else ['solver-0']
                  if plan['mode'] == 'solver-reference' else ['prep-0', 'solver-0']
                  if plan['mode'] == 'pair' else ['prep-0', 'prep-1']
@@ -233,16 +233,16 @@ def child(plan_file):
 
         preparation_library.load = monitored_load
         _native_properties._function = traced_property
-        from sjtu_tpmshx.physical_models import fluid_props, co2_props, sco2_props
-        from sjtu_tpmshx.file_io.case_io import load_case
-        from sjtu_tpmshx.file_io.hdf5_data import write_record
-        from sjtu_tpmshx.run_control.module_ports import RunControl
+        from tm1.physical_models import fluid_props, co2_props, sco2_props
+        from tm1.file_io.case_io import load_case
+        from tm1.file_io.hdf5_data import write_record
+        from tm1.run_control.module_ports import RunControl
         case = load_case(plan['case'])
         assert case.grid['dimension'] == 3
         assert {case.parameters['fluid_type_' + side] for side in 'AB'} == {'water', 'sco2'}
         from dataclasses import replace
-        from sjtu_tpmshx.cpp_interface import full_3d_stage
-        from sjtu_tpmshx.solvers import full_3d
+        from tm1.cpp_interface import full_3d_stage
+        from tm1.solvers import full_3d
         # Trace the saved-stage solve and release, and keep each worker's raw capture.
         open_library, release_result = full_3d_stage.open_library, full_3d_stage.release_result
         capture_result, captured = full_3d.capture_result, {}

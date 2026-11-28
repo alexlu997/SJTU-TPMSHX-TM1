@@ -8,28 +8,28 @@ from PySide6.QtWidgets import (
     QMainWindow, QMessageBox, QWidget,
 )
 
-from sjtu_tpmshx.data_types.compute_config import SCO2_P_RANGE_PA
-from sjtu_tpmshx.data_types.validator import convert_temp_decimal, format_unit_value, temp_text_to_kelvin
-from sjtu_tpmshx.model_configs.df_domain import TRAIN_L, TRAIN_T
-from sjtu_tpmshx.physical_models.tpms_calc import geometry as tpms_geometry, adaptive_grid
-from sjtu_tpmshx.applications.gui.ui.window_config import LINE_EDITS, parse_field_decimal
-from sjtu_tpmshx.applications.gui.ui.case_files import CaseFiles
-from sjtu_tpmshx.applications.gui.ui.field_results import FieldResults
-from sjtu_tpmshx.applications.gui.ui.result_export import ResultExport
-from sjtu_tpmshx.applications.gui.ui.run_history import RunHistory
-from sjtu_tpmshx.applications.gui.ui.shell_appearance import ShellAppearance
-from sjtu_tpmshx.applications.gui.ui.shell_dialogs import ShellDialogs
-from sjtu_tpmshx.applications.gui.ui.shell_shortcuts import ShellShortcuts
-from sjtu_tpmshx.applications.gui.ui.single_run import SingleRun
-from sjtu_tpmshx.applications.gui.ui.workbench import Workbench
-from sjtu_tpmshx.applications.gui.ui.mixins import (
+from tm1.data_types.compute_config import SCO2_P_RANGE_PA
+from tm1.data_types.validator import convert_temp_decimal, format_unit_value, temp_text_to_kelvin
+from tm1.model_configs.df_domain import TRAIN_L, TRAIN_T
+from tm1.physical_models.tpms_calc import geometry as tpms_geometry, adaptive_grid
+from tm1.applications.gui.ui.window_config import LINE_EDITS, parse_field_decimal
+from tm1.applications.gui.ui.case_files import CaseFiles
+from tm1.applications.gui.ui.field_results import FieldResults
+from tm1.applications.gui.ui.result_export import ResultExport
+from tm1.applications.gui.ui.run_history import RunHistory
+from tm1.applications.gui.ui.shell_appearance import ShellAppearance
+from tm1.applications.gui.ui.shell_dialogs import ShellDialogs
+from tm1.applications.gui.ui.shell_shortcuts import ShellShortcuts
+from tm1.applications.gui.ui.single_run import SingleRun
+from tm1.applications.gui.ui.workbench import Workbench
+from tm1.applications.gui.ui.mixins import (
     FluidInputMixin, UIBuilderMixin, ZonePanelMixin,
 )
-from sjtu_tpmshx.applications.gui.ui.ui_constants import (
+from tm1.applications.gui.ui.ui_constants import (
     TOAST_MS_MED,
 )
 
-from sjtu_tpmshx.run_control.module_ports import RunControl
+from tm1.run_control.module_ports import RunControl
 
 
 class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
@@ -65,9 +65,9 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
 
         self._close_pending = False
         self._continuous_field_spec = None
-        from sjtu_tpmshx.applications.gui.controllers import ResultCache, SignalRouter
-        from sjtu_tpmshx.applications.gui.ui.theme import apply_mpl_theme
-        from sjtu_tpmshx.applications.gui.ui.theme_manager import ThemeManager
+        from tm1.applications.gui.controllers import ResultCache, SignalRouter
+        from tm1.applications.gui.ui.theme import apply_mpl_theme
+        from tm1.applications.gui.ui.theme_manager import ThemeManager
 
         # ThemeManager owns the styles consumed by FieldFactory and builders.
         # SignalRouter records connections for bulk disconnect on closeEvent.
@@ -78,7 +78,7 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
         # Phase 5: install a process-wide FieldFactory backed by the live
         # ThemeManager so ui_builders helpers (section/row/res_row/add_row)
         # build widgets through DI rather than module globals.
-        from sjtu_tpmshx.applications.gui.ui.field_factory import FieldFactory, set_default_factory
+        from tm1.applications.gui.ui.field_factory import FieldFactory, set_default_factory
         set_default_factory(FieldFactory(self.theme))
 
         self.cache = ResultCache(self)
@@ -92,9 +92,9 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
         self.shortcuts = ShellShortcuts(self)
         self.history = RunHistory(self)
 
-        from sjtu_tpmshx.applications.gui.ui.ui_builders import build_ui
+        from tm1.applications.gui.ui.ui_builders import build_ui
         build_ui(self)
-        from sjtu_tpmshx.applications.gui.ui.compute_resources import bind_resource_controls
+        from tm1.applications.gui.ui.compute_resources import bind_resource_controls
         bind_resource_controls(self)
         self.optimization.figures_changed.connect(self.result_export.refresh_export_button)
         self._apply_accessibility()
@@ -119,14 +119,14 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
         self._schedule_tpms_geometry_prewarm()
         self._wire_fluid_defaults()
         self.dialogs.install_dialog_theme()
-        from sjtu_tpmshx.applications.gui.ui.command_palette import install_command_palette
+        from tm1.applications.gui.ui.command_palette import install_command_palette
         install_command_palette(self)
-        from sjtu_tpmshx.applications.gui.ui.coord_inspector import install_coord_inspector
+        from tm1.applications.gui.ui.coord_inspector import install_coord_inspector
         install_coord_inspector(self)
-        from sjtu_tpmshx.applications.gui.ui.zone_editor import ZoneHandleManager
+        from tm1.applications.gui.ui.zone_editor import ZoneHandleManager
         self._zone_handle_mgr = ZoneHandleManager(self)
         self._zone_handle_mgr.wire()
-        from sjtu_tpmshx.applications.gui.ui.field_menu import install_field_menus
+        from tm1.applications.gui.ui.field_menu import install_field_menus
         install_field_menus(self)
         self.setAcceptDrops(True)
         from PySide6.QtCore import QTimer
@@ -191,7 +191,7 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
         self.case_files.active_preset_name = "Shanghai (3D Gyroid)"
         self.case_files.set_shanghai_grid(is_3d=True)
         self.combo_df_mode.setCurrentIndex(self.combo_df_mode.findData('experimental'))
-        from sjtu_tpmshx.applications.gui.ui.case_files import shanghai_field_defaults
+        from tm1.applications.gui.ui.case_files import shanghai_field_defaults
         presets = shanghai_field_defaults(is_3d=True)
         # Temperature fields are authored in Kelvin. If the UI is currently
         # showing °C, convert on write so the displayed digits match the
@@ -265,7 +265,7 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
         # helper no-ops when `_undo_last` is not yet built).
         self._refresh_field_validation()
         self.case_files.resync_undo_baseline()
-        from sjtu_tpmshx.applications.gui.ui.builders_fluids import refresh_fluid_model_visibility
+        from tm1.applications.gui.ui.builders_fluids import refresh_fluid_model_visibility
         refresh_fluid_model_visibility(self)
 
     def _schedule_tpms_geometry_prewarm(self):
@@ -300,7 +300,7 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
                     pass
                 # Warm the current fixed K/cF table with one prediction.
                 try:
-                    from sjtu_tpmshx.physical_models.df_surrogate.predict import predict_K_cF
+                    from tm1.physical_models.df_surrogate.predict import predict_K_cF
                     predict_K_cF(tpms_type, float(Lcell), float(t_mm), 0.4)
                 except Exception:
                     pass
@@ -319,10 +319,10 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
     def compute_tpms(self) -> bool:
         """Compute pure geometry (ε, A₀, D_h, K_ss) from TPMS inputs. Returns True on success."""
         try:
-            from sjtu_tpmshx.applications.gui.ui.window_config import fluid_types_from_window
+            from tm1.applications.gui.ui.window_config import fluid_types_from_window
             geometry_model = tpms_geometry
             if 'co2' in fluid_types_from_window(self).values():
-                from sjtu_tpmshx.physical_models.co2_correlations import geometry as geometry_model
+                from tm1.physical_models.co2_correlations import geometry as geometry_model
             r = geometry_model(
                 self.combo_tpms.currentText(),
                 float(self.le_Lcell.text()),
@@ -344,7 +344,7 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
             L_dom = float(self.le_L.text())
             H_dom = float(self.le_H.text())
             if is_3d:
-                from sjtu_tpmshx.physical_models.grid import suggest_grid_3d
+                from tm1.physical_models.grid import suggest_grid_3d
                 try:
                     Lz_dom = float(self.le_Lz.text())
                 except ValueError:
@@ -399,7 +399,7 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
         Invoked by the Sync-colorbar toggle on canvas_temp's mini toolbar.
         """
         try:
-            from sjtu_tpmshx.applications.gui.ui.plot_2d_results import redraw_result_fields
+            from tm1.applications.gui.ui.plot_2d_results import redraw_result_fields
             redraw_result_fields(self)
         except Exception:
             pass
@@ -423,7 +423,7 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
                     return
         # Keep every task owner alive until terminal delivery and worker exit.
         # Native computation or view imports can exceed a fixed timeout.
-        from sjtu_tpmshx.applications.gui.ui.background_tasks import has_active_tasks
+        from tm1.applications.gui.ui.background_tasks import has_active_tasks
         if has_active_tasks(self):
             event.ignore()
             if not self._close_pending:
@@ -610,7 +610,7 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
 
     def _attach_stale_listeners(self):
         """Refresh the readout-strip stale badge on every physical input edit."""
-        from sjtu_tpmshx.applications.gui.ui.builders_sidebar import refresh_stale_indicator
+        from tm1.applications.gui.ui.builders_sidebar import refresh_stale_indicator
 
         def _refresh(*_args):
             refresh_stale_indicator(self)
@@ -651,7 +651,7 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
             r"([A-Za-zμΜ°][A-Za-z0-9μΜ°/·()\s]*)\s*$")
 
         def _cb():
-            from sjtu_tpmshx.applications.gui.ui.window_config import inlet_input_active
+            from tm1.applications.gui.ui.window_config import inlet_input_active
             if not inlet_input_active(self, attr):
                 le.setProperty('inpError', 'false')
                 return
@@ -667,8 +667,8 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
                 return
 
             from decimal import Decimal
-            from sjtu_tpmshx.applications.gui.ui.expr_eval import is_expression, eval_expr
-            from sjtu_tpmshx.applications.gui.ui.field_factory import (
+            from tm1.applications.gui.ui.expr_eval import is_expression, eval_expr
+            from tm1.applications.gui.ui.field_factory import (
                 _format_decimal_exact,
                 _scale_numeric_to_si_text,
             )
@@ -775,7 +775,7 @@ class Main_Menu(ZonePanelMixin, UIBuilderMixin, FluidInputMixin, QMainWindow):
         timer = getattr(self, '_badge_timer', None)
         if timer is None:
             from PySide6.QtCore import QTimer
-            from sjtu_tpmshx.applications.gui.ui.ui_builders import refresh_group_badges
+            from tm1.applications.gui.ui.ui_builders import refresh_group_badges
             timer = QTimer(self)
             timer.setSingleShot(True)
             timer.setInterval(150)

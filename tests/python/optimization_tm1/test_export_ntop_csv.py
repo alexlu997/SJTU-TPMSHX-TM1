@@ -15,14 +15,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.applications.optimization import export_ntop_csv
-from sjtu_tpmshx.applications.optimization.export_ntop_csv import (
+from tm1.applications.optimization import export_ntop_csv
+from tm1.applications.optimization.export_ntop_csv import (
     DEFAULT_GRID_NX,
     DEFAULT_GRID_NY,
     export_decision_vector,
     export_pareto_row,
 )
-from sjtu_tpmshx.physical_models.continuous_field import (
+from tm1.physical_models.continuous_field import (
     DEFAULT_L_BOUNDS,
     DEFAULT_T_BOUNDS,
     encode_decision_vector,

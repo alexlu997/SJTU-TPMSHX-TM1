@@ -21,7 +21,7 @@ def _balanced(name, css):
 
 def test_build_styles_braces_balanced():
     """Every Qt stylesheet returned by _build_styles must have matched braces."""
-    from sjtu_tpmshx.applications.gui.ui.theme import _build_styles
+    from tm1.applications.gui.ui.theme import _build_styles
     s = _build_styles()
     for key, css in s.items():
         if not isinstance(css, str):
@@ -37,7 +37,7 @@ def test_main_menu_no_qt_parse_warnings(tmp_path, monkeypatch):
     from PySide6.QtCore import qInstallMessageHandler
     from PySide6.QtWidgets import QApplication
 
-    from sjtu_tpmshx.applications.gui.controllers import session_manager
+    from tm1.applications.gui.controllers import session_manager
     monkeypatch.setattr(session_manager, 'user_data_dir', lambda: tmp_path)
     captured = []
     def _handler(msg_type, context, message):
@@ -45,7 +45,7 @@ def test_main_menu_no_qt_parse_warnings(tmp_path, monkeypatch):
     previous_handler = qInstallMessageHandler(_handler)
     try:
         _app = QApplication.instance() or QApplication(sys.argv)
-        from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
+        from tm1.applications.gui.ui.main_window import Main_Menu
         w = Main_Menu()
         assert w.case_files.store.base_dir == tmp_path
         w.close()

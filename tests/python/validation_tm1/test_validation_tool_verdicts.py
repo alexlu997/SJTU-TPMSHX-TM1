@@ -6,11 +6,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from sjtu_tpmshx.development.validation.cases import phase_c_gci as gci
-from sjtu_tpmshx.development.validation.cases import audit_3d_conservation as audit
-from sjtu_tpmshx.development.validation.cases import validate_shanghai_3d_real as shanghai
-from sjtu_tpmshx.development.validation.cases import validate_shanghai_aligned as shanghai_2d
-from sjtu_tpmshx.development.validation.harness._provenance import REFERENCE_DIR
+from tm1.development.validation.cases import phase_c_gci as gci
+from tm1.development.validation.cases import audit_3d_conservation as audit
+from tm1.development.validation.cases import validate_shanghai_3d_real as shanghai
+from tm1.development.validation.cases import validate_shanghai_aligned as shanghai_2d
+from tm1.development.validation.harness._provenance import REFERENCE_DIR
 
 
 def test_richardson_nonuniform_triplet_recovers_known_second_order():

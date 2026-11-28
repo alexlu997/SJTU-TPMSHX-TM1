@@ -1,9 +1,9 @@
-"""Central logging for the sjtu_tpmshx production packages (print→logging,
+"""Central logging for the tm1 production packages (print→logging,
 openspec change print-to-logging, 2026-07-03).
 
 Usage::
 
-    from sjtu_tpmshx.run_control.logutil import get_logger
+    from tm1.run_control.logutil import get_logger
     _log = get_logger(__name__)
     _log.info("[3D grid] %s", summary)
 
@@ -41,7 +41,7 @@ import threading
 from contextlib import contextmanager
 from contextvars import ContextVar
 
-_ROOT_NAME = "tpmshx"
+_ROOT_NAME = "tm1"
 _configured = False
 _output = ContextVar('solver_output', default=None)
 _stream_lock = threading.Lock()
@@ -150,22 +150,18 @@ def _configure_root():
 
 
 def get_logger(name: str) -> logging.Logger:
-    """Namespaced logger under the ``tpmshx`` root (configured on first use).
+    """Return a logger under the ``tm1`` root (configured on first use).
 
-    ``name`` is usually ``__name__``; a leading package path is kept so
-    ``TPMSHX_LOG_LEVEL`` filtering can later grow per-module knobs via the
-    standard logging hierarchy. A leading ``sjtu_tpmshx.`` is stripped so
-    logger names stay ``tpmshx.<subsystem>...`` regardless of import style —
-    the taxonomy must not encode packaging history (P1.8b F2: modules now
-    execute under package-qualified names; without this, every logger would
-    have become ``tpmshx.sjtu_tpmshx.*`` and name-anchored consumers broke).
+    ``name`` is usually ``__name__``. Strip a leading ``tm1.`` prefix so that
+    both package-qualified and relative subsystem names resolve to
+    ``tm1.<subsystem>...``.
     """
     _configure_root()
-    return logging.getLogger(f"{_ROOT_NAME}.{name.removeprefix('sjtu_tpmshx.')}")
+    return logging.getLogger(f"{_ROOT_NAME}.{name.removeprefix('tm1.')}")
 
 
 def log_zone_report(stats):
-    log = get_logger('sjtu_tpmshx.solvers.backends.capture_2d')
+    log = get_logger('tm1.solvers.backends.capture_2d')
     log.info("\n[ZONE STATISTICS]")
     log.info(format_zone_report(stats))
 

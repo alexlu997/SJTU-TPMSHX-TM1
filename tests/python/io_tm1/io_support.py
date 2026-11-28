@@ -1,8 +1,8 @@
 """Synthetic, explicitly non-physical CaseData shared by file tests."""
 import numpy as np
 
-from sjtu_tpmshx.data_types.case_data import CaseData
-from sjtu_tpmshx.data_types.model_refs import ModelRef
+from tm1.data_types.case_data import CaseData
+from tm1.data_types.model_refs import ModelRef
 
 
 def sample_case():

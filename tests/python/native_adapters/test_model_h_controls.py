@@ -1,8 +1,8 @@
 """Explicit integral-model controls retain their meaning through preparation."""
 import pytest
 
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-from sjtu_tpmshx.preprocess.api import prepare_case
+from tm1.data_types.compute_config import ComputeConfig
+from tm1.preprocess.api import prepare_case
 
 
 STRICT = dict(model_h_max_iterations=24000, model_h_temperature_tol_K=1e-5,
@@ -56,8 +56,8 @@ def test_invalid_model_h_control_is_rejected_before_preparation(key, value):
                                                    (2, 'cpp', 'quick_design')])
 def test_unsupported_backend_is_rejected_before_dispatch(dimension, backend, mode):
     from types import SimpleNamespace
-    from sjtu_tpmshx.run_control.module_ports import RunControl
-    from sjtu_tpmshx.solvers.api import run_case
+    from tm1.run_control.module_ports import RunControl
+    from tm1.solvers.api import run_case
     settings = dict(STRICT)
     case = SimpleNamespace(grid={'dimension': dimension}, metadata={'mode': mode},
                            parameters={'run_settings': {'solver': settings}} if dimension == 2 else settings)
@@ -69,7 +69,7 @@ def test_unsupported_backend_is_rejected_before_dispatch(dimension, backend, mod
 
 def test_native_iteration_options_preserve_call_budgets():
     import ctypes as ct
-    from sjtu_tpmshx.cpp_interface.solver_library._thermal_abi import _iteration_options
+    from tm1.cpp_interface.solver_library._thermal_abi import _iteration_options
     options = _iteration_options(STRICT)
     assert (options.max_iterations, options.temperature_tolerance, options.q_relative_tolerance) == (24000, 1e-5, 1e-8)
     assert _iteration_options({}) is None

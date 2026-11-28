@@ -4,9 +4,9 @@ from pathlib import Path
 import signal
 import threading
 
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.run_control.paused_run import PausedRun
-from sjtu_tpmshx.applications.cli.cli_options import add_run_control_arguments, run_control_from_args
+from tm1.run_control.cancellation import CancelledError
+from tm1.run_control.paused_run import PausedRun
+from tm1.applications.cli.cli_options import add_run_control_arguments, run_control_from_args
 
 
 def _check_input_outputs(parser, args):
@@ -14,7 +14,7 @@ def _check_input_outputs(parser, args):
     if args.stage == 'prepare' and args.output.suffix in ('.yaml', '.yml'):
         outputs.append(args.output.with_suffix('.h5'))
     elif args.stage == 'solve' and args.input.suffix != '.h5':
-        from sjtu_tpmshx.file_io.case_io import _read_case_manifest
+        from tm1.file_io.case_io import _read_case_manifest
         inputs.append(args.input.parent / _read_case_manifest(args.input)['hdf5'])
     elif args.stage in ('run', 'resume'):
         outputs = [args.output / name for name in
@@ -33,8 +33,8 @@ def _check_input_outputs(parser, args):
 
 
 def _recoverable_run(args, control):
-    from sjtu_tpmshx.file_io.config_io import load_config
-    from sjtu_tpmshx.applications.execution.recovery import compute_run, resume_run
+    from tm1.file_io.config_io import load_config
+    from tm1.applications.execution.recovery import compute_run, resume_run
     pause = threading.Event()
 
     def request_pause(signum, frame):
@@ -53,7 +53,7 @@ def _recoverable_run(args, control):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(prog='python -m sjtu_tpmshx.applications.cli.stages')
+    parser = argparse.ArgumentParser(prog='python -m tm1.applications.cli.stages')
     commands = parser.add_subparsers(dest='stage', required=True)
     for stage in ('prepare', 'solve', 'postprocess', 'run', 'resume'):
         command = commands.add_parser(stage)
@@ -73,34 +73,34 @@ def main(argv=None):
     control = run_control_from_args(args) if args.stage in ('solve', 'run', 'resume') else None
     try:
         if args.stage == 'prepare':
-            from sjtu_tpmshx.file_io.config_io import load_config
-            from sjtu_tpmshx.file_io.case_io import save_case
-            from sjtu_tpmshx.preprocess.api import prepare_case
+            from tm1.file_io.config_io import load_config
+            from tm1.file_io.case_io import save_case
+            from tm1.preprocess.api import prepare_case
             save_case(prepare_case(load_config(args.input), case_id=args.case_id), args.output)
             return 0
         if args.stage == 'solve':
-            from sjtu_tpmshx.file_io.case_io import load_case
-            from sjtu_tpmshx.file_io.result_io import save_result
-            from sjtu_tpmshx.solvers.api import run_case
+            from tm1.file_io.case_io import load_case
+            from tm1.file_io.result_io import save_result
+            from tm1.solvers.api import run_case
             result = run_case(load_case(args.input), control=control)
             save_result(result, args.output)
             return 0 if result.run_status['converged'] else 2
         if args.stage == 'postprocess':
-            from sjtu_tpmshx.file_io.result_io import load_result
-            from sjtu_tpmshx.file_io.metrics_io import save_metrics
-            from sjtu_tpmshx.postprocess.api import evaluate
+            from tm1.file_io.result_io import load_result
+            from tm1.file_io.metrics_io import save_metrics
+            from tm1.postprocess.api import evaluate
             result = load_result(args.input)
             performance = evaluate(result)
             save_metrics(performance, args.output)
             print('design = ' + performance.qualification.get('design', {}).get('status', 'unverified'))
             required = ('Q', 'dP_A', 'dP_B', 'T_out_A', 'T_out_B')
             return 0 if all(performance.metrics[key].status == 'available' for key in required) else 2
-        from sjtu_tpmshx.file_io.config_io import load_config
-        from sjtu_tpmshx.file_io.case_io import save_case
-        from sjtu_tpmshx.file_io.result_io import save_result
-        from sjtu_tpmshx.file_io.metrics_io import save_metrics
-        from sjtu_tpmshx.file_io.file_set import staged_files
-        from sjtu_tpmshx.compute import compute
+        from tm1.file_io.config_io import load_config
+        from tm1.file_io.case_io import save_case
+        from tm1.file_io.result_io import save_result
+        from tm1.file_io.metrics_io import save_metrics
+        from tm1.file_io.file_set import staged_files
+        from tm1.compute import compute
         if args.stage == 'resume' or args.checkpoint_interval is not None:
             case, result, performance = _recoverable_run(args, control)
         else:

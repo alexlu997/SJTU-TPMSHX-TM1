@@ -1,8 +1,8 @@
 """Raw result queries and the public conservation certificate."""
 import numpy as np
 
-from sjtu_tpmshx.cpp_interface import _native_result_metrics as native
-from sjtu_tpmshx.cpp_interface import _native_result_checks as checks
+from tm1.cpp_interface import _native_result_metrics as native
+from tm1.cpp_interface import _native_result_checks as checks
 
 
 def pressure_face_values(pressure, stream_widths):

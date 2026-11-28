@@ -8,8 +8,8 @@ from typing import NamedTuple
 
 import numpy as np
 
-from sjtu_tpmshx.data_types.compute_config import Sco2NuConfig
-from sjtu_tpmshx.run_control.run_warnings import RangeRecord
+from tm1.data_types.compute_config import Sco2NuConfig
+from tm1.run_control.run_warnings import RangeRecord
 from . import _native_preparation_case as abi, _native_properties, _native_result
 from ._native_values import TOPOLOGIES, borrow_text, read_text
 from .stage_libraries import preparation_library
@@ -353,7 +353,7 @@ def borrow_solver_mesh(case, library, dimension):
 
 
 def pack_saved_resources(case, models, nu, saved, settings, keepalive):
-    from sjtu_tpmshx.data_types.model_refs import ModelRef
+    from tm1.data_types.model_refs import ModelRef
 
     roles = case.metadata['model_roles']
     names = ('fluid_A', 'fluid_B', 'geometry', 'darcy_forchheimer')

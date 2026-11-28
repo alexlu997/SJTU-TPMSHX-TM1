@@ -13,7 +13,7 @@ These property-backend tests remain part of the current solver contract.
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.physical_models import sco2_props as S
+from tm1.physical_models import sco2_props as S
 
 
 # ── enthalpy inverse ────────────────────────────────────────────────
@@ -64,7 +64,7 @@ def test_sco2_rho_cp_spikes_near_pseudocritical():
 # FIELD; the cached scalar primitive raised `unhashable type: numpy.ndarray`.
 # No pytest exercised the array path, so the break was silent until a smoke run.
 def test_sco2_prop_scalar_and_field_dispatch():
-    from sjtu_tpmshx.physical_models.fluid_props import FLUIDS
+    from tm1.physical_models.fluid_props import FLUIDS
     m = FLUIDS['sco2']
     P = 8.0e6
     # scalar path (cached) returns a float
@@ -85,7 +85,7 @@ def test_sco2_prop_scalar_and_field_dispatch():
 
 
 def test_sco2_prop_missing_pressure_raises():
-    from sjtu_tpmshx.physical_models.fluid_props import FLUIDS
+    from tm1.physical_models.fluid_props import FLUIDS
     with pytest.raises(ValueError, match="require pressure"):
         FLUIDS['sco2'].rho(371.0)              # P omitted → clear error
 
@@ -96,7 +96,7 @@ def test_sco2_prop_missing_pressure_raises():
      np.array([7.9e6, 8e6, 12e6, 16e6])[None, :]),
 ])
 def test_joint_properties_match_separate_heos_queries(monkeypatch, temperature, pressure):
-    from sjtu_tpmshx.cpp_interface import _native_properties
+    from tm1.cpp_interface import _native_properties
 
     keys = ('D', 'V', 'L', 'C')
     expected = np.array([S.sco2_prop(key, temperature, pressure) for key in keys])
@@ -119,7 +119,7 @@ def test_joint_properties_match_separate_heos_queries(monkeypatch, temperature, 
 def test_air_water_registry_ignore_pressure_arg():
     """Air/water primitives must stay value-identical whether or not P is
     passed (the 2D loop now forwards P to every primitive)."""
-    from sjtu_tpmshx.physical_models.fluid_props import FLUIDS
+    from tm1.physical_models.fluid_props import FLUIDS
     for name in ('air', 'water'):
         m = FLUIDS[name]
         for fn in (m.cp, m.mu, m.k):

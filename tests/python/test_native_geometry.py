@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 
 from tests.python import geometry_reference as reference
-from sjtu_tpmshx.cpp_interface import _native_geometry as native
+from tm1.cpp_interface import _native_geometry as native
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -33,7 +33,7 @@ def geometry():
 
 @pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
 def test_signed_wall_grid_samples_physical_faces_and_cell_centers(geometry, topology):
-    from sjtu_tpmshx.physical_models.tpms_geometry import signed_wall_grid
+    from tm1.physical_models.tpms_geometry import signed_wall_grid
 
     cell = 8.
     box, shape = (10., 9., 7.5), (11, 19, 31)
@@ -54,7 +54,7 @@ def test_signed_wall_grid_samples_physical_faces_and_cell_centers(geometry, topo
 
 
 def test_graded_cell_length_reports_the_missing_phase_rule(tmp_path, monkeypatch):
-    from sjtu_tpmshx.physical_models.tpms_geometry import lattice_cell_size, signed_wall_grid
+    from tm1.physical_models.tpms_geometry import lattice_cell_size, signed_wall_grid
 
     monkeypatch.setenv('TPMSHX_GEOMETRY_LIBRARY', str(tmp_path / 'missing-library'))
     cells = np.array([[7., 7.], [7., 7.01]])
@@ -75,7 +75,7 @@ def test_signed_wall_grid_requires_sample_fields_on_the_same_axes(geometry):
 def lattice_request(geometry):
     pytest.importorskip('pyvista')
     pytest.importorskip('PySide6')
-    from sjtu_tpmshx.applications.gui.ui.vis3d_lattice_worker import LatticeRequest
+    from tm1.applications.gui.ui.vis3d_lattice_worker import LatticeRequest
 
     widths = (np.array([.001, .003, .0064]), np.array([.002, .0051]), np.array([.0015, .0035, .005]))
     centers = [1000. * (np.cumsum(w) - w / 2) for w in widths]
@@ -87,8 +87,8 @@ def lattice_request(geometry):
 
 @pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
 def test_lattice_domains_close_on_all_six_faces_and_sample_recorded_fields(lattice_request, topology):
-    from sjtu_tpmshx.applications.gui.ui.vis3d_lattice_worker import LatticeCache
-    from sjtu_tpmshx.physical_models.tpms_geometry import signed_wall_grid
+    from tm1.applications.gui.ui.vis3d_lattice_worker import LatticeCache
+    from tm1.physical_models.tpms_geometry import signed_wall_grid
 
     r = replace(lattice_request, topology=topology)
     widths = (r.dx, r.dy, r.dz)
@@ -131,8 +131,8 @@ def test_lattice_domains_close_on_all_six_faces_and_sample_recorded_fields(latti
 
 
 def test_lattice_exact_wall_vertices_empty_domain_and_detail(lattice_request):
-    from sjtu_tpmshx.applications.gui.ui.vis3d_lattice_worker import LatticeCache
-    from sjtu_tpmshx.physical_models.tpms_geometry import _C_from_tL
+    from tm1.applications.gui.ui.vis3d_lattice_worker import LatticeCache
+    from tm1.physical_models.tpms_geometry import _C_from_tL
 
     r = replace(lattice_request, dx=[.007], dy=[.007], dz=[.007], field=[[[310.]]], phase='S',
                 t_mm=.4, delta=_C_from_tL('Gyroid', .4/7.))
@@ -148,7 +148,7 @@ def test_lattice_exact_wall_vertices_empty_domain_and_detail(lattice_request):
 
 
 def test_lattice_solid_normals_face_into_enclosed_fluid_pockets(lattice_request):
-    from sjtu_tpmshx.applications.gui.ui.vis3d_lattice_worker import LatticeCache
+    from tm1.applications.gui.ui.vis3d_lattice_worker import LatticeCache
 
     cache = LatticeCache()
     volume = 0.
@@ -162,8 +162,8 @@ def test_lattice_solid_normals_face_into_enclosed_fluid_pockets(lattice_request)
 
 
 def test_lattice_cache_reuses_geometry_and_evicts_the_oldest_color(lattice_request, monkeypatch):
-    from sjtu_tpmshx.applications.gui.ui import vis3d_lattice_worker as lattice
-    from sjtu_tpmshx.applications.gui.ui.vis3d_lattice_worker import LatticeCache
+    from tm1.applications.gui.ui import vis3d_lattice_worker as lattice
+    from tm1.applications.gui.ui.vis3d_lattice_worker import LatticeCache
 
     for ram, limit in ((8 * 1024**3, 256_000_000), (16 * 1024**3, 512_000_000)):
         monkeypatch.setattr(lattice, '_physical_memory_bytes', lambda: ram)
@@ -196,7 +196,7 @@ def test_lattice_cache_reuses_geometry_and_evicts_the_oldest_color(lattice_reque
 
 def test_lattice_worker_cancels_superseded_requests_and_releases_cache(lattice_request, monkeypatch):
     from PySide6.QtCore import QCoreApplication
-    from sjtu_tpmshx.applications.gui.ui import vis3d_lattice_worker as lattice
+    from tm1.applications.gui.ui import vis3d_lattice_worker as lattice
 
     builder = lattice.LatticeBuilder()
     entered, proceed = threading.Event(), threading.Event()
@@ -307,13 +307,13 @@ def test_hydraulic_radius_preserves_values_and_owns_its_output(geometry, diamete
 
 
 def test_public_quick_design_replays_without_geometry_calls(geometry, tmp_path, monkeypatch):
-    from sjtu_tpmshx.applications.design.cases import DesignCase
+    from tm1.applications.design.cases import DesignCase
     from tests.python.native.shared_library import library_path
-    from sjtu_tpmshx.postprocess.api import evaluate
-    from sjtu_tpmshx.preprocess.api import prepare_quick_design
-    from sjtu_tpmshx.run_control.module_ports import RunControl
-    from sjtu_tpmshx.file_io.case_io import load_case, save_case
-    from sjtu_tpmshx.solvers.api import run_case
+    from tm1.postprocess.api import evaluate
+    from tm1.preprocess.api import prepare_quick_design
+    from tm1.run_control.module_ports import RunControl
+    from tm1.file_io.case_io import load_case, save_case
+    from tm1.solvers.api import run_case
 
     control = RunControl(native_library=str(library_path()), cpu_threads=1)
     condition = DesignCase(1, 'air', 688.23, 1088700., .2855,
@@ -339,7 +339,7 @@ def test_public_quick_design_replays_without_geometry_calls(geometry, tmp_path, 
 
 @pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
 def test_co2_binding_normalizes_nodes_before_interpolation(geometry, topology):
-    from sjtu_tpmshx.model_configs.model_parameters import load_co2_coefficients
+    from tm1.model_configs.model_parameters import load_co2_coefficients
 
     nodes = load_co2_coefficients()['topologies'][topology]['geometry_nodes']
     lookup = {(node['L_mm'], node['t_mm']): node for node in nodes}
@@ -462,7 +462,7 @@ def test_phi_cache_is_read_only_and_does_not_build_an_index(geometry, monkeypatc
 
 
 def test_public_scalar_cache_does_not_cache_the_current_material_setting(geometry, monkeypatch):
-    from sjtu_tpmshx.physical_models import tpms_geometry, tpms_props
+    from tm1.physical_models import tpms_geometry, tpms_props
 
     tpms_geometry.compute_geometry.cache_clear()
     monkeypatch.delenv('TPMSHX_CHI_S', raising=False)
@@ -547,8 +547,8 @@ def test_c_error_status_preserves_its_python_exception_class(status, exception):
 
 
 def test_import_and_archived_result_read_need_no_geometry_library(tmp_path):
-    from sjtu_tpmshx.data_types.field_result import FieldResult
-    from sjtu_tpmshx.file_io.result_io import save_result
+    from tm1.data_types.field_result import FieldResult
+    from tm1.file_io.result_io import save_result
 
     grid = dict(dimension=2, length_unit='m', axis_order=('x', 'y'),
                 dx=np.array([.1]), dy=np.array([.2]),
@@ -568,16 +568,16 @@ import numpy
 def forbidden(*args, **kwargs):
     raise AssertionError('an offline import or read attempted CDLL loading')
 ctypes.CDLL = forbidden
-from sjtu_tpmshx.cpp_interface import _native_geometry as native
-from sjtu_tpmshx.file_io.result_io import load_result
-from sjtu_tpmshx.postprocess.api import evaluate
+from tm1.cpp_interface import _native_geometry as native
+from tm1.file_io.result_io import load_result
+from tm1.postprocess.api import evaluate
 result = load_result(sys.argv[1])
 assert result.result_id == 'archived-geometry' and result.fields['Ta'][0, 0] == 310.
 assert result.run_status['converged'] is False
 assert native._load_library.cache_info().currsize == 0
 assert native._cached_index.cache_info().currsize == 0
 assert native._cached_phi.cache_info().currsize == 0
-for prefix in ('sjtu_tpmshx.solvers', 'sjtu_tpmshx.preprocess', 'CoolProp', 'PySide6'):
+for prefix in ('tm1.solvers', 'tm1.preprocess', 'CoolProp', 'PySide6'):
     assert not any(name == prefix or name.startswith(prefix + '.') for name in sys.modules), prefix
 try:
     native.phi_grid('Gyroid', 8)

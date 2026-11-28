@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from sjtu_tpmshx.preprocess.offline import load_experiments
+from tm1.preprocess.offline import load_experiments
 
 
 def test_explicit_cleaning_and_source_guard(tmp_path):
@@ -40,7 +40,7 @@ def test_explicit_cleaning_and_source_guard(tmp_path):
 
 
 def test_ordinary_full_preparation_never_reads_training(monkeypatch):
-    from sjtu_tpmshx.preprocess.api import prepare_case
+    from tm1.preprocess.api import prepare_case
     from tests.python.integration_tm1.integration_support import baseline_config
     from tests.python.cases_3d import small_air_config
 
@@ -54,8 +54,8 @@ def test_ordinary_full_preparation_never_reads_training(monkeypatch):
 
 
 def test_existing_nu_fit_with_artificial_data():
-    from sjtu_tpmshx.preprocess.offline import fit_nu_sco2
-    from sjtu_tpmshx.development.validation.sco2_cfd.fit_nu_sco2 import _fit
+    from tm1.preprocess.offline import fit_nu_sco2
+    from tm1.development.validation.sco2_cfd.fit_nu_sco2 import _fit
     assert _fit is fit_nu_sco2
     re = np.array([1000., 2000., 4000., 8000.])
     pr = np.array([1., 2., 4., 1.5])
@@ -68,7 +68,7 @@ def test_existing_nu_fit_with_artificial_data():
 
 
 def test_explicit_water_input_retains_raw_geometry_and_flags(tmp_path):
-    from sjtu_tpmshx.preprocess.offline import load_water, load_core, load_segments
+    from tm1.preprocess.offline import load_water, load_core, load_segments
     source = tmp_path / 'artificial-water.xlsx'
     pd.DataFrame([dict(geometry_id='D_7_3', cell_size_mm=7., wall_thickness_mm=3.,
                        Dh_m=.003, Re=1234., rho_kg_m3=1000., mu_Pa_s=.001,

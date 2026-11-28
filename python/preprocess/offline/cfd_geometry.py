@@ -1,7 +1,7 @@
 """Shared CFD geometry columns; raw schemas and flow checks stay with readers."""
 import numpy as np
 import pandas as pd
-from sjtu_tpmshx.physical_models.tpms_props import geometry as tpms_geometry
+from tm1.physical_models.tpms_props import geometry as tpms_geometry
 
 
 def attach_geometry(df: pd.DataFrame, lattice: str) -> pd.DataFrame:

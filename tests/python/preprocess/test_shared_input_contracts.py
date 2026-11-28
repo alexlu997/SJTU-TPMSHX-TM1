@@ -3,12 +3,12 @@ from dataclasses import asdict
 
 import pytest
 
-from sjtu_tpmshx.data_types.compute_config import (
+from tm1.data_types.compute_config import (
     ComputeConfig, GeometryConfig, PartialBCConfig, SolverConfig, ZoneInputConfig, bc_to_dict,
 )
-from sjtu_tpmshx.data_types.validator import validate_pipe_config
-from sjtu_tpmshx.physical_models.zone_config import Zone, ZoneConfig
-from sjtu_tpmshx.preprocess.api import prepare_case
+from tm1.data_types.validator import validate_pipe_config
+from tm1.physical_models.zone_config import Zone, ZoneConfig
+from tm1.preprocess.api import prepare_case
 
 
 def _zoned(mode, dimension, topology='Gyroid', conductivity=16.):
@@ -97,9 +97,9 @@ def test_legacy_supported_and_omitted_domain_fields_still_load():
 
 
 def test_invalid_port_precedes_invalid_speed_at_public_entries():
-    from sjtu_tpmshx.compute import compute
-    from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-    from sjtu_tpmshx.preprocess.api import prepare_case
+    from tm1.compute import compute
+    from tm1.data_types.compute_config import ComputeConfig
+    from tm1.preprocess.api import prepare_case
 
     config = ComputeConfig()
     config.bc_A.in_w = config.bc_A.out_w = .01
@@ -111,8 +111,8 @@ def test_invalid_port_precedes_invalid_speed_at_public_entries():
 
 
 def test_mass_flow_entries_preserve_static_port_error_order():
-    from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-    from sjtu_tpmshx.preprocess import api
+    from tm1.data_types.compute_config import ComputeConfig
+    from tm1.preprocess import api
 
     config = ComputeConfig()
     config.geometry.Lz_m = .04
@@ -133,9 +133,9 @@ def test_mass_flow_entries_preserve_static_port_error_order():
 
 
 def test_invalid_configuration_precedes_second_cancel_poll():
-    from sjtu_tpmshx.compute import compute
-    from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-    from sjtu_tpmshx.run_control.module_ports import RunControl
+    from tm1.compute import compute
+    from tm1.data_types.compute_config import ComputeConfig
+    from tm1.run_control.module_ports import RunControl
 
     config = ComputeConfig()
     config.bc_A.in_w = config.bc_A.out_w = .01

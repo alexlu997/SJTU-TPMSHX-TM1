@@ -2,8 +2,8 @@
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.physical_models.zone_config import Zone, ZoneConfig
-from sjtu_tpmshx.postprocess.result_display import zone_statistics_2d
+from tm1.physical_models.zone_config import Zone, ZoneConfig
+from tm1.postprocess.result_display import zone_statistics_2d
 
 
 @pytest.mark.parametrize('axis', [None, 'x', 'y', 'grid', 'continuous'])

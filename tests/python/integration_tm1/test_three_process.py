@@ -13,9 +13,9 @@ import pytest
 @pytest.mark.parametrize('dimension', [2, 3])
 def test_real_three_process_handoff(tmp_path, dimension):
     from tests.python.integration_tm1.integration_support import AIR_PUBLIC_METRICS
-    from sjtu_tpmshx.file_io.case_io import load_case
-    from sjtu_tpmshx.file_io.result_io import load_result
-    from sjtu_tpmshx.file_io.metrics_io import load_metrics
+    from tm1.file_io.case_io import load_case
+    from tm1.file_io.result_io import load_result
+    from tm1.file_io.metrics_io import load_metrics
     upstream = tmp_path / 'upstream'
     downstream = tmp_path / 'handoff'
     upstream.mkdir()
@@ -25,18 +25,18 @@ def test_real_three_process_handoff(tmp_path, dimension):
                / f'air_{dimension}d.json')
     shutil.copyfile(example, config_path)
     clean_env = dict(os.environ)
-    from sjtu_tpmshx.run_control.run_environment import RUN_OVERRIDES
+    from tm1.run_control.run_environment import RUN_OVERRIDES
     for name in RUN_OVERRIDES:
         clean_env.pop(name, None)
     def stage(name, source, target, environment, extra=()):
         launcher = '''
 import sys
-from sjtu_tpmshx.cli import main
+from tm1.cli import main
 status = main(sys.argv[1:])
 stage = sys.argv[1]
-for prefix in (('sjtu_tpmshx.solvers', 'numba', 'PySide6') if stage == 'prepare' else
-               ('sjtu_tpmshx.preprocess', 'sjtu_tpmshx.pipelines', 'PySide6') if stage == 'solve' else
-               ('sjtu_tpmshx.solvers', 'sjtu_tpmshx.preprocess', 'sjtu_tpmshx.pipelines', 'numba', 'PySide6')):
+for prefix in (('tm1.solvers', 'numba', 'PySide6') if stage == 'prepare' else
+               ('tm1.preprocess', 'tm1.pipelines', 'PySide6') if stage == 'solve' else
+               ('tm1.solvers', 'tm1.preprocess', 'tm1.pipelines', 'numba', 'PySide6')):
     assert not any(n == prefix or n.startswith(prefix + '.') for n in sys.modules), prefix
 raise SystemExit(status)
 '''

@@ -7,13 +7,13 @@ import sys
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.applications.result_adapter import to_compute_result
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.file_io.result_io import load_result, save_result
-from sjtu_tpmshx.file_io.case_io import load_case, save_case
-from sjtu_tpmshx.postprocess.api import evaluate
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.api import run_case
+from tm1.applications.result_adapter import to_compute_result
+from tm1.run_control.module_ports import RunControl
+from tm1.file_io.result_io import load_result, save_result
+from tm1.file_io.case_io import load_case, save_case
+from tm1.postprocess.api import evaluate
+from tm1.preprocess.api import prepare_case
+from tm1.solvers.api import run_case
 from tests.python.integration_tm1.integration_support import baseline_config
 from tests.python.cases_3d import small_air_config
 
@@ -68,7 +68,7 @@ def test_real_application_mapping_and_offline_readback(monkeypatch, tmp_path, di
     config = baseline_config() if dimension == 2 else small_air_config()
     expected = []
     if dimension == 2:
-        from sjtu_tpmshx.solvers import full_2d as result_capture
+        from tm1.solvers import full_2d as result_capture
         from tests.python.integration_tm1.legacy_result_mapping import _finalize_cfg
         capture = result_capture._capture_result
         def checked_capture(case, stage_fields, native, application, diagnostics, **kwargs):
@@ -86,7 +86,7 @@ def test_real_application_mapping_and_offline_readback(monkeypatch, tmp_path, di
             expected.append(lambda: _finalize_cfg(legacy, parsed))
             return result
     else:
-        from sjtu_tpmshx.solvers import full_3d as result_capture
+        from tm1.solvers import full_3d as result_capture
         from tests.python.integration_tm1.legacy_result_mapping import _finalize_3d_cfg
         capture = result_capture.capture_result
         def checked_capture(case, cfg, prepared, native, abi):
@@ -101,8 +101,8 @@ def test_real_application_mapping_and_offline_readback(monkeypatch, tmp_path, di
     case = load_case(tmp_path / 'case.h5')
     # Execution consumes fixed prepared TPMS geometry. Port validation and
     # temperature-dependent fluid/Nu evaluation remain permitted.
-    from sjtu_tpmshx.physical_models import tpms_props, tpms_calc, tpms_geometry
-    from sjtu_tpmshx.cpp_interface import _native_geometry
+    from tm1.physical_models import tpms_props, tpms_calc, tpms_geometry
+    from tm1.cpp_interface import _native_geometry
     def forbidden_geometry(*args, **kwargs):
         raise AssertionError('execution rebuilt prepared thermal geometry')
     geometry_call = _native_geometry._call
@@ -152,13 +152,13 @@ def test_real_application_mapping_and_offline_readback(monkeypatch, tmp_path, di
     assert_slots(archived.fields, actual.fields)
     child = subprocess.run([sys.executable, '-c', '''
 import sys
-from sjtu_tpmshx.file_io.result_io import load_result
-from sjtu_tpmshx.postprocess.api import evaluate
-from sjtu_tpmshx.applications.result_adapter import to_compute_result
+from tm1.file_io.result_io import load_result
+from tm1.postprocess.api import evaluate
+from tm1.applications.result_adapter import to_compute_result
 result = load_result(sys.argv[1])
 display = to_compute_result(result, evaluate(result))
 assert display.metadata['source_result_id'] == result.result_id
-from sjtu_tpmshx.data_types.portable_data import mutable_data
+from tm1.data_types.portable_data import mutable_data
 assert display.metadata['execution_record'] == mutable_data(result.metadata['execution_record'])
 sample = display.metadata['execution_record']['property_sampling']['records'][0]
 original_stage = result.metadata['execution_record']['property_sampling']['records'][0]['stage']
@@ -166,7 +166,7 @@ sample['stage'] = 'GUI edit'
 assert result.metadata['execution_record']['property_sampling']['records'][0]['stage'] == original_stage
 from pathlib import Path
 import numpy as np
-from sjtu_tpmshx.postprocess.export import export_vtk
+from tm1.postprocess.export import export_vtk
 from vtkmodules.vtkIOLegacy import vtkRectilinearGridReader
 from vtkmodules.util.numpy_support import vtk_to_numpy
 vtk_path = export_vtk(result, Path(sys.argv[1]).with_suffix('.vtk'))
@@ -179,7 +179,7 @@ assert grid.GetNumberOfCells() == np.prod(result.fields['Ta'].shape)
 for name, values in result.fields.items():
     np.testing.assert_array_equal(vtk_to_numpy(grid.GetCellData().GetArray(name)),
                                   np.asarray(values).ravel(order='F'))
-for prefix in ('sjtu_tpmshx.solvers', 'sjtu_tpmshx.preprocess', 'sjtu_tpmshx.pipelines', 'numba', 'PySide6'):
+for prefix in ('tm1.solvers', 'tm1.preprocess', 'tm1.pipelines', 'numba', 'PySide6'):
     assert not any(name == prefix or name.startswith(prefix + '.') for name in sys.modules), prefix
 ''', str(path)], capture_output=True, text=True, timeout=30)
     assert child.returncode == 0, child.stdout + child.stderr

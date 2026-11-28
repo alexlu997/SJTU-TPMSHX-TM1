@@ -32,11 +32,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from sjtu_tpmshx.applications.gui.controllers.user_storage import optimization_output_dir
-from sjtu_tpmshx.applications.optimization import optimization_job as study
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig, ZoneInputConfig
-from sjtu_tpmshx.model_configs.df_domain import TRAIN_L, TRAIN_T
-from sjtu_tpmshx.run_control.logutil import get_logger
+from tm1.applications.gui.controllers.user_storage import optimization_output_dir
+from tm1.applications.optimization import optimization_job as study
+from tm1.data_types.compute_config import ComputeConfig, ZoneInputConfig
+from tm1.model_configs.df_domain import TRAIN_L, TRAIN_T
+from tm1.run_control.logutil import get_logger
 
 from .builders_base import collapsible_section
 from .design_peek import (
@@ -373,7 +373,7 @@ class OptimizationPage(QWidget):
                         "kg" if isinstance(mass, (int, float)) and isfinite(mass) else "",
                     )
                 )
-                from sjtu_tpmshx.applications.optimization.mass_design import constraint_keys
+                from tm1.applications.optimization.mass_design import constraint_keys
 
                 keys = constraint_keys(rep["mass_requirements"])
                 vals = [obj[k] for k in keys if k in obj and isinstance(obj[k], (int, float))]
@@ -1388,7 +1388,7 @@ class OptimizationPage(QWidget):
 
     def field_spec(self):
         from scipy.stats import qmc
-        from sjtu_tpmshx.physical_models.continuous_field import decision_bounds, decision_dim
+        from tm1.physical_models.continuous_field import decision_bounds, decision_dim
 
         widgets = self.bounds
         controls = self.controls
@@ -1928,7 +1928,7 @@ class OptimizationPage(QWidget):
     def export_pareto_data(self):
         """Save the archived plot data without re-evaluating a design."""
         from PySide6.QtWidgets import QFileDialog, QMessageBox
-        from sjtu_tpmshx.applications.optimization.pareto_io import export_pareto_data as export
+        from tm1.applications.optimization.pareto_io import export_pareto_data as export
 
         report = self.report
         if report is None:
@@ -1963,7 +1963,7 @@ class OptimizationPage(QWidget):
             QMessageBox,
             QSpinBox,
         )
-        from sjtu_tpmshx.applications.optimization.export_ntop_csv import (
+        from tm1.applications.optimization.export_ntop_csv import (
             MAX_EXPORT_POINTS,
             export_study_design,
         )
@@ -2088,7 +2088,7 @@ class OptimizationPage(QWidget):
         plane_suffix = f"（{SYM['z']} 中面）" if is_3d else ""
 
         if constrained:
-            from sjtu_tpmshx.applications.optimization.mass_design import constraint_keys
+            from tm1.applications.optimization.mass_design import constraint_keys
 
             keys = constraint_keys(report["mass_requirements"])
             vals = [obj[k] for k in keys if k in obj and isinstance(obj[k], (int, float))]
@@ -2151,7 +2151,7 @@ class OptimizationPage(QWidget):
             h_obj = h_row.get("objectives") or {}
             h_id = h_row.get("index", idx)
             if constrained:
-                from sjtu_tpmshx.applications.optimization.mass_design import constraint_keys
+                from tm1.applications.optimization.mass_design import constraint_keys
 
                 keys = constraint_keys(report["mass_requirements"])
                 m_val = float(h_obj.get("core_mass_kg", 0.0))
@@ -2255,7 +2255,7 @@ class OptimizationPage(QWidget):
         usable = [row for row in history if row["status"] == "completed"]
         constrained = "mass_requirements" in report
         if constrained:
-            from sjtu_tpmshx.applications.optimization.mass_design import constraint_keys
+            from tm1.applications.optimization.mass_design import constraint_keys
 
             keys = constraint_keys(report["mass_requirements"])
 
@@ -2461,7 +2461,7 @@ class OptimizationPage(QWidget):
     @Slot()
     def show_field_preview(self, x_decision=None, *, switch_to_field: bool = True):
         from matplotlib.ticker import MaxNLocator
-        from sjtu_tpmshx.physical_models.continuous_field import (
+        from tm1.physical_models.continuous_field import (
             decision_bounds,
             from_decision_vector,
         )

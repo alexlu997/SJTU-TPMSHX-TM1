@@ -6,7 +6,7 @@ docs/history/README.md links its original file and numerical values.
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.cpp_interface._native_df import project_rows
+from tm1.cpp_interface._native_df import project_rows
 
 
 @pytest.mark.parametrize('fluid', ['A', 'B'])
@@ -25,7 +25,7 @@ def test_projection_coordinates(fluid, nonuniform):
 
 
 def test_native_projection_coordinate_rules():
-    from sjtu_tpmshx.cpp_interface import _native_df
+    from tm1.cpp_interface import _native_df
 
     lengths = np.broadcast_to(np.arange(4., 8.)[:, None], (4, 2))
     walls = np.full_like(lengths, .4)

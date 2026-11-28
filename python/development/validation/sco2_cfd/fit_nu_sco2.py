@@ -3,7 +3,7 @@
 逐拓扑独立拟合（与产线 WATER_NU_COEFFS / SCO2_NU_COEFFS 的分拓扑惯例一致）。
 
 用法:
-    python -m sjtu_tpmshx.development.validation.sco2_cfd.fit_nu_sco2
+    python -m tm1.development.validation.sco2_cfd.fit_nu_sco2
 
 Use the second and third periods from the segment files. Exclude the entrance segments.
 `preprocess.offline.load_sco2_cfd.load_segments` calculates local bulk properties with CoolProp at (P, T_b_local).
@@ -58,9 +58,9 @@ import pandas as pd
 _THIS = Path(__file__).resolve()
 _PKG_ROOT = _THIS.parents[3]
 
-from sjtu_tpmshx.preprocess.offline.load_sco2_cfd import LATTICES, load_segments  # noqa: E402
+from tm1.preprocess.offline.load_sco2_cfd import LATTICES, load_segments  # noqa: E402
 
-from sjtu_tpmshx.preprocess.offline.nu_fit import fit_nu_sco2 as _fit
+from tm1.preprocess.offline.nu_fit import fit_nu_sco2 as _fit
 
 REPORT_DIR = _PKG_ROOT.parent / ".cache" / "reports" / "sco2_cfd"
 

@@ -8,13 +8,13 @@ from itertools import product
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.cpp_interface._native_values import copy_array
-from sjtu_tpmshx.data_types.compute_config import PartialBCConfig
-from sjtu_tpmshx.file_io.case_io import load_case, save_case
-from sjtu_tpmshx.physical_models.tpms_calc import compute
-from sjtu_tpmshx.physical_models.tpms_geometry import compute_geometry
-from sjtu_tpmshx.preprocess import api
-from sjtu_tpmshx.solvers.full_3d import validate_saved_case
+from tm1.cpp_interface._native_values import copy_array
+from tm1.data_types.compute_config import PartialBCConfig
+from tm1.file_io.case_io import load_case, save_case
+from tm1.physical_models.tpms_calc import compute
+from tm1.physical_models.tpms_geometry import compute_geometry
+from tm1.preprocess import api
+from tm1.solvers.full_3d import validate_saved_case
 from tests.python import native_preparation_abi, property_reference as prop_ref
 from tests.python.native_preparation_abi import _configuration_continuous_3d, _configuration_spatial_3d
 from tests.python.native_adapters.test_native_prepare_adapter import _capture, _same
@@ -166,9 +166,9 @@ def test_missing_preparation_library_stops_3d_dispatch(monkeypatch):
 
 
 def test_host_exception_keeps_identity_and_releases_owner(monkeypatch):
-    from sjtu_tpmshx.preprocess.three_d import preparation
-    from sjtu_tpmshx.cpp_interface import preparation_host as binding
-    from sjtu_tpmshx.run_control.run_warnings import warning_scope, current_warnings
+    from tm1.preprocess.three_d import preparation
+    from tm1.cpp_interface import preparation_host as binding
+    from tm1.run_control.run_warnings import warning_scope, current_warnings
     original = binding._Bindings
     released = []
     failure = ValueError('host environment capture failed')
@@ -199,10 +199,10 @@ def test_host_exception_keeps_identity_and_releases_owner(monkeypatch):
 @pytest.mark.parametrize('mode', ['uniform', 'xyz', 'grid'])
 @pytest.mark.parametrize('alias', ['error', 'failure'])
 def test_owned_3d_views_cannot_be_diagnostic_outputs(mode, alias):
-    from sjtu_tpmshx.cpp_interface import _native_preparation_3d as binding
-    from sjtu_tpmshx.cpp_interface import _native_preparation_case as native
-    from sjtu_tpmshx.cpp_interface import preparation_host
-    from sjtu_tpmshx.cpp_interface.stage_libraries import preparation_library
+    from tm1.cpp_interface import _native_preparation_3d as binding
+    from tm1.cpp_interface import _native_preparation_case as native
+    from tm1.cpp_interface import preparation_host
+    from tm1.cpp_interface.stage_libraries import preparation_library
     config = _configuration(mode).validate()
     source, errors = binding.pack_input(config, None, lambda fluid: fluid.u_mps, 2_000_000)
     assert not errors
@@ -230,10 +230,10 @@ def test_owned_3d_views_cannot_be_diagnostic_outputs(mode, alias):
 
 @pytest.mark.parametrize('alias', ['error', 'failure'])
 def test_cached_3d_evidence_cannot_alias_diagnostics(alias):
-    from sjtu_tpmshx.cpp_interface import _native_preparation_3d as binding
-    from sjtu_tpmshx.cpp_interface import _native_preparation_case as native
-    from sjtu_tpmshx.cpp_interface import preparation_host
-    from sjtu_tpmshx.cpp_interface.stage_libraries import preparation_library
+    from tm1.cpp_interface import _native_preparation_3d as binding
+    from tm1.cpp_interface import _native_preparation_case as native
+    from tm1.cpp_interface import preparation_host
+    from tm1.cpp_interface.stage_libraries import preparation_library
     config = _configuration('uniform', pair=('air', 'air')).validate()
     source, errors = binding.pack_input(config, None, lambda fluid: fluid.u_mps, 2_000_000)
     assert not errors
@@ -262,7 +262,7 @@ def test_cached_3d_evidence_cannot_alias_diagnostics(alias):
 @pytest.mark.parametrize('mode', ['xy', 'xyz', 'grid'])
 @pytest.mark.parametrize('targets', [None, (.001, .001)])
 def test_air_field_observations_stay_bounded(monkeypatch, mode, targets):
-    from sjtu_tpmshx.preprocess.preparation import PreparationCache
+    from tm1.preprocess.preparation import PreparationCache
     config = _configuration(mode, pair=('air', 'air'))
     config.solver.Nx, config.solver.Ny, config.solver.Nz = 30, 20, 10
     actual_calls = []
@@ -460,8 +460,8 @@ def _bytes_owner(array):
 @pytest.mark.parametrize('mode', ['uniform', 'xyz', 'grid', 'offset'])
 def test_detached_case_survives_buffer_poison_and_second_call_with_single_copy(monkeypatch, mode):
     from contextlib import contextmanager
-    from sjtu_tpmshx.cpp_interface import _native_preparation_3d as binding, preparation_host
-    from sjtu_tpmshx.preprocess.three_d import preparation
+    from tm1.cpp_interface import _native_preparation_3d as binding, preparation_host
+    from tm1.preprocess.three_d import preparation
 
     config = _configuration(mode)
     original_op, original_case = preparation_host.volume_operation, preparation._case
@@ -545,7 +545,7 @@ def test_detached_case_survives_buffer_poison_and_second_call_with_single_copy(m
 @pytest.mark.parametrize('mode', ['uniform', 'xyz'])
 @pytest.mark.parametrize('operation', ['capacity', 'resolve', 'prepare', 'fixed-flow'])
 def test_all_3d_operations_release_owned_result_once(monkeypatch, mode, operation):
-    from sjtu_tpmshx.cpp_interface import _native_preparation_3d as binding, preparation_host
+    from tm1.cpp_interface import _native_preparation_3d as binding, preparation_host
 
     config = _configuration(mode)
     original = preparation_host._Bindings
@@ -591,10 +591,10 @@ def test_all_3d_operations_release_owned_result_once(monkeypatch, mode, operatio
 ] + [('uniform', 'cache_inlet')])
 def test_injected_read_and_callback_failures_keep_exception_and_release_once(monkeypatch, mode, exc_cls, fault):
     from contextlib import contextmanager
-    from sjtu_tpmshx.cpp_interface import _native_preparation_3d as binding, preparation_host
-    from sjtu_tpmshx.preprocess.preparation import PreparationCache
-    from sjtu_tpmshx.preprocess.three_d import preparation
-    from sjtu_tpmshx.run_control.run_warnings import current_warnings, warning_scope
+    from tm1.cpp_interface import _native_preparation_3d as binding, preparation_host
+    from tm1.preprocess.preparation import PreparationCache
+    from tm1.preprocess.three_d import preparation
+    from tm1.run_control.run_warnings import current_warnings, warning_scope
 
     pair = ('co2', 'water') if fault == 'drag_evidence' else ('air', 'water')
     config = _configuration(mode, pair=pair)
@@ -672,7 +672,7 @@ def test_injected_read_and_callback_failures_keep_exception_and_release_once(mon
 
 
 def test_detach_array_rejects_null_pointer_with_nonzero_size():
-    from sjtu_tpmshx.cpp_interface import _native_preparation_3d as binding, _native_preparation_case as native
+    from tm1.cpp_interface import _native_preparation_3d as binding, _native_preparation_case as native
 
     empty = binding._detach_array(native._Array(None, 0))
     assert empty.dtype == np.float64 and empty.shape == (0,) and not empty.flags.writeable
@@ -683,7 +683,7 @@ def test_detach_array_rejects_null_pointer_with_nonzero_size():
 
 @pytest.mark.parametrize('field', ['L_bounds', 't_bounds'])
 def test_continuous_bounds_conversion_keeps_stop_iteration(field):
-    from sjtu_tpmshx.preprocess.three_d import preparation
+    from tm1.preprocess.three_d import preparation
 
     marker = StopIteration(field)
 
@@ -701,9 +701,9 @@ def test_continuous_bounds_conversion_keeps_stop_iteration(field):
 def test_3d_warning_sites_repeat_counts_and_scoped_metadata(monkeypatch):
     from pathlib import Path
     import warnings
-    from sjtu_tpmshx.physical_models import nu_correlations, tpms_props
-    from sjtu_tpmshx.preprocess import preparation as shared
-    from sjtu_tpmshx.preprocess.three_d import preparation
+    from tm1.physical_models import nu_correlations, tpms_props
+    from tm1.preprocess import preparation as shared
+    from tm1.preprocess.three_d import preparation
 
     monkeypatch.setattr(tpms_props, '_range_warnings_emitted', set())
     monkeypatch.setattr(nu_correlations, '_EXTRAP_WARNED', set())
@@ -749,7 +749,7 @@ def test_3d_preparation_loads_only_preparation_library(monkeypatch, tmp_path):
     import json
     import subprocess
     import sys
-    from sjtu_tpmshx.cpp_interface.stage_libraries import preparation_library
+    from tm1.cpp_interface.stage_libraries import preparation_library
 
     for name in ('RESULT', 'GEOMETRY', 'NATIVE_SOLVER', 'SOLVER'):
         monkeypatch.setenv(f'TPMSHX_{name}_LIBRARY', str(tmp_path / 'absent'))
@@ -765,8 +765,8 @@ def capture(event, args):
     if event == 'ctypes.dlopen' and args[0] and 'tpmshx_' in Path(args[0]).name.lower():
         images.append(Path(args[0]).resolve())
 sys.addaudithook(capture)
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-from sjtu_tpmshx.preprocess import api
+from tm1.data_types.compute_config import ComputeConfig
+from tm1.preprocess import api
 for mode, payload in json.loads(sys.argv[2]):
     cfg = ComputeConfig.from_dict(payload)
     api.prepare_case(cfg, case_id='iso-' + mode)
@@ -777,7 +777,7 @@ for mode, payload in json.loads(sys.argv[2]):
         api.resolve_fixed_mass_flow_config(flow_cfg, mass_flow_A_kg_s=.001, mass_flow_B_kg_s=.01)
         api.prepare_fixed_mass_flow_case(flow_cfg, mass_flow_A_kg_s=.001, mass_flow_B_kg_s=.01, case_id='iso-f-' + mode)
 forbidden = [name for name in sys.modules if name.startswith((
-    'sjtu_tpmshx.solvers', 'sjtu_tpmshx.postprocess', 'PySide6', 'CoolProp',
+    'tm1.solvers', 'tm1.postprocess', 'PySide6', 'CoolProp',
 ))]
 if forbidden:
     raise SystemExit(f'unexpected modules: {forbidden}')

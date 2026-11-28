@@ -189,8 +189,8 @@ CI 除完整 macOS/Windows 构建外，还在 Ubuntu 24.04 与 26.04 上构建�
 公共 Python 执行通过 `RunControl` 传递库路径：
 
 ```python
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.solvers.api import run_case
+from tm1.run_control.module_ports import RunControl
+from tm1.solvers.api import run_case
 
 result = run_case(prepared_case, RunControl(
     backend="cpp", native_library="/absolute/path/to/libtpmshx_solver_shared.dylib"))
@@ -199,7 +199,7 @@ result = run_case(prepared_case, RunControl(
 源码 CLI 执行方式：
 
 ```bash
-"$PYTHON" -m sjtu_tpmshx.cli solve case.h5 results.h5 --backend cpp \
+"$PYTHON" -m tm1.cli solve case.h5 results.h5 --backend cpp \
   --native-library /absolute/path/to/libtpmshx_solver_shared.dylib
 ```
 
@@ -274,7 +274,7 @@ nmake /f engineering\native_build\Makefile.msvc check
 
 ```sh
 tm1_python="$(head -n 1 .venv-path)"
-"$tm1_python" -m sjtu_tpmshx.development.runs.tools.check_locked_environment
+"$tm1_python" -m tm1.development.runs.tools.check_locked_environment
 "$tm1_python" -m pip check
 "$tm1_python" engineering/scripts/build_native_dependencies.py fetch
 "$tm1_python" engineering/scripts/build_native_dependencies.py build

@@ -7,13 +7,13 @@ import sys
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.field_result import FieldResult
-from sjtu_tpmshx.physical_models.range_policy import assess_range, parameter_bounds
-from sjtu_tpmshx.cpp_interface._native_result_checks import record_range
-from sjtu_tpmshx.run_control.run_warnings import (
+from tm1.data_types.field_result import FieldResult
+from tm1.physical_models.range_policy import assess_range, parameter_bounds
+from tm1.cpp_interface._native_result_checks import record_range
+from tm1.run_control.run_warnings import (
     RangeRecord, range_context, range_observations, warning_messages, warning_scope,
 )
-from sjtu_tpmshx.postprocess.api import evaluate_applicability
+from tm1.postprocess.api import evaluate_applicability
 
 
 def sample(minimum, maximum, bounds=(100., 200.), *, size=2, **changes):
@@ -102,15 +102,15 @@ def test_missing_final_evidence_is_not_a_pass():
 
 
 def test_new_process_reads_the_same_verdict_without_eos_or_solver(tmp_path):
-    from sjtu_tpmshx.file_io.result_io import save_result
+    from tm1.file_io.result_io import save_result
     result = result_with_evidence()
     path = save_result(result, tmp_path / 'ranges.h5')
     process = subprocess.run([sys.executable, '-c', r'''
 import json, sys
-from sjtu_tpmshx.file_io.result_io import load_result
-from sjtu_tpmshx.postprocess.api import evaluate_applicability
+from tm1.file_io.result_io import load_result
+from tm1.postprocess.api import evaluate_applicability
 print(json.dumps(evaluate_applicability(load_result(sys.argv[1])), allow_nan=False))
-for prefix in ('sjtu_tpmshx.solvers', 'sjtu_tpmshx.preprocess', 'CoolProp', 'numba', 'PySide6'):
+for prefix in ('tm1.solvers', 'tm1.preprocess', 'CoolProp', 'numba', 'PySide6'):
     assert not any(name == prefix or name.startswith(prefix + '.') for name in sys.modules), prefix
 ''', str(path)], text=True, capture_output=True, timeout=30)
     assert process.returncode == 0, process.stderr
@@ -126,7 +126,7 @@ def test_invalid_policy_evidence_is_rejected(field, value):
 
 
 def test_runtime_joint_scope_notice_is_preserved():
-    from sjtu_tpmshx.data_types.case_data import CaseData
+    from tm1.data_types.case_data import CaseData
     from tests.python.applicability_evidence import capture_applicability
     note = 'Joint sCO2 coverage remains unverified.'
     evidence = capture_applicability(CaseData('case'), result_with_evidence(),

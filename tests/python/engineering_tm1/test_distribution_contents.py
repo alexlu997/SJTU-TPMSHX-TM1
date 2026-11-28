@@ -24,13 +24,13 @@ def project(tmp_path):
     (root / "pyproject.toml").write_text(
         '[project]\ndependencies = ["h5py>=3.16"]\n'
         '[project.optional-dependencies]\noffline = ["CoolProp>=8.0"]\n'
-        '[tool.setuptools.package-data]\nsjtu_tpmshx = ["model_configs/*.json", "physical_models/df_surrogate/_prebuilt/*.csv"]\n')
+        '[tool.setuptools.package-data]\ntm1 = ["model_configs/*.json", "physical_models/df_surrogate/_prebuilt/*.csv"]\n')
     for name in distributions.REQUIRED_RESOURCES:
-        path = root / "python" / Path(name).relative_to("sjtu_tpmshx")
+        path = root / "python" / Path(name).relative_to("tm1")
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"original resource\n")
     files = {
-        "sjtu_tpmshx.py": "",
+        "tm1.py": "",
         "tests/__init__.py": "",
         "tests/python/__init__.py": "",
         "tests/python/native/reference.py": "value = 1\n",
@@ -71,22 +71,22 @@ def wheel_archive(root, output, *, extra=None, change_resource=False,
                                      'Requires-Dist: CoolProp>=8.0; extra == "offline"\n'):
     with zipfile.ZipFile(output, "w") as archive:
         for name in ("__init__.py", "development/runs/tool.py", "development/validation/reference.py"):
-            archive.writestr("sjtu_tpmshx/" + name, (root / "python" / name).read_bytes())
+            archive.writestr("tm1/" + name, (root / "python" / name).read_bytes())
         for name in distributions.declared_resources(root):
-            value = (root / "python" / Path(name).relative_to("sjtu_tpmshx")).read_bytes()
+            value = (root / "python" / Path(name).relative_to("tm1")).read_bytes()
             if change_resource and name.endswith("preparation_df_v1.json"):
                 value += b"changed"
             archive.writestr(name, value)
-        archive.writestr("sjtu_tpmshx-1.0.dist-info/METADATA",
-                         "Name: sjtu-tpmshx\nVersion: 1.0\n" + dependency_headers)
-        archive.writestr("sjtu_tpmshx-1.0.dist-info/WHEEL", "Root-Is-Purelib: true\nTag: py3-none-any\n")
+        archive.writestr("tm1-1.0.dist-info/METADATA",
+                         "Name: tm1\nVersion: 1.0\n" + dependency_headers)
+        archive.writestr("tm1-1.0.dist-info/WHEEL", "Root-Is-Purelib: true\nTag: py3-none-any\n")
         for name, value in (extra or {}).items():
             archive.writestr(name, value)
 
 
 def test_source_archive_keeps_native_helper_and_its_local_build_closure(project, tmp_path):
     archive = tmp_path / "source.tar.gz"
-    source_archive(project, archive, extra={"sjtu_tpmshx.egg-info/PKG-INFO": b"generated metadata"})
+    source_archive(project, archive, extra={"tm1.egg-info/PKG-INFO": b"generated metadata"})
     _, files = distributions.inspect_sdist(archive, project)
     assert "numerics/fluid_properties.cpp" in files
     assert "tests/python/native/reference.py" in files
@@ -130,11 +130,11 @@ def test_source_archive_rejects_retired_numerics(project, tmp_path, name):
 
 @pytest.mark.parametrize("name", ["numerics/fluid_properties.cpp",
     "sjtu_tpmshx/solvers/native/lib/macos-arm64/libtpmshx_preparation_shared.dylib",
-    "sjtu_tpmshx/physical_models/local_heat_transfer.py",
-    "sjtu_tpmshx/physical_models/quick_design.py",
-    "sjtu_tpmshx/preprocess/thermal_geometry.py",
-    "sjtu_tpmshx.py",
-    "sjtu_tpmshx/development/tests/native/reference.py",
+    "tm1/physical_models/local_heat_transfer.py",
+    "tm1/physical_models/quick_design.py",
+    "tm1/preprocess/thermal_geometry.py",
+    "tm1.py",
+    "tm1/development/tests/native/reference.py",
     "tests/python/__init__.py",
     "tests/python/native/reference.py",
     "tests/python/native/bridge.cpp"])
@@ -150,8 +150,8 @@ def test_wheel_keeps_declared_resource_bytes(project, tmp_path):
     wheel_archive(project, archive)
     files = distributions.inspect_wheel(archive, project)
     assert distributions.REQUIRED_RESOURCES.issubset(files)
-    assert "sjtu_tpmshx/development/runs/tool.py" in files
-    assert "sjtu_tpmshx/development/validation/reference.py" in files
+    assert "tm1/development/runs/tool.py" in files
+    assert "tm1/development/validation/reference.py" in files
     assert not any(name.startswith("tests/") or "/development/tests/" in name for name in files)
     wheel_archive(project, archive, change_resource=True)
     with pytest.raises(ValueError, match="changed resource bytes"):
@@ -167,13 +167,13 @@ def test_wheel_rejects_an_optional_dependency_in_core(project, tmp_path):
 
 
 def test_fresh_source_copy_does_not_use_or_remove_existing_root_build_outputs(project, tmp_path):
-    for name in ("build", "dist", "sjtu_tpmshx.egg-info"):
+    for name in ("build", "dist", "tm1.egg-info"):
         directory = project / name
         directory.mkdir()
         (directory / "keep").write_text("unrelated output")
     copy = tmp_path / "isolated-source"
     distributions._source_copy(project, copy)
-    for name in ("build", "dist", "sjtu_tpmshx.egg-info"):
+    for name in ("build", "dist", "tm1.egg-info"):
         assert (project / name / "keep").read_text() == "unrelated output"
         assert not (copy / name).exists()
 
@@ -189,7 +189,7 @@ def test_source_archive_requires_the_complete_test_tree(project, tmp_path, name)
 
 @pytest.mark.parametrize("explicit", [False, True])
 def test_manifest_tool_creates_the_selected_parent(tmp_path, monkeypatch, explicit):
-    from sjtu_tpmshx.development.runs.tools import build_fast_tier_manifest as manifest
+    from tm1.development.runs.tools import build_fast_tier_manifest as manifest
 
     log = tmp_path / "durations.log"
     log.write_text("31.0s call test_case.py::test_case\n")
@@ -201,7 +201,7 @@ def test_manifest_tool_creates_the_selected_parent(tmp_path, monkeypatch, explic
 
 
 def test_manifest_tool_keeps_write_errors(tmp_path, monkeypatch):
-    from sjtu_tpmshx.development.runs.tools import build_fast_tier_manifest as manifest
+    from tm1.development.runs.tools import build_fast_tier_manifest as manifest
 
     log = tmp_path / "durations.log"
     log.write_text("31.0s call test_case.py::test_case\n")
@@ -222,36 +222,36 @@ import sys
 
 installed = Path(sys.argv[1]).resolve()
 sys.path.insert(0, str(installed))
-import sjtu_tpmshx
-assert Path(sjtu_tpmshx.__file__).resolve().is_relative_to(installed)
+import tm1
+assert Path(tm1.__file__).resolve().is_relative_to(installed)
 """ + PUBLIC_NAME_CHECK + r"""
-assert importlib.util.find_spec('sjtu_tpmshx.development.tests') is None
-package = files('sjtu_tpmshx')
+assert importlib.util.find_spec('tm1.development.tests') is None
+package = files('tm1')
 for name in json.loads(sys.argv[3]):
     assert package.joinpath(*name.split('/')[1:]).read_bytes()
-from sjtu_tpmshx.model_configs import load_shanghai_baseline
-from sjtu_tpmshx.model_configs.model_parameters import (
+from tm1.model_configs import load_shanghai_baseline
+from tm1.model_configs.model_parameters import (
     load_model_parameters, load_co2_coefficients, load_preparation_df_parameters,
 )
 assert load_shanghai_baseline() and load_model_parameters()
-from sjtu_tpmshx.physical_models.co2_correlations import coefficients
+from tm1.physical_models.co2_correlations import coefficients
 assert coefficients() == load_co2_coefficients() and load_preparation_df_parameters()
-from sjtu_tpmshx.preprocess.offline import load_core, load_segments
+from tm1.preprocess.offline import load_core, load_segments
 assert callable(load_core) and callable(load_segments)
-from sjtu_tpmshx.development.validation.harness._order_fit import fit_order_loglog
+from tm1.development.validation.harness._order_fit import fit_order_loglog
 assert abs(fit_order_loglog([1., .5, .25], [1., .25, .0625]).p - 2.) < 1e-12
-from sjtu_tpmshx.development.runs.tools import build_fast_tier_manifest as manifest
+from tm1.development.runs.tools import build_fast_tier_manifest as manifest
 foreign = installed / 'tests/python/foreign.py'
 foreign.parent.mkdir(parents=True)
 foreign.write_text('raise AssertionError("unrelated tests")')
-from sjtu_tpmshx.development.runs.tools import audit_import_graph
+from tm1.development.runs.tools import audit_import_graph
 assert foreign not in set(audit_import_graph.source_paths())
 log = Path('durations.log')
 log.write_text('31.0s call test_case.py::test_case\n')
-assert manifest._DEF_OUT == installed / 'sjtu_tpmshx/development/tests/_fast_tier_manifest.txt'
+assert manifest._DEF_OUT == installed / 'tm1/development/tests/_fast_tier_manifest.txt'
 assert manifest.main(['--log', str(log)]) == 0
 assert manifest._DEF_OUT.read_text().endswith('test_case.py::test_case\n')
-entry, = [item for item in importlib.metadata.distribution('sjtu-tpmshx').entry_points
+entry, = [item for item in importlib.metadata.distribution('tm1').entry_points
           if item.group == 'console_scripts' and item.name == 'tpmshx-run']
 main = entry.load()
 try:
@@ -291,8 +291,8 @@ def test_installed_wheel_runtime(kind):
             result = subprocess.run([sys.executable, "-I", "-c", code, str(target)], cwd=directory,
                                     env=env, capture_output=True, text=True, timeout=60)
             assert result.returncode == 0, result.stderr
-        for module in ("sjtu_tpmshx.shared.df_surrogate.ingest_cfd_kappa",
-                       "sjtu_tpmshx.development.runs.cfd_asym.ingest_cfd_kappa"):
+        for module in ("tm1.shared.df_surrogate.ingest_cfd_kappa",
+                       "tm1.development.runs.cfd_asym.ingest_cfd_kappa"):
             result = subprocess.run([sys.executable, "-m", module, "--help"], cwd=directory,
                                     env=dict(env, PYTHONPATH=str(target), PYTHONIOENCODING="cp1252:strict"),
                                     capture_output=True, text=True, timeout=60)

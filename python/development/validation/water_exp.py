@@ -1,8 +1,8 @@
 """Pressure boundary for the explicitly confirmed water experiment workbooks."""
 from pathlib import Path
 
-from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
-from sjtu_tpmshx.physical_models.fluid_props import check_water_state
+from tm1.model_configs.units import CELSIUS_ZERO_K
+from tm1.physical_models.fluid_props import check_water_state
 
 
 WATER_EXPERIMENT_BOOKS = frozenset({

@@ -30,8 +30,8 @@ import json, math, sys
 from pathlib import Path
 import CoolProp.CoolProp as CP
 sys.path.insert(0, sys.argv[2])
-from sjtu_tpmshx.physical_models.fluid_props import check_water_state
-from sjtu_tpmshx.physical_models.sco2_props import _validate_state
+from tm1.physical_models.fluid_props import check_water_state
+from tm1.physical_models.sco2_props import _validate_state
 payload = json.load(sys.stdin)
 tables = str(Path(sys.argv[1]).resolve()) + "/"
 Path(tables).mkdir(parents=True, exist_ok=True)

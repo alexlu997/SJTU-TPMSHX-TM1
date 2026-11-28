@@ -13,7 +13,7 @@ where (K_sym, cF_sym) = ``predict.predict_K_cF(tpms, L, t, epsilon_sym)``. This
 denominator is the current symmetric model prediction, not a paired CFD run;
 the ratio can therefore include differences in CFD recipe and model baseline.
 For the separate same-recipe CFD self-ratio workflow, use
-``sjtu_tpmshx.development.runs.cfd_asym.asym_postproc_kappa`` instead.
+``tm1.development.runs.cfd_asym.asym_postproc_kappa`` instead.
 
 Tables use piecewise linear interpolation on sorted r with flat ends; kappa is not
 constrained to be monotone. A (1, 1) point is added only when r~=1 is absent;
@@ -25,7 +25,7 @@ can then explicitly call ``kappa_asym.kappa_KcF(..., enabled=True)`` in that
 process. The tables are not connected to production preparation; neither this
 CLI nor ``TPMSHX_ASYM_KAPPA=1`` installs or enables them in a full 3D/GUI solve.
 
-Usage:  python -m sjtu_tpmshx.development.runs.cfd_asym.ingest_cfd_kappa results.csv
+Usage:  python -m tm1.development.runs.cfd_asym.ingest_cfd_kappa results.csv
         (or import ingest(path) programmatically)
 """
 from __future__ import annotations
@@ -35,9 +35,9 @@ import argparse
 
 import numpy as np
 
-from sjtu_tpmshx.physical_models.df_surrogate.predict import predict_K_cF
-from sjtu_tpmshx.development.runs.cfd_asym import kappa_asym
-from sjtu_tpmshx.run_control.logutil import get_logger
+from tm1.physical_models.df_surrogate.predict import predict_K_cF
+from tm1.development.runs.cfd_asym import kappa_asym
+from tm1.run_control.logutil import get_logger
 
 _log = get_logger(__name__)
 

@@ -3,8 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-from sjtu_tpmshx.solvers.full_3d import validate_saved_case
+from tm1.data_types.compute_config import ComputeConfig
+from tm1.solvers.full_3d import validate_saved_case
 
 
 @pytest.mark.parametrize('key,value', [
@@ -56,7 +56,7 @@ def test_nested_canonical_research_option_explains_retirement(section, key, valu
 
 
 def test_retired_audit_case_does_not_silently_run_empty_matrix(monkeypatch, tmp_path):
-    from sjtu_tpmshx.development.validation.cases import audit_3d_conservation as audit
+    from tm1.development.validation.cases import audit_3d_conservation as audit
     monkeypatch.setattr('sys.argv', ['audit', '--cases', 'T4_H2', '--out', str(tmp_path/'audit.md')])
     monkeypatch.setattr(audit, 'run_case', lambda *args: pytest.fail('retired case ran'))
     with pytest.raises(SystemExit) as stopped:

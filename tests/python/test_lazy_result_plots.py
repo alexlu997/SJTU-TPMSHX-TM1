@@ -5,15 +5,15 @@ import numpy as np
 import pytest
 
 from tests.python.gui_workbench_support import _result, win as win
-from sjtu_tpmshx.applications.gui.ui.plot_2d_results import redraw_result_fields
-from sjtu_tpmshx.applications.gui.ui.plot_3d_results import finalize_plots_3d
+from tm1.applications.gui.ui.plot_2d_results import redraw_result_fields
+from tm1.applications.gui.ui.plot_3d_results import finalize_plots_3d
 
 
 @pytest.mark.parametrize('transition', ['preset', '2d_result'])
 def test_temperature_slice_does_not_retain_replaced_3d_pressure_fields(win, transition):
     import gc
     import weakref
-    from sjtu_tpmshx.applications.gui.ui.plot_3d_results import _render_2d_slices_from_3d
+    from tm1.applications.gui.ui.plot_3d_results import _render_2d_slices_from_3d
 
     result = _result('3d')
     pressure = {name: weakref.ref(result.fields[name]) for name in ('P_fA', 'P_fB')}
@@ -31,7 +31,7 @@ def test_temperature_slice_does_not_retain_replaced_3d_pressure_fields(win, tran
 
 @pytest.mark.parametrize('mode', ['2d', '3d'])
 def test_first_plot_lazy_switch_and_export_use_current_selection(win, monkeypatch, tmp_path, mode):
-    from sjtu_tpmshx.applications.gui.ui import result_export
+    from tm1.applications.gui.ui import result_export
 
     result = _result(mode)
     original = result.fields['Tb'].copy()
@@ -45,7 +45,7 @@ def test_first_plot_lazy_switch_and_export_use_current_selection(win, monkeypatc
             set_scale_sharing=lambda **kw: None,
             color_range_state=lambda: {'mode': 'global', 'ranges': {}}))
         assert finalize_plots_3d(win)
-        from sjtu_tpmshx.applications.gui.ui.plot_2d_results import ensure_result_plot
+        from tm1.applications.gui.ui.plot_2d_results import ensure_result_plot
         win.workbench.rendered_slices = ensure_result_plot(win, 'temp')
     else:
         win.results.finalize_plots()
@@ -159,7 +159,7 @@ def test_pareto_canvas_returns_to_its_optimization_result_tab(win, select_previe
 
 
 def test_failed_visible_redraw_clears_old_plot_and_same_tab_retries(win, monkeypatch):
-    from sjtu_tpmshx.applications.gui.ui import plot_2d_results
+    from tm1.applications.gui.ui import plot_2d_results
 
     win.results.publish(_result('2d'))
     win.results.finalize_plots()

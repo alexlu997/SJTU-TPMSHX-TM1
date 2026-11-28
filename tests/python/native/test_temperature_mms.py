@@ -4,7 +4,7 @@ import pytest
 
 from tests.python.native.mms_temperature_fields import prepared
 from tests.python.native.test_temperature_staggered import native as native
-from sjtu_tpmshx.development.validation.harness._order_fit import fit_order_loglog
+from tm1.development.validation.harness._order_fit import fit_order_loglog
 
 
 @pytest.mark.parametrize('case',['1d','2d','3d'])

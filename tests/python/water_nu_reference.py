@@ -3,7 +3,7 @@
 The formulas and original provenance are retained for the existing comparison
 checks. Historical applicability statements below are not current acceptance.
 """
-from sjtu_tpmshx.physical_models.nu_correlations import nu_from_Re, Pr_AIR
+from tm1.physical_models.nu_correlations import nu_from_Re, Pr_AIR
 
 
 def nu_water_gyroid_yan6(Re, Pr):

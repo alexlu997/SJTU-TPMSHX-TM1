@@ -18,7 +18,7 @@ Bhatti & Shah (1987). Historical mode changes remain in Git history.
 """
 
 from __future__ import annotations
-from sjtu_tpmshx.cpp_interface import _native_properties
+from tm1.cpp_interface import _native_properties
 
 # ─── Smooth-wall friction baselines ─────────────────────────────────
 

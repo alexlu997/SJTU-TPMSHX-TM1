@@ -4,13 +4,13 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.compute_config import (
+from tm1.data_types.compute_config import (
     ComputeConfig, ExtrapPolicy, FluidConfig, GeometryConfig, PartialBCConfig,
     SolverConfig, ZoneInputConfig,
 )
-from sjtu_tpmshx.data_types.portable_data import mutable_data
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.api import run_case
+from tm1.data_types.portable_data import mutable_data
+from tm1.preprocess.api import prepare_case
+from tm1.solvers.api import run_case
 from tests.python.native.stage_interception import saved_2d_inputs, stage_control
 from tests.python.native.prepared_snapshot import native_prepared_state
 
@@ -35,8 +35,8 @@ def _config(*, uniform=False, df_mode='cfd_smooth'):
 
 @pytest.mark.parametrize('directions', [(0, 3), (1, 2), (2, 1), (3, 0)])
 def test_physical_cells_feed_full_local_drag_for_every_direction(monkeypatch, directions):
-    from sjtu_tpmshx.physical_models.tpms_props import geometry
-    from sjtu_tpmshx.physical_models.df_surrogate.predict import predict_K_cF_vec
+    from tm1.physical_models.tpms_props import geometry
+    from tm1.physical_models.df_surrogate.predict import predict_K_cF_vec
     config = _config(df_mode='experimental')
     config = replace(config,
         bc_A=replace(config.bc_A, dir=directions[0], in_ctr=.021, out_ctr=.021, in_w=.017, out_w=.017),
@@ -97,9 +97,9 @@ def test_constant_controls_match_uniform_geometry_and_mesh(df_mode):
 
 
 def test_case_replay_and_local_water_thermal_inputs(monkeypatch, tmp_path):
-    from sjtu_tpmshx.file_io.case_io import save_case, load_case
-    from sjtu_tpmshx.physical_models import tpms_props, fluid_props
-    from sjtu_tpmshx.physical_models.nu_correlations import NU_LAM_FLOOR
+    from tm1.file_io.case_io import save_case, load_case
+    from tm1.physical_models import tpms_props, fluid_props
+    from tm1.physical_models.nu_correlations import NU_LAM_FLOOR
     case = prepare_case(_config(), case_id='continuous-replay')
     save_case(case, tmp_path / 'case.yaml')
     restored = load_case(tmp_path / 'case.yaml')
@@ -147,7 +147,7 @@ def test_continuous_replay_requires_full_local_drag():
 
 
 def test_replay_retains_continuous_calibration_transfer_policy(tmp_path):
-    from sjtu_tpmshx.file_io.case_io import save_case, load_case
+    from tm1.file_io.case_io import save_case, load_case
     config = _config(df_mode='experimental')
     config = replace(config, fluid_A=replace(config.fluid_A, u_mps=3.7))
     case = prepare_case(config, case_id='continuous-transfer-replay')
@@ -162,8 +162,8 @@ def test_replay_retains_continuous_calibration_transfer_policy(tmp_path):
 
 
 def test_constant_controls_match_uniform_native_numerics():
-    from sjtu_tpmshx.solvers.api import run_case
-    from sjtu_tpmshx.postprocess.api import evaluate
+    from tm1.solvers.api import run_case
+    from tm1.postprocess.api import evaluate
     config = _config(uniform=True, df_mode='experimental')
     config = replace(config, solver=replace(config.solver, max_outer_ltne=3, max_iter_simple=500))
     uniform = run_case(prepare_case(replace(config, zones=ZoneInputConfig()), case_id='uniform-native'))

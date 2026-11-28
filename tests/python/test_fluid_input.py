@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import pytest
 from PySide6.QtWidgets import QLabel
 
-from sjtu_tpmshx.applications.gui.ui.mixins import fluid_input
+from tm1.applications.gui.ui.mixins import fluid_input
 from tests.python.test_mass_flow_inputs import mass_window as mass_window
 from tests.python.gui_io_support import win as win
 
@@ -61,7 +61,7 @@ def test_autofill_re_label_and_status_follow_selected_fluid(
 
 
 def test_inlet_query_uses_the_selected_drag_mode_and_reuses_the_smooth_cache():
-    from sjtu_tpmshx.physical_models.tpms_calc import compute
+    from tm1.physical_models.tpms_calc import compute
     from tests.python.df_reference import correction_scale
 
     speed = 20.
@@ -84,8 +84,8 @@ def test_inlet_query_uses_the_selected_drag_mode_and_reuses_the_smooth_cache():
 @pytest.mark.parametrize('side', ['A', 'B'])
 def test_co2_gui_defaults_save_and_fixed_preview_are_distinct_from_sco2(mass_window, monkeypatch, side):
     from PySide6.QtWidgets import QMessageBox
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
-    from sjtu_tpmshx.physical_models.tpms_calc import compute
+    from tm1.applications.gui.ui.window_config import config_from_window
+    from tm1.physical_models.tpms_calc import compute
     window = mass_window
     combo = getattr(window, 'combo_fluid' + side)
     combo.setCurrentIndex(3)

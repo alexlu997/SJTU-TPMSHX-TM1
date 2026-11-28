@@ -3,11 +3,11 @@ from dataclasses import asdict
 import json
 from pathlib import Path
 
-from sjtu_tpmshx.data_types.case_data import SCHEMA_VERSION
+from tm1.data_types.case_data import SCHEMA_VERSION
 from .text_file import write_text
-from sjtu_tpmshx.data_types.portable_data import mutable_data
-from sjtu_tpmshx.data_types.metric_spec import MetricSpec
-from sjtu_tpmshx.data_types.performance_result import MetricValue, PerformanceResult
+from tm1.data_types.portable_data import mutable_data
+from tm1.data_types.metric_spec import MetricSpec
+from tm1.data_types.performance_result import MetricValue, PerformanceResult
 
 
 def save_metrics(result, path):

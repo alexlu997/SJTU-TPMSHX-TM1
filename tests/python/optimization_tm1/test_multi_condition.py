@@ -3,11 +3,11 @@ from dataclasses import replace
 
 import pytest
 
-from sjtu_tpmshx.data_types.metric_spec import MetricSpec
-from sjtu_tpmshx.data_types.performance_result import MetricValue, PerformanceResult
-from sjtu_tpmshx.data_types.portable_data import mutable_data
-from sjtu_tpmshx.applications.optimization.multi_condition import aggregate_multi_condition
-from sjtu_tpmshx.postprocess.api import evaluate_qualification
+from tm1.data_types.metric_spec import MetricSpec
+from tm1.data_types.performance_result import MetricValue, PerformanceResult
+from tm1.data_types.portable_data import mutable_data
+from tm1.applications.optimization.multi_condition import aggregate_multi_condition
+from tm1.postprocess.api import evaluate_qualification
 
 
 def _row(condition_id, q=100.0, dp_a=20.0, dp_b=40.0, **run_status):
@@ -167,7 +167,7 @@ def test_percent_overflow_is_not_reported_as_a_score():
 @pytest.mark.parametrize('damage', [None, 'property', 'hard', 'nonfinite', 'negative',
                                    'missing', 'energy', 'scope', 'mixed'])
 def test_nu_re_acceptance_keeps_all_other_gates(damage):
-    from sjtu_tpmshx.applications.optimization.multi_condition import _condition_metrics
+    from tm1.applications.optimization.multi_condition import _condition_metrics
     name, field, performance = _row('low')
     metadata = mutable_data(field.metadata)
     sample = metadata['applicability_evidence']['final'][0]

@@ -1,14 +1,14 @@
 """枚举选型: 遍历 {拓扑×l×t}, 各跑 size_fixed_cell, Pareto-tag。"""
 from __future__ import annotations
-from sjtu_tpmshx.model_configs.df_domain import TRAIN_L_NODES, TRAIN_T_NODES
+from tm1.model_configs.df_domain import TRAIN_L_NODES, TRAIN_T_NODES
 from .sizing import size_fixed_cell, RHO_S
-from sjtu_tpmshx.model_configs.model_parameters import load_quick_design_parameters
+from tm1.model_configs.model_parameters import load_quick_design_parameters
 
 _QUICK_PARAMETERS = load_quick_design_parameters()
 K_STEEL = _QUICK_PARAMETERS['k_s']
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.run_control.provenance import source_context, study_source
+from tm1.run_control.module_ports import RunControl
+from tm1.run_control.cancellation import CancelledError
+from tm1.run_control.provenance import source_context, study_source
 
 
 class SelectionCancelled(CancelledError):

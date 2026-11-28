@@ -1,7 +1,7 @@
 """Read physical balances from saved solver evidence without solver calls."""
 import numpy as np
 
-from sjtu_tpmshx.data_types.persistence_validation import validate_result_declarations
+from tm1.data_types.persistence_validation import validate_result_declarations
 from tests.python.native.result_reference.shared_math import _boundary_face_shape
 
 

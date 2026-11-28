@@ -17,7 +17,7 @@ Geometric assumptions (must match the optimizer cfg):
 
 Historical Pareto CSV export (the former screening optimizer is retired)::
 
-    python -m sjtu_tpmshx.applications.optimization.export_ntop_csv \\
+    python -m tm1.applications.optimization.export_ntop_csv \\
         --pareto opt_runs/production_v1/pareto_final.csv \\
         --config opt_runs/production_v1/config.json \\
         --row    7 \\
@@ -26,7 +26,7 @@ Historical Pareto CSV export (the former screening optimizer is retired)::
 
 Or invoke the function programmatically::
 
-    from sjtu_tpmshx.applications.optimization.export_ntop_csv import export_decision_vector
+    from tm1.applications.optimization.export_ntop_csv import export_decision_vector
     export_decision_vector(x_decision, out_dir='nTop_inputs/best_Q',
                            Nx_export=100, Ny_export=50)
 
@@ -44,8 +44,8 @@ from typing import Optional
 
 import numpy as np
 
-from sjtu_tpmshx.file_io.file_set import staged_files
-from sjtu_tpmshx.physical_models.continuous_field import (
+from tm1.file_io.file_set import staged_files
+from tm1.physical_models.continuous_field import (
     DEFAULT_L_BOUNDS,
     DEFAULT_N_CTRL_X,
     DEFAULT_N_CTRL_Y,
@@ -54,7 +54,7 @@ from sjtu_tpmshx.physical_models.continuous_field import (
     from_decision_vector,
     control_axis,
 )
-from sjtu_tpmshx.run_control.logutil import get_logger
+from tm1.run_control.logutil import get_logger
 
 _log = get_logger(__name__)
 
@@ -210,7 +210,7 @@ def export_decision_vector(x_decision: np.ndarray,
 
 def export_study_design(report, history_index, out_dir, counts):
     """Export one selected Pareto design from its frozen study configuration."""
-    from sjtu_tpmshx.data_types.compute_config import ComputeConfig
+    from tm1.data_types.compute_config import ComputeConfig
 
     if history_index not in report['pareto_indices']:
         raise ValueError('select a Pareto design from the archived study')

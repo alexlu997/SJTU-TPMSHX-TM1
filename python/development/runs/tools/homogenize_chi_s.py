@@ -24,8 +24,8 @@ N-refinement drift are reported as diagnostics without additional gates.
 
 Usage
 -----
-    python -m sjtu_tpmshx.development.runs.tools.homogenize_chi_s --selftest
-    python -m sjtu_tpmshx.development.runs.tools.homogenize_chi_s --sweep   # -> CSV + fit coeffs
+    python -m tm1.development.runs.tools.homogenize_chi_s --selftest
+    python -m tm1.development.runs.tools.homogenize_chi_s --sweep   # -> CSV + fit coeffs
 """
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ import time
 
 import numpy as np
 
-from sjtu_tpmshx.physical_models.tpms_geometry import _phi_grid, _C_from_tL  # noqa: E402
+from tm1.physical_models.tpms_geometry import _phi_grid, _C_from_tL  # noqa: E402
 
 K_VOID = 1e-6      # void conductivity (units of k_s); flux error O(K_VOID)
 CG_TOL = 1e-9      # relative residual

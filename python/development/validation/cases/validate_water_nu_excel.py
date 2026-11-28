@@ -14,13 +14,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from sjtu_tpmshx.preprocess.offline.load_water_cfd import (
+from tm1.preprocess.offline.load_water_cfd import (
     FLOW_SUSPECT, LATTICES)
-from sjtu_tpmshx.preprocess.offline.cfd_geometry import attach_geometry
-from sjtu_tpmshx.file_io.file_set import staged_files
-from sjtu_tpmshx.physical_models.nu_correlations import (
+from tm1.preprocess.offline.cfd_geometry import attach_geometry
+from tm1.file_io.file_set import staged_files
+from tm1.physical_models.nu_correlations import (
     WATER_NU_COEFFS, WATER_NU_RE_RANGE, nu_water_topo)
-from sjtu_tpmshx.development.validation.harness._provenance import (
+from tm1.development.validation.harness._provenance import (
     check_distinct_outputs, output_path)
 
 ROOT = Path(__file__).resolve().parents[4]

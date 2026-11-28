@@ -27,17 +27,17 @@ EXPECTED = {
 @pytest.mark.slow
 @pytest.mark.parametrize('arrangement,model', [(a, m) for a in ('cross', 'counter') for m in ('const', 'mean')])
 def test_real_quick_design_three_process(tmp_path, arrangement, model):
-    from sjtu_tpmshx.file_io.result_io import load_result
-    from sjtu_tpmshx.file_io.metrics_io import load_metrics
+    from tm1.file_io.result_io import load_result
+    from tm1.file_io.metrics_io import load_metrics
     inputs = tmp_path / 'input.json'
     inputs.write_text(json.dumps(dict(case=asdict(_case()), arrangement=arrangement, model=model)))
     launcher = '''
 import json, sys
 stage, source, target = sys.argv[1:]
 if stage == 'prepare':
-    from sjtu_tpmshx.applications.design.cases import DesignCase
-    from sjtu_tpmshx.preprocess.api import prepare_quick_design
-    from sjtu_tpmshx.file_io.case_io import save_case
+    from tm1.applications.design.cases import DesignCase
+    from tm1.preprocess.api import prepare_quick_design
+    from tm1.file_io.case_io import save_case
     from dataclasses import replace
     from pathlib import Path
     data = json.loads(Path(source).read_text())
@@ -47,11 +47,11 @@ if stage == 'prepare':
     save_case(replace(case, config_snapshot={}), target)
     status = 0
 else:
-    from sjtu_tpmshx.cli import main
+    from tm1.cli import main
     status = main([stage, source, target])
-for prefix in (('sjtu_tpmshx.solvers', 'numba', 'PySide6') if stage == 'prepare' else
-               ('sjtu_tpmshx.preprocess', 'sjtu_tpmshx.pipelines', 'PySide6') if stage == 'solve' else
-               ('sjtu_tpmshx.solvers', 'sjtu_tpmshx.preprocess', 'sjtu_tpmshx.pipelines', 'numba', 'PySide6')):
+for prefix in (('tm1.solvers', 'numba', 'PySide6') if stage == 'prepare' else
+               ('tm1.preprocess', 'tm1.pipelines', 'PySide6') if stage == 'solve' else
+               ('tm1.solvers', 'tm1.preprocess', 'tm1.pipelines', 'numba', 'PySide6')):
     assert not any(n == prefix or n.startswith(prefix + '.') for n in sys.modules), prefix
 raise SystemExit(status)
 '''

@@ -5,9 +5,9 @@
 """
 import math
 
-from sjtu_tpmshx.applications.design.cases import DesignCase
-from sjtu_tpmshx.applications.design.forward import forward
-from sjtu_tpmshx.preprocess.quick_design import pressure_fractions as dP_fracs
+from tm1.applications.design.cases import DesignCase
+from tm1.applications.design.forward import forward
+from tm1.preprocess.quick_design import pressure_fractions as dP_fracs
 
 
 def _case():
@@ -50,14 +50,14 @@ def test_rect_height_changes_water_side():
 
 
 def test_nu_re_window_per_fluid():
-    from sjtu_tpmshx.physical_models.design_fluids import nu_re_window, NU_RE_FIT_RANGE, WATER_NU_RE_RANGE
+    from tm1.physical_models.design_fluids import nu_re_window, NU_RE_FIT_RANGE, WATER_NU_RE_RANGE
     assert nu_re_window("air") == NU_RE_FIT_RANGE        # (400, 16000)
     assert nu_re_window("water") == WATER_NU_RE_RANGE     # 拓扑专属新式 (90, 51000)
     assert WATER_NU_RE_RANGE == (90.0, 51000.0)            # 2026-07-23 重拟窗口
 
 
 def test_design_validity_fields_default():
-    from sjtu_tpmshx.applications.design.sizing import Design
+    from tm1.applications.design.sizing import Design
     d = Design(False)
     assert d.height == 0.0 and d.validity == ""
     assert d.Re_hot_max == 0.0 and d.Re_cold_max == 0.0

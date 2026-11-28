@@ -5,8 +5,8 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.cpp_interface import _native_flow as native
-from sjtu_tpmshx.cpp_interface import _native_grid
+from tm1.cpp_interface import _native_flow as native
+from tm1.cpp_interface import _native_grid
 from tests.python import float64_oracle as oracle
 from tests.python import preparation_flow_reference as reference
 
@@ -162,7 +162,7 @@ def test_targets_proxy_volume_and_speed_keep_float64_math(dtype):
 
 @pytest.mark.parametrize('hot,cold', [(300., 300.), (300., 300.+5e-10), (np.nan, 300.)])
 def test_cooling_proxy_skips_target_property_query_for_small_or_nonfinite_span(monkeypatch, hot, cold):
-    from sjtu_tpmshx.applications.design import sizing
+    from tm1.applications.design import sizing
     def forbidden(*args):
         pytest.fail('the original zero-span branch did not query a target')
     monkeypatch.setattr(sizing, 't_target', forbidden)
@@ -170,7 +170,7 @@ def test_cooling_proxy_skips_target_property_query_for_small_or_nonfinite_span(m
 
 
 def test_delta_target_does_not_query_unused_properties(monkeypatch):
-    from sjtu_tpmshx.applications.design import sizing
+    from tm1.applications.design import sizing
     def forbidden(*args):
         pytest.fail('the delta branch did not query heat capacity')
     monkeypatch.setattr(sizing, 'fluid_props', forbidden)
@@ -185,7 +185,7 @@ def test_quick_design_uniform_grid_promotes_to_float64(dtype):
 
 
 def test_legacy_air_builder_keeps_its_two_sides_and_floor10(monkeypatch):
-    from sjtu_tpmshx.physical_models import sigmoid_field, nu_correlations
+    from tm1.physical_models import sigmoid_field, nu_correlations
     geometry = {
         'r_h_arr': np.linspace(.0002, .0008, 15).reshape(3, 5),
         'A_0_arr': np.linspace(1300., 2300., 15).reshape(3, 5),

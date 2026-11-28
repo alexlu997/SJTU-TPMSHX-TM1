@@ -19,7 +19,7 @@ import numpy as np
 import pytest
 
 from tests.python import zone_reference as frozen
-from sjtu_tpmshx.cpp_interface import _native_geometry, _native_zones
+from tm1.cpp_interface import _native_geometry, _native_zones
 
 
 # The native boundary converts each bound to float64. A Python float, one
@@ -153,7 +153,7 @@ def test_stripes_keep_first_hit_and_last_row_gap_value(zones, axis):
 
 
 def test_python_configuration_keeps_sort_and_weak_wall_limit(zones):
-    from sjtu_tpmshx.physical_models.zone_config import Zone, ZoneConfig
+    from tm1.physical_models.zone_config import Zone, ZoneConfig
 
     config = ZoneConfig([Zone('last', .5, 1., 8., np.float16(.1)),
                          Zone('first', 0., .5, 4., np.float16(.1))], 'Diamond', 16.)

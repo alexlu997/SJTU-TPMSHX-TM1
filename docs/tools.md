@@ -49,12 +49,12 @@ Phase 3 核算热模型的熵产（W/K），不含压力／黏性贡献。它使
 并计入物理入口导热的熵流。物理体积产熵含相间换热、内部共享导热面和入口半单元，
 不把数值对流耗散加进物理产熵。边界／物理产熵一致性的 5% 门限保持不变，
 近零归一化下限为 `1 W / 最低入口温度`（W/K）。网格分辨率不足仍会失败。
-使用 `python -m sjtu_tpmshx.development.validation.cases.audit_3d_conservation --grid 40`
+使用 `python -m tm1.development.validation.cases.audit_3d_conservation --grid 40`
 复核当前 T1–T4/T6；显式粗网格结果保留其原失败状态。允许的出口温度交叉只列为观察项，
 不会再显示为失败门。
 
 上海独立lumped双Nu比较仍以crossflow为主、counterflow为敏感性对照。
-`python -m sjtu_tpmshx.development.validation.cases.validate_shanghai_lumped_dual_nu`
+`python -m tm1.development.validation.cases.validate_shanghai_lumped_dual_nu`
 默认将CSV及来源元数据写入新的`.cache/validation/shanghai-lumped-dual-nu-*`，
 也可用`--out-dir`指定目录，不再覆盖`data/shanghai_lumped_dual_nu.csv`。
 `benchmark_sou_3d` 已随 Python 专用研究入口退役；历史压降记录保留原定义。
@@ -66,22 +66,22 @@ CFD 工况表和 nTop 表达式继续保留。Fluent 算例须在仓库外配置
 | 工具 | 输入 → 输出 | 运行方式与状态 |
 | --- | --- | --- |
 | [examples/](../examples/) | 公开 JSON/YAML 配置 → Case/Result/metrics | [二维与三维命令行算例](first-run.md#examples)；当前支持范围内的首次运行入口 |
-| [development/runs/smokes/](../python/development/runs/smokes/) | 内置样例 → 控制台及脚本声明的诊断文件 | `python -m sjtu_tpmshx.development.runs.smokes.<模块名>`；GUI 无显示运行须用 `QT_QPA_PLATFORM=offscreen` |
+| [development/runs/smokes/](../python/development/runs/smokes/) | 内置样例 → 控制台及脚本声明的诊断文件 | `python -m tm1.development.runs.smokes.<模块名>`；GUI 无显示运行须用 `QT_QPA_PLATFORM=offscreen` |
 | [CFD 工况清单](../python/development/runs/tools/asym_build_cfd_worklist_xlsx.py) → [nTop 表达式](../python/development/runs/cfd_asym/asym_ntop_expressions_html.py) | 内置几何/流体 + 可选私有 `water_DG_cfd_results_legacy.xlsx` → XLSX → HTML | 顺序运行下方两条命令；两个工具共用输出目录。旧工作簿由本地数据目录提供；缺文件时 `r1_water_ref` 页保留跳过说明，不补造锚点 |
-| [asym CFD/诊断工具](../python/development/runs/cfd_asym/)、[diagnostics/](../python/development/runs/diagnostics/) | 脚本声明的几何、场/CFD 文件 → 研究结果 | `python -m sjtu_tpmshx.development.runs.<子目录>.<模块名>`；CFD 计算和私有输入文件须在外部准备，仓库保留表格生成、诊断与 CSV 后处理 |
+| [asym CFD/诊断工具](../python/development/runs/cfd_asym/)、[diagnostics/](../python/development/runs/diagnostics/) | 脚本声明的几何、场/CFD 文件 → 研究结果 | `python -m tm1.development.runs.<子目录>.<模块名>`；CFD 计算和私有输入文件须在外部准备，仓库保留表格生成、诊断与 CSV 后处理 |
 | [engineering/scripts/](../engineering/scripts/) | 已配置环境/测试选择 → 测试日志 | 两个 PowerShell 测试入口；仓库路径取脚本位置，解释器读取 `.venv-path`，`-LockFile` 选择依赖锁，不自动安装依赖 |
-| [D76 Nu/ε-NTU 历史Q比较](../python/development/validation/cases/validate_sco2_d76.py) | 6 个固定 D-7-6 工况/私有 Excel → smooth-CFD Nu + lumped Q 对照 | `python -m sjtu_tpmshx.development.validation.cases.validate_sco2_d76`；保留原15%最大绝对相对Q误差门，退出码0通过、1未通过；不验证当前有效Nu系数 |
-| [水 Nu 现存表验证](../python/development/validation/cases/validate_water_nu_excel.py) | 1879 条 legacy 水 CFD 结果 → 逐行、拓扑、几何、Re 分段误差 | `python -m sjtu_tpmshx.development.validation.cases.validate_water_nu_excel --out .cache/water-nu-validation`；固定现行关联式，退出码 0 通过、2 精度未通过，数据错误直接报错 |
-| [现行实验修正](../python/development/validation/df_refit/fit_experimental_effective.py)、[跨数据集 cF 对照](../python/development/validation/df_refit/cf_cross_fluid.py) | 实验原表 + 当前固定 CFD 基线 → `.cache/reports/df_refit/` 审查 CSV | `python -m sjtu_tpmshx.development.validation.df_refit.<模块名>`；共享 `python/development/validation/hx_experiments.py` 读取，不依赖旧 γ/RBF 拟合或六张旧系数表，不更新生产系数 |
-| [sCO2 CFD 基础 Nu 拟合](../python/development/validation/sco2_cfd/fit_nu_sco2.py) | 原 CFD 表 → 基础式研究拟合、几何/压力留一结果 | `python -m sjtu_tpmshx.development.validation.sco2_cfd.fit_nu_sco2`；保留原数据清洗与验证，不自动覆盖现行有效系数；旧实验锚定工具已移至[历史入口](history/legacy-models.md#sco2-nu-旧锚定路线2026-09-20) |
-| [主计算测量](../python/development/runs/tools/benchmark_main_compute.py) | 本地固定 `jobs` 清单（每项 `id/config`，可含 `reference/depth_m`）→ 每次运行独立的 Case/Result/metrics、日志和分段测量 | `python -m sjtu_tpmshx.development.runs.tools.benchmark_main_compute MANIFEST NEW_OUTPUT --warmup --repeat 5`；0=公共设计结论、文件及已声明流量检查通过，2=存在未合格结果，1=执行异常；不代表实验精度通过 |
-| [F2 容差计价](../python/development/validation/cases/price_f2_convergence_3d.py) | 历史计价工况 → 独立 `.cache/validation/f2_pricing-*/` CSV | `python -m sjtu_tpmshx.development.validation.cases.price_f2_convergence_3d --mom-tol 1e-3,1e-4,1e-5 --cases 1,8,16`；扫描 F2，`--out` 可指定受冻结路径保护的输出；该工具使用其声明的全侧端口，不能代替局部端口主计算证据 |
+| [D76 Nu/ε-NTU 历史Q比较](../python/development/validation/cases/validate_sco2_d76.py) | 6 个固定 D-7-6 工况/私有 Excel → smooth-CFD Nu + lumped Q 对照 | `python -m tm1.development.validation.cases.validate_sco2_d76`；保留原15%最大绝对相对Q误差门，退出码0通过、1未通过；不验证当前有效Nu系数 |
+| [水 Nu 现存表验证](../python/development/validation/cases/validate_water_nu_excel.py) | 1879 条 legacy 水 CFD 结果 → 逐行、拓扑、几何、Re 分段误差 | `python -m tm1.development.validation.cases.validate_water_nu_excel --out .cache/water-nu-validation`；固定现行关联式，退出码 0 通过、2 精度未通过，数据错误直接报错 |
+| [现行实验修正](../python/development/validation/df_refit/fit_experimental_effective.py)、[跨数据集 cF 对照](../python/development/validation/df_refit/cf_cross_fluid.py) | 实验原表 + 当前固定 CFD 基线 → `.cache/reports/df_refit/` 审查 CSV | `python -m tm1.development.validation.df_refit.<模块名>`；共享 `python/development/validation/hx_experiments.py` 读取，不依赖旧 γ/RBF 拟合或六张旧系数表，不更新生产系数 |
+| [sCO2 CFD 基础 Nu 拟合](../python/development/validation/sco2_cfd/fit_nu_sco2.py) | 原 CFD 表 → 基础式研究拟合、几何/压力留一结果 | `python -m tm1.development.validation.sco2_cfd.fit_nu_sco2`；保留原数据清洗与验证，不自动覆盖现行有效系数；旧实验锚定工具已移至[历史入口](history/legacy-models.md#sco2-nu-旧锚定路线2026-09-20) |
+| [主计算测量](../python/development/runs/tools/benchmark_main_compute.py) | 本地固定 `jobs` 清单（每项 `id/config`，可含 `reference/depth_m`）→ 每次运行独立的 Case/Result/metrics、日志和分段测量 | `python -m tm1.development.runs.tools.benchmark_main_compute MANIFEST NEW_OUTPUT --warmup --repeat 5`；0=公共设计结论、文件及已声明流量检查通过，2=存在未合格结果，1=执行异常；不代表实验精度通过 |
+| [F2 容差计价](../python/development/validation/cases/price_f2_convergence_3d.py) | 历史计价工况 → 独立 `.cache/validation/f2_pricing-*/` CSV | `python -m tm1.development.validation.cases.price_f2_convergence_3d --mom-tol 1e-3,1e-4,1e-5 --cases 1,8,16`；扫描 F2，`--out` 可指定受冻结路径保护的输出；该工具使用其声明的全侧端口，不能代替局部端口主计算证据 |
 
 无求解 GUI 检查分别运行：
 
 ```bash
-python -m sjtu_tpmshx.development.runs.smokes.smoke_ui_offscreen
-python -m sjtu_tpmshx.development.runs.smokes.smoke_ui_screenshots --output .cache/ui-smoke-screenshots
+python -m tm1.development.runs.smokes.smoke_ui_offscreen
+python -m tm1.development.runs.smokes.smoke_ui_screenshots --output .cache/ui-smoke-screenshots
 ```
 
 两者要求 Qt offscreen 平台，并使用 `.cache/` 下的临时会话和外观目录，退出后
@@ -211,8 +211,8 @@ CFD 清单到 nTop 的默认目录为 `python/development/runs/_out/asym_cfd/`�
 设置 `TPMSHX_TOOL_OUT_DIR` 时，两次命令须使用同一个值：
 
 ```bash
-python -m sjtu_tpmshx.development.runs.tools.asym_build_cfd_worklist_xlsx
-python -m sjtu_tpmshx.development.runs.cfd_asym.asym_ntop_expressions_html
+python -m tm1.development.runs.tools.asym_build_cfd_worklist_xlsx
+python -m tm1.development.runs.cfd_asym.asym_ntop_expressions_html
 ```
 
 旧 `water-cfd-raw.xlsx` 已归类为
@@ -220,7 +220,7 @@ python -m sjtu_tpmshx.development.runs.cfd_asym.asym_ntop_expressions_html
 旧 recipe 锚点；完整新旧名称见[数据目录](data-catalog.md)。正式离线流程要求的
 `Water-CFD/水数值模拟数据.xlsx` 仍缺失，两者不能互相替代。
 
-使用 `python -m sjtu_tpmshx.development.runs.cfd_asym.ingest_cfd_kappa results.csv` 运行研究用导入器。新设计工作簿显示此命令。已发布的 `sjtu_tpmshx.shared.df_surrogate.ingest_cfd_kappa` 命令也调用同一导入器。旧工作簿中的命令模块 `sjtu_tpmshx.physical_models.df_surrogate.ingest_cfd_kappa` 已退役。旧工作簿导出的 CSV 可直接用于新命令。
+使用 `python -m tm1.development.runs.cfd_asym.ingest_cfd_kappa results.csv` 运行研究用导入器。新设计工作簿显示此命令。已发布的 `tm1.shared.df_surrogate.ingest_cfd_kappa` 命令也调用同一导入器。旧工作簿中的命令模块 `sjtu_tpmshx.physical_models.df_surrogate.ingest_cfd_kappa` 已退役。旧工作簿导出的 CSV 可直接用于新命令。
 
 非对称 CFD 的两条 κ 研究路径使用不同分母：`ingest_cfd_kappa` 使用当前对称
 预测器，`asym_postproc_kappa` 使用配对 r=1 CFD 参考。不可把两者的 κ 数字直接
@@ -255,11 +255,11 @@ Python 专用 `prepare_research_case`、指定孔隙率／单 A 侧研究和旧 
 
 ```python
 from pathlib import Path
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.api import run_case
-from sjtu_tpmshx.file_io.case_io import save_case, load_case
-from sjtu_tpmshx.file_io.result_io import save_result
-from sjtu_tpmshx.development.validation.cases.audit_3d_conservation import make_T2
+from tm1.preprocess.api import prepare_case
+from tm1.solvers.api import run_case
+from tm1.file_io.case_io import save_case, load_case
+from tm1.file_io.result_io import save_result
+from tm1.development.validation.cases.audit_3d_conservation import make_T2
 
 output = Path('.cache/research-t2')
 output.mkdir(parents=True, exist_ok=True)

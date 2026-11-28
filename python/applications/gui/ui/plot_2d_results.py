@@ -2,8 +2,8 @@
 import numpy as np
 from matplotlib.ticker import ScalarFormatter
 
-from sjtu_tpmshx.data_types.validator import kelvin_to_display
-from sjtu_tpmshx.postprocess.result_display import RESULT_FIELD_SPECS, extrapolation_watermark
+from tm1.data_types.validator import kelvin_to_display
+from tm1.postprocess.result_display import RESULT_FIELD_SPECS, extrapolation_watermark
 
 from .theme import resolve_cmap
 from .vis3d_constants import field_color_limits
@@ -140,7 +140,7 @@ def plot_temperature_3panel(window, r, _t, zones=None):
         field, spec, subtitle = plot_items[index]
         ax.set_facecolor(_t['ax_bg'])
         lo, hi = limits[index]
-        from sjtu_tpmshx.applications.gui.ui.matplotlib_canvas import pad_field_to_edges
+        from tm1.applications.gui.ui.matplotlib_canvas import pad_field_to_edges
         _Xp, _Yp, _Fp = pad_field_to_edges(x, y, field, L * 1000.0, H * 1000.0)
         cf = ax.contourf(_Xp, _Yp, _Fp, levels=np.linspace(lo, hi, 129),
                          cmap=resolve_cmap(spec.key), vmin=lo, vmax=hi)
@@ -159,7 +159,7 @@ def plot_temperature_3panel(window, r, _t, zones=None):
         _draw_zone_overlays(ax, zones, _t)
 
     if shared_bar and last_cf is not None:
-        from sjtu_tpmshx.applications.gui.ui.matplotlib_canvas import style_colorbar
+        from tm1.applications.gui.ui.matplotlib_canvas import style_colorbar
         cb = window.canvas_temp.fig.colorbar(
             last_cf, ax=list(axes), shrink=0.92, aspect=30,
             ticks=np.linspace(last_lo, last_hi, 5),
@@ -185,7 +185,7 @@ def plot_temperature_3panel(window, r, _t, zones=None):
 
 def finalize_plots(window, field="temp"):
     """Render one field from stored 2D results, on the main thread."""
-    from sjtu_tpmshx.applications.gui.ui.theme import get_theme
+    from tm1.applications.gui.ui.theme import get_theme
     _t = get_theme()
 
     result = window.cache.get_result('2d')
@@ -276,7 +276,7 @@ def finalize_plots(window, field="temp"):
         for pos_i, (ax, index) in enumerate(zip(axes_v, selected)):
             values, spec, subtitle = velocity_items[index]
             ax.set_facecolor(_t['ax_bg'])
-            from sjtu_tpmshx.applications.gui.ui.matplotlib_canvas import pad_field_to_edges
+            from tm1.applications.gui.ui.matplotlib_canvas import pad_field_to_edges
             _Xp, _Yp, _Fp = pad_field_to_edges(x, y, values, L * 1000.0, H * 1000.0)
             lo, hi = limits[index]
             cf = ax.contourf(_Xp, _Yp, _Fp, levels=np.linspace(lo, hi, 129),
@@ -307,7 +307,7 @@ def finalize_plots(window, field="temp"):
     # Keep the applicability warning visible with every field plot.
     _wm_text = extrapolation_watermark(result.metadata, result.extrap_reasons)
     if _wm_text:
-        from sjtu_tpmshx.applications.gui.ui.theme import get_theme as _gt
+        from tm1.applications.gui.ui.theme import get_theme as _gt
         _tw = _gt().get('warn', '#B45309')
         _cv = getattr(window, f"canvas_{field}")
         try:

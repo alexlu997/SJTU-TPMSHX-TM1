@@ -7,7 +7,7 @@ from time import perf_counter
 
 from PySide6.QtCore import QThread, Signal
 
-from sjtu_tpmshx.run_control.cancellation import CancelledError
+from tm1.run_control.cancellation import CancelledError
 
 
 class QuickDesignJob(QThread):
@@ -42,8 +42,8 @@ class QuickDesignJob(QThread):
             })
 
         try:
-            from sjtu_tpmshx.applications.design.cases import load_cases
-            from sjtu_tpmshx.applications.design.workflow import run_design
+            from tm1.applications.design.cases import load_cases
+            from tm1.applications.design.workflow import run_design
 
             control = replace(self.control, cancel_check=cancelled)
             control.check_cancelled()

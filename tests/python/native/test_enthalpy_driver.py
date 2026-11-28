@@ -11,7 +11,7 @@ import CoolProp.CoolProp as CP
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.model_configs.model_parameters import load_model_parameters
+from tm1.model_configs.model_parameters import load_model_parameters
 from tests.python.native.enthalpy_fv_audit import energy
 
 

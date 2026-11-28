@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from sjtu_tpmshx.development.validation.cases import validate_water_nu_excel as validator
+from tm1.development.validation.cases import validate_water_nu_excel as validator
 
 
 def test_current_basis_ignores_legacy_velocity_and_full_core_nu(monkeypatch):
@@ -85,7 +85,7 @@ def test_cli_rejects_colliding_outputs_before_loading(tmp_path, monkeypatch, cap
 
 
 def test_cli_rejects_frozen_output_directory_before_loading(monkeypatch, capsys):
-    from sjtu_tpmshx.development.validation.harness._provenance import REFERENCE_DIR
+    from tm1.development.validation.harness._provenance import REFERENCE_DIR
 
     monkeypatch.setattr(pd, 'read_excel', lambda *a, **kw: pytest.fail('input loaded before path check'))
     with pytest.raises(SystemExit) as error:
@@ -173,7 +173,7 @@ def test_cli_write_failure_preserves_entire_previous_set(
 
 @pytest.mark.parametrize('existing', [False, True])
 def test_cli_last_publication_failure_rolls_back_entire_set(tmp_path, workbook, monkeypatch, existing):
-    from sjtu_tpmshx.file_io import file_set
+    from tm1.file_io import file_set
 
     out = tmp_path / 'output'
     out.mkdir()

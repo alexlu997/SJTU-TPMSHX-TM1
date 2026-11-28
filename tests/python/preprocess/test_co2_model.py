@@ -5,15 +5,15 @@ import CoolProp.CoolProp as CP
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.compute_config import (
+from tm1.data_types.compute_config import (
     ComputeConfig, FluidConfig, GeometryConfig, PartialBCConfig, SolverConfig,
 )
-from sjtu_tpmshx.physical_models import co2_correlations as co2
-from sjtu_tpmshx.physical_models.co2_props import co2_prop
-from sjtu_tpmshx.physical_models.fluid_props import get
+from tm1.physical_models import co2_correlations as co2
+from tm1.physical_models.co2_props import co2_prop
+from tm1.physical_models.fluid_props import get
 from tests.python.local_heat_transfer_reference import local_nusselt, real_fluid_hv_local_field
-from sjtu_tpmshx.physical_models.nu_correlations import NU_LAM_FLOOR
-from sjtu_tpmshx.preprocess.api import prepare_case
+from tm1.physical_models.nu_correlations import NU_LAM_FLOOR
+from tm1.preprocess.api import prepare_case
 
 
 def co2_config(nz=1, side='A', other='water'):
@@ -137,9 +137,9 @@ def test_fixed_nu_factor_and_floor_apply_once_with_local_geometry():
 @pytest.mark.parametrize('side', ['A', 'B'])
 @pytest.mark.parametrize('mode', ['cfd_smooth', 'experimental'])
 def test_prepared_drag_is_side_specific_fixed_and_replayable(tmp_path, nz, side, mode):
-    from sjtu_tpmshx.file_io.case_io import save_case, load_case
-    from sjtu_tpmshx.physical_models.catalog import resolve_model
-    from sjtu_tpmshx.physical_models.df_surrogate.predict import predict_K_cF, SCO2_DF_METHOD
+    from tm1.file_io.case_io import save_case, load_case
+    from tm1.physical_models.catalog import resolve_model
+    from tm1.physical_models.df_surrogate.predict import predict_K_cF, SCO2_DF_METHOD
     cfg = co2_config(nz, side)
     cfg.df_mode = mode
     case = prepare_case(cfg, case_id=f'co2-{nz}-{side}-{mode}')

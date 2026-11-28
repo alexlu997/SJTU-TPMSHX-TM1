@@ -1,7 +1,7 @@
 import pytest
-from sjtu_tpmshx.applications.design.cases import DesignCase
-from sjtu_tpmshx.applications.design.sizing import size_fixed_cell
-from sjtu_tpmshx.applications.design.optimize import warm_start_joint
+from tm1.applications.design.cases import DesignCase
+from tm1.applications.design.sizing import size_fixed_cell
+from tm1.applications.design.optimize import warm_start_joint
 
 def _cases():
     return [DesignCase(1,"air",688.23,1_088_700.0,0.2855,

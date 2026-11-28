@@ -7,13 +7,13 @@ import argparse
 import json
 from pathlib import Path
 
-from sjtu_tpmshx.applications.design.cases import DesignCase
-from sjtu_tpmshx.preprocess.api import prepare_quick_design
-from sjtu_tpmshx.solvers.api import run_case
-from sjtu_tpmshx.postprocess.api import evaluate
-from sjtu_tpmshx.file_io.case_io import save_case, load_case
-from sjtu_tpmshx.file_io.result_io import save_result
-from sjtu_tpmshx.file_io.metrics_io import save_metrics
+from tm1.applications.design.cases import DesignCase
+from tm1.preprocess.api import prepare_quick_design
+from tm1.solvers.api import run_case
+from tm1.postprocess.api import evaluate
+from tm1.file_io.case_io import save_case, load_case
+from tm1.file_io.result_io import save_result
+from tm1.file_io.metrics_io import save_metrics
 
 
 def main(argv=None):

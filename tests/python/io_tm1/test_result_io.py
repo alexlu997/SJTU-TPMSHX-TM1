@@ -5,14 +5,14 @@ import json
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.field_result import FieldResult
-from sjtu_tpmshx.data_types.metric_spec import MetricSpec
-from sjtu_tpmshx.data_types.performance_result import MetricValue, PerformanceResult
-from sjtu_tpmshx.file_io.metrics_io import load_metrics, save_metrics
-from sjtu_tpmshx.file_io.result_io import load_result, save_result
-from sjtu_tpmshx.file_io.hdf5_data import write_record
+from tm1.data_types.field_result import FieldResult
+from tm1.data_types.metric_spec import MetricSpec
+from tm1.data_types.performance_result import MetricValue, PerformanceResult
+from tm1.file_io.metrics_io import load_metrics, save_metrics
+from tm1.file_io.result_io import load_result, save_result
+from tm1.file_io.hdf5_data import write_record
 from tests.python.io_tm1.io_support import sample_case
-from sjtu_tpmshx.postprocess.api import evaluate
+from tm1.postprocess.api import evaluate
 
 
 @pytest.mark.parametrize('change', ['temperature_unit', 'dimension', 'mode'])

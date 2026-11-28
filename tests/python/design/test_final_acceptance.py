@@ -5,13 +5,13 @@ import pickle
 
 import pytest
 
-from sjtu_tpmshx.applications.design import sizing
-from sjtu_tpmshx.applications.design.cases import DesignCase
-from sjtu_tpmshx.applications.design.forward import ForwardResult
-from sjtu_tpmshx.applications.design.report import detail_rows, summary_rows
-from sjtu_tpmshx.applications.design.select import pareto_tags
-from sjtu_tpmshx.data_types.metric_spec import MetricSpec
-from sjtu_tpmshx.data_types.performance_result import MetricValue
+from tm1.applications.design import sizing
+from tm1.applications.design.cases import DesignCase
+from tm1.applications.design.forward import ForwardResult
+from tm1.applications.design.report import detail_rows, summary_rows
+from tm1.applications.design.select import pareto_tags
+from tm1.data_types.metric_spec import MetricSpec
+from tm1.data_types.performance_result import MetricValue
 
 
 @pytest.mark.parametrize('change,reason', [
@@ -71,7 +71,7 @@ def test_duty_target_is_checked_against_final_duty(monkeypatch):
 def test_energy_diagnostic_is_reported_without_a_new_feasibility_gate(
         monkeypatch, tmp_path, diagnostic_state):
     from openpyxl import load_workbook
-    from sjtu_tpmshx.applications.design.report import write_xlsx
+    from tm1.applications.design.report import write_xlsx
 
     condition = DesignCase(1, 'air', 400., 101325., .01, 'air', 300., 101325., .01,
                            None, .05, .05, dT=50.)
@@ -125,8 +125,8 @@ def test_energy_diagnostic_is_reported_without_a_new_feasibility_gate(
 
 
 def test_final_water_failure_retains_failed_case_and_continues_cases(monkeypatch):
-    from sjtu_tpmshx.physical_models.fluid_props import QuickDesignWaterFieldError
-    from sjtu_tpmshx.run_control.run_warnings import record_warning
+    from tm1.physical_models.fluid_props import QuickDesignWaterFieldError
+    from tm1.run_control.run_warnings import record_warning
     cases = [DesignCase(i, 'air', 400., 2e5, .01, 'water', 300., 2e5, .01,
                         100., .05, .05) for i in (1, 2)]
     good = ForwardResult(340., 330., 600., 600., .01, .01, 1000., 1000.,
@@ -160,7 +160,7 @@ def test_final_water_failure_retains_failed_case_and_continues_cases(monkeypatch
 
 
 def test_unresolved_water_candidate_keeps_identity_without_aborting_selection(monkeypatch):
-    from sjtu_tpmshx.physical_models.fluid_props import QuickDesignWaterFieldError
+    from tm1.physical_models.fluid_props import QuickDesignWaterFieldError
     case = DesignCase(1, 'air', 400., 2e5, .01, 'water', 300., 2e5, .01,
                       100., .05, .05)
     widths = []

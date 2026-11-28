@@ -6,8 +6,8 @@ import pytest
 
 from tests.python import float64_oracle as oracle
 from tests.python import nu_reference as reference
-from sjtu_tpmshx.data_types.compute_config import Sco2NuConfig
-from sjtu_tpmshx.physical_models import co2_correlations, nu_correlations
+from tm1.data_types.compute_config import Sco2NuConfig
+from tm1.physical_models import co2_correlations, nu_correlations
 
 
 def observe(function, *, reference=False):
@@ -136,7 +136,7 @@ def test_vector_nu_keeps_array_re_floor_contract(re, floor):
     (np.array([np.nan, -np.inf, np.inf]), np.array([1., 10., np.nan], dtype=np.float16)),
 ])
 def test_re_floor_keeps_maximum_ties_and_nonfinite_values(re, floor):
-    from sjtu_tpmshx.cpp_interface import _native_properties
+    from tm1.cpp_interface import _native_properties
 
     expected = oracle.result(np.maximum(np.asarray(re, dtype=np.float64), np.asarray(floor, dtype=np.float64)))
     actual, _ = _native_properties.nu_inputs(1, re, re_floor=floor)

@@ -1,10 +1,10 @@
-<a id="主体源码sjtu_tpmshx"></a>
+<a id="主体源码tm1"></a>
 
 # Python source and public entries
 
 [中文](README.md) | [English](README.en.md)
 
-This directory contains the public `sjtu_tpmshx` package.
+This directory contains the public `tm1` package.
 Run commands from the repository root so imports load the current checkout.
 See the [setup guide](../docs/first-run.en.md) for setup, public examples, and startup steps.
 The [architecture](../docs/architecture.md) defines module boundaries and physical constraints.
@@ -108,9 +108,9 @@ See [C++ builds](../docs/cpp-migration.md#native-geometry-core) for separate com
 | [development](development/) | Validation, diagnostics, and developer tools. Automated tests live in [tests/python](../tests/python/). |
 
 `python/shared.py` stays as a zero-duplication import-alias resolver for local `.cache/` paper and research scripts.
-It resolves historical `sjtu_tpmshx.shared.*` and `sjtu_tpmshx.solvers.backends.cpp.*` paths to their canonical owners.
+It resolves historical `tm1.shared.*` and `tm1.solvers.backends.cpp.*` paths to their canonical owners.
 GUI startup lives in [python/applications/gui/main.py](applications/gui/main.py), and CLI startup lives in [python/applications/cli/main.py](applications/cli/main.py).
 Package-level [python/main.py](main.py), [python/cli.py](cli.py), and [python/desktop.py](desktop.py) keep short entry wrappers.
-Use `python -m sjtu_tpmshx.main` or `python -m sjtu_tpmshx.cli`; computation code calls the four entries above directly.
+Use `python -m tm1.main` or `python -m tm1.cli`; computation code calls the four entries above directly.
 Root [engineering](../engineering/) holds build and check scripts, packaging configuration, and dependency locks.
 [docs/contracts](../docs/contracts/) holds public file contracts, `.github/workflows/` holds CI workflows, and the [repository index](../docs/README.en.md) maps all root directories.

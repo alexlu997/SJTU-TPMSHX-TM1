@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.compute_result import ComputeResult
+from tm1.data_types.compute_result import ComputeResult
 
 pytest.importorskip('PySide6')
 from PySide6.QtCore import QCoreApplication, QEvent  # noqa: E402
@@ -11,9 +11,9 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 
 @pytest.fixture
 def win(tmp_path, monkeypatch):
-    from sjtu_tpmshx.applications.gui.controllers import user_storage
-    from sjtu_tpmshx.applications.gui.controllers.session_manager import SessionManager
-    from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
+    from tm1.applications.gui.controllers import user_storage
+    from tm1.applications.gui.controllers.session_manager import SessionManager
+    from tm1.applications.gui.ui.main_window import Main_Menu
 
     original_init = SessionManager.__init__
 

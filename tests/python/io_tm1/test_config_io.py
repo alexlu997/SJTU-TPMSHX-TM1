@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from sjtu_tpmshx.file_io import config_io, text_file
+from tm1.file_io import config_io, text_file
 
 
 DATA = {'name': '噜噜', 'values': [1, 2.5, None], 'nested': {'flag': True}}

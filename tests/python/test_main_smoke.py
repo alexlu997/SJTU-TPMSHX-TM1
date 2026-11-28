@@ -23,8 +23,8 @@ def test_cpu_cores_spinbox_sets_native_budget(win):
 
 def test_overview_preset_button_loads_the_selected_case(win):
     from PySide6.QtWidgets import QDialog, QPushButton
-    from sjtu_tpmshx.applications.gui.ui.fmt import preset_display
-    from sjtu_tpmshx.applications.gui.ui.session_overview import OverviewDialog
+    from tm1.applications.gui.ui.fmt import preset_display
+    from tm1.applications.gui.ui.session_overview import OverviewDialog
 
     name = 'Shanghai (2D Gyroid)'
     assert win.combo_dim.currentIndex() == 1
@@ -37,8 +37,8 @@ def test_overview_preset_button_loads_the_selected_case(win):
 
 
 def test_compute_and_sensitivity_read_the_selected_topology(win):
-    from sjtu_tpmshx.applications.gui.ui.sensitivity import SensitivityDialog
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.applications.gui.ui.sensitivity import SensitivityDialog
+    from tm1.applications.gui.ui.window_config import config_from_window
 
     combo = win.combo_tpms
     assert [combo.itemText(i) for i in range(combo.count())] == ['Diamond', 'Gyroid']
@@ -59,7 +59,7 @@ def test_compute_and_sensitivity_read_the_selected_topology(win):
 
 def test_sensitivity_cell_loads_inputs_and_clears_prior_results(win):
     from matplotlib.backend_bases import MouseEvent
-    from sjtu_tpmshx.applications.gui.ui.sensitivity import SensitivityDialog
+    from tm1.applications.gui.ui.sensitivity import SensitivityDialog
     from tests.python.gui_workbench_support import _result
 
     win.combo_fluidA.setCurrentText('Air')
@@ -77,7 +77,7 @@ def test_sensitivity_cell_loads_inputs_and_clears_prior_results(win):
 
 
 def test_sweep_button_clears_prior_heatmap_for_unknown_fluid(win, monkeypatch):
-    from sjtu_tpmshx.applications.gui.ui.sensitivity import SensitivityDialog
+    from tm1.applications.gui.ui.sensitivity import SensitivityDialog
 
     win.combo_fluidA.setCurrentText('Air')
     dialog = SensitivityDialog(win)
@@ -101,7 +101,7 @@ def test_sweep_button_clears_prior_heatmap_for_unknown_fluid(win, monkeypatch):
 @pytest.mark.parametrize('preview', ['geometry', 'auto_fill'])
 def test_previews_reject_unknown_fluid_on_either_side(win, monkeypatch, co2_side, preview):
     from PySide6.QtWidgets import QMessageBox
-    from sjtu_tpmshx.applications.gui.ui.mixins import fluid_input
+    from tm1.applications.gui.ui.mixins import fluid_input
 
     win.combo_dim.setCurrentIndex(0)
     for side in 'AB':

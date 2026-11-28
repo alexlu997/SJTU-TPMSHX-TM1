@@ -5,8 +5,8 @@ import math
 from pathlib import Path
 from typing import Any
 
-from sjtu_tpmshx.applications.gui.ui.typography import FONT_STACK
-from sjtu_tpmshx.postprocess.result_display import (
+from tm1.applications.gui.ui.typography import FONT_STACK
+from tm1.postprocess.result_display import (
     COLORMAP_CHOICES,
     COLORMAP_QUANTITIES,
     DEFAULT_COLORMAPS,
@@ -53,7 +53,7 @@ def set_cmap(quantity: str, cmap: str | None, *, persist: bool = False) -> bool:
             )
         resolved = cmap
     if persist:
-        from sjtu_tpmshx.applications.gui.controllers.user_storage import (
+        from tm1.applications.gui.controllers.user_storage import (
             save_appearance_setting,
         )
         if not save_appearance_setting(f"cmap_{quantity}", resolved):
@@ -560,7 +560,7 @@ def _build_styles(theme_name: str | None = None) -> dict[str, str]:
 def apply_mpl_theme() -> None:
     """Set Matplotlib colors and sans UI fonts for the active Style P2 theme."""
     import matplotlib as mpl
-    from sjtu_tpmshx.applications.gui.ui.typography import screen_matplotlib_font_families
+    from tm1.applications.gui.ui.typography import screen_matplotlib_font_families
 
     t = get_theme()
     mpl.rcParams["figure.facecolor"] = t["fig_bg"]

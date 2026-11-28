@@ -5,8 +5,8 @@ import shutil
 
 import pytest
 
-from sjtu_tpmshx.file_io import file_snapshot as snapshot
-from sjtu_tpmshx.file_io.result_io import load_result, save_result
+from tm1.file_io import file_snapshot as snapshot
+from tm1.file_io.result_io import load_result, save_result
 from tests.python.execution_tm1.test_workflow_recovery import stages as stages
 
 

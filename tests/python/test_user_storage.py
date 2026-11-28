@@ -1,20 +1,15 @@
 """Installed desktop state survives restarts without writing into its package."""
 import json
 import os
-from pathlib import Path
 import sys
 
 import pytest
 from PySide6.QtCore import QStandardPaths
 from PySide6.QtWidgets import QInputDialog, QMessageBox
 
-from sjtu_tpmshx.applications.gui.controllers import user_storage
-from sjtu_tpmshx.applications.gui.controllers.session_manager import SessionManager
+from tm1.applications.gui.controllers import user_storage
+from tm1.applications.gui.controllers.session_manager import SessionManager
 from tests.python.gui_workbench_support import win as win
-
-
-def test_legacy_inputs_keep_the_original_package_directory():
-    assert user_storage._LEGACY_PACKAGE_DIR == Path(__file__).resolve().parents[2] / 'sjtu_tpmshx'
 
 
 @pytest.fixture
@@ -25,47 +20,32 @@ def user_locations(tmp_path, monkeypatch):
         QStandardPaths.StandardLocation.DocumentsLocation: tmp_path / 'documents',
     }
     monkeypatch.setattr(QStandardPaths, 'writableLocation', lambda kind: str(roots[kind]))
-    legacy = tmp_path / 'read-only-package'
-    (legacy / 'ui' / 'mixins').mkdir(parents=True)
-    monkeypatch.setattr(user_storage, '_LEGACY_PACKAGE_DIR', legacy)
-    return legacy, roots
+    return roots
 
 
-def test_existing_inputs_move_to_user_data_without_overwriting_either_source(user_locations):
-    legacy, _ = user_locations
+def test_user_data_persists_sessions_and_presets_in_platform_data_location(user_locations):
+    roots = user_locations
+    data_dir = roots[QStandardPaths.StandardLocation.GenericDataLocation] / 'SJTU-TPMSHX-TM1'
     saved_input = {'line_edits': {'le_TinA': '440.5'}}
-    (legacy / '.last_session.json').write_text(json.dumps(saved_input))
-    (legacy / '.workspace').write_text('B')
-    (legacy / '.user_presets.json').write_text(json.dumps({'presets': [{'name': 'my case'}]}))
-    (legacy / '.session_timeline.jsonl').write_text('{"Q": "42"}\n')
-    (legacy / '.first_run_done').write_text('1')
     manager = SessionManager()
-    assert manager.base_dir != legacy
-    assert manager.load_session()['line_edits'] == saved_input['line_edits']
-    assert manager.get_active_workspace() == 'B'
-    assert manager.load_user_presets() == [{'name': 'my case'}]
-    assert (manager.base_dir / '.session_timeline.jsonl').read_text() == '{"Q": "42"}\n'
-    assert (manager.base_dir / '.first_run_done').read_text() == '1'
-    assert manager.save_session({'line_edits': {'le_TinA': '450'}})
+    assert manager.base_dir == data_dir
+    assert manager.save_session(saved_input)
+    assert manager.set_active_workspace('B')
+    assert manager.save_user_presets([{'name': 'my case'}])
+    reloaded = SessionManager()
+    assert reloaded.load_session()['line_edits'] == saved_input['line_edits']
+    assert reloaded.get_active_workspace() == 'B'
+    assert reloaded.load_user_presets() == [{'name': 'my case'}]
+    assert reloaded.save_session({'line_edits': {'le_TinA': '450'}})
     assert SessionManager().load_session()['line_edits']['le_TinA'] == '450'
-    assert json.loads((legacy / '.last_session.json').read_text()) == saved_input
 
 
-def test_appearance_uses_user_read_write_location_without_legacy_scan(user_locations):
-    legacy, _ = user_locations
-    (legacy / '.theme').write_text('dark')
-    old_menu = legacy / 'ui' / 'mixins' / '.theme'
-    old_menu.write_text('light')
-    os.utime(legacy / '.theme', (100, 100))
-    os.utime(old_menu, (200, 200))
+def test_appearance_uses_user_read_write_location(user_locations):
     assert user_storage.load_appearance_settings() == {}
     for name, value in {'theme': 'dark', 'density': 'cozy', 'accent': '#A1b2c3'}.items():
         assert user_storage.save_appearance_setting(name, value)
     assert user_storage.load_appearance_settings() == {
         'theme': 'dark', 'density': 'cozy', 'accent': '#A1b2c3'}
-    assert old_menu.read_text() == 'light'
-    assert not (legacy / '.density').exists()
-    assert not (legacy / 'ui' / 'mixins' / '.accent').exists()
 
     inspector_payload = json.dumps({
         'run': {'open': True, 'tab': 0},
@@ -82,10 +62,10 @@ def test_appearance_uses_user_read_write_location_without_legacy_scan(user_locat
 
 
 def test_colormap_and_reduced_motion_preferences_roundtrip_and_validate(user_locations):
-    from sjtu_tpmshx.applications.gui.ui.microanim import (
+    from tm1.applications.gui.ui.microanim import (
         apply_saved_reduced_motion, is_reduced_motion, set_reduced_motion,
     )
-    from sjtu_tpmshx.applications.gui.ui.theme import (
+    from tm1.applications.gui.ui.theme import (
         apply_saved_colormaps, resolve_cmap, set_cmap,
     )
 
@@ -121,7 +101,7 @@ def test_colormap_and_reduced_motion_preferences_roundtrip_and_validate(user_loc
 
 
 def test_output_directory_is_independent_of_launch_directory(user_locations, tmp_path, monkeypatch):
-    _, roots = user_locations
+    roots = user_locations
     result = user_storage.optimization_output_dir()
     elsewhere = tmp_path / 'unrelated-launch'
     elsewhere.mkdir()
@@ -132,8 +112,8 @@ def test_output_directory_is_independent_of_launch_directory(user_locations, tmp
 
 
 def test_appearance_write_failure_does_not_replace_saved_choice(user_locations, monkeypatch):
-    from sjtu_tpmshx.applications.gui.ui.microanim import is_reduced_motion, set_reduced_motion
-    from sjtu_tpmshx.applications.gui.ui.theme import resolve_cmap, set_cmap
+    from tm1.applications.gui.ui.microanim import is_reduced_motion, set_reduced_motion
+    from tm1.applications.gui.ui.theme import resolve_cmap, set_cmap
 
     assert user_storage.save_appearance_setting('theme', 'dark')
     try:
@@ -181,7 +161,7 @@ def test_restart_saves_inputs_and_preserves_source_or_frozen_entry(win, frozen, 
     monkeypatch.setattr(os, 'execv', lambda executable, args: events.append((executable, args)))
     monkeypatch.setattr(win.case_files, 'save_session', lambda: events.append('saved') or True)
     win.appearance.restart()
-    expected = [sys.executable] + ([] if frozen else ['-m', 'sjtu_tpmshx.main']) + ['--example-option']
+    expected = [sys.executable] + ([] if frozen else ['-m', 'tm1.main']) + ['--example-option']
     assert events == ['saved', (sys.executable, expected)]
 
 

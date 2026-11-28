@@ -14,7 +14,7 @@ import sys
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.preprocess.api import prepare_quick_design
+from tm1.preprocess.api import prepare_quick_design
 from tests.python.design.test_forward import _case
 from tests.python.native import test_temperature_driver as temperature_bridge
 
@@ -113,7 +113,7 @@ def temperature_driver(temperature_native):
 
 
 def check_prepared(case, native, temperature):
-    from sjtu_tpmshx.physical_models.design_fluids import fluid_props, fluid_nu
+    from tm1.physical_models.design_fluids import fluid_props, fluid_nu
     from tests.python.native.temperature_fv_oracle import physical
     actual = native(case)
     assert actual['code'] == 0, actual['error']

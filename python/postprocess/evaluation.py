@@ -2,10 +2,10 @@
 from collections.abc import Mapping
 from uuid import uuid4
 
-from sjtu_tpmshx.cpp_interface import result_evaluation
-from sjtu_tpmshx.data_types.metric_spec import MetricSpec
-from sjtu_tpmshx.data_types.performance_result import MetricValue, PerformanceResult
-from sjtu_tpmshx.data_types.persistence_validation import validate_result_declarations
+from tm1.cpp_interface import result_evaluation
+from tm1.data_types.metric_spec import MetricSpec
+from tm1.data_types.performance_result import MetricValue, PerformanceResult
+from tm1.data_types.persistence_validation import validate_result_declarations
 
 
 def _declaration_dimension(result, query):

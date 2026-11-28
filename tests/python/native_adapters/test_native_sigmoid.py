@@ -8,9 +8,9 @@ import numpy as np
 import pytest
 
 from tests.python import sigmoid_reference as reference
-from sjtu_tpmshx.cpp_interface import _native_geometry as geometry
-from sjtu_tpmshx.cpp_interface import _native_lut, _native_sigmoid
-from sjtu_tpmshx.physical_models import sigmoid_field
+from tm1.cpp_interface import _native_geometry as geometry
+from tm1.cpp_interface import _native_lut, _native_sigmoid
+from tm1.physical_models import sigmoid_field
 
 
 _DTYPES = (np.float16, np.float32, np.float64)

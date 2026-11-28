@@ -6,13 +6,13 @@ from threading import Barrier
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.data_types.portable_data import mutable_data
-from sjtu_tpmshx.run_control.run_warnings import record_warning
-from sjtu_tpmshx.postprocess.api import evaluate
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.api import run_case
+from tm1.run_control.cancellation import CancelledError
+from tm1.run_control.module_ports import RunControl
+from tm1.data_types.portable_data import mutable_data
+from tm1.run_control.run_warnings import record_warning
+from tm1.postprocess.api import evaluate
+from tm1.preprocess.api import prepare_case
+from tm1.solvers.api import run_case
 from tests.python.integration_tm1.integration_support import baseline_config
 from tests.python.integration_tm1.test_public_api import assert_slots
 from tests.python.cases_3d import small_air_config

@@ -1,5 +1,5 @@
 """Publish and read a complete solver checkpoint with typed HDF5 arrays."""
-from sjtu_tpmshx.data_types.solver_checkpoint import SolverCheckpoint
+from tm1.data_types.solver_checkpoint import SolverCheckpoint
 from .case_io import load_case
 from .hdf5_data import read_record, write_record
 

@@ -4,8 +4,8 @@ from functools import partial
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.physical_models import nu_correlations, sigmoid_field, tpms_calc
-from sjtu_tpmshx.physical_models.zone_config import Zone, ZoneConfig
+from tm1.physical_models import nu_correlations, sigmoid_field, tpms_calc
+from tm1.physical_models.zone_config import Zone, ZoneConfig
 
 
 @pytest.mark.parametrize('axis', ['Y', 'typo', 'grid'])

@@ -12,7 +12,7 @@ import contextlib
 import io
 import logging
 
-from sjtu_tpmshx.run_control.logutil import get_logger  # noqa: E402
+from tm1.run_control.logutil import get_logger  # noqa: E402
 
 
 def test_logger_output_visible_under_redirect_stdout():
@@ -35,7 +35,7 @@ def test_default_format_is_bare_message():
 
 def test_level_filter_suppresses_info():
     log = get_logger('tests.level')
-    root = logging.getLogger('tpmshx')
+    root = logging.getLogger('tm1')
     old = root.level
     try:
         root.setLevel(logging.ERROR)
@@ -51,9 +51,9 @@ def test_level_filter_suppresses_info():
 
 
 def test_no_duplicate_into_stdlib_root(capfd=None):
-    """tpmshx root has propagate=False — records must not reach the stdlib
+    """tm1 root has propagate=False — records must not reach the stdlib
     root logger (which could double-print once an app configures it)."""
-    root = logging.getLogger('tpmshx')
+    root = logging.getLogger('tm1')
     get_logger('tests.prop')          # ensure configured
     assert root.propagate is False
     assert any(type(h).__name__ == '_StdoutHandler' for h in root.handlers)
@@ -65,38 +65,38 @@ def test_ts_env_adds_timestamp_prefix(monkeypatch):
     _configure_root is once-per-process, so build the handler/formatter
     pair the same way the module does and verify the format directly."""
     import io as _io
-    import sjtu_tpmshx.run_control.logutil as lu
+    import tm1.run_control.logutil as lu
     monkeypatch.setenv('TPMSHX_LOG_TS', '1')
     # Reset the module singleton in an isolated logger namespace.
     monkeypatch.setattr(lu, '_configured', False)
-    saved_handlers = list(logging.getLogger('tpmshx').handlers)
-    logging.getLogger('tpmshx').handlers.clear()
+    saved_handlers = list(logging.getLogger('tm1').handlers)
+    logging.getLogger('tm1').handlers.clear()
     try:
         log = lu.get_logger('tests.ts')
         buf = _io.StringIO()
         with contextlib.redirect_stdout(buf):
             log.info("[ts-check] stamped")
         line = [l for l in buf.getvalue().splitlines() if 'ts-check' in l][0]
-        # "HH:MM:SS INFO tpmshx.tests.ts: [ts-check] stamped"
-        assert 'INFO' in line and 'tpmshx.tests.ts' in line
+        # "HH:MM:SS INFO tm1.tests.ts: [ts-check] stamped"
+        assert 'INFO' in line and 'tm1.tests.ts' in line
         assert line.split(' ')[0].count(':') == 2
     finally:
-        logging.getLogger('tpmshx').handlers.clear()
-        logging.getLogger('tpmshx').handlers.extend(saved_handlers)
+        logging.getLogger('tm1').handlers.clear()
+        logging.getLogger('tm1').handlers.extend(saved_handlers)
         monkeypatch.setattr(lu, '_configured', True)
 
 
 def test_invalid_level_env_falls_back_to_info(monkeypatch):
     """Garbage TPMSHX_LOG_LEVEL must resolve to INFO, not crash."""
-    import sjtu_tpmshx.run_control.logutil as lu
+    import tm1.run_control.logutil as lu
     monkeypatch.setenv('TPMSHX_LOG_LEVEL', 'NOT_A_LEVEL')
     monkeypatch.setattr(lu, '_configured', False)
     try:
         lu.get_logger('tests.badlevel')
-        assert logging.getLogger('tpmshx').level == logging.INFO
+        assert logging.getLogger('tm1').level == logging.INFO
     finally:
         monkeypatch.setattr(lu, '_configured', True)
-        logging.getLogger('tpmshx').setLevel(logging.INFO)
+        logging.getLogger('tm1').setLevel(logging.INFO)
 
 
 
@@ -104,7 +104,7 @@ def test_invalid_level_env_falls_back_to_info(monkeypatch):
 def test_overlapping_capture_scopes_restore_streams_after_out_of_order_exit():
     import sys
     import threading
-    from sjtu_tpmshx.run_control.logutil import capture_output
+    from tm1.run_control.logutil import capture_output
 
     original = sys.stdout, sys.stderr
     ready, release = threading.Event(), threading.Event()

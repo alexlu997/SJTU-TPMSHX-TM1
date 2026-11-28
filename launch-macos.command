@@ -23,6 +23,6 @@ done
 export MPLCONFIGDIR="$PWD/.cache/matplotlib"
 export XDG_CACHE_HOME="$PWD/.cache/xdg"
 mkdir -p -- "$MPLCONFIGDIR" "$XDG_CACHE_HOME"
-exec "$tm1_python" -m sjtu_tpmshx.main --backend cpp \
+exec "$tm1_python" -m tm1.main --backend cpp \
     --native-library "$tm1_library" \
     --native-table-directory "$PWD/.cache/native-deps/tables"

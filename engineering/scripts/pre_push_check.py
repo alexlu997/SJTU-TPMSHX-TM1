@@ -204,9 +204,9 @@ def check(base_ref, head_ref='HEAD'):
     if tier != 'docs':
         # The applicable lock is the one that the .venv-path environment matches.
         lock = next((name for name in LOCKS if subprocess.run(
-            [python, '-m', 'sjtu_tpmshx.development.runs.tools.check_locked_environment', name],
+            [python, '-m', 'tm1.development.runs.tools.check_locked_environment', name],
             cwd=ROOT, capture_output=True).returncode == 0), None)
-        run.commands.append((lock is not None, 0.0, 'python -m sjtu_tpmshx.development.runs.tools.'
+        run.commands.append((lock is not None, 0.0, 'python -m tm1.development.runs.tools.'
                              f'check_locked_environment {lock or " / ".join(LOCKS) + " (no match)"}'))
         # AGENTS.md section 3: a failed environment check stops the dependent work.
         if lock and run('-m', 'pip', 'check'):
@@ -216,7 +216,7 @@ def check(base_ref, head_ref='HEAD'):
                 run('-m', 'ruff', 'check', *changed_python)
             run('-m', 'engineering.scripts.check_types', '--platform', 'darwin')
             run('-m', 'engineering.scripts.check_types', '--platform', 'win32')
-            run('-m', 'sjtu_tpmshx.development.runs.tools.audit_import_graph', '--fail-on-violations')
+            run('-m', 'tm1.development.runs.tools.audit_import_graph', '--fail-on-violations')
             files, nodes, heavy, ci = select(paths, exists)
             unmapped = [path for path in changed_python if not is_test_file(path) and not any(
                 fnmatch(path, pattern) for patterns, _ in CONSUMERS for pattern in patterns)]

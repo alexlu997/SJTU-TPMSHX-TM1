@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import math
 
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.run_control.provenance import study_source
+from tm1.run_control.cancellation import CancelledError
+from tm1.run_control.module_ports import RunControl
+from tm1.run_control.provenance import study_source
 
 from . import select, sizing
 from .sizing import Design, K_STEEL, RHO_S

@@ -5,14 +5,14 @@ import zlib
 
 import pytest
 
-from sjtu_tpmshx.applications.gui.controllers.session_manager import SessionManager
+from tm1.applications.gui.controllers.session_manager import SessionManager
 from tests.python.gui_io_support import win as win
 
 
 @pytest.fixture(autouse=True)
 def isolated_state(win, monkeypatch, tmp_path):
     from PySide6.QtWidgets import QMessageBox
-    from sjtu_tpmshx.applications.gui.controllers import user_storage
+    from tm1.applications.gui.controllers import user_storage
     monkeypatch.setattr(win.case_files, 'store', SessionManager(base_dir=tmp_path, parent=win))
     monkeypatch.setattr(user_storage, '_appearance_dir', lambda: tmp_path)
     for name in ('information', 'warning', 'critical'):
@@ -88,7 +88,7 @@ def test_valid_restore_refreshes_error_state_without_recording_history(win):
     ('K', '1e-400'),  # Positive text, but the stored K float is 0.0.
 ])
 def test_inlet_keeps_rejected_temperature_on_refresh(win, unit, text):
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.applications.gui.ui.window_config import config_from_window
 
     if unit == 'C':
         win._toggle_temp_unit()
@@ -110,7 +110,7 @@ def test_inlet_keeps_rejected_temperature_on_refresh(win, unit, text):
     ('C', '-273.14999999999999', '-273.14999999999999', 1e-14),
 ])
 def test_inlet_keeps_valid_temperature_format_and_value(win, unit, text, display, kelvin):
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.applications.gui.ui.window_config import config_from_window
 
     if unit == 'C':
         win._toggle_temp_unit()
@@ -363,7 +363,7 @@ def test_field_menu_uses_current_theme_colors(win, monkeypatch, theme_name):
     from PySide6.QtCore import QPoint, QTimer
     from PySide6.QtGui import QContextMenuEvent, QPalette
     from PySide6.QtWidgets import QApplication
-    from sjtu_tpmshx.applications.gui.ui.theme import _THEMES
+    from tm1.applications.gui.ui.theme import _THEMES
 
     colors = _THEMES[theme_name]
     monkeypatch.setattr(win.theme, 'palette', lambda: colors)
@@ -413,9 +413,9 @@ def test_close_with_focused_expression_restores_complete_session(
         monkeypatch, tmp_path, field, text, expected):
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QApplication
-    from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
-    from sjtu_tpmshx.applications.gui.ui.shell_dialogs import ShellDialogs
-    from sjtu_tpmshx.applications.gui.ui.ui_builders import reveal_parameter
+    from tm1.applications.gui.ui.main_window import Main_Menu
+    from tm1.applications.gui.ui.shell_dialogs import ShellDialogs
+    from tm1.applications.gui.ui.ui_builders import reveal_parameter
     original = SessionManager.__init__
     monkeypatch.setattr(SessionManager, '__init__',
         lambda self, base_dir=None, parent=None: original(self, base_dir=tmp_path, parent=parent))
@@ -464,8 +464,8 @@ def test_unreadable_library_is_preserved_before_replacement(win, monkeypatch):
 
 
 def test_malformed_library_members_do_not_block_window_initialization(monkeypatch, tmp_path):
-    from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
-    from sjtu_tpmshx.applications.gui.ui.shell_dialogs import ShellDialogs
+    from tm1.applications.gui.ui.main_window import Main_Menu
+    from tm1.applications.gui.ui.shell_dialogs import ShellDialogs
     path = SessionManager(base_dir=tmp_path).presets_path()
     original = b'{"presets": [null]}'
     path.write_bytes(original)

@@ -4,9 +4,9 @@ import numpy as np
 import pytest
 import CoolProp.CoolProp as CP
 
-from sjtu_tpmshx.physical_models.fluid_props import WaterStateError, check_water_state, get
-from sjtu_tpmshx.physical_models import tpms_calc, tpms_props
-from sjtu_tpmshx.run_control.run_warnings import warning_scope
+from tm1.physical_models.fluid_props import WaterStateError, check_water_state, get
+from tm1.physical_models import tpms_calc, tpms_props
+from tm1.run_control.run_warnings import warning_scope
 
 
 def test_saturation_bracket_and_pressurized_liquid():
@@ -60,7 +60,7 @@ def test_paired_arrays_and_model_values_unchanged():
 
 
 def test_compute_guard_before_cache_and_warning_collection(monkeypatch):
-    from sjtu_tpmshx.physical_models import fluid_props
+    from tm1.physical_models import fluid_props
     calls = []
     original = fluid_props.check_water_state
 
@@ -102,8 +102,8 @@ def test_water_error_reports_first_broadcast_cell(bad):
 @pytest.mark.parametrize('side', ['A', 'B'])
 @pytest.mark.parametrize('dimension', [2, 3])
 def test_pipeline_inlet_checks_both_water_sides_before_domain_work(side, dimension):
-    from sjtu_tpmshx.data_types.compute_config import ComputeConfig, FluidConfig
-    from sjtu_tpmshx.preprocess.api import prepare_case
+    from tm1.data_types.compute_config import ComputeConfig, FluidConfig
+    from tm1.preprocess.api import prepare_case
     cfg = ComputeConfig(fluid_A=FluidConfig(type='water'),
                         fluid_B=FluidConfig(type='water'))
     getattr(cfg, 'fluid_' + side).T_in_K = 400.

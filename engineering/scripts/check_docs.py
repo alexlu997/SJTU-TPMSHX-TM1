@@ -59,7 +59,7 @@ def check(root, paths):
             elif (target.fragment and destination.suffix == '.md'
                   and unquote(target.fragment) not in anchors(destination.read_text(encoding='utf-8'))):
                 failures.append(f'{name}: missing anchor {match[2]}')
-        for module in re.findall(r'(?:^|\s)-m\s+(sjtu_tpmshx[\w.<>\-…]*)', text):
+        for module in re.findall(r'(?:^|\s)-m\s+(tm1[\w.<>\-…]*)', text):
             if any(marker in module for marker in ('<', '>', '...', '…')):
                 continue
             module = module.rstrip('.')

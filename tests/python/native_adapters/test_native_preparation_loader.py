@@ -3,7 +3,7 @@ from tests.python.native_adapters.test_native_result_loader import LibraryStub
 
 import pytest
 
-from sjtu_tpmshx.cpp_interface import stage_libraries as native
+from tm1.cpp_interface import stage_libraries as native
 
 
 @pytest.mark.parametrize('system,machine,host,name', [

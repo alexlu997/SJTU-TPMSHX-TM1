@@ -4,14 +4,14 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.physical_models.asym_geometry import (
+from tm1.physical_models.asym_geometry import (
     eps_sides, a0_sides, a0_sides_mc, dh_from_sides, dh_sides,
     wall_thickness, wall_thickness_from_sides,
 )
-from sjtu_tpmshx.development.runs.tools.asym_geometry_research import (
+from tm1.development.runs.tools.asym_geometry_research import (
     a0_sides_richardson, percolates_z, find_delta_max,
 )
-from sjtu_tpmshx.physical_models.tpms_geometry import _phi_grid, compute_geometry, _C_from_tL, signed_wall_grid
+from tm1.physical_models.tpms_geometry import _phi_grid, compute_geometry, _C_from_tL, signed_wall_grid
 
 N = 64  # 测试用小网格（快）
 
@@ -62,7 +62,7 @@ def test_diameter_keeps_voxel_and_mc_results(mc, expected):
         Dh_A=.005370517851367538, Dh_B=.0018103312639176534)),
 ])
 def test_target_scan_reuses_area_and_keeps_results(monkeypatch, topology, targets, expected):
-    from sjtu_tpmshx.development.runs.diagnostics import asym_target_scan
+    from tm1.development.runs.diagnostics import asym_target_scan
 
     # Values were recorded at 179a6a9b before area reuse.
     # Quantiles lie between distinct field values to avoid platform-dependent ties.
@@ -88,8 +88,8 @@ def test_mean_wall_thickness_from_sides(porosity, area_a, area_b, expected):
 
 @pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
 def test_offset_scan_samples_geometry_once(monkeypatch, topology):
-    from sjtu_tpmshx.physical_models import asym_geometry as geometry
-    from sjtu_tpmshx.development.runs.diagnostics import asym_geometry_scan as scan
+    from tm1.physical_models import asym_geometry as geometry
+    from tm1.development.runs.diagnostics import asym_geometry_scan as scan
 
     monkeypatch.setattr(scan, 'N', 16)
     with patch.object(geometry, 'eps_sides', wraps=eps_sides) as pores, \

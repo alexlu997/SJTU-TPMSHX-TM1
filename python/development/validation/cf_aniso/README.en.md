@@ -48,7 +48,7 @@ Record five velocity points as (u_sup, dP/L), plus mean-field ρ and μ. Fill `r
 
 ```bash
 PYTHON="$(head -n 1 .venv-path)"
-"$PYTHON" -m sjtu_tpmshx.development.validation.cf_aniso.fit_cf_aniso results.csv
+"$PYTHON" -m tm1.development.validation.cf_aniso.fit_cf_aniso results.csv
 ```
 
 The script performs three steps:

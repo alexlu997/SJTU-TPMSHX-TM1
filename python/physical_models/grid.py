@@ -3,7 +3,7 @@ import math
 
 import numpy as np
 
-from sjtu_tpmshx.cpp_interface import _native_grid
+from tm1.cpp_interface import _native_grid
 
 SHANGHAI_GRID_2D = (84, 24, 1)
 SHANGHAI_GRID_3D = (92, 14, 10)

@@ -5,13 +5,13 @@ Per audit Item 3 / AR8 (2026-05-28).
 
 
 def test_load_returns_dict():
-    from sjtu_tpmshx.model_configs import load_shanghai_baseline
+    from tm1.model_configs import load_shanghai_baseline
     cfg = load_shanghai_baseline()
     assert isinstance(cfg, dict)
 
 
 def test_schema_required_keys():
-    from sjtu_tpmshx.model_configs import load_shanghai_baseline
+    from tm1.model_configs import load_shanghai_baseline
     cfg = load_shanghai_baseline()
     assert 'geometry' in cfg
     assert 'domain' in cfg
@@ -23,7 +23,7 @@ def test_schema_required_keys():
 
 def test_canonical_values_pinned():
     """Pin the canonical Shanghai values. Future deliberate changes update this test."""
-    from sjtu_tpmshx.model_configs import load_shanghai_baseline
+    from tm1.model_configs import load_shanghai_baseline
     cfg = load_shanghai_baseline()
     assert cfg['geometry']['tpms'] == 'Gyroid'
     assert cfg['geometry']['L_cell_mm'] == 7.0
@@ -37,7 +37,7 @@ def test_canonical_values_pinned():
 
 
 def test_types_correct():
-    from sjtu_tpmshx.model_configs import load_shanghai_baseline
+    from tm1.model_configs import load_shanghai_baseline
     cfg = load_shanghai_baseline()
     assert isinstance(cfg['geometry']['tpms'], str)
     assert isinstance(cfg['geometry']['L_cell_mm'], (int, float))
@@ -47,7 +47,7 @@ def test_types_correct():
 
 def test_idempotent_calls_equal():
     """Two calls return equal dicts (JSON re-load is deterministic)."""
-    from sjtu_tpmshx.model_configs import load_shanghai_baseline
+    from tm1.model_configs import load_shanghai_baseline
     cfg1 = load_shanghai_baseline()
     cfg2 = load_shanghai_baseline()
     assert cfg1 == cfg2

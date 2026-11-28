@@ -10,10 +10,10 @@ import sys
 import numpy as np
 names = "tpms_calc tpms_props tpms_geometry fluid_props sco2_props nu_correlations zone_config continuous_field grid_schema".split()
 for name in names:
-    importlib.import_module("sjtu_tpmshx.physical_models." + name)
-from sjtu_tpmshx.physical_models.fluid_props import get
-from sjtu_tpmshx.physical_models.catalog import MODEL_VERSIONS, resolve_model
-from sjtu_tpmshx.data_types.model_refs import ModelRef
+    importlib.import_module("tm1.physical_models." + name)
+from tm1.physical_models.fluid_props import get
+from tm1.physical_models.catalog import MODEL_VERSIONS, resolve_model
+from tm1.data_types.model_refs import ModelRef
 resource = resolve_model(ModelRef("darcy_forchheimer", MODEL_VERSIONS["darcy_forchheimer"], {"topology": "Gyroid"}))
 assert all(value > 0 for value in resource.predict(7.0, 0.5))
 for fluid in ("air", "water", "sco2"):
@@ -26,7 +26,7 @@ for fluid in ("air", "water", "sco2"):
         expected = np.array([evaluate(float(t), pressure) for t in temperatures])
         np.testing.assert_allclose(values, expected)
         assert np.all(np.isfinite(values)) and np.all(values > 0)
-for prefix in ("sjtu_tpmshx.solvers", "sjtu_tpmshx.pipelines", "numba", "PySide6"):
+for prefix in ("tm1.solvers", "tm1.pipelines", "numba", "PySide6"):
     assert not any(name == prefix or name.startswith(prefix + ".") for name in sys.modules), prefix
 '''
     result = subprocess.run([sys.executable, '-c', code], capture_output=True,
@@ -38,11 +38,11 @@ def test_concurrent_existing_model_imports_in_fresh_process():
     result = subprocess.run([sys.executable, '-c', '''
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
-from sjtu_tpmshx.physical_models.zone_config import ZoneConfig
+from tm1.physical_models.zone_config import ZoneConfig
 barrier = Barrier(2)
 def load(_):
     barrier.wait()
-    from sjtu_tpmshx.physical_models.zone_config import ZoneConfig as imported
+    from tm1.physical_models.zone_config import ZoneConfig as imported
     return imported
 with ThreadPoolExecutor(max_workers=2) as pool:
     assert all(cls is ZoneConfig for cls in pool.map(load, range(2)))

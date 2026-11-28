@@ -7,24 +7,24 @@ from pathlib import Path
 from time import perf_counter
 from uuid import uuid4
 
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.run_control.paused_run import PausedRun
-from sjtu_tpmshx.data_types.portable_data import mutable_data
-from sjtu_tpmshx.data_types.solver_checkpoint import SolverCheckpoint
-from sjtu_tpmshx.file_io.case_io import save_case
-from sjtu_tpmshx.file_io.file_set import staged_files
-from sjtu_tpmshx.file_io.file_snapshot import retain_runtime
-from sjtu_tpmshx.file_io.metrics_io import save_metrics
-from sjtu_tpmshx.file_io.result_io import save_result
-from sjtu_tpmshx.file_io.solver_checkpoint_io import (
+from tm1.run_control.cancellation import CancelledError
+from tm1.data_types.compute_config import ComputeConfig
+from tm1.run_control.module_ports import RunControl
+from tm1.run_control.paused_run import PausedRun
+from tm1.data_types.portable_data import mutable_data
+from tm1.data_types.solver_checkpoint import SolverCheckpoint
+from tm1.file_io.case_io import save_case
+from tm1.file_io.file_set import staged_files
+from tm1.file_io.file_snapshot import retain_runtime
+from tm1.file_io.metrics_io import save_metrics
+from tm1.file_io.result_io import save_result
+from tm1.file_io.solver_checkpoint_io import (
     load_checkpoint_case, load_solver_checkpoint, save_solver_checkpoint,
 )
-from sjtu_tpmshx.file_io.text_file import write_text
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.api import run_case
-from sjtu_tpmshx.compute import compute
+from tm1.file_io.text_file import write_text
+from tm1.preprocess.api import prepare_case
+from tm1.solvers.api import run_case
+from tm1.compute import compute
 
 
 def read_run_checkpoint(path):
@@ -91,7 +91,7 @@ def _execute(config, directory, *, checkpoint_interval_s, case_id, control, prog
     if (isinstance(checkpoint_interval_s, bool) or not math.isfinite(checkpoint_interval_s)
             or checkpoint_interval_s <= 0.):
         raise ValueError('checkpoint interval must be finite and positive')
-    from sjtu_tpmshx.run_control.module_ports import resolve_control
+    from tm1.run_control.module_ports import resolve_control
     control = resolve_control(control)
     library = Path(control.native_library)
     if not library.is_absolute():

@@ -1,7 +1,7 @@
 """fit_cf_aniso.py — 方向分辨单胞 CFD 结果 → cf_aniso 系数（见同目录 README）.
 
 用法:
-    python -m sjtu_tpmshx.development.validation.cf_aniso.fit_cf_aniso results.csv
+    python -m tm1.development.validation.cf_aniso.fit_cf_aniso results.csv
 
 输入 CSV 列 (与 results_template.csv 相同):
     case_id, tpms, L_mm, t_mm, theta_deg, u_sup_mps,

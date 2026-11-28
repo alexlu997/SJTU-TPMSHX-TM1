@@ -5,23 +5,23 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from sjtu_tpmshx.development.validation.cases import audit_3d_conservation as audit
+from tm1.development.validation.cases import audit_3d_conservation as audit
 
 
 def test_production_conservation_import_keeps_warning_policy_and_avoids_audit():
     import subprocess
     import sys
-    from sjtu_tpmshx.postprocess.conservation import compute_phase2a
+    from tm1.postprocess.conservation import compute_phase2a
 
     assert audit.compute_phase2a is compute_phase2a
     subprocess.run([sys.executable, '-c', '''
 import sys, warnings
 import numpy
-import sjtu_tpmshx.postprocess
+import tm1.postprocess
 before = warnings.filters[:]
-from sjtu_tpmshx.postprocess.conservation import compute_phase2a
+from tm1.postprocess.conservation import compute_phase2a
 assert warnings.filters == before
-assert not any(name.startswith(('sjtu_tpmshx.solvers', 'sjtu_tpmshx.development.validation'))
+assert not any(name.startswith(('tm1.solvers', 'tm1.development.validation'))
                for name in sys.modules)
 '''], check=True)
 
@@ -41,7 +41,7 @@ def _certificate_result(active_b=True):
 
 
 def _certificate_fields(data):
-    from sjtu_tpmshx.data_types.field_result import FieldResult
+    from tm1.data_types.field_result import FieldResult
 
     return FieldResult('audit-fixture', 'audit-case', 'test',
         fields={'Ta_display': data['Ta'], 'h_vB': data['h_vB_field']},
@@ -129,8 +129,8 @@ def test_grid_sweep_keeps_every_failed_certificate_member(monkeypatch, tmp_path)
 
 
 def test_lumped_outputs_are_separate_attributable_and_do_not_touch_data(monkeypatch, tmp_path):
-    from sjtu_tpmshx.development.validation.cases import validate_shanghai_lumped_dual_nu as lumped
-    from sjtu_tpmshx.development.validation.harness import _harness, _provenance
+    from tm1.development.validation.cases import validate_shanghai_lumped_dual_nu as lumped
+    from tm1.development.validation.harness import _harness, _provenance
 
     source = pd.DataFrame(np.zeros((16, 32)))
     for col, value in {5: .05, 7: .03, 24: 25., 25: 50., 28: 150.,

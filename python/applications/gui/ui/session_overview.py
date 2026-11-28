@@ -50,7 +50,7 @@ class OverviewDialog(QDialog):
         hdr.addStretch(1)
         # P1.9: version from the _version leaf — importing main here was the
         # ui->main cycle edge (composition root pulled in for one constant).
-        from sjtu_tpmshx._version import __version__ as _app_version
+        from tm1._version import __version__ as _app_version
         from .field_factory import default_factory
         _tm = default_factory().theme
         from .fmt import preset_display as _pd

@@ -4,9 +4,9 @@ Only the real integration comparison imports these frozen functions. Production
 uses controllers.module_adapter; do not update this oracle to match that code.
 """
 from typing import Any
-from sjtu_tpmshx.data_types.compute_result import ComputeResult
-from sjtu_tpmshx.physical_models.nu_correlations import sco2_nu_metadata, sco2_nu_notices
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig
+from tm1.data_types.compute_result import ComputeResult
+from tm1.physical_models.nu_correlations import sco2_nu_metadata, sco2_nu_notices
+from tm1.data_types.compute_config import ComputeConfig
 
 
 def safe_float(v: Any) -> float:
@@ -25,7 +25,7 @@ def safe_float(v: Any) -> float:
 def geometry_props(compute_cfg: ComputeConfig) -> tuple[float, float, float]:
     """(epsilon, D_h_m, A_0_m2) triple for the ComputeResult ``props`` slot,
     derived from cfg geometry via the closed-form tpms_calc.geometry."""
-    from sjtu_tpmshx.physical_models.tpms_calc import geometry as _tpms_geom
+    from tm1.physical_models.tpms_calc import geometry as _tpms_geom
     g = _tpms_geom(compute_cfg.geometry.tpms,
                    compute_cfg.geometry.L_cell_mm,
                    compute_cfg.geometry.t_wall_mm,

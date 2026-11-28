@@ -6,12 +6,12 @@ from pathlib import Path
 
 import numpy as np
 
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.run_control.run_environment import run_environment
+from tm1.run_control.cancellation import CancelledError
+from tm1.run_control.run_environment import run_environment
 
 from ._native_result_stage import Evidence, Input as Evaluation, record
 from .solver_library import stage_capture
-from sjtu_tpmshx.cpp_interface._native_preparation_case import _Array as PreparedArray, _Evidence, _Text, _Model, _Nu
+from tm1.cpp_interface._native_preparation_case import _Array as PreparedArray, _Evidence, _Text, _Model, _Nu
 from .preparation_host import borrow_ranges as _ranges, borrow_solver_mesh, pack_saved_resources
 from .solver_library._full_3d_abi import (
     _Array, _BootstrapTrace, _Callbacks, _Cancel, _Control, _EnergyEvidence,

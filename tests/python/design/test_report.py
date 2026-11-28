@@ -2,8 +2,8 @@
 from openpyxl import Workbook, load_workbook
 import pytest
 
-from sjtu_tpmshx.applications.design import report
-from sjtu_tpmshx.applications.design.sizing import Design
+from tm1.applications.design import report
+from tm1.applications.design.sizing import Design
 
 
 def _previous_report(path):

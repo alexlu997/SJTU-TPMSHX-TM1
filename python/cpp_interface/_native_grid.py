@@ -4,7 +4,7 @@ from functools import lru_cache
 
 import numpy as np
 
-from sjtu_tpmshx.cpp_interface import _native_geometry as _geometry
+from tm1.cpp_interface import _native_geometry as _geometry
 
 from ._native_values import GridPort as _Port, count as _index, grid_count as _count, real_scalar
 

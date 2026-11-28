@@ -11,8 +11,8 @@ import tempfile
 
 import numpy as np
 
-from sjtu_tpmshx.data_types.case_data import SCHEMA_VERSION
-from sjtu_tpmshx.data_types.model_refs import ModelRef
+from tm1.data_types.case_data import SCHEMA_VERSION
+from tm1.data_types.model_refs import ModelRef
 
 
 def _encode(value, arrays):

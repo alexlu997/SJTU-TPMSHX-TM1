@@ -11,8 +11,8 @@ import warnings
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.physical_models import fluid_props, tpms_calc
-from sjtu_tpmshx.physical_models.nu_correlations import (
+from tm1.physical_models import fluid_props, tpms_calc
+from tm1.physical_models.nu_correlations import (
     nu_sco2_topo, SCO2_NU_COEFFS, SCO2_NU_RE_RANGE,
 )
 
@@ -138,7 +138,7 @@ def test_sco2_pressure_domain_matches_direct_eos(pressure):
 @pytest.mark.parametrize('side', ['A', 'B'])
 @pytest.mark.parametrize('other_fluid', ['air', 'water', 'sco2'])
 def test_sco2_config_pressure_bounds(nz, side, other_fluid):
-    from sjtu_tpmshx.data_types.compute_config import ComputeConfig, FluidConfig
+    from tm1.data_types.compute_config import ComputeConfig, FluidConfig
 
     cfg = ComputeConfig()
     cfg.solver.Nz = nz

@@ -23,9 +23,9 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 from PySide6.QtCore import QCoreApplication, QEventLoop
 
-from sjtu_tpmshx.applications.gui.controllers.compute_orchestrator import ComputeOrchestrator, CancelToken
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.run_control.paused_run import PausedRun
+from tm1.applications.gui.controllers.compute_orchestrator import ComputeOrchestrator, CancelToken
+from tm1.run_control.cancellation import CancelledError
+from tm1.run_control.paused_run import PausedRun
 
 
 # ----------------------------------------------------------- helpers
@@ -136,7 +136,7 @@ def test_large_log_keeps_recent_diagnostics_in_every_terminal_state(monkeypatch,
 
 
 def test_tail_log_storage_is_bounded_before_completion():
-    from sjtu_tpmshx.applications.gui.controllers.compute_orchestrator import _TailLog
+    from tm1.applications.gui.controllers.compute_orchestrator import _TailLog
 
     log = _TailLog(limit=16)
     expected = ''
@@ -297,7 +297,7 @@ def test_second_start_while_running_returns_false():
 
 @pytest.mark.parametrize('outcome', ['finished', 'error', 'cancelled'])
 def test_terminal_state_is_queued_and_locked_through_publication(outcome):
-    from sjtu_tpmshx.data_types.compute_result import ComputeResult
+    from tm1.data_types.compute_result import ComputeResult
 
     app = _make_app()
     orch = ComputeOrchestrator()

@@ -9,11 +9,11 @@ from pathlib import Path
 
 import numpy as np
 
-from sjtu_tpmshx.applications.optimization import multi_condition_optimizer as search
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig, FluidConfig, GeometryConfig, SolverConfig
-from sjtu_tpmshx.file_io import text_file
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.run_control.module_ports import RunControl
+from tm1.applications.optimization import multi_condition_optimizer as search
+from tm1.data_types.compute_config import ComputeConfig, FluidConfig, GeometryConfig, SolverConfig
+from tm1.file_io import text_file
+from tm1.run_control.cancellation import CancelledError
+from tm1.run_control.module_ports import RunControl
 
 
 def _conditions(dimension=2):
@@ -54,13 +54,13 @@ def _fake_batches(monkeypatch, *, fail_indices=(), baseline_failure=False, cance
             on_update([dict(condition_id=name, status='running', stage='reuse' if reused else 'solve', reason=None)
                        for name, *_ in conditions])
         if pause_check is not None and pause_check():
-            from sjtu_tpmshx.run_control.paused_run import PausedRun
+            from tm1.run_control.paused_run import PausedRun
             (directory / 'batch.json').write_text(json.dumps(dict(status='paused')))
             raise PausedRun(directory / 'batch.json')
         if baseline is None:
             assert all(not cfg.zones.enabled for _, cfg, _, _ in conditions)
             if not baseline_failure:
-                from sjtu_tpmshx.preprocess.api import resolve_fixed_mass_flow_config
+                from tm1.preprocess.api import resolve_fixed_mass_flow_config
                 baseline_token.update({name: dict(config_snapshot=resolve_fixed_mass_flow_config(
                     cfg, mass_flow_A_kg_s=a, mass_flow_B_kg_s=b).to_dict())
                     for name, cfg, a, b in conditions})
@@ -113,7 +113,7 @@ def condition(name='one'):
 
 
 def report(window, *, status='completed'):
-    from sjtu_tpmshx.physical_models.continuous_field import decision_dim
+    from tm1.physical_models.continuous_field import decision_dim
     cfg = window.optimization.capture_case()
     # Optimizer reports keep the targets used for each condition.
     cfg = replace(cfg, fluid_A=replace(cfg.fluid_A, mass_flow_kg_s=.003),

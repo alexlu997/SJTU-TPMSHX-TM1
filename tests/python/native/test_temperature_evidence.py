@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.cpp_interface.solver_library._stage_capture_abi import TemperatureEvidence
+from tm1.cpp_interface.solver_library._stage_capture_abi import TemperatureEvidence
 
 
 class TemperatureEvidence2D(ct.Structure):
@@ -20,10 +20,10 @@ def test_query_rejects_null_and_unowned_results_without_writing_output(dimension
         pytest.skip('explicit native library required')
     assert Path(path).is_absolute() and Path(path).is_file()
     if dimension == 2:
-        from sjtu_tpmshx.cpp_interface.solver_library._full_2d_abi import _Result
+        from tm1.cpp_interface.solver_library._full_2d_abi import _Result
         output_type = TemperatureEvidence2D
     else:
-        from sjtu_tpmshx.cpp_interface.solver_library._full_3d_abi import _Result
+        from tm1.cpp_interface.solver_library._full_3d_abi import _Result
         output_type = TemperatureEvidence
     library = ct.CDLL(path)
     query = getattr(library, f'tpmshx_full_{dimension}d_get_model_enthalpy_evidence_v1')
@@ -40,10 +40,10 @@ def test_query_rejects_null_and_unowned_results_without_writing_output(dimension
 
 
 def test_full_3d_cc_captured_powers_survive_owner_release_and_portable_replay(monkeypatch, tmp_path):
-    from sjtu_tpmshx.file_io.result_io import save_result, load_result
-    from sjtu_tpmshx.postprocess.api import evaluate
-    from sjtu_tpmshx.solvers import full_3d
-    from sjtu_tpmshx.solvers.full_3d import run_case
+    from tm1.file_io.result_io import save_result, load_result
+    from tm1.postprocess.api import evaluate
+    from tm1.solvers import full_3d
+    from tm1.solvers.full_3d import run_case
     from dataclasses import replace
     from tests.python.native.test_cpp_full_3d import case, control
 

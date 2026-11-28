@@ -3,21 +3,21 @@ from __future__ import annotations
 
 import pytest
 
-from sjtu_tpmshx.applications.design import cli, optimize, select, sizing
-from sjtu_tpmshx.applications.design.workflow import run_design
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.run_control.module_ports import RunControl
+from tm1.applications.design import cli, optimize, select, sizing
+from tm1.applications.design.workflow import run_design
+from tm1.run_control.cancellation import CancelledError
+from tm1.run_control.module_ports import RunControl
 
 
 def _sized_with_source(cases, topo, l, t, *args, **kwargs):
     # Each loky worker imports this module. The patches of the test apply only to the parent process.
-    from sjtu_tpmshx.run_control.provenance import source_context
+    from tm1.run_control.provenance import source_context
     return sizing.Design(True, topo=topo, l=l, t=t, V=l, percase=[source_context()])
 
 
 @pytest.mark.parametrize('n_jobs', [1, 2])
 def test_run_design_keeps_the_source_revision_of_its_entry(monkeypatch, tmp_path, n_jobs):
-    from sjtu_tpmshx.run_control import provenance
+    from tm1.run_control import provenance
     pin = tmp_path / 'data-revision.txt'
     pin.write_text('A')
     monkeypatch.setattr(provenance, 'SOURCE_ROOT', tmp_path)

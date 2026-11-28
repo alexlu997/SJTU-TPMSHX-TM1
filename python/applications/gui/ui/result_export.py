@@ -7,9 +7,9 @@ import re
 
 from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
 
-from sjtu_tpmshx._version import __version__
-from sjtu_tpmshx.run_control.provenance import SOURCE_ROOT, repository_revision
-from sjtu_tpmshx.applications.gui.ui.ui_constants import TOAST_MS_SHORT, TOAST_MS_MED
+from tm1._version import __version__
+from tm1.run_control.provenance import SOURCE_ROOT, repository_revision
+from tm1.applications.gui.ui.ui_constants import TOAST_MS_SHORT, TOAST_MS_MED
 
 
 class ResultExport:
@@ -21,7 +21,7 @@ class ResultExport:
         window = self.window
         import csv
         from pathlib import Path
-        from sjtu_tpmshx.file_io.file_set import staged_files
+        from tm1.file_io.file_set import staged_files
         res_3d = window.cache.get_result('3d')
         res_2d = window.cache.get_result('2d')
         # Export accepted numerical data independently of renderer readiness.
@@ -236,7 +236,7 @@ class ResultExport:
         window = self.window
         tab, canvas, ready = self._active_copy_target()
         if tab in ('temp', 'pres', 'vel') and ready:
-            from sjtu_tpmshx.applications.gui.ui.plot_2d_results import ensure_result_plot
+            from tm1.applications.gui.ui.plot_2d_results import ensure_result_plot
             if not ensure_result_plot(window, tab):
                 return
             ready = tab in window.cache.get_drawn_tabs()
@@ -330,7 +330,7 @@ class ResultExport:
             return
         try:
             if key in ('temp', 'pres', 'vel'):
-                from sjtu_tpmshx.applications.gui.ui.plot_2d_results import ensure_result_plot
+                from tm1.applications.gui.ui.plot_2d_results import ensure_result_plot
                 if not ensure_result_plot(window, key):
                     raise RuntimeError("当前字段绘图失败，未导出图像。")
             # Build reproducibility metadata embedded in PNG tEXt / PDF
@@ -362,7 +362,7 @@ class ResultExport:
                                 facecolor=canvas.fig.get_facecolor())
             if ext in ('png', 'pdf'):
                 save_kwargs['metadata'] = meta
-            from sjtu_tpmshx.applications.gui.ui.typography import publication_export_fonts
+            from tm1.applications.gui.ui.typography import publication_export_fonts
 
             with publication_export_fonts(canvas.fig):
                 canvas.fig.savefig(path, **save_kwargs)

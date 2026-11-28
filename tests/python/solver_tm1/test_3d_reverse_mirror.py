@@ -14,12 +14,12 @@ mirror symmetry.
 """
 import numpy as np
 
-from sjtu_tpmshx.data_types.compute_config import (
+from tm1.data_types.compute_config import (
     ComputeConfig, FluidConfig, GeometryConfig, SolverConfig,
     PartialBCConfig, ExtrapPolicy,
 )
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.api import run_case
+from tm1.preprocess.api import prepare_case
+from tm1.solvers.api import run_case
 
 
 def _cfg(dir_B, in_ctr, out_ctr):

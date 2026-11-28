@@ -4,12 +4,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from sjtu_tpmshx.data_types.case_data import CaseData
-from sjtu_tpmshx.data_types.compute_config import FluidConfig
-from sjtu_tpmshx.run_control.run_warnings import (
+from tm1.data_types.case_data import CaseData
+from tm1.data_types.compute_config import FluidConfig
+from tm1.run_control.run_warnings import (
     current_warnings, record_warning, warning_messages, warning_scope,
 )
-from sjtu_tpmshx.preprocess import _metadata, api
+from tm1.preprocess import _metadata, api
 
 
 @pytest.mark.parametrize('entry,module,is_3d', [
@@ -51,7 +51,7 @@ def test_public_preparation_keeps_metadata_and_warning_ownership(monkeypatch, en
         return original
 
     monkeypatch.setattr(_metadata, 'source_context', source_context)
-    monkeypatch.setattr(import_module('sjtu_tpmshx.' + module), entry, prepare)
+    monkeypatch.setattr(import_module('tm1.' + module), entry, prepare)
     with warning_scope(parent):
         result = getattr(api, entry)(*args, **kwargs)
         assert current_warnings() is parent
@@ -77,9 +77,9 @@ def test_public_preparation_keeps_metadata_and_warning_ownership(monkeypatch, en
 
 @pytest.mark.parametrize('mode', ['cfd_smooth', 'experimental'])
 def test_preparation_selects_calibration_limits_only_for_the_active_resource(mode):
-    from sjtu_tpmshx.physical_models.range_policy import assess_range
-    from sjtu_tpmshx.data_types.compute_config import ComputeConfig, FluidConfig, SolverConfig, ExtrapPolicy
-    from sjtu_tpmshx.preprocess.api import prepare_case
+    from tm1.physical_models.range_policy import assess_range
+    from tm1.data_types.compute_config import ComputeConfig, FluidConfig, SolverConfig, ExtrapPolicy
+    from tm1.preprocess.api import prepare_case
     config = ComputeConfig(
         fluid_A=FluidConfig(type='air', u_mps=8.1, T_in_K=350., P_in_Pa=2e5),
         fluid_B=FluidConfig(type='water', u_mps=.05, T_in_K=300., P_in_Pa=2e6),

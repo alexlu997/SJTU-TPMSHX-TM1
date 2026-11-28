@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from sjtu_tpmshx.data_types.validator import kelvin_to_display, temp_text_to_kelvin
+from tm1.data_types.validator import kelvin_to_display, temp_text_to_kelvin
 
 from .fmt import duration as fmt_duration
 from .fmt import qualification_reasons, recorded_elapsed_s, warning_strip_summary

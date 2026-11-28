@@ -15,14 +15,14 @@ def test_local_links_anchors_and_module_commands(tmp_path):
         '[heading](target.md#a-named-heading)\n'
         '[external](https://example.org/not-a-local-file)\n'
         '~~~md\n[example](not-a-real-file.md)\n~~~\n'
-        'python -m sjtu_tpmshx.cli\npython -m sjtu_tpmshx.development.runs.<tool>\n', encoding='utf-8')
+        'python -m tm1.cli\npython -m tm1.development.runs.<tool>\n', encoding='utf-8')
     assert check(tmp_path, ['README.md']) == (4, 1)
 
 
 @pytest.mark.parametrize('body', [
     '[bad](missing.md)',
     '[bad](target.md#missing-anchor)',
-    'python -m sjtu_tpmshx.missing_command',
+    'python -m tm1.missing_command',
 ])
 def test_invalid_document_reference_fails(tmp_path, body):
     (tmp_path / 'README.md').write_text(body)

@@ -3,8 +3,8 @@ from dataclasses import replace
 from copy import deepcopy
 from math import isfinite
 
-from sjtu_tpmshx.data_types.case_data import CaseData
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig
+from tm1.data_types.case_data import CaseData
+from tm1.data_types.compute_config import ComputeConfig
 from . import _metadata
 
 

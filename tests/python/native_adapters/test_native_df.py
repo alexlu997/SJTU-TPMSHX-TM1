@@ -6,10 +6,10 @@ import numpy as np
 import pytest
 
 from tests.python import df_reference as old
-from sjtu_tpmshx.physical_models.df_surrogate import experimental_correction as correction
-from sjtu_tpmshx.physical_models.df_surrogate import predict
-from sjtu_tpmshx.cpp_interface import _native_df as native
-from sjtu_tpmshx.cpp_interface.stage_libraries import preparation_library
+from tm1.physical_models.df_surrogate import experimental_correction as correction
+from tm1.physical_models.df_surrogate import predict
+from tm1.cpp_interface import _native_df as native
+from tm1.cpp_interface.stage_libraries import preparation_library
 
 
 @pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
@@ -288,7 +288,7 @@ def test_scalar_power_overflow_follows_float64_errstate():
 
 @pytest.mark.parametrize('shape', [(),(2,3)])
 def test_co2_drag_uses_one_fixed_factor(shape):
-    from sjtu_tpmshx.physical_models import co2_correlations
+    from tm1.physical_models import co2_correlations
     k, f = np.full(shape,2e-8), np.full(shape,125.)
     expected = old.apply_prepared_correction(k,f,dict(
         scale_K=1./2.5,scale_F=2.5,campaign='co2-fixed-factors-20261009-v1',

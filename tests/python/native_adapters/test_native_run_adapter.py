@@ -9,14 +9,14 @@ import pytest
 
 from tests.python.native_adapters.test_native_prepare_adapter import _same
 from tests.python.native.shared_library import library_path
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.data_types.portable_data import mutable_data
-from sjtu_tpmshx.data_types.model_refs import freeze_value
-from sjtu_tpmshx.file_io.case_io import load_case, save_case
-from sjtu_tpmshx.file_io.result_io import load_result, save_result
-from sjtu_tpmshx.cpp_interface import full_2d_stage
-from sjtu_tpmshx.solvers import full_2d
+from tm1.preprocess.api import prepare_case
+from tm1.run_control.module_ports import RunControl
+from tm1.data_types.portable_data import mutable_data
+from tm1.data_types.model_refs import freeze_value
+from tm1.file_io.case_io import load_case, save_case
+from tm1.file_io.result_io import load_result, save_result
+from tm1.cpp_interface import full_2d_stage
+from tm1.solvers import full_2d
 from tests.python import native_stage_support
 from tests.python import result_stage_fixture
 
@@ -64,7 +64,7 @@ def _hdf_scalars(value):
 
 def _checked_applicability(actual, expected, case):
     from tests.python.applicability_evidence import capture_applicability
-    from sjtu_tpmshx.solvers.execution_record import full_execution_record
+    from tm1.solvers.execution_record import full_execution_record
     wanted = capture_applicability(case, expected, {})
     wanted.pop('scope_notes')
     metadata = dict(actual.metadata)
@@ -77,7 +77,7 @@ def _checked_applicability(actual, expected, case):
 
 def _compare(case, tmp_path, monkeypatch):
     """Run the saved stage once and check its independent records and saved readback."""
-    from sjtu_tpmshx.cpp_interface import preparation_host
+    from tm1.cpp_interface import preparation_host
     events = []
     def forbidden(*args, **kwargs):
         raise AssertionError('saved stage must not prepare its inputs again')
@@ -108,8 +108,8 @@ def test_complete_saved_stage_result(spatial, pair, tmp_path, monkeypatch):
 
 
 def test_spatial_sco2_notice_normalizes_saved_scalars_to_float64(tmp_path, monkeypatch):
-    from sjtu_tpmshx.file_io.case_io import validate_case
-    from sjtu_tpmshx.solvers.api import run_case
+    from tm1.file_io.case_io import validate_case
+    from tm1.solvers.api import run_case
 
     _, case = _case(True, ('sco2', 'air'))
     parameters = dict(case.parameters)
@@ -154,7 +154,7 @@ def test_modified_saved_inputs(change, tmp_path, monkeypatch):
         row['captured'] = False
         for name in ('minimum', 'maximum', 'low', 'high', 'size', 'nonfinite'):
             row.pop(name, None)
-    from sjtu_tpmshx.cpp_interface import full_2d_stage
+    from tm1.cpp_interface import full_2d_stage
     native_ranges, native_reports = [], []
     query_view = full_2d_stage.executed_view
     def inspect_result(query, result):
@@ -168,7 +168,7 @@ def test_modified_saved_inputs(change, tmp_path, monkeypatch):
     modified = replace(case, parameters=parameters, metadata=metadata)
     actual = _compare(modified, tmp_path, monkeypatch)
     from tests.python.applicability_evidence import capture_applicability
-    from sjtu_tpmshx.solvers.execution_record import full_execution_record
+    from tm1.solvers.execution_record import full_execution_record
     public = replace(actual, metadata=dict(actual.metadata,
         execution_record=full_execution_record(modified, actual),
         applicability_evidence=capture_applicability(modified, actual, {})))
@@ -241,8 +241,8 @@ def test_saved_stage_states_and_resume(spatial, pair):
 
 
 def test_experimental_saved_scope_is_checked_for_new_run_and_restore(tmp_path, monkeypatch):
-    from sjtu_tpmshx.applications.execution.recovery import compute_run, read_run_checkpoint
-    from sjtu_tpmshx.solvers.api import run_case
+    from tm1.applications.execution.recovery import compute_run, read_run_checkpoint
+    from tm1.solvers.api import run_case
     from tests.python.native_preparation_abi import _configuration_fluids as _configuration
 
     config = _configuration('Gyroid', ('air', 'water'), mode='experimental')
@@ -279,7 +279,7 @@ def test_saved_stage_callback_exception_identity(callback):
 
 
 def test_saved_stage_cancellation_and_checkpoint_error():
-    from sjtu_tpmshx.run_control.cancellation import CancelledError
+    from tm1.run_control.cancellation import CancelledError
     _, case = _case()
     cancel = []
     control = replace(_control([]), cancel_check=lambda: bool(cancel),

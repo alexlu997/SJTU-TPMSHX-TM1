@@ -12,16 +12,16 @@ import pytest
 
 from tests.python.native_adapters.test_native_prepare_adapter import _same
 from tests.python.native.shared_library import library_path
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.data_types.portable_data import mutable_data
-from sjtu_tpmshx.run_control.run_warnings import range_observations, warning_scope
-from sjtu_tpmshx.file_io.case_io import load_case, save_case
-from sjtu_tpmshx.file_io.result_io import load_result, save_result
-from sjtu_tpmshx.solvers.api import run_case
-from sjtu_tpmshx.solvers import full_3d
-from sjtu_tpmshx.cpp_interface import full_3d_stage
+from tm1.preprocess.api import prepare_case
+from tm1.run_control.cancellation import CancelledError
+from tm1.run_control.module_ports import RunControl
+from tm1.data_types.portable_data import mutable_data
+from tm1.run_control.run_warnings import range_observations, warning_scope
+from tm1.file_io.case_io import load_case, save_case
+from tm1.file_io.result_io import load_result, save_result
+from tm1.solvers.api import run_case
+from tm1.solvers import full_3d
+from tm1.cpp_interface import full_3d_stage
 from tests.python import native_stage_support
 from tests.python.native_adapters.test_native_run_adapter import _hdf_scalars
 
@@ -131,7 +131,7 @@ def test_saved_inputs_are_used_without_repreparation(change, monkeypatch, tmp_pa
     case = replace(case, design_fields=design, parameters=parameters, metadata=metadata)
     save_case(case, tmp_path / 'case.h5')
     case = load_case(tmp_path / 'case.h5')
-    from sjtu_tpmshx.preprocess import api
+    from tm1.preprocess import api
     def forbidden(*args, **kwargs):
         pytest.fail('saved execution must not prepare raw inputs')
     before = {name: value.copy() for name, value in case.design_fields.items()}
@@ -157,7 +157,7 @@ def test_public_drag_capture_preserves_scalar_design_summary():
     design = dict(case.design_fields)
     design['K_m2'] = np.asarray(design['K_m2'].flat[0])
     case = replace(case, design_fields=design)
-    from sjtu_tpmshx.physical_models.df_surrogate.experimental_correction import cfd_metadata
+    from tm1.physical_models.df_surrogate.experimental_correction import cfd_metadata
     actual = run_case(case, _control()).metadata['df_metadata']
     base = cfd_metadata(design['K_m2'], design['cF_per_m'])
     assert actual['mode'] == 'cfd_smooth'
@@ -238,15 +238,15 @@ def test_public_resume_and_fresh_process_archive(pair, tmp_path):
     (tmp_path / 'case.h5').rename(moved / 'case.h5')
     np.savez(moved / 'state.npz', **saved[7])
     script = """import os,sys,numpy as np
-from sjtu_tpmshx.file_io.case_io import load_case
-from sjtu_tpmshx.file_io.result_io import save_result
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.solvers.api import run_case
+from tm1.file_io.case_io import load_case
+from tm1.file_io.result_io import save_result
+from tm1.run_control.module_ports import RunControl
+from tm1.solvers.api import run_case
 with np.load(sys.argv[2],allow_pickle=False) as archive:
  state={key: (str(value) if value.dtype.kind=='U' else value) for key,value in archive.items()}
 result=run_case(load_case(sys.argv[1]),RunControl(cpu_threads=2,native_library=sys.argv[4],
  native_table_directory=os.environ.get('TPMSHX_STAGE_TABLE_DIRECTORY')),resume_state=state)
-assert not any(name.startswith('sjtu_tpmshx.cpp_interface.solver_library.full_3d') for name in sys.modules)
+assert not any(name.startswith('tm1.cpp_interface.solver_library.full_3d') for name in sys.modules)
 save_result(result,sys.argv[3])
 """
     subprocess.run([sys.executable, '-c', script, str(moved / 'case.h5'), str(moved / 'state.npz'),
@@ -462,8 +462,8 @@ def test_spatial_sco2_notice_keeps_saved_field_precision(monkeypatch, tmp_path):
 def _compare_public_applicability(case, monkeypatch, tmp_path, *, control=None):
     """Check native applicability against the independent Python selection of the same run."""
     from tests.python.native_adapters import test_native_run_adapter as two
-    from sjtu_tpmshx.solvers import full_2d
-    from sjtu_tpmshx.postprocess.api import evaluate
+    from tm1.solvers import full_2d
+    from tm1.postprocess.api import evaluate
     control = _control() if control is None else control
     stage = full_2d if case.grid['dimension'] == 2 else full_3d
     original, kept = stage.run_case, []
@@ -494,7 +494,7 @@ def _compare_public_applicability(case, monkeypatch, tmp_path, *, control=None):
 @pytest.mark.parametrize('change', ['missing', 'empty', 'uncaptured', 'no-finite', 'host-fields', 'host-notices'])
 def test_public_applicability_keeps_saved_and_host_evidence(dimension, change, monkeypatch, tmp_path):
     from tests.python.native_adapters import test_native_run_adapter as two
-    from sjtu_tpmshx.run_control.run_warnings import record_warning
+    from tm1.run_control.run_warnings import record_warning
     if dimension == 2:
         _, case = two._case()
     else:
@@ -538,7 +538,7 @@ def test_applicability_transfer_error_releases_without_fallback(dimension, monke
         config = native_stage_support.volume_configuration()
         case = prepare_case(config, case_id='failed-transfer')
     sentinel = LookupError('evidence transfer failed')
-    from sjtu_tpmshx.cpp_interface import full_2d_stage
+    from tm1.cpp_interface import full_2d_stage
     owners = []
     if dimension == 3:
         release = full_3d_stage.release_result
@@ -554,7 +554,7 @@ def test_applicability_transfer_error_releases_without_fallback(dimension, monke
         monkeypatch.setattr(full_2d_stage, 'executed_view', observe_view)
     def broken(pointer, saved):
         raise sentinel
-    from sjtu_tpmshx.cpp_interface.solver_library import stage_capture
+    from tm1.cpp_interface.solver_library import stage_capture
     monkeypatch.setattr(stage_capture, 'copy_applicability', broken)
     with pytest.raises(LookupError) as caught:
         run_case(case, _control())
@@ -620,8 +620,8 @@ def test_saved_v2_rejects_inconsistent_inputs(fault, message):
 
 
 def test_saved_3d_rejects_topology_without_a_nu_multiplier(monkeypatch):
-    from sjtu_tpmshx.cpp_interface._native_values import TOPOLOGY_CODES
-    from sjtu_tpmshx.physical_models.nu_correlations import sco2_effective_nu_config
+    from tm1.cpp_interface._native_values import TOPOLOGY_CODES
+    from tm1.physical_models.nu_correlations import sco2_effective_nu_config
 
     config = native_stage_support.volume_configuration(('air', 'water'), 'uniform')
     config.sco2_nu = sco2_effective_nu_config()
@@ -703,9 +703,9 @@ def test_saved_3d_run_uses_only_solver_image(tmp_path):
     case_path = tmp_path / 'case.h5'
     save_case(case, case_path)
     script = """import os, sys
-from sjtu_tpmshx.file_io.case_io import load_case
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.solvers.api import run_case
+from tm1.file_io.case_io import load_case
+from tm1.run_control.module_ports import RunControl
+from tm1.solvers.api import run_case
 result = run_case(
     load_case(sys.argv[1]),
     RunControl(cpu_threads=1, native_library=sys.argv[2],

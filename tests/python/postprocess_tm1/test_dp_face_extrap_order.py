@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 from types import SimpleNamespace
 
-from sjtu_tpmshx.postprocess.result_math import pressure_face_values
+from tm1.postprocess.result_math import pressure_face_values
 
 LY = 0.042  # streamwise length (m), Shanghai-ish
 

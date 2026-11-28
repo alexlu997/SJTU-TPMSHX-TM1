@@ -8,8 +8,8 @@ from tests.python.cases_3d import full_face_config
 @pytest.mark.slow
 def test_port_wall_grid_solves_and_matches_uniform():
     """Check convergence, conservation and agreement for the same physical case."""
-    from sjtu_tpmshx.preprocess.api import prepare_case
-    from sjtu_tpmshx.solvers.api import run_case
+    from tm1.preprocess.api import prepare_case
+    from tm1.solvers.api import run_case
 
     result = run_case(prepare_case(full_face_config(), case_id='port-wall-refined'))
     assert result.run_status['converged'], result.run_status

@@ -64,7 +64,7 @@ def test_preparation_build_checks_role_and_uses_only_standalone_target(preparati
     host, root, cache, python, lock, cmake, library, sources, commands = preparation_build
     native.build(cache, host, python, lock, 'preparation')
     assert commands[:2] == [
-        (str(python), '-m', 'sjtu_tpmshx.development.runs.tools.check_locked_environment', str(lock)),
+        (str(python), '-m', 'tm1.development.runs.tools.check_locked_environment', str(lock)),
         (str(python), '-m', 'pip', 'check')]
     assert sources == [{'models_only': True}]
     generated = cache/'generated/tpmshx'

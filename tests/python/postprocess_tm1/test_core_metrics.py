@@ -6,8 +6,8 @@ import sys
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.field_result import FieldResult
-from sjtu_tpmshx.postprocess.api import evaluate
+from tm1.data_types.field_result import FieldResult
+from tm1.postprocess.api import evaluate
 
 
 def test_native_metrics_ignore_display_and_reported_scalars():
@@ -55,14 +55,14 @@ def test_native_metrics_ignore_display_and_reported_scalars():
     invalid = evaluate(replace(result, boundary_fluxes={**result.boundary_fluxes, 'model_h': bad})).metrics
     assert invalid['Q'].status == 'invalid'
     assert invalid['Q_B'].value == -10.  # A may not borrow the finite B duty.
-    from sjtu_tpmshx.data_types.metric_spec import MetricSpec
+    from tm1.data_types.metric_spec import MetricSpec
     old_definition = evaluate(result, MetricSpec('Q', 'W/m')).metrics['Q']
     assert old_definition.status == 'unsupported'
 
 
 @pytest.mark.parametrize('direction', [0, 1, 2, 3])
 def test_pressure_uses_physical_faces_and_open_area_on_nonuniform_grid(direction):
-    from sjtu_tpmshx.data_types.metric_spec import MetricSpec
+    from tm1.data_types.metric_spec import MetricSpec
     stream, cross = np.array([.1, .3]), np.array([.02, .06, .12])
     sc, cc = np.cumsum(stream) - stream/2, np.cumsum(cross) - cross/2
     if direction in (1, 3):
@@ -89,8 +89,8 @@ def test_pressure_uses_physical_faces_and_open_area_on_nonuniform_grid(direction
 def test_postprocessing_imports_no_backend():
     result = subprocess.run([sys.executable, '-c', '''
 import sys
-from sjtu_tpmshx.postprocess.api import evaluate
-for prefix in ('sjtu_tpmshx.solvers', 'sjtu_tpmshx.preprocess', 'sjtu_tpmshx.pipelines', 'numba', 'PySide6'):
+from tm1.postprocess.api import evaluate
+for prefix in ('tm1.solvers', 'tm1.preprocess', 'tm1.pipelines', 'numba', 'PySide6'):
     assert not any(name == prefix or name.startswith(prefix + '.') for name in sys.modules), prefix
 '''], capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stderr

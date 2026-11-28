@@ -3,12 +3,12 @@ from dataclasses import asdict, replace
 
 import pytest
 
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig, FluidConfig, GeometryConfig, SolverConfig
-from sjtu_tpmshx.data_types.portable_data import mutable_data
-from sjtu_tpmshx.preprocess.api import (
+from tm1.data_types.compute_config import ComputeConfig, FluidConfig, GeometryConfig, SolverConfig
+from tm1.data_types.portable_data import mutable_data
+from tm1.preprocess.api import (
     prepare_case, prepare_inlet_mass_capacities, prepare_fixed_mass_flow_case, resolve_inlet_flow_config,
 )
-from sjtu_tpmshx.preprocess.inlet_flow import total_inlet_mass_capacity
+from tm1.preprocess.inlet_flow import total_inlet_mass_capacity
 from tests.python.gui_io_support import win as win
 
 
@@ -21,7 +21,7 @@ def _config():
 
 @pytest.mark.parametrize('side', ['A', 'B'])
 def test_mixed_flow_input_resolves_before_speed_validation_and_replays(tmp_path, side):
-    from sjtu_tpmshx.file_io.case_io import load_case, save_case
+    from tm1.file_io.case_io import load_case, save_case
 
     cfg = _config()
     inlet = getattr(cfg, 'fluid_' + side)
@@ -52,7 +52,7 @@ def test_mixed_flow_input_resolves_before_speed_validation_and_replays(tmp_path,
 
 @pytest.mark.parametrize('bad', [0., -1., float('nan'), float('inf'), True, '0.01'])
 def test_bad_target_rejected_before_geometry_preparation(monkeypatch, bad):
-    from sjtu_tpmshx.preprocess.three_d import preparation
+    from tm1.preprocess.three_d import preparation
     monkeypatch.setattr(preparation, '_execute', lambda *a: pytest.fail('bad target reached geometry'))
     cfg = _config()
     cfg.fluid_A = replace(cfg.fluid_A, mass_flow_kg_s=bad)
@@ -61,7 +61,7 @@ def test_bad_target_rejected_before_geometry_preparation(monkeypatch, bad):
 
 
 def test_resolved_speed_still_enforces_experimental_calibration(tmp_path):
-    from sjtu_tpmshx.file_io.config_io import load_config
+    from tm1.file_io.config_io import load_config
 
     cfg = _config()
     cfg.df_mode = 'experimental'
@@ -103,9 +103,9 @@ def mass_window(win):
 
 def test_gui_mass_mode_autofill_save_and_single_condition_keep_target(mass_window, monkeypatch):
     from PySide6.QtWidgets import QMessageBox
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
-    from sjtu_tpmshx.applications.optimization.optimization_job import condition_inputs
-    from sjtu_tpmshx.applications.gui.ui.mixins import fluid_input
+    from tm1.applications.gui.ui.window_config import config_from_window
+    from tm1.applications.optimization.optimization_job import condition_inputs
+    from tm1.applications.gui.ui.mixins import fluid_input
 
     window = mass_window
     initial = config_from_window(window, strict=True)
@@ -143,7 +143,7 @@ def test_gui_mass_mode_autofill_save_and_single_condition_keep_target(mass_windo
 
 
 def test_imported_optimization_flows_override_window_mass_input(mass_window):
-    from sjtu_tpmshx.applications.optimization.optimization_job import condition_inputs
+    from tm1.applications.optimization.optimization_job import condition_inputs
     from tests.python.optimization_support import condition
     cfg = _config()
     cfg.fluid_A = replace(cfg.fluid_A, mass_flow_kg_s=.02)

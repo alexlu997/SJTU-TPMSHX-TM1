@@ -5,8 +5,8 @@ from unittest.mock import patch
 
 import pytest
 
-from sjtu_tpmshx.applications.gui.ui.quick_design_job import QuickDesignJob
-from sjtu_tpmshx.run_control.module_ports import RunControl
+from tm1.applications.gui.ui.quick_design_job import QuickDesignJob
+from tm1.run_control.module_ports import RunControl
 from tests.python.gui_workbench_support import win as win
 from tests.python.gui_worker_support import _wait_for
 from tests.python.test_quick_design_dialog import make_page as make_page
@@ -16,15 +16,15 @@ _CASE = SimpleNamespace(case=3, dPlim_h=.04, dPlim_c=.09)
 
 
 def test_page_reads_launch_control_and_keeps_results_between_visits(win, monkeypatch):
-    from sjtu_tpmshx.applications.design.sizing import Design
+    from tm1.applications.design.sizing import Design
 
     limits = []
     def size(*args, control, **kwargs):
         limits.append(control.cpu_threads)
         return Design(True, topo='Diamond', l=7., t=.5, V=.001)
 
-    monkeypatch.setattr('sjtu_tpmshx.applications.design.cases.load_cases', lambda path: [_CASE])
-    monkeypatch.setattr('sjtu_tpmshx.applications.design.sizing.size_fixed_cell', size)
+    monkeypatch.setattr('tm1.applications.design.cases.load_cases', lambda path: [_CASE])
+    monkeypatch.setattr('tm1.applications.design.sizing.size_fixed_cell', size)
     page = win.quick_design
     assert not page._qd_export_btn.isEnabled()
     page.le_qd_file.setText('study.csv')
@@ -91,8 +91,8 @@ def test_worker_auto_calls_backend_and_emits(make_page, monkeypatch, frozen):
         d=_D(); return [d], d
     received=[]
     worker.finished_with_result.connect(lambda r: received.append(r))
-    with patch("sjtu_tpmshx.applications.design.cases.load_cases", _fake_load), \
-         patch("sjtu_tpmshx.applications.design.select.enumerate_select", _fake_enum):
+    with patch("tm1.applications.design.cases.load_cases", _fake_load), \
+         patch("tm1.applications.design.select.enumerate_select", _fake_enum):
         worker.run()
     assert captured["path"]=="spec.xlsx"
     assert captured["arr"]=="cross" and captured["rho"]==7900.0
@@ -107,9 +107,9 @@ def test_worker_auto_calls_backend_and_emits(make_page, monkeypatch, frozen):
 
 @pytest.mark.parametrize('stage', ['enumeration', 'refinement'])
 def test_cancel_retains_completed_candidates_from_current_stage(make_page, monkeypatch, stage):
-    from sjtu_tpmshx.applications.design.sizing import Design
-    from sjtu_tpmshx.applications.design.select import SelectionCancelled
-    from sjtu_tpmshx.run_control.cancellation import CancelledError
+    from tm1.applications.design.sizing import Design
+    from tm1.applications.design.select import SelectionCancelled
+    from tm1.run_control.cancellation import CancelledError
     d = Design(True, topo='Diamond', l=5., t=.4, V=.01)
     def enumeration(*args, **kwargs):
         if stage == 'enumeration':
@@ -117,9 +117,9 @@ def test_cancel_retains_completed_candidates_from_current_stage(make_page, monke
         return [d], d
     def refinement(*args, **kwargs):
         raise CancelledError('cancelled during refinement')
-    monkeypatch.setattr('sjtu_tpmshx.applications.design.cases.load_cases', lambda p: [_CASE])
-    monkeypatch.setattr('sjtu_tpmshx.applications.design.select.enumerate_select', enumeration)
-    monkeypatch.setattr('sjtu_tpmshx.applications.design.optimize.warm_start_joint', refinement)
+    monkeypatch.setattr('tm1.applications.design.cases.load_cases', lambda p: [_CASE])
+    monkeypatch.setattr('tm1.applications.design.select.enumerate_select', enumeration)
+    monkeypatch.setattr('tm1.applications.design.optimize.warm_start_joint', refinement)
     params = make_page()._gather_inputs()
     params['refine'] = True
     worker = QuickDesignJob(params, control=RunControl())
@@ -134,8 +134,8 @@ def test_cancel_retains_completed_candidates_from_current_stage(make_page, monke
 
 def test_new_run_clears_stale_results_then_publishes_partial_current_result(make_page, monkeypatch):
     import threading
-    from sjtu_tpmshx.applications.design.sizing import Design
-    from sjtu_tpmshx.applications.design.select import SelectionCancelled
+    from tm1.applications.design.sizing import Design
+    from tm1.applications.design.select import SelectionCancelled
     monkeypatch.setattr('sys.frozen', True, raising=False)
     release = threading.Event()
     d = Design(True, topo='Gyroid', l=5., t=.4, V=.01,
@@ -147,8 +147,8 @@ def test_new_run_clears_stale_results_then_publishes_partial_current_result(make
         assert kwargs['n_jobs'] == 1
         assert release.wait(10)
         raise SelectionCancelled([d])
-    monkeypatch.setattr('sjtu_tpmshx.applications.design.cases.load_cases', lambda p: [_CASE])
-    monkeypatch.setattr('sjtu_tpmshx.applications.design.select.enumerate_select', enumeration)
+    monkeypatch.setattr('tm1.applications.design.cases.load_cases', lambda p: [_CASE])
+    monkeypatch.setattr('tm1.applications.design.select.enumerate_select', enumeration)
     w = make_page()
     w.last_result = {'old': True}
     w._qd_table.setRowCount(1)
@@ -191,7 +191,7 @@ def test_worker_emits_error_on_exception(make_page):
     w=make_page("auto"); worker=QuickDesignJob(w._gather_inputs(), control=RunControl())
     errs=[]; worker.error_signal.connect(lambda m: errs.append(m))
     def _boom(path): raise RuntimeError("bad file")
-    with patch("sjtu_tpmshx.applications.design.cases.load_cases", _boom):
+    with patch("tm1.applications.design.cases.load_cases", _boom):
         worker.run()
     assert len(errs)==1 and "RuntimeError" in errs[0]
 
@@ -223,11 +223,11 @@ def test_run_quick_design_malformed_fixed_cell_gives_feedback(make_page):
 
 def test_thread_result_warnings_reach_table(make_page, monkeypatch):
     from PySide6.QtWidgets import QApplication
-    from sjtu_tpmshx.applications.design.sizing import Design
+    from tm1.applications.design.sizing import Design
     d = Design(True, topo='Diamond', l=5., t=.5, s=.1, Lx=.1,
                percase=[dict(case=2, warnings=['final-source'])])
-    monkeypatch.setattr('sjtu_tpmshx.applications.design.cases.load_cases', lambda path: [_CASE])
-    monkeypatch.setattr('sjtu_tpmshx.applications.design.sizing.size_fixed_cell', lambda *a, **kw: d)
+    monkeypatch.setattr('tm1.applications.design.cases.load_cases', lambda path: [_CASE])
+    monkeypatch.setattr('tm1.applications.design.sizing.size_fixed_cell', lambda *a, **kw: d)
     worker = QuickDesignJob(make_page('fixed')._gather_inputs(), control=RunControl())
     received = []
     worker.finished_with_result.connect(received.append)
@@ -241,12 +241,12 @@ def test_thread_result_warnings_reach_table(make_page, monkeypatch):
     cell = w._qd_table.item(0, 11)
     assert cell.text() == '有警告'
     assert cell.toolTip() == '[算例 2] final-source'
-    from sjtu_tpmshx.applications.gui.ui.theme import get_theme
+    from tm1.applications.gui.ui.theme import get_theme
     assert cell.foreground().color().name() == get_theme()['warn'].lower()
 
 
 def test_completed_energy_diagnostics_include_all_cases_without_changing_feasibility(make_page, monkeypatch):
-    from sjtu_tpmshx.applications.design.sizing import Design
+    from tm1.applications.design.sizing import Design
 
     feasible = Design(True, topo='Diamond', l=5., t=.5, V=.002, percase=[
         dict(case='hot', Q_W=100., Q_cold_W=75., energy_imbalance_rel=.25,
@@ -263,8 +263,8 @@ def test_completed_energy_diagnostics_include_all_cases_without_changing_feasibi
                                       acceptance_reasons=['not-converged@final'])])
     early = Design(False, topo='Diamond', l=4., t=.3, reason='no final case')
     results = [feasible, infeasible, early]
-    monkeypatch.setattr('sjtu_tpmshx.applications.design.cases.load_cases', lambda path: [_CASE])
-    monkeypatch.setattr('sjtu_tpmshx.applications.design.select.enumerate_select',
+    monkeypatch.setattr('tm1.applications.design.cases.load_cases', lambda path: [_CASE])
+    monkeypatch.setattr('tm1.applications.design.select.enumerate_select',
                         lambda *a, **kw: (results, feasible))
     window = make_page()
     window.submit()
@@ -311,12 +311,12 @@ def test_only_active_design_parameters_are_parsed(make_page, mode, hidden, activ
 def test_failure_keeps_completed_candidates_error_and_export(make_page, monkeypatch, tmp_path, stage):
     from dataclasses import replace
     from openpyxl import load_workbook
-    from sjtu_tpmshx.applications.gui.ui import quick_design_panel as panel
+    from tm1.applications.gui.ui import quick_design_panel as panel
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QFileDialog, QPushButton
-    from sjtu_tpmshx.applications.design import optimize, select
-    from sjtu_tpmshx.applications.design.sizing import Design
+    from tm1.applications.design import optimize, select
+    from tm1.applications.design.sizing import Design
     inputs = tmp_path / 'cases.csv'
     inputs.write_text(
         'case,hot_fluid,T_in_h_K,P_in_h_kPa,mdot_h,cold_fluid,T_in_c_K,P_in_c_kPa,mdot_c,Q_kW,dPlim_h,dPlim_c\n'
@@ -427,7 +427,7 @@ def test_failure_keeps_completed_candidates_error_and_export(make_page, monkeypa
 
 
 def test_cli_and_gui_share_unified_defaults_and_density(make_page, monkeypatch, tmp_path):
-    from sjtu_tpmshx.applications.design import cli, sizing
+    from tm1.applications.design import cli, sizing
 
     monkeypatch.setattr(sizing, 'RHO_S', 2700.)
     monkeypatch.setattr(sizing, 'K_STEEL', 150.)
@@ -440,7 +440,7 @@ def test_cli_and_gui_share_unified_defaults_and_density(make_page, monkeypatch, 
                          height=kwargs['height']))
         return design
 
-    monkeypatch.setattr('sjtu_tpmshx.applications.design.cases.load_cases', lambda p: [_CASE])
+    monkeypatch.setattr('tm1.applications.design.cases.load_cases', lambda p: [_CASE])
     monkeypatch.setattr(cli, 'load_cases', lambda p: [_CASE])
     monkeypatch.setattr(sizing, 'size_fixed_cell', fixed)
 
@@ -486,8 +486,8 @@ def test_cli_and_gui_share_unified_defaults_and_density(make_page, monkeypatch, 
 ])
 def test_cli_and_gui_match_on_shared_inputs(make_page, monkeypatch, tmp_path, capsys, scenario):
     from openpyxl import load_workbook
-    from sjtu_tpmshx.applications.design import cli, optimize, report, select, sizing
-    from sjtu_tpmshx.run_control.cancellation import CancelledError
+    from tm1.applications.design import cli, optimize, report, select, sizing
+    from tm1.run_control.cancellation import CancelledError
 
     source = tmp_path / 'spec.csv'
     source.write_text(
@@ -608,7 +608,7 @@ def test_cli_and_gui_match_on_shared_inputs(make_page, monkeypatch, tmp_path, ca
         page.chk_qd_refine.setChecked(use_refine)
     gui_params = page._gather_inputs()
     clock = iter((12., 18.75))
-    monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.quick_design_job.perf_counter', lambda: next(clock))
+    monkeypatch.setattr('tm1.applications.gui.ui.quick_design_job.perf_counter', lambda: next(clock))
     worker = QuickDesignJob(gui_params, control=gui_control)
     worker.n_jobs = 1
     gui_results, gui_errors, gui_cancelled = [], [], []

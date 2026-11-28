@@ -5,15 +5,15 @@ import numpy as np
 import pytest
 from scipy.ndimage import gaussian_filter
 
-from sjtu_tpmshx.data_types.compute_config import (
+from tm1.data_types.compute_config import (
     ComputeConfig, GeometryConfig, SolverConfig, PartialBCConfig,
     ZoneInputConfig, FeatureFlags, ExtrapPolicy,
 )
-from sjtu_tpmshx.physical_models.zone_config import Zone, ZoneConfig
-from sjtu_tpmshx.physical_models.tpms_props import geometry
-from sjtu_tpmshx.physical_models.df_surrogate.predict import predict_K_cF, SCO2_DF_METHOD
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.file_io.case_io import save_case, load_case
+from tm1.physical_models.zone_config import Zone, ZoneConfig
+from tm1.physical_models.tpms_props import geometry
+from tm1.physical_models.df_surrogate.predict import predict_K_cF, SCO2_DF_METHOD
+from tm1.preprocess.api import prepare_case
+from tm1.file_io.case_io import save_case, load_case
 
 
 def _centres(widths):

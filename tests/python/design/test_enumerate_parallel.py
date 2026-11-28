@@ -5,8 +5,8 @@
 """
 import pytest
 
-from sjtu_tpmshx.applications.design.cases import DesignCase
-from sjtu_tpmshx.applications.design.select import enumerate_select
+from tm1.applications.design.cases import DesignCase
+from tm1.applications.design.select import enumerate_select
 
 
 def _cases():

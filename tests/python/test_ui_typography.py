@@ -5,7 +5,7 @@ import sys
 
 import pytest
 
-from sjtu_tpmshx.applications.gui.ui.typography import (
+from tm1.applications.gui.ui.typography import (
     FONT_FAMILIES, FONT_STACK, REQUESTED_FAMILIES, apply_app_font, matplotlib_font_families,
 )
 
@@ -54,7 +54,7 @@ def test_qt_interface_uses_native_sans_glyphs():
         result = subprocess.run(
             [sys.executable, '-c',
              'from PySide6.QtWidgets import QApplication; '
-             'from sjtu_tpmshx.applications.gui.controllers import main_thread_gc; '
+             'from tm1.applications.gui.controllers import main_thread_gc; '
              'app = QApplication(["font-probe", "-platform", "windows"]); '
              'main_thread_gc.install(app); '
              'from tests.python.test_ui_typography import _check_native_sans_glyphs; '
@@ -69,7 +69,7 @@ def test_qt_interface_uses_native_sans_glyphs():
 
 def test_native_interface_does_not_require_office_fonts(monkeypatch):
     from PySide6.QtWidgets import QApplication
-    from sjtu_tpmshx.applications.gui.ui import typography
+    from tm1.applications.gui.ui import typography
 
     app = QApplication.instance()
     previous_font = app.font()
@@ -89,7 +89,7 @@ def test_vtk_renders_latin_labels_from_times_new_roman():
     from vtkmodules.vtkRenderingCore import vtkTextProperty, vtkTextRenderer
     from vtkmodules.vtkCommonDataModel import vtkImageData
     import vtkmodules.vtkRenderingFreeType  # noqa: F401 (register text renderer)
-    from sjtu_tpmshx.applications.gui.ui.typography import apply_vtk_font
+    from tm1.applications.gui.ui.typography import apply_vtk_font
 
     if "Times New Roman" not in matplotlib_font_families():
         pytest.skip("Host lacks Times New Roman")
@@ -115,8 +115,8 @@ def test_chart_glyphs_mathtext_and_theme(theme_name):
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     from matplotlib.figure import Figure
     from matplotlib.mathtext import MathTextParser
-    from sjtu_tpmshx.applications.gui.ui.theme import apply_mpl_theme, get_theme, get_theme_name, set_theme
-    from sjtu_tpmshx.applications.gui.ui.typography import (
+    from tm1.applications.gui.ui.theme import apply_mpl_theme, get_theme, get_theme_name, set_theme
+    from tm1.applications.gui.ui.typography import (
         publication_export_fonts, screen_matplotlib_font_families,
     )
 

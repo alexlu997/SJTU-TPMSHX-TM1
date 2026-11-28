@@ -12,16 +12,16 @@ from time import monotonic, sleep
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.file_io.result_io import load_result
-from sjtu_tpmshx.applications.optimization import multi_condition as batch
+from tm1.run_control.cancellation import CancelledError
+from tm1.run_control.module_ports import RunControl
+from tm1.file_io.result_io import load_result
+from tm1.applications.optimization import multi_condition as batch
 from tests.python.optimization_tm1.test_multi_condition_batch import _baseline, _conditions, _native
 
 
 def _analytic_worker(index, case_file, directory, library, threads, checkpoint_file=None,
                      *, crash_delay_s=None):
-    from sjtu_tpmshx.applications.execution import recovery
+    from tm1.applications.execution import recovery
 
     def solve(case, control, *, checkpoint, checkpoint_due, resume_state):
         label = case.case_id.rsplit(':', 1)[-1]
@@ -162,7 +162,7 @@ def test_process_cancel_keeps_checkpoint_and_unrun_members(tmp_path, monkeypatch
 @pytest.mark.parametrize('cancel_after_pause', [False, True])
 def test_process_pause_drains_workers_and_cancel_takes_precedence(tmp_path, monkeypatch, cancel_after_pause):
     from multiprocessing import active_children
-    from sjtu_tpmshx.run_control.paused_run import PausedRun
+    from tm1.run_control.paused_run import PausedRun
     previous_children = set(active_children())
     monkeypatch.setattr(batch, '_run_native_condition', _analytic_worker)
     conditions = _conditions()
@@ -195,7 +195,7 @@ def test_process_pause_drains_workers_and_cancel_takes_precedence(tmp_path, monk
 @pytest.mark.parametrize('whole_search', [False, True])
 def test_cancel_after_final_paused_worker_is_published(tmp_path, monkeypatch, whole_search):
     from multiprocessing import active_children
-    from sjtu_tpmshx.applications.optimization import multi_condition_optimizer as search
+    from tm1.applications.optimization import multi_condition_optimizer as search
     previous_children = set(active_children())
     monkeypatch.setattr(batch, '_run_native_condition', _analytic_worker)
     conditions = _conditions()
@@ -499,7 +499,7 @@ def test_windows_probe_cleanup_signals_each_pid_after_taskkill_failure(tmp_path,
 
 @pytest.mark.parametrize('crash_index,crash_delay_s', [(0, 0.), (1, 10.5)], ids=['0.0', '10.5'])
 def test_worker_exit_keeps_last_complete_checkpoint(tmp_path, monkeypatch, crash_index, crash_delay_s):
-    from sjtu_tpmshx.applications.execution.recovery import read_run_checkpoint
+    from tm1.applications.execution.recovery import read_run_checkpoint
 
     root = tmp_path / 'worker-exit'
     repo_root = Path(__file__).resolve().parents[3]
@@ -572,8 +572,8 @@ def test_parent_callback_error_is_retained_after_workers_stop(tmp_path, monkeypa
     ('baseline', 'baseline must retain the original uniform design'),
 ])
 def test_batch_resume_rejects_changed_saved_inputs(tmp_path, monkeypatch, damage, reason):
-    from sjtu_tpmshx.file_io.result_io import save_result
-    from sjtu_tpmshx.applications.execution import recovery
+    from tm1.file_io.result_io import save_result
+    from tm1.applications.execution import recovery
 
     monkeypatch.setattr(recovery, 'run_case', lambda case, control, **kw: _native(case))
     conditions = _conditions(1)
@@ -621,7 +621,7 @@ def test_process_batch_resolves_relative_output_paths(tmp_path, monkeypatch):
 
 
 def test_pre_cancelled_batch_keeps_inputs_without_loading_missing_library(tmp_path, monkeypatch):
-    from sjtu_tpmshx.applications.execution import recovery
+    from tm1.applications.execution import recovery
 
     conditions = _conditions(1)
     source = tmp_path / 'pre-cancelled'

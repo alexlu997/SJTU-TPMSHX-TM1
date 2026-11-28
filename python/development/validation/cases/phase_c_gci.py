@@ -38,12 +38,12 @@ except Exception:
 warnings.filterwarnings('ignore')
 
 from dataclasses import replace
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.api import run_case
-from sjtu_tpmshx.development.validation.harness._provenance import (
+from tm1.preprocess.api import prepare_case
+from tm1.solvers.api import run_case
+from tm1.development.validation.harness._provenance import (
     write_csv_with_provenance, output_directory, output_path,
 )
-from sjtu_tpmshx.development.validation.cases.audit_3d_conservation import (
+from tm1.development.validation.cases.audit_3d_conservation import (
     make_T2, make_T4,
 )
 

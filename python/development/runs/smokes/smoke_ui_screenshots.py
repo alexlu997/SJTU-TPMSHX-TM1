@@ -1,7 +1,7 @@
 """Capture current geometry and optimization pages offscreen without solving.
 
 Run from the repository root as
-``python -m sjtu_tpmshx.development.runs.smokes.smoke_ui_screenshots --output DIRECTORY``.
+``python -m tm1.development.runs.smokes.smoke_ui_screenshots --output DIRECTORY``.
 Temporary user state and reduced motion keep captures independent of a saved
 session. Failed navigation, Qt callbacks or image writes return exit code 1.
 """
@@ -11,7 +11,7 @@ import argparse
 from pathlib import Path
 import traceback
 
-from sjtu_tpmshx.development.runs.smokes.smoke_ui_offscreen import _smoke_window
+from tm1.development.runs.smokes.smoke_ui_offscreen import _smoke_window
 
 
 def _save_window(win, path):

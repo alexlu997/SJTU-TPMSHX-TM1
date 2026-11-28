@@ -13,10 +13,10 @@ import sys
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.compute_config import FluidConfig
-from sjtu_tpmshx.run_control.run_environment import run_environment
-from sjtu_tpmshx.physical_models.field_coordinates_3d import _port_rectangles
-from sjtu_tpmshx.preprocess.api import prepare_case
+from tm1.data_types.compute_config import FluidConfig
+from tm1.run_control.run_environment import run_environment
+from tm1.physical_models.field_coordinates_3d import _port_rectangles
+from tm1.preprocess.api import prepare_case
 from types import SimpleNamespace
 from tests.python.native.test_native_execution import _config
 from tests.python.native.simple_audit import mass_balance
@@ -184,7 +184,7 @@ def prepared_case(pair="air-air", *, directions=None, counts=None, mesh=None):
     if counts is not None and counts[2] == 1:
         # Explicitly exercise the 3D runtime's retained Nz=1 delegate. Public
         # automatic preparation ordinarily routes this configuration to 2D.
-        from sjtu_tpmshx.data_types.portable_data import mutable_data
+        from tm1.data_types.portable_data import mutable_data
         cfg_two = replace(cfg, solver=replace(cfg.solver, Nz=2))
         case = prepare_case(cfg_two, case_id="native-full3d-"+pair)
         lz = float(cfg.geometry.Lz_m)
@@ -214,8 +214,8 @@ def prepared_case(pair="air-air", *, directions=None, counts=None, mesh=None):
                 params["prepared"]["openings"][side][end] = params["prepared"]["openings"][side][end][:c1, :c2].copy()
         case = replace(case, grid=grid, design_fields=design, parameters=params)
     elif mesh == "graded":
-        from sjtu_tpmshx.cpp_interface import _native_grid
-        from sjtu_tpmshx.data_types.portable_data import mutable_data
+        from tm1.cpp_interface import _native_grid
+        from tm1.data_types.portable_data import mutable_data
         case = prepare_case(cfg, case_id="native-full3d-"+pair)
         lx, ly, lz = cfg.geometry.L_dom_m, cfg.geometry.H_dom_m, cfg.geometry.Lz_m
         nx, ny, nz = cfg.solver.Nx, cfg.solver.Ny, cfg.solver.Nz
@@ -354,7 +354,7 @@ def audit_full(actual, cfg, p):
 
 
 def outflow_case(shape, direction):
-    from sjtu_tpmshx.cpp_interface import _native_grid
+    from tm1.cpp_interface import _native_grid
     widths = [np.linspace(.7, 1.6, n) for n in shape]
     cross1, stream, cross2, *_ = _native_grid.axis_map(direction)
     axes = [cross1, stream, cross2]

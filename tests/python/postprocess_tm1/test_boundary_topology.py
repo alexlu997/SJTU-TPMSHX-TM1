@@ -4,9 +4,9 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.portable_data import mutable_data
-from sjtu_tpmshx.file_io.result_io import load_result, save_result
-from sjtu_tpmshx.postprocess.api import evaluate
+from tm1.data_types.portable_data import mutable_data
+from tm1.file_io.result_io import load_result, save_result
+from tm1.postprocess.api import evaluate
 from tests.python.io_tm1.test_result_declarations import archived_native_result
 
 
@@ -66,8 +66,8 @@ def test_pressure_evidence_cannot_broadcast_into_available_drop(tmp_path, defect
 
 
 def test_postprocess_cli_reports_invalid_pressure_without_losing_other_metrics(tmp_path):
-    from sjtu_tpmshx.file_io.metrics_io import load_metrics
-    from sjtu_tpmshx.applications.cli.stages import main
+    from tm1.file_io.metrics_io import load_metrics
+    from tm1.applications.cli.stages import main
 
     result = _result(3)
     pressure = mutable_data(result.pressure_evidence)

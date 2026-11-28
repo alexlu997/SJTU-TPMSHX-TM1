@@ -6,7 +6,7 @@ import numpy as np
 from matplotlib.figure import Figure
 from matplotlib.ticker import LinearLocator, ScalarFormatter
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from sjtu_tpmshx.postprocess.result_display import RESULT_FIELD_SPECS
+from tm1.postprocess.result_display import RESULT_FIELD_SPECS
 from .theme import get_theme, resolve_cmap
 from .vis3d_constants import field_color_limits
 

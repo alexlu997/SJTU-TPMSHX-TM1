@@ -101,8 +101,8 @@ class _MockWindow:
 
 
 def _bind_handler(win, le, attr):
-    from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
-    from sjtu_tpmshx.applications.gui.ui.window_config import LINE_EDITS
+    from tm1.applications.gui.ui.main_window import Main_Menu
+    from tm1.applications.gui.ui.window_config import LINE_EDITS
     return Main_Menu._make_field_handler(win, le, LINE_EDITS[attr])
 
 

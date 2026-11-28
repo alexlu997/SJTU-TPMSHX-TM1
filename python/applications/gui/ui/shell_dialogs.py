@@ -18,9 +18,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from sjtu_tpmshx._version import __version__
-from sjtu_tpmshx.applications.gui.ui.theme import _btn_styles, get_theme
-from sjtu_tpmshx.run_control.provenance import SOURCE_ROOT, repository_revision
+from tm1._version import __version__
+from tm1.applications.gui.ui.theme import _btn_styles, get_theme
+from tm1.run_control.provenance import SOURCE_ROOT, repository_revision
 
 
 class ShellDialogs:
@@ -78,7 +78,7 @@ class ShellDialogs:
             self._active_toast = None
         if self.window is None:
             return
-        from sjtu_tpmshx.applications.gui.ui.microanim import toast
+        from tm1.applications.gui.ui.microanim import toast
 
         ms = (
             duration_ms
@@ -95,7 +95,7 @@ class ShellDialogs:
 
     def show_overview(self) -> None:
         """Open the session-overview dashboard dialog."""
-        from sjtu_tpmshx.applications.gui.ui.session_overview import open_overview
+        from tm1.applications.gui.ui.session_overview import open_overview
 
         open_overview(self.window)
 
@@ -343,7 +343,7 @@ class ShellDialogs:
         """Open the Ctrl+K command palette."""
         pal = getattr(self.window, "_command_palette", None)
         if pal is None:
-            from sjtu_tpmshx.applications.gui.ui.command_palette import CommandPalette
+            from tm1.applications.gui.ui.command_palette import CommandPalette
 
             pal = CommandPalette(self.window)
             self.window._command_palette = pal

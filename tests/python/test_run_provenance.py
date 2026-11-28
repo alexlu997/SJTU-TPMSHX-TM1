@@ -7,9 +7,9 @@ import numpy as np
 import pytest
 from PySide6.QtWidgets import QApplication, QMessageBox, QTableWidgetItem
 
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.data_types.compute_result import ComputeResult
-from sjtu_tpmshx.applications.gui.ui.field_results import FieldResults
+from tm1.run_control.cancellation import CancelledError
+from tm1.data_types.compute_result import ComputeResult
+from tm1.applications.gui.ui.field_results import FieldResults
 from tests.python.gui_worker_support import _stub_compute_result
 from tests.python.gui_worker_support import win as win, _wait_for
 
@@ -26,9 +26,9 @@ def run_window(win, monkeypatch, tmp_path):
 
     monkeypatch.setattr(win.results, 'finalize_plots',
                         lambda: FieldResults.finalize_plots(win.results))
-    monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.plot_2d_results.finalize_plots', render)
-    monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.plot_3d_results.finalize_plots_3d', render)
-    monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.plot_2d_results.ensure_result_plot',
+    monkeypatch.setattr('tm1.applications.gui.ui.plot_2d_results.finalize_plots', render)
+    monkeypatch.setattr('tm1.applications.gui.ui.plot_3d_results.finalize_plots_3d', render)
+    monkeypatch.setattr('tm1.applications.gui.ui.plot_2d_results.ensure_result_plot',
                         lambda window, field: True)
     return win
 
@@ -420,7 +420,7 @@ def test_nu_run_snapshot_history_and_export(run_window, monkeypatch, tmp_path, d
     from dataclasses import asdict, replace
     from PySide6.QtWidgets import QFileDialog
     from tests.python.test_sco2_nu_modes import SYNTHETIC
-    from sjtu_tpmshx.physical_models.nu_correlations import sco2_nu_metadata
+    from tm1.physical_models.nu_correlations import sco2_nu_metadata
     win = run_window
     win.case_files.set_sco2_nu_parameters(asdict(SYNTHETIC))
     win.combo_sco2_nu_mode.setCurrentIndex(1)

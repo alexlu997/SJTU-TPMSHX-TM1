@@ -5,8 +5,8 @@ The query uses the CFD geometry grid and the selected fluid's Reynolds-number wi
 from __future__ import annotations
 from typing import List
 
-from sjtu_tpmshx.physical_models.tpms_props import geometry as _geom
-from sjtu_tpmshx.model_configs.df_domain import (
+from tm1.physical_models.tpms_props import geometry as _geom
+from tm1.model_configs.df_domain import (
     TRAIN_L_NODES as _SURROGATE_L_MM,
     TRAIN_T_NODES as _SURROGATE_T_MM,
 )
@@ -59,15 +59,15 @@ def check_surrogate_domain_at_point(tpms_type: str,
     if _os.environ.get('TPMSHX_ALLOW_EXTRAP', '').lower() in ('1', 'true', 'yes'):
         allow_extrap = True
 
-    from sjtu_tpmshx.physical_models.fluid_props import get as _get_fluid
-    from sjtu_tpmshx.cpp_interface._native_properties import reynolds, prandtl
-    from sjtu_tpmshx.physical_models.nu_correlations import (
+    from tm1.physical_models.fluid_props import get as _get_fluid
+    from tm1.cpp_interface._native_properties import reynolds, prandtl
+    from tm1.physical_models.nu_correlations import (
         NU_RE_FIT_RANGE, SCO2_NU_RE_RANGE, WATER_NU_RE_RANGE,
     )
     model = _get_fluid(fluid)
     rho = float(model.rho(T, P))
     mu = float(model.mu(T, P))
-    from sjtu_tpmshx.physical_models import co2_correlations
+    from tm1.physical_models import co2_correlations
     geometry = co2_correlations.geometry if co2_geometry or model.name == 'co2' else _geom
     D_h = geometry(tpms_type, L_mm, t_mm, k_s)['D_h']
     Re = reynolds(rho, u, D_h, mu)
@@ -75,8 +75,8 @@ def check_surrogate_domain_at_point(tpms_type: str,
     nu_at_point: list[str] = []
     re_range = {'air': NU_RE_FIT_RANGE, 'water': WATER_NU_RE_RANGE,
                 'sco2': SCO2_NU_RE_RANGE, 'co2': co2_correlations.RE_RANGE}[model.name]
-    from sjtu_tpmshx.cpp_interface._native_result_checks import record_range
-    from sjtu_tpmshx.run_control.run_warnings import range_context
+    from tm1.cpp_interface._native_result_checks import record_range
+    from tm1.run_control.run_warnings import range_context
     with range_context(side=side, stage='inlet-preflight', layout='scalar'):
         record_range(('nu', model.name, tpms_type), Re, re_range,
                      label=f'{model.name} inlet Nu', quantity='Re', unit='-')

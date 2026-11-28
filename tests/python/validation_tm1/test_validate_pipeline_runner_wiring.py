@@ -20,7 +20,7 @@ physics numbers, so they are cheap and grid-independent.
 """
 
 
-from sjtu_tpmshx.data_types.compute_config import SolverConfig  # noqa: E402
+from tm1.data_types.compute_config import SolverConfig  # noqa: E402
 import pytest
 
 
@@ -43,7 +43,7 @@ def test_pipeline_branch_wires_max_outer_into_solver_config(df_mode, monkeypatch
     Rather than run a real 16-case solve, capture the ComputeConfig the runner
     builds by intercepting compute_result.
     """
-    import sjtu_tpmshx.development.validation.cases.validate_shanghai_3d_real as v3d
+    import tm1.development.validation.cases.validate_shanghai_3d_real as v3d
 
     captured = {}
 
@@ -97,7 +97,7 @@ def test_pipeline_branch_wires_max_outer_into_solver_config(df_mode, monkeypatch
 @pytest.mark.parametrize('water_pressure_available', [True, False])
 def test_pipeline_branch_reports_real_pressure_diagnostics(water_pressure_available, monkeypatch):
     """Keep both sides' evidence, unavailable metrics and native diagnostics."""
-    import sjtu_tpmshx.development.validation.cases.validate_shanghai_3d_real as v3d
+    import tm1.development.validation.cases.validate_shanghai_3d_real as v3d
 
     def fake_compute(cc):
         class _R:
@@ -167,8 +167,8 @@ def test_pipeline_branch_reports_real_pressure_diagnostics(water_pressure_availa
 def test_port_wall_refinement_reaches_actual_prepared_case():
     import numpy as np
     import pandas as pd
-    from sjtu_tpmshx.preprocess.api import prepare_case
-    from sjtu_tpmshx.development.validation.cases.validate_shanghai_3d_real import _pipeline_config
+    from tm1.preprocess.api import prepare_case
+    from tm1.development.validation.cases.validate_shanghai_3d_real import _pipeline_config
     row = {i: 0.0 for i in range(34)}
     row.update({5: .05, 7: .10, 24: 20., 28: 200., 30: 3000., 31: 1000., 33: 5000.})
     df = pd.DataFrame([row])
@@ -185,7 +185,7 @@ def test_port_wall_refinement_reaches_actual_prepared_case():
 
 def test_pipeline_rejects_explicit_unsupported_options_before_data_access(monkeypatch, capsys):
     import pytest
-    from sjtu_tpmshx.development.validation.cases import validate_shanghai_3d_real as runner
+    from tm1.development.validation.cases import validate_shanghai_3d_real as runner
     monkeypatch.setattr(runner, 'load_cases_df', lambda *a: pytest.fail('data read before option validation'))
     for option in (['--wall-refine'], ['--runner', 'kernel'], ['--profile', 'uniform'], ['--profile', 'edge'], ['--eta', '0'], ['--disp-c', '0.1']):
         with pytest.raises(SystemExit) as exc:
@@ -199,12 +199,12 @@ def test_shanghai_actual_native_flow_matches_measured_total(monkeypatch, tmp_pat
     """Catch the old 4.33x water-flow error through real port fluxes."""
     import pandas as pd
     import numpy as np
-    from sjtu_tpmshx.file_io.case_io import save_case, load_case
-    from sjtu_tpmshx.preprocess.api import prepare_case
-    from sjtu_tpmshx.solvers.api import run_case
-    from sjtu_tpmshx.postprocess.api import evaluate
-    from sjtu_tpmshx.development.validation.cases import validate_shanghai_aligned as v2
-    from sjtu_tpmshx.development.validation.cases import validate_shanghai_3d_real as v3
+    from tm1.file_io.case_io import save_case, load_case
+    from tm1.preprocess.api import prepare_case
+    from tm1.solvers.api import run_case
+    from tm1.postprocess.api import evaluate
+    from tm1.development.validation.cases import validate_shanghai_aligned as v2
+    from tm1.development.validation.cases import validate_shanghai_3d_real as v3
     row = {i: 0. for i in range(34)}
     row.update({5: .0023, 7: .0108, 24: 20., 28: 120., 30: 1500.})
     df = pd.DataFrame([row])

@@ -8,9 +8,9 @@ from matplotlib.backend_bases import MouseEvent
 from PySide6.QtWidgets import QApplication
 
 from tests.python.gui_workbench_support import win as win, _result
-from sjtu_tpmshx.applications.gui.ui.plot_2d_results import ensure_result_plot, redraw_result_fields
-from sjtu_tpmshx.applications.gui.ui.theme import resolve_cmap, set_cmap
-from sjtu_tpmshx.applications.gui.ui.vis3d_constants import field_color_limits, field_tick_format
+from tm1.applications.gui.ui.plot_2d_results import ensure_result_plot, redraw_result_fields
+from tm1.applications.gui.ui.theme import resolve_cmap, set_cmap
+from tm1.applications.gui.ui.vis3d_constants import field_color_limits, field_tick_format
 
 
 def test_thread_editor_has_room_for_automatic_and_explicit_values(win):
@@ -100,7 +100,7 @@ def test_speed_scales_stay_separate_and_pressure_can_share_across_slices(win, mo
 
 
 def test_volume_scale_keeps_weak_fields_visible_and_uses_original_cells():
-    from sjtu_tpmshx.applications.gui.ui.panel_vis_3d import ThreeDVisPanel
+    from tm1.applications.gui.ui.panel_vis_3d import ThreeDVisPanel
     arrays = {'vmag': np.array([19., 21.]), 'vmag_B': np.array([.1, .3]),
               'P_kPa': np.array([120., 121.]), 'P_B_kPa': np.array([100., 100.001])}
     panel = SimpleNamespace(_arrays=arrays, _sync_temp_scale=False, _shared_pressure_scale=False)
@@ -113,7 +113,7 @@ def test_volume_scale_keeps_weak_fields_visible_and_uses_original_cells():
 
 
 def test_volume_speed_scales_stay_separate_when_ranges_overlap():
-    from sjtu_tpmshx.applications.gui.ui.panel_vis_3d import ThreeDVisPanel
+    from tm1.applications.gui.ui.panel_vis_3d import ThreeDVisPanel
     arrays = {'vmag': np.array([19., 21.]), 'vmag_B': np.array([18., 22.])}
     limits = ThreeDVisPanel._build_global_clim(
         SimpleNamespace(_arrays=arrays, _sync_temp_scale=True, _shared_pressure_scale=True)
@@ -128,7 +128,7 @@ def test_volume_speed_scales_stay_separate_when_ranges_overlap():
 ])
 @pytest.mark.parametrize('shared', [False, True])
 def test_volume_scale_honors_explicit_shared_scale_toggles(group, expected_cmap, shared):
-    from sjtu_tpmshx.applications.gui.ui.panel_vis_3d import ThreeDVisPanel
+    from tm1.applications.gui.ui.panel_vis_3d import ThreeDVisPanel
     arrays = {key: np.array([100. + 30. * (i == 0), 102. + 90. * (i == 0)])
               for i, key in enumerate(group)}
     limits = ThreeDVisPanel._build_global_clim(
@@ -240,7 +240,7 @@ def test_runtime_colormap_override_updates_selected_quantity_only(win, mode):
 
 
 def test_qualification_reason_preserves_rejection_and_distinguishes_nu_inputs(win):
-    from sjtu_tpmshx.applications.gui.ui.fmt import qualification_reasons
+    from tm1.applications.gui.ui.fmt import qualification_reasons
     q = {'design': {'status': 'rejected', 'reasons': ['applicability']},
          'applicability': {'checks': [
              {'passed': False, 'side': 'B', 'source': [key, 'water', 'Gyroid'],

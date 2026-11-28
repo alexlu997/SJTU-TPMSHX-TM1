@@ -4,8 +4,8 @@ import ctypes as ct
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.cpp_interface.solver_library._stage_capture_abi import _plane_info
-from sjtu_tpmshx.cpp_interface.solver_library._thermal_abi import _ModelHResult
+from tm1.cpp_interface.solver_library._stage_capture_abi import _plane_info
+from tm1.cpp_interface.solver_library._thermal_abi import _ModelHResult
 
 
 @pytest.mark.parametrize('dtype', [np.float32, np.float64])

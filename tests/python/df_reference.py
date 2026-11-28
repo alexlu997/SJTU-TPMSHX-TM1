@@ -10,8 +10,8 @@ from typing import Any, Optional, Tuple
 from math import sqrt
 import warnings
 
-from sjtu_tpmshx.cpp_interface._native_result_checks import record_range
-from sjtu_tpmshx.run_control.run_warnings import record_warning
+from tm1.cpp_interface._native_result_checks import record_range
+from tm1.run_control.run_warnings import record_warning
 
 R_AIR = 287.05
 _CHOKE_WARNED = set()

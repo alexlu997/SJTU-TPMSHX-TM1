@@ -6,22 +6,22 @@ from types import SimpleNamespace
 
 import pytest
 
-from sjtu_tpmshx.data_types.field_result import FieldResult
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.data_types.metric_spec import MetricSpec
-from sjtu_tpmshx.data_types.performance_result import MetricValue, PerformanceResult
-from sjtu_tpmshx.development.runs.tools import benchmark_main_compute as benchmark
+from tm1.data_types.field_result import FieldResult
+from tm1.run_control.module_ports import RunControl
+from tm1.data_types.metric_spec import MetricSpec
+from tm1.data_types.performance_result import MetricValue, PerformanceResult
+from tm1.development.runs.tools import benchmark_main_compute as benchmark
 from tests.python.io_tm1.io_support import sample_case
 
 
 @pytest.mark.parametrize('failure', [None, 'save_result', 'load_result'])
 @pytest.mark.parametrize('eligible', [True, False, None])
 def test_sample_uses_common_verdict_and_keeps_file_failures(tmp_path, monkeypatch, failure, eligible):
-    from sjtu_tpmshx.preprocess import api as preparation
-    from sjtu_tpmshx.solvers import api as solving
-    from sjtu_tpmshx.postprocess import api as evaluation
-    from sjtu_tpmshx.applications import result_adapter as module_adapter
-    from sjtu_tpmshx.file_io import result_io
+    from tm1.preprocess import api as preparation
+    from tm1.solvers import api as solving
+    from tm1.postprocess import api as evaluation
+    from tm1.applications import result_adapter as module_adapter
+    from tm1.file_io import result_io
 
     monkeypatch.setattr(preparation, 'prepare_case',
                         lambda cfg, case_id: replace(sample_case(), case_id=case_id))

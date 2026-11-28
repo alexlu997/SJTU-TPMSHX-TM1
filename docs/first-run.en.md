@@ -24,7 +24,7 @@ python3.13 -m venv .venv
 printf '%s\n' "$PWD/.venv/bin/python" > .venv-path
 PYTHON="$(head -n 1 .venv-path)"
 "$PYTHON" -m pip install -r engineering/requirements/base.txt
-"$PYTHON" -m sjtu_tpmshx.development.runs.tools.check_locked_environment
+"$PYTHON" -m tm1.development.runs.tools.check_locked_environment
 "$PYTHON" -m pip check
 ```
 
@@ -40,7 +40,7 @@ $tm1Python = (Resolve-Path .venv\Scripts\python.exe).Path
 [System.IO.File]::WriteAllText((Join-Path $PWD '.venv-path'), $tm1Python + [Environment]::NewLine)
 $tm1Python = Get-Content .venv-path -TotalCount 1
 & $tm1Python -m pip install -r engineering/requirements/base.txt
-& $tm1Python -m sjtu_tpmshx.development.runs.tools.check_locked_environment
+& $tm1Python -m tm1.development.runs.tools.check_locked_environment
 & $tm1Python -m pip check
 ```
 
@@ -70,9 +70,9 @@ PYTHON="$(head -n 1 .venv-path)"
 export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
 "$PYTHON" engineering/scripts/build_native_dependencies.py fetch
 "$PYTHON" engineering/scripts/build_native_dependencies.py publish
-"$PYTHON" -m sjtu_tpmshx.cli run examples/three_module/air_2d.json .cache/first-run-2d --case-id first-run-2d
-"$PYTHON" -m sjtu_tpmshx.cli run examples/three_module/air_3d.json .cache/first-run-3d --case-id first-run-3d
-"$PYTHON" -m sjtu_tpmshx.main
+"$PYTHON" -m tm1.cli run examples/three_module/air_2d.json .cache/first-run-2d --case-id first-run-2d
+"$PYTHON" -m tm1.cli run examples/three_module/air_3d.json .cache/first-run-3d --case-id first-run-3d
+"$PYTHON" -m tm1.main
 ```
 
 On Windows:
@@ -83,9 +83,9 @@ $env:MPLCONFIGDIR = Join-Path $PWD '.cache/matplotlib'
 $env:XDG_CACHE_HOME = Join-Path $PWD '.cache/xdg'
 & $tm1Python engineering/scripts/build_native_dependencies.py fetch
 & $tm1Python engineering/scripts/build_native_dependencies.py publish
-& $tm1Python -m sjtu_tpmshx.cli run examples/three_module/air_2d.json .cache/first-run-2d --case-id first-run-2d
-& $tm1Python -m sjtu_tpmshx.cli run examples/three_module/air_3d.json .cache/first-run-3d --case-id first-run-3d
-& $tm1Python -m sjtu_tpmshx.main
+& $tm1Python -m tm1.cli run examples/three_module/air_2d.json .cache/first-run-2d --case-id first-run-2d
+& $tm1Python -m tm1.cli run examples/three_module/air_3d.json .cache/first-run-3d --case-id first-run-3d
+& $tm1Python -m tm1.main
 ```
 
 Each compute command writes `case.yaml`, accompanying `case.h5`, `results.h5`, and `metrics.json`. The final command starts the GUI. CLI inputs differ from GUI sessions. These JSON files are CLI inputs. Open each `metrics.json`. Five basic metrics should be `available`.
@@ -229,9 +229,9 @@ Application input → preprocess → CaseData → solvers → FieldResult → po
 Preprocessing defines actual grids, boundaries, design fields, fixed geometry, model resources, and run settings. Solvers consume prepared CaseData and evaluate temperature-dependent properties and numerical iterations. Postprocessing computes metrics from native fields, fluxes, pressure, and status in FieldResult. Missing evidence produces a reason. It does not start solving or read GUI/live solver objects.
 
 ```python
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.api import run_case
-from sjtu_tpmshx.postprocess.api import evaluate
+from tm1.preprocess.api import prepare_case
+from tm1.solvers.api import run_case
+from tm1.postprocess.api import evaluate
 
 case = prepare_case(config, case_id="example")
 result = run_case(case)
@@ -243,12 +243,12 @@ In-process calls need not write files. Independent processes use formal handoff:
 ```bash
 PYTHON="$(head -n 1 .venv-path)"
 mkdir -p .cache/handoff
-"$PYTHON" -m sjtu_tpmshx.cli prepare examples/three_module/air_2d.json .cache/handoff/case.yaml --case-id example
-"$PYTHON" -m sjtu_tpmshx.cli solve .cache/handoff/case.yaml .cache/handoff/results.h5
-"$PYTHON" -m sjtu_tpmshx.cli postprocess .cache/handoff/results.h5 .cache/handoff/metrics.json
+"$PYTHON" -m tm1.cli prepare examples/three_module/air_2d.json .cache/handoff/case.yaml --case-id example
+"$PYTHON" -m tm1.cli solve .cache/handoff/case.yaml .cache/handoff/results.h5
+"$PYTHON" -m tm1.cli postprocess .cache/handoff/results.h5 .cache/handoff/metrics.json
 ```
 
-In PowerShell, use the same arguments with `& $tm1Python` instead of `"$PYTHON"`. First create the directory with `New-Item -ItemType Directory -Force .cache/handoff`. Inspect each stage with commands such as `"$PYTHON" -m sjtu_tpmshx.cli prepare --help`. PowerShell again uses `& $tm1Python`.
+In PowerShell, use the same arguments with `& $tm1Python` instead of `"$PYTHON"`. First create the directory with `New-Item -ItemType Directory -Force .cache/handoff`. Inspect each stage with commands such as `"$PYTHON" -m tm1.cli prepare --help`. PowerShell again uses `& $tm1Python`.
 
 Case YAML references accompanying HDF5. [Schemas](contracts/three_module_v1/README.md) define result/VTK export and strict metric JSON limits. CLI outputs must be separate from current inputs and accompanying Case HDF5. Overlapping paths fail before stage execution. Separate existing outputs can still be updated. All CLI stages reject writes into directories with `run.json` or `checkpoint.h5`, including their subdirectories. Select a new directory to preserve the saved run and its native library.
 
@@ -257,8 +257,8 @@ Cancellation and failure do not become completed results. Completed nonconverged
 Full C++ runs can save their iteration state in a new run directory:
 
 ```bash
-"$PYTHON" -m sjtu_tpmshx.cli run examples/three_module/air_2d.json .cache/run-01 --case-id example --backend cpp --checkpoint-interval 60
-"$PYTHON" -m sjtu_tpmshx.cli resume .cache/run-01/checkpoint.h5 .cache/run-02 --checkpoint-interval 60
+"$PYTHON" -m tm1.cli run examples/three_module/air_2d.json .cache/run-01 --case-id example --backend cpp --checkpoint-interval 60
+"$PYTHON" -m tm1.cli resume .cache/run-01/checkpoint.h5 .cache/run-02 --checkpoint-interval 60
 ```
 
 The CLI interval is explicit. Saving waits for the next complete solver step.

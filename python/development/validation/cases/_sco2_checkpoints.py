@@ -10,9 +10,9 @@ import sys
 
 import pandas as pd
 
-from sjtu_tpmshx.run_control.provenance import repository_environment
-from sjtu_tpmshx.file_io.file_set import staged_files
-from sjtu_tpmshx.development.runs.tools.check_locked_environment import installed_versions
+from tm1.run_control.provenance import repository_environment
+from tm1.file_io.file_set import staged_files
+from tm1.development.runs.tools.check_locked_environment import installed_versions
 
 
 def runtime_identity(root, *, generated=()):

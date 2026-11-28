@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from sjtu_tpmshx.physical_models.tpms_calc import geometry as _tpms_geometry
+from tm1.physical_models.tpms_calc import geometry as _tpms_geometry
 
 
 @dataclass(frozen=True)
@@ -47,7 +47,7 @@ def load_cases_df(xlsx_path: Path) -> pd.DataFrame:
     All validation truth tables (Shanghai 16-case, D_7_6) share one layout:
     Sheet1, two header rows skipped, positional ``iloc`` column access.
     """
-    from sjtu_tpmshx.development.validation.water_exp import (
+    from tm1.development.validation.water_exp import (
         WATER_EXPERIMENT_BOOKS, with_water_absolute_pressures)
     d = pd.read_excel(xlsx_path, engine='openpyxl', sheet_name='Sheet1',
                       header=None, skiprows=2)

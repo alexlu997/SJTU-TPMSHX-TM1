@@ -11,17 +11,17 @@ from uuid import uuid4
 from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
-from sjtu_tpmshx.applications.gui.controllers.compute_orchestrator import ComputeOrchestrator
-from sjtu_tpmshx.applications.gui.ui.fmt import duration
-from sjtu_tpmshx.applications.gui.ui.icons import icon
-from sjtu_tpmshx.applications.gui.ui.theme import get_theme
-from sjtu_tpmshx.applications.gui.ui.ui_constants import HIGH_VELOCITY_NOTICE_MS, TOAST_MS_SHORT
+from tm1.applications.gui.controllers.compute_orchestrator import ComputeOrchestrator
+from tm1.applications.gui.ui.fmt import duration
+from tm1.applications.gui.ui.icons import icon
+from tm1.applications.gui.ui.theme import get_theme
+from tm1.applications.gui.ui.ui_constants import HIGH_VELOCITY_NOTICE_MS, TOAST_MS_SHORT
 
 
 def _run_compute(config, cancel_token, progress_cb, *, control, ui_hooks, run_directory,
                  checkpoint_interval_s, resume_checkpoint=None, gui_provenance=None):
-    from sjtu_tpmshx.applications.execution.recovery import compute_run, resume_loaded_run
-    from sjtu_tpmshx.applications.result_adapter import to_compute_result
+    from tm1.applications.execution.recovery import compute_run, resume_loaded_run
+    from tm1.applications.result_adapter import to_compute_result
 
     host_cancel = control.cancel_check
 
@@ -96,7 +96,7 @@ class SingleRun(QObject):
 
     @Slot()
     def submit(self):
-        from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+        from tm1.applications.gui.ui.window_config import config_from_window
 
         window = self.window
         if window._close_pending:
@@ -144,10 +144,10 @@ class SingleRun(QObject):
 
     def resume(self, checkpoint_file=None):
         """Use the saved configuration and keep the current draft."""
-        from sjtu_tpmshx.applications.execution.recovery import read_run_checkpoint
-        from sjtu_tpmshx.applications.gui.ui.background_tasks import has_active_tasks
-        from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-        from sjtu_tpmshx.data_types.portable_data import mutable_data
+        from tm1.applications.execution.recovery import read_run_checkpoint
+        from tm1.applications.gui.ui.background_tasks import has_active_tasks
+        from tm1.data_types.compute_config import ComputeConfig
+        from tm1.data_types.portable_data import mutable_data
 
         window = self.window
         if window._close_pending:
@@ -235,7 +235,7 @@ class SingleRun(QObject):
         window.btn_compute.setEnabled(True)
         window._empty_state_label.hide()
         self._ticker.start()
-        from sjtu_tpmshx.applications.gui.ui.builders_sidebar import refresh_header_status
+        from tm1.applications.gui.ui.builders_sidebar import refresh_header_status
         refresh_header_status(window)
         if hasattr(window, '_refresh_workbench_navigation'):
             window._refresh_workbench_navigation()
@@ -322,7 +322,7 @@ class SingleRun(QObject):
             card.pause_button.setEnabled(False)
             if isinstance(self.provenance, dict):
                 import datetime
-                from sjtu_tpmshx.run_control.provenance import SOURCE_ROOT, repository_revision
+                from tm1.run_control.provenance import SOURCE_ROOT, repository_revision
 
                 self.provenance.setdefault(
                     'completed_at', datetime.datetime.now().isoformat(timespec='seconds')
@@ -354,7 +354,7 @@ class SingleRun(QObject):
         if self.compute.current_mode() == '3d':
             QMessageBox.critical(window, "3D Compute Error", message)
         else:
-            from sjtu_tpmshx.applications.gui.ui.microanim import toast
+            from tm1.applications.gui.ui.microanim import toast
             QMessageBox.critical(window, "Compute Error", message)
             toast(window, f"Compute failed — {message[:80]}", kind='error', copy_payload=log_text or message)
 
@@ -386,7 +386,7 @@ class SingleRun(QObject):
         try:
             if self.window._close_pending:
                 return
-            from sjtu_tpmshx.applications.gui.ui.fmt import recorded_elapsed_s
+            from tm1.applications.gui.ui.fmt import recorded_elapsed_s
 
             window = self.window
             window.btn_compute.setEnabled(False)
@@ -432,7 +432,7 @@ class SingleRun(QObject):
                 elapsed_label=elapsed_label,
             )
             if success:
-                from sjtu_tpmshx.applications.gui.ui.microanim import pulse_glow
+                from tm1.applications.gui.ui.microanim import pulse_glow
                 window.progress.setValue(100)
                 self._hide_progress.start(500)
                 if isinstance(solve_elapsed, (int, float)):
@@ -460,7 +460,7 @@ class SingleRun(QObject):
             self.window.btn_compute.setText(self._button_label)
             self.window.btn_compute.setIcon(icon('play', get_theme()['primary_fg']))
             self.window.btn_compute.setEnabled(True)
-            from sjtu_tpmshx.applications.gui.ui.builders_sidebar import refresh_header_status
+            from tm1.applications.gui.ui.builders_sidebar import refresh_header_status
             refresh_header_status(self.window)
             if hasattr(self.window, '_refresh_workbench_navigation'):
                 self.window._refresh_workbench_navigation()
@@ -511,7 +511,7 @@ class SingleRun(QObject):
         transverse span is valid.
         """
         from html import escape
-        from sjtu_tpmshx.applications.gui.ui.window_config import LINE_EDITS, blank_second_span, field_active
+        from tm1.applications.gui.ui.window_config import LINE_EDITS, blank_second_span, field_active
 
         window = self.window
         bad = []
@@ -556,7 +556,7 @@ class SingleRun(QObject):
         msg.setStandardButtons(QMessageBox.StandardButton.Ok)
         msg.exec()
         # Focus the first invalid field so Tab navigation works from there.
-        from sjtu_tpmshx.applications.gui.ui.ui_builders import reveal_parameter
+        from tm1.applications.gui.ui.ui_builders import reveal_parameter
         first = getattr(window, bad[0][1])
         reveal_parameter(window, first)
         first.setFocus()
@@ -565,8 +565,8 @@ class SingleRun(QObject):
 
     def preflight_grid(self, compute_cfg):
         """Check captured inputs and request confirmation for grid warnings."""
-        from sjtu_tpmshx.data_types.compute_config import bc_to_dict
-        from sjtu_tpmshx.applications.gui.ui.preflight import FluidCfg, compute_preflight
+        from tm1.data_types.compute_config import bc_to_dict
+        from tm1.applications.gui.ui.preflight import FluidCfg, compute_preflight
         geometry, solver = compute_cfg.geometry, compute_cfg.solver
 
         def _cfg(bc):
@@ -585,7 +585,7 @@ class SingleRun(QObject):
         # Geometry/D-F coverage is separate from Nu and calibration limits.
         # Hard invalid geometry blocks; soft findings join the grid report.
         try:
-            from sjtu_tpmshx.data_types.validator import validate_geometry
+            from tm1.data_types.validator import validate_geometry
             geometry_warnings = validate_geometry(
                 geometry.L_dom_m, geometry.H_dom_m, geometry.Lz_m,
                 geometry.L_cell_mm, geometry.t_wall_mm,

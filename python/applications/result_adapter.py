@@ -4,12 +4,12 @@ from dataclasses import asdict
 
 import numpy as np
 
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-from sjtu_tpmshx.data_types.compute_result import ComputeResult
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.data_types.metric_spec import METRIC_KINDS, full_metric_version
-from sjtu_tpmshx.data_types.portable_data import mutable_data
-from sjtu_tpmshx.physical_models.zone_units import _legacy_zone_units
+from tm1.data_types.compute_config import ComputeConfig
+from tm1.data_types.compute_result import ComputeResult
+from tm1.run_control.module_ports import RunControl
+from tm1.data_types.metric_spec import METRIC_KINDS, full_metric_version
+from tm1.data_types.portable_data import mutable_data
+from tm1.physical_models.zone_units import _legacy_zone_units
 
 _SUMMARY_METRICS = ('Q', 'dP_A', 'dP_B', 'T_out_A', 'T_out_B')
 _RESIDUAL_METRICS = ('Q_A', 'Q_B', 'energy_imbalance_rel',
@@ -20,7 +20,7 @@ _RESIDUAL_METRICS = ('Q_A', 'Q_B', 'energy_imbalance_rel',
 def compute_result(config: ComputeConfig, *, control: RunControl = RunControl(),
                    progress_cb: Callable[[int], None] | None = None) -> ComputeResult:
     """Run the common workflow and map its evidence for application consumers."""
-    from sjtu_tpmshx.compute import compute
+    from tm1.compute import compute
     _, result, performance = compute(config, control=control, progress_cb=progress_cb)
     display = to_compute_result(result, performance)
     control.check_cancelled()
@@ -54,7 +54,7 @@ def to_compute_result(result, performance):
         geometry = parameters['static_properties']['geometry']
         zone = _legacy_zone_units(mutable_data(parameters['zone_config']))
         if isinstance(zone, dict):
-            from sjtu_tpmshx.physical_models.zone_config import Zone, ZoneConfig
+            from tm1.physical_models.zone_config import Zone, ZoneConfig
             zone['zones'] = [Zone(**item) for item in zone['zones']]
             zone = ZoneConfig(**zone)
         for side in 'AB':

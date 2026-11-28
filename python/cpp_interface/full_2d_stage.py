@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from sjtu_tpmshx.run_control.cancellation import CancelledError
+from tm1.run_control.cancellation import CancelledError
 from ._native_preparation_case import _Array, _Nu, _Result as _PreparedCase2D, _Text
 from ._native_result_stage import Evidence, _zone_temperatures, record
 from ._native_values import TOPOLOGIES, borrow_array, borrow_text, real_scalar

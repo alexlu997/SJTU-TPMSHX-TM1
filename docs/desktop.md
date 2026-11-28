@@ -32,7 +32,7 @@ macOS arm64：
 ```sh
 tm1_python="$(sed -n '1p' .venv-path)"
 export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
-"$tm1_python" -m sjtu_tpmshx.main
+"$tm1_python" -m tm1.main
 ```
 
 也可显式指定默认目录之外的原生库：
@@ -41,7 +41,7 @@ export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
 export TPMSHX_GEOMETRY_LIBRARY="$PWD/.cache/native-deps/build/pilot-macos-arm64/libtpmshx_geometry_shared.dylib"
 export TPMSHX_PREPARATION_LIBRARY="$PWD/.cache/native-deps/build/preparation-macos-arm64/libtpmshx_preparation_shared.dylib"
 export TPMSHX_RESULT_LIBRARY="$PWD/.cache/native-deps/build/result-macos-arm64/libtpmshx_result_shared.dylib"
-"$tm1_python" -m sjtu_tpmshx.main --backend cpp \
+"$tm1_python" -m tm1.main --backend cpp \
   --native-library "$PWD/.cache/native-deps/build/pilot-macos-arm64/libtpmshx_solver_shared.dylib" \
   --native-table-directory "$PWD/.cache/native-deps/tables"
 ```
@@ -52,7 +52,7 @@ Windows x64（PowerShell）：
 $tm1Python = Get-Content .venv-path -TotalCount 1
 $env:MPLCONFIGDIR = Join-Path $PWD '.cache/matplotlib'
 $env:XDG_CACHE_HOME = Join-Path $PWD '.cache/xdg'
-& $tm1Python -m sjtu_tpmshx.main
+& $tm1Python -m tm1.main
 ```
 
 也可显式指定既有构建产物：
@@ -63,7 +63,7 @@ $env:TPMSHX_PREPARATION_LIBRARY = Join-Path $PWD '.cache/native-deps/build/prepa
 $env:TPMSHX_RESULT_LIBRARY = Join-Path $PWD '.cache/native-deps/build/result-windows-x64/tpmshx_result_shared.dll'
 $tm1Library = Join-Path $PWD '.cache/native-deps/build/pilot-windows-x64/tpmshx_solver_shared.dll'
 $tm1Tables = Join-Path $PWD '.cache/native-deps/tables'
-& $tm1Python -m sjtu_tpmshx.main --backend cpp --native-library $tm1Library --native-table-directory $tm1Tables
+& $tm1Python -m tm1.main --backend cpp --native-library $tm1Library --native-table-directory $tm1Tables
 ```
 
 如库存放在其他文件夹，替换该路径。程序不搜索磁盘、编译库、下载或安装依赖。
@@ -98,7 +98,7 @@ macOS 名称为 `libtpmshx_result_shared.dylib`，Windows 为 `tpmshx_result_sha
 
 ## 可选冻结打包
 
-桌面入口是 `sjtu_tpmshx.desktop`，调用现有 GUI 和公共三模块计算链。
+桌面入口是 `tm1.desktop`，调用现有 GUI 和公共三模块计算链。
 `engineering/packaging/desktop.spec` 使用 PyInstaller 将解释器、锁定运行依赖、模型配置、
 DF 表和 SVG 图标打包；不包含原始实验数据、研究输出、测试代码或 Office 字体。
 默认构建与 `engineering/requirements/base.txt` 的功能范围一致，不含可选 Torch/BoTorch
@@ -154,7 +154,7 @@ $env:XDG_CACHE_HOME = Join-Path $PWD '.cache/desktop-build/xdg-cache'
 这些设置用于开发机上的构建过程；下文的安装程序启动缓存仍由桌面启动器管理。
 
 ```text
-python -m sjtu_tpmshx.development.runs.tools.check_locked_environment engineering/requirements/desktop.txt
+python -m tm1.development.runs.tools.check_locked_environment engineering/requirements/desktop.txt
 python -m pip check
 python -m PyInstaller --noconfirm --clean --distpath .cache/desktop-build/dist --workpath .cache/desktop-build/work engineering/packaging/desktop.spec
 ```

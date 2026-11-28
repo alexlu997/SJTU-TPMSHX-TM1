@@ -7,24 +7,24 @@ from uuid import uuid4
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.data_types.compute_config import (
+from tm1.run_control.cancellation import CancelledError
+from tm1.data_types.compute_config import (
     ComputeConfig, ExtrapPolicy, FluidConfig, GeometryConfig, PartialBCConfig,
     SolverConfig, ZoneInputConfig,
 )
-from sjtu_tpmshx.data_types.field_result import FieldResult
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.data_types.portable_data import mutable_data
-from sjtu_tpmshx.file_io.case_io import load_case
-from sjtu_tpmshx.file_io.metrics_io import load_metrics
-from sjtu_tpmshx.file_io.result_io import load_result
-from sjtu_tpmshx.applications.optimization import multi_condition as batch
-from sjtu_tpmshx.postprocess import api as postprocess
-from sjtu_tpmshx.solvers import api as execution
+from tm1.data_types.field_result import FieldResult
+from tm1.run_control.module_ports import RunControl
+from tm1.data_types.portable_data import mutable_data
+from tm1.file_io.case_io import load_case
+from tm1.file_io.metrics_io import load_metrics
+from tm1.file_io.result_io import load_result
+from tm1.applications.optimization import multi_condition as batch
+from tm1.postprocess import api as postprocess
+from tm1.solvers import api as execution
 
 
 def test_batch_recovery_parses_prescribed_flow_before_old_speed(tmp_path):
-    from sjtu_tpmshx.run_control.paused_run import PausedRun
+    from tm1.run_control.paused_run import PausedRun
     from tests.python.optimization_support import _conditions as search_conditions
     name, config, a, b = search_conditions(3)[0]
     config.df_mode = 'experimental'
@@ -173,7 +173,7 @@ def _baseline(conditions):
 @pytest.mark.parametrize('value', [float('nan'), float('inf'), -float('inf')])
 def test_corrupt_raw_archive_cannot_use_finite_metrics_for_objectives(tmp_path, name, value):
     import h5py
-    from sjtu_tpmshx.file_io.result_io import save_result
+    from tm1.file_io.result_io import save_result
 
     condition, field, _ = _baseline(_conditions(1))[0]
     metadata = mutable_data(field.metadata)
@@ -214,7 +214,7 @@ def native_control(tmp_path):
 
 
 def _patch_solve(monkeypatch, solve):
-    from sjtu_tpmshx.applications.execution import recovery
+    from tm1.applications.execution import recovery
     monkeypatch.setattr(execution, 'run_case', solve)
     monkeypatch.setattr(recovery, 'run_case', lambda case, control, **kwargs: solve(case, control))
 
@@ -223,8 +223,8 @@ def _patch_solve(monkeypatch, solve):
 @pytest.mark.parametrize('completed', [False, True])
 def test_historical_batch_grid_recovery_never_prepares_again(tmp_path, monkeypatch, native_control,
                                                             enabled, completed):
-    from sjtu_tpmshx.file_io.case_io import save_case
-    from sjtu_tpmshx.file_io.result_io import save_result
+    from tm1.file_io.case_io import save_case
+    from tm1.file_io.result_io import save_result
     _patch_solve(monkeypatch, lambda case, control: _native(case))
     source = tmp_path / 'source'
     record = batch.evaluate_condition_batch(_conditions(1), output_dir=source, control=native_control, workers=1)
@@ -267,7 +267,7 @@ def test_historical_batch_grid_recovery_never_prepares_again(tmp_path, monkeypat
 
 
 def test_historical_batch_without_saved_grid_cannot_use_a_new_constructor(tmp_path, monkeypatch, native_control):
-    from sjtu_tpmshx.run_control.paused_run import PausedRun
+    from tm1.run_control.paused_run import PausedRun
     source = tmp_path / 'source'
     with pytest.raises(PausedRun):
         batch.evaluate_compact_condition_batch(_conditions(1), output_dir=source,
@@ -291,11 +291,11 @@ def test_solver_patch_restores_lazily_imported_recovery():
     child = subprocess.run([sys.executable, '-c', '''
 import pytest
 from tests.python.optimization_tm1.test_multi_condition_batch import _patch_solve
-from sjtu_tpmshx.solvers import api
+from tm1.solvers import api
 original = api.run_case
 with pytest.MonkeyPatch.context() as patch:
     _patch_solve(patch, lambda *args: None)
-from sjtu_tpmshx.applications.execution import recovery
+from tm1.applications.execution import recovery
 assert api.run_case is original and recovery.run_case is original
 '''], text=True, capture_output=True, timeout=30)
     assert child.returncode == 0, child.stderr
@@ -304,7 +304,7 @@ assert api.run_case is original and recovery.run_case is original
 @pytest.mark.parametrize('fluid', ['co2', 'sco2'])
 def test_real_fluid_batch_reaches_the_original_solver_and_keeps_failure(tmp_path, monkeypatch, fluid, native_control):
     from tests.python.preprocess.test_co2_model import co2_config
-    from sjtu_tpmshx.preprocess.api import prepare_inlet_mass_capacities
+    from tm1.preprocess.api import prepare_inlet_mass_capacities
     config = co2_config(3)
     config.fluid_A.type = fluid
     capacity = prepare_inlet_mass_capacities(config)
@@ -721,7 +721,7 @@ def test_all_member_structure_is_checked_before_output_creation(tmp_path, monkey
 @pytest.mark.parametrize('failure', [None, 'convergence', 'energy', 'save'])
 def test_compact_batches_release_fields_before_next_solve(tmp_path, monkeypatch, failure, native_control):
     import weakref
-    from sjtu_tpmshx.file_io import result_io
+    from tm1.file_io import result_io
 
     conditions = _conditions(3)
     uniform = [(name, replace(cfg, zones=ZoneInputConfig()), a, b) for name, cfg, a, b in conditions]
@@ -755,7 +755,7 @@ def test_compact_batches_release_fields_before_next_solve(tmp_path, monkeypatch,
     _patch_solve(monkeypatch, solve)
     monkeypatch.setattr(result_io, 'load_result', tracked_load)
     monkeypatch.setattr(result_io, 'save_result', tracked_save)
-    monkeypatch.setattr('sjtu_tpmshx.applications.execution.recovery.save_result', tracked_save)
+    monkeypatch.setattr('tm1.applications.execution.recovery.save_result', tracked_save)
     baseline = batch.evaluate_compact_condition_batch(uniform, output_dir=tmp_path / 'baseline', workers=1, control=native_control)
     assert baseline['status'] == 'completed'
     assert all(ref() is None for ref in references)
@@ -797,7 +797,7 @@ def test_compact_baseline_archive_failures_cannot_produce_objectives(tmp_path, m
     elif damage == 'corrupt':
         path.write_bytes(b'invalid HDF5')
     else:
-        from sjtu_tpmshx.file_io.result_io import save_result
+        from tm1.file_io.result_io import save_result
         save_result(replace(load_result(path), result_id='different-result'), path)
     if damage in ('missing', 'corrupt'):
         with pytest.raises(OSError):
@@ -820,8 +820,8 @@ def test_compact_baseline_archive_failures_cannot_produce_objectives(tmp_path, m
 def test_compact_batch_continues_in_place_after_move_like_uninterrupted_batch(
         tmp_path, monkeypatch, native_control, interrupt):
     import weakref
-    from sjtu_tpmshx.file_io import result_io
-    from sjtu_tpmshx.run_control.paused_run import PausedRun
+    from tm1.file_io import result_io
+    from tm1.run_control.paused_run import PausedRun
 
     conditions = _conditions(3)
     uniform = [(name, replace(cfg, zones=ZoneInputConfig()), a, b) for name, cfg, a, b in conditions]
@@ -883,7 +883,7 @@ def test_compact_batch_continues_in_place_after_move_like_uninterrupted_batch(
 
 
 def test_compact_continuation_keeps_failed_members_without_new_solves(tmp_path, monkeypatch, native_control):
-    from sjtu_tpmshx.run_control.paused_run import PausedRun
+    from tm1.run_control.paused_run import PausedRun
 
     conditions = _conditions(3)
     solved = []

@@ -10,11 +10,11 @@ import weakref
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.cpp_interface import _native_result as core, _native_result_stage as stage
-from sjtu_tpmshx.data_types.metric_spec import MetricSpec
-from sjtu_tpmshx.data_types.portable_data import mutable_data
-from sjtu_tpmshx.file_io.result_io import load_result
-from sjtu_tpmshx.postprocess import api
+from tm1.cpp_interface import _native_result as core, _native_result_stage as stage
+from tm1.data_types.metric_spec import MetricSpec
+from tm1.data_types.portable_data import mutable_data
+from tm1.file_io.result_io import load_result
+from tm1.postprocess import api
 from tests.python.native.result_reference import api as reference
 from tests.python.native.test_result_metrics import quick_result
 from tests.python.native_adapters.test_native_result_balance import assert_values, observe, assert_observation
@@ -467,7 +467,7 @@ def test_query_releases_borrowed_fields_without_collection(without_cyclic_collec
 def test_public_report_owns_native_metric_and_text_buffers(monkeypatch, status):
     import ctypes as ct
     from types import SimpleNamespace
-    from sjtu_tpmshx.cpp_interface._native_result_stage import Metric, Spec
+    from tm1.cpp_interface._native_result_stage import Metric, Spec
 
     report = (b'{"qualification":{"definition":"result_qualification_v1","source_result_id":"saved-2d",'
               b'"convergence":{"gates":{}},"execution":{},'
@@ -590,7 +590,7 @@ def test_deferred_exception_relations_keep_cycles_and_group_identity():
     group = ExceptionGroup('recorded group', [first, second])
     first.__cause__, first.__context__ = second, group
     second.__context__ = first
-    from sjtu_tpmshx.cpp_interface._native_result_stage import _Packed
+    from tm1.cpp_interface._native_result_stage import _Packed
     packed = _Packed()
     token = packed.token(group)
     assert packed.exceptions[token] is group

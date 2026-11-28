@@ -13,7 +13,7 @@ Nu reduction the experiment used.
 
 Geometry/conditions read from
   data/raw_data/experiments/sco2/d76/sco2_D7-t0p6_hx_experiment_arranged.xlsx
-Run:  python -m sjtu_tpmshx.development.validation.cases.validate_sco2_d76
+Run:  python -m tm1.development.validation.cases.validate_sco2_d76
 Gate: max per-case |Q error| < 15 %.
 """
 
@@ -36,8 +36,8 @@ import numpy as np
 import openpyxl
 from openpyxl.utils import column_index_from_string as ci
 
-from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
-from sjtu_tpmshx.physical_models import fluid_props, tpms_calc
+from tm1.model_configs.units import CELSIUS_ZERO_K
+from tm1.physical_models import fluid_props, tpms_calc
 
 ROOT = Path(__file__).resolve().parents[4]
 XLSX = (ROOT / "data" / "raw_data" / "experiments" / "sco2"

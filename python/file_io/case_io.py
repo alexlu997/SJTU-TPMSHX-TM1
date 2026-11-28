@@ -1,15 +1,15 @@
 """Case YAML manifest and actual HDF5 prepared-data transport."""
 from pathlib import Path
 
-from sjtu_tpmshx.data_types.case_data import CaseData, SCHEMA_VERSION
+from tm1.data_types.case_data import CaseData, SCHEMA_VERSION
 from .hdf5_data import read_record, write_record
 from .text_file import write_text
 from .file_set import staged_files
-from sjtu_tpmshx.data_types.persistence_validation import validate_case as validate_physical_case
+from tm1.data_types.persistence_validation import validate_case as validate_physical_case
 
 
 def validate_case(case):
-    from sjtu_tpmshx.model_configs.model_parameters import MODEL_VERSIONS
+    from tm1.model_configs.model_parameters import MODEL_VERSIONS
     validate_physical_case(case)
     for ref in case.model_refs:
         if MODEL_VERSIONS.get(ref.name) != ref.version:

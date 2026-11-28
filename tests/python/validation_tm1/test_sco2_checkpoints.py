@@ -7,10 +7,10 @@ import subprocess
 import pandas as pd
 import pytest
 
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.development.validation.cases import validate_sco2_exp_q as runner
-from sjtu_tpmshx.development.validation.cases import _sco2_checkpoints as checkpoints
-from sjtu_tpmshx.development.validation.cases._sco2_checkpoints import runtime_identity
+from tm1.run_control.cancellation import CancelledError
+from tm1.development.validation.cases import validate_sco2_exp_q as runner
+from tm1.development.validation.cases import _sco2_checkpoints as checkpoints
+from tm1.development.validation.cases._sco2_checkpoints import runtime_identity
 
 
 @pytest.fixture
@@ -142,7 +142,7 @@ def test_numerically_failed_member_is_preserved_then_retried(batch, tmp_path, mo
 
 
 def test_failed_pair_publication_preserves_previous_checkpoint(batch, tmp_path, monkeypatch):
-    from sjtu_tpmshx.file_io import file_set
+    from tm1.file_io import file_set
     result = run(tmp_path)
     state = json.loads((tmp_path / 'state.json').read_text())
     before = {path.name: path.read_bytes() for path in tmp_path.iterdir()}

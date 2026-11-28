@@ -1,7 +1,7 @@
 """Apply the agreed parameter limits to captured original model bounds."""
 from math import prod
 
-from sjtu_tpmshx.cpp_interface import _native_result_checks
+from tm1.cpp_interface import _native_result_checks
 
 
 def parameter_bounds(bounds):

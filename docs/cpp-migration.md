@@ -189,8 +189,8 @@ See [run continuation](native-stages.md#run-continuation) and [native 3D executi
 Public Python execution passes the library path through `RunControl`:
 
 ```python
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.solvers.api import run_case
+from tm1.run_control.module_ports import RunControl
+from tm1.solvers.api import run_case
 
 result = run_case(prepared_case, RunControl(
     backend="cpp", native_library="/absolute/path/to/libtpmshx_solver_shared.dylib"))
@@ -199,7 +199,7 @@ result = run_case(prepared_case, RunControl(
 Source CLI execution uses:
 
 ```bash
-"$PYTHON" -m sjtu_tpmshx.cli solve case.h5 results.h5 --backend cpp \
+"$PYTHON" -m tm1.cli solve case.h5 results.h5 --backend cpp \
   --native-library /absolute/path/to/libtpmshx_solver_shared.dylib
 ```
 
@@ -277,7 +277,7 @@ Use the interpreter from `.venv-path` after passing environment checks:
 
 ```sh
 tm1_python="$(head -n 1 .venv-path)"
-"$tm1_python" -m sjtu_tpmshx.development.runs.tools.check_locked_environment
+"$tm1_python" -m tm1.development.runs.tools.check_locked_environment
 "$tm1_python" -m pip check
 "$tm1_python" engineering/scripts/build_native_dependencies.py fetch
 "$tm1_python" engineering/scripts/build_native_dependencies.py build

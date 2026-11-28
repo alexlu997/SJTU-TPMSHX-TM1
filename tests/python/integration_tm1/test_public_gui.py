@@ -14,8 +14,8 @@ from tests.python.gui_io_support import win as win
 from tests.python.gui_worker_support import _wait_for
 from tests.python.integration_tm1.integration_support import baseline_config, AIR_PUBLIC_METRICS
 from tests.python.cases_3d import small_air_config
-from sjtu_tpmshx.applications.gui.ui.window_config import LINE_EDITS
-from sjtu_tpmshx.data_types.compute_config import bc_to_dict
+from tm1.applications.gui.ui.window_config import LINE_EDITS
+from tm1.data_types.compute_config import bc_to_dict
 
 
 def apply_config(window, config):
@@ -50,7 +50,7 @@ def apply_config(window, config):
 
 
 def test_shanghai_uniform_inlet_is_explicit_and_preserved_by_preset(win):
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.applications.gui.ui.window_config import config_from_window
     win._apply_shanghai_defaults()
     win.combo_dim.setCurrentIndex(0)
     cfg = config_from_window(win)
@@ -61,8 +61,8 @@ def test_shanghai_uniform_inlet_is_explicit_and_preserved_by_preset(win):
 
 
 def test_shanghai_recommended_grid_and_manual_preset_roundtrip(win):
-    from sjtu_tpmshx.physical_models.grid import SHANGHAI_GRID_2D, SHANGHAI_GRID_3D
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.physical_models.grid import SHANGHAI_GRID_2D, SHANGHAI_GRID_3D
+    from tm1.applications.gui.ui.window_config import config_from_window
     for name, counts in (('Shanghai (2D Gyroid)', SHANGHAI_GRID_2D),
                          ('Shanghai (3D Gyroid)', SHANGHAI_GRID_3D)):
         win.case_files.load_named_preset(name)
@@ -84,7 +84,7 @@ def test_shanghai_recommended_grid_and_manual_preset_roundtrip(win):
 @pytest.mark.parametrize('shape', [1, 2], ids=['hexagon', 'octagon'])
 @pytest.mark.parametrize('dimension', [2, 3])
 def test_saved_polygon_cannot_replace_the_current_compute_case(win, monkeypatch, shape, dimension):
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window, DOMAIN_SHAPE_NOTICE
+    from tm1.applications.gui.ui.window_config import config_from_window, DOMAIN_SHAPE_NOTICE
 
     apply_config(win, baseline_config() if dimension == 2 else small_air_config())
     assert not hasattr(win, 'combo_shape')

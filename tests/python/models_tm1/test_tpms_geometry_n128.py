@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import pytest
 
-from sjtu_tpmshx.physical_models.tpms_geometry import compute_geometry
+from tm1.physical_models.tpms_geometry import compute_geometry
 
 
 # 12 (Diamond) + 12 (Gyroid) = 24 baseline geometries that span the

@@ -2,15 +2,15 @@
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.applications.result_adapter import compute_result
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.data_types.compute_config import (
+from tm1.applications.result_adapter import compute_result
+from tm1.run_control.cancellation import CancelledError
+from tm1.data_types.compute_config import (
     ComputeConfig, ExtrapPolicy, FluidConfig, GeometryConfig, PartialBCConfig, SolverConfig,
 )
-from sjtu_tpmshx.file_io.case_io import load_case, save_case
-from sjtu_tpmshx.postprocess.api import evaluate
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.api import run_case
+from tm1.file_io.case_io import load_case, save_case
+from tm1.postprocess.api import evaluate
+from tm1.preprocess.api import prepare_case
+from tm1.solvers.api import run_case
 from tests.python.integration_tm1.test_public_api import assert_slots
 from tests.python.native.shared_library import library_path
 
@@ -78,7 +78,7 @@ def test_native_cancellation_never_finalizes(monkeypatch, native_path, dimension
     def cancelled():
         calls.append(True)
         return len(calls) >= (1 if before else 100)
-    monkeypatch.setattr('sjtu_tpmshx.postprocess.api.evaluate',
+    monkeypatch.setattr('tm1.postprocess.api.evaluate',
                         lambda *args: pytest.fail('cancelled result was finalized'))
     with pytest.raises(CancelledError, match='cancel'):
         compute_result(_config(dimension), control=control(native_path, cancel_check=cancelled))
@@ -98,6 +98,6 @@ def test_retired_kernel_requests_fail_before_library_load(monkeypatch, tmp_path,
         pytest.fail(f'Retired kernel request reached the {dimension}D solver library {library}.')
 
     loader = 'full_2d_stage.StageDriver' if dimension == 2 else 'full_3d_stage.open_library'
-    monkeypatch.setattr(f'sjtu_tpmshx.cpp_interface.{loader}', forbidden)
+    monkeypatch.setattr(f'tm1.cpp_interface.{loader}', forbidden)
     with pytest.raises(ValueError, match='TPMSHX_TRUE_H_KERNEL has been retired'):
         run_case(saved_case)

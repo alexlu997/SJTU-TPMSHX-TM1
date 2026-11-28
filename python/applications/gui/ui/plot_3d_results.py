@@ -8,14 +8,14 @@ import numpy as np
 from matplotlib.ticker import ScalarFormatter
 
 # Theme — resolved at call time via get_theme() and resolve_cmap()
-from sjtu_tpmshx.applications.gui.ui.theme import get_theme as _get_theme
-from sjtu_tpmshx.applications.gui.ui.theme import resolve_cmap
+from tm1.applications.gui.ui.theme import get_theme as _get_theme
+from tm1.applications.gui.ui.theme import resolve_cmap
 from .vis3d_constants import field_color_limits
 from .matplotlib_canvas import style_colorbar
 
-from sjtu_tpmshx.data_types.validator import kelvin_to_display
-from sjtu_tpmshx.postprocess.result_display import RESULT_FIELD_SPECS, extrapolation_watermark
-from sjtu_tpmshx.run_control.logutil import get_logger
+from tm1.data_types.validator import kelvin_to_display
+from tm1.postprocess.result_display import RESULT_FIELD_SPECS, extrapolation_watermark
+from tm1.run_control.logutil import get_logger
 
 _log = get_logger(__name__)
 
@@ -248,7 +248,7 @@ def _render_2d_slices_from_3d(window, res, field=None):
     # Keep the run's model-extrapolation watermark visible on 2D slice canvases.
     _wm_text = extrapolation_watermark(res.metadata, res.extrap_reasons)
     if _wm_text:
-        from sjtu_tpmshx.applications.gui.ui.theme import get_theme as _gt
+        from tm1.applications.gui.ui.theme import get_theme as _gt
         _tw = _gt().get('warn', '#B45309')
         for attr in ('canvas_temp', 'canvas_pres', 'canvas_vel'):
             if field is not None and attr != f'canvas_{field}':

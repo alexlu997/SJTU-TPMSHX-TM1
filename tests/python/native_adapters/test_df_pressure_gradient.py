@@ -7,7 +7,7 @@ import pytest
 
 from tests.python import float64_oracle as oracle
 from tests.python.df_reference import pressure_gradient as reference
-from sjtu_tpmshx.cpp_interface import _native_df as native
+from tm1.cpp_interface import _native_df as native
 
 
 _BASE = (1.2501233, 1.8e-5, 4.71321, 4.8841442670242926e-8, 239.78171583799818)

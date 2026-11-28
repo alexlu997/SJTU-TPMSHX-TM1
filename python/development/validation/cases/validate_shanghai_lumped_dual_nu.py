@@ -46,10 +46,10 @@ import sys
 import numpy as np
 import pandas as pd
 
-from sjtu_tpmshx.development.validation.harness._provenance import (
+from tm1.development.validation.harness._provenance import (
     output_directory, write_csv_with_provenance,
 )
-from sjtu_tpmshx.physical_models.tpms_calc import (
+from tm1.physical_models.tpms_calc import (
     geometry as tpms_geometry, nu_from_Re, nu_water_topo,
     air_density, air_viscosity, air_conductivity, air_cp,
     water_density, water_viscosity, water_conductivity, water_cp,
@@ -61,9 +61,9 @@ from sjtu_tpmshx.physical_models.tpms_calc import (
 # Air flows along x (full-width inlet on yz face), water flows along y
 # (cross-flow, narrow 42×42 port). Internal interstitial flow areas
 # differ between streams since flow direction differs.
-from sjtu_tpmshx.model_configs import load_shanghai_baseline
-from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig
+from tm1.model_configs import load_shanghai_baseline
+from tm1.model_configs.units import CELSIUS_ZERO_K
+from tm1.data_types.compute_config import ComputeConfig
 # Audit C3 (2026-05-28): sourced through ComputeConfig.
 _SH = load_shanghai_baseline()
 _SH_CC = ComputeConfig.from_dict(_SH)
@@ -151,13 +151,13 @@ def main(argv=None) -> None:
     print(f"  A_0={A_0:.1f} 1/m  V_HX_total={V_HX_TOTAL*1e6:.1f}cm³  "
           f"A_tot={A_TOT:.4f}m² (full sheet HX gyroid wall)")
     print("  Air Nu: nu_from_Re (Gyroid v4.1 ×1.28 roughness)")
-    from sjtu_tpmshx.physical_models.nu_correlations import WATER_NU_COEFFS
+    from tm1.physical_models.nu_correlations import WATER_NU_COEFFS
     water_fit = WATER_NU_COEFFS[TPMS]
     print(f"  Water Nu: nu_water_topo({TPMS})  "
           f"Nu = {water_fit['c']}·Re^{water_fit['a']}·Pr^(1/3)\n")
 
-    from sjtu_tpmshx.development.validation.harness._harness import load_cases_df
-    from sjtu_tpmshx.development.validation.harness._case_sets import SHANGHAI_XLSX
+    from tm1.development.validation.harness._harness import load_cases_df
+    from tm1.development.validation.harness._case_sets import SHANGHAI_XLSX
     df = load_cases_df(SHANGHAI_XLSX)
 
     rows = []
@@ -265,7 +265,7 @@ def main(argv=None) -> None:
     write_csv_with_provenance(out, csv_path, __file__)
 
     # err_stats_pct: shared helper (validation/_metrics.py, L5 fix 2026-05-28)
-    from sjtu_tpmshx.development.validation.harness._metrics import err_stats_pct as stats
+    from tm1.development.validation.harness._metrics import err_stats_pct as stats
 
     print('\n' + '═' * 70)
     print(f"{'Reference':>16}  {'RMSRE':>8}  {'bias':>8}  {'max|err|':>8}")

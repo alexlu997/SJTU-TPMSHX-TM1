@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 from PySide6.QtWidgets import QMessageBox
 
-from sjtu_tpmshx.data_types.validator import kelvin_to_display
+from tm1.data_types.validator import kelvin_to_display
 
 from .symbols import MPL
 from .theme import get_theme, resolve_cmap

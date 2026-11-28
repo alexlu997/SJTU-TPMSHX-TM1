@@ -16,8 +16,8 @@ from __future__ import annotations
 import numpy as np
 from numpy.typing import ArrayLike
 
-from sjtu_tpmshx.model_configs.model_parameters import load_model_parameters
-from sjtu_tpmshx.cpp_interface import _native_result_checks
+from tm1.model_configs.model_parameters import load_model_parameters
+from tm1.cpp_interface import _native_result_checks
 
 _MODEL_PARAMETERS = load_model_parameters()
 R_AIR_DEFAULT = _MODEL_PARAMETERS['envelope']['r_air_default']

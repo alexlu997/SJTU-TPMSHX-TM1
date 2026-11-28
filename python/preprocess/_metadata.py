@@ -2,9 +2,9 @@
 from contextlib import ExitStack
 from dataclasses import replace
 
-from sjtu_tpmshx.data_types.case_data import CaseData
-from sjtu_tpmshx.run_control.provenance import source_context
-from sjtu_tpmshx.run_control.run_warnings import warning_scope, warning_messages, range_observations
+from tm1.data_types.case_data import CaseData
+from tm1.run_control.provenance import source_context
+from tm1.run_control.run_warnings import warning_scope, warning_messages, range_observations
 
 
 def _finish_metadata(case, provenance, records) -> CaseData:

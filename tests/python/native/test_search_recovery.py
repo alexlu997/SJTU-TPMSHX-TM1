@@ -8,10 +8,10 @@ from threading import Event
 
 import pytest
 
-from sjtu_tpmshx.run_control.paused_run import PausedRun
-from sjtu_tpmshx.file_io.metrics_io import load_metrics
-from sjtu_tpmshx.file_io.result_io import load_result
-from sjtu_tpmshx.applications.optimization.multi_condition_optimizer import (
+from tm1.run_control.paused_run import PausedRun
+from tm1.file_io.metrics_io import load_metrics
+from tm1.file_io.result_io import load_result
+from tm1.applications.optimization.multi_condition_optimizer import (
     run_multi_condition_optimization, resume_multi_condition_optimization)
 from tests.python.native.test_backend_condition_consumers import _conditions, native_3d
 from tests.python.native.test_run_recovery import same_result
@@ -82,8 +82,8 @@ def _exercise_search_recovery(native_path, tmp_path):
     destination = tmp_path / 'resumed'
     script = """
 import sys
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.applications.optimization.multi_condition_optimizer import resume_multi_condition_optimization
+from tm1.run_control.module_ports import RunControl
+from tm1.applications.optimization.multi_condition_optimizer import resume_multi_condition_optimization
 result = resume_multi_condition_optimization(sys.argv[1], output_dir=sys.argv[2], workers=1,
     control=RunControl(native_library=sys.argv[3], native_table_directory=sys.argv[4], cpu_threads=2))
 assert result['status'] == 'completed' and result['n_usable'] == 3, result

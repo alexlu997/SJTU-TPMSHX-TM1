@@ -4,11 +4,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.file_io.case_io import load_case, save_case
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.api import run_case
+from tm1.data_types.compute_config import ComputeConfig
+from tm1.run_control.module_ports import RunControl
+from tm1.file_io.case_io import load_case, save_case
+from tm1.preprocess.api import prepare_case
+from tm1.solvers.api import run_case
 
 
 @pytest.mark.parametrize('dimension', [2, 3])

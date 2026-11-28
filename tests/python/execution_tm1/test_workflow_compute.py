@@ -4,12 +4,12 @@ from threading import Event
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-from sjtu_tpmshx.data_types.field_result import FieldResult
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.run_control.run_warnings import current_warnings, record_warning
-from sjtu_tpmshx.compute import compute
+from tm1.run_control.cancellation import CancelledError
+from tm1.data_types.compute_config import ComputeConfig
+from tm1.data_types.field_result import FieldResult
+from tm1.run_control.module_ports import RunControl
+from tm1.run_control.run_warnings import current_warnings, record_warning
+from tm1.compute import compute
 
 
 @pytest.fixture
@@ -23,7 +23,7 @@ def native_result():
 def test_stage_order_progress_timing_and_shared_storage(monkeypatch, native_result, progress_enabled):
     clock, calls, overall, raw = [0.], [], [], []
     case, performance = object(), object()
-    monkeypatch.setattr('sjtu_tpmshx.compute.perf_counter', lambda: clock[0])
+    monkeypatch.setattr('tm1.compute.perf_counter', lambda: clock[0])
 
     def prepare(config, *, case_id):
         assert case_id == native_result.case_id
@@ -147,11 +147,11 @@ def test_invalid_config_never_reaches_preparation():
 
 @pytest.mark.parametrize('outcome', ['completed', 'cancelled', 'failed'])
 def test_application_mapping_keeps_cancellation_and_real_errors(monkeypatch, outcome):
-    from sjtu_tpmshx.applications import result_adapter as module_adapter
+    from tm1.applications import result_adapter as module_adapter
     cancelled = Event()
     native, performance, display = object(), object(), object()
     error = ValueError('invalid application evidence')
-    monkeypatch.setattr('sjtu_tpmshx.compute.compute',
+    monkeypatch.setattr('tm1.compute.compute',
                         lambda *a, **k: (object(), native, performance))
 
     def map_result(result, metrics):

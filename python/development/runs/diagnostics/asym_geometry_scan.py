@@ -1,7 +1,7 @@
 """
 Phase 0 驱动：扫偏移 δ，量 ε_A/ε_B/A0/D_h/t/连通性，出 CSV + 闸门判定。
 
-纯几何，无 CFD。用法：python -m sjtu_tpmshx.development.runs.diagnostics.asym_geometry_scan
+纯几何，无 CFD。用法：python -m tm1.development.runs.diagnostics.asym_geometry_scan
 适用范围见 openspec/specs/asymmetric-porosity-2d/spec.zh-CN.md。
 """
 import csv
@@ -9,11 +9,11 @@ from pathlib import Path
 
 import numpy as np
 
-from sjtu_tpmshx.physical_models.tpms_geometry import _phi_grid, _C_from_tL, compute_geometry
-from sjtu_tpmshx.physical_models.asym_geometry import (
+from tm1.physical_models.tpms_geometry import _phi_grid, _C_from_tL, compute_geometry
+from tm1.physical_models.asym_geometry import (
     eps_sides, a0_sides, dh_from_sides, wall_thickness_from_sides,
 )
-from sjtu_tpmshx.development.runs.tools.asym_geometry_research import percolates_z, find_delta_max
+from tm1.development.runs.tools.asym_geometry_research import percolates_z, find_delta_max
 
 N = 128
 CASES = [

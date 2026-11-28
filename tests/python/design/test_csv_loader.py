@@ -1,4 +1,4 @@
-from sjtu_tpmshx.applications.design.cases import load_cases, DesignCase
+from tm1.applications.design.cases import load_cases, DesignCase
 
 _HEADER = ("case,hot_fluid,T_in_h_K,P_in_h_kPa,mdot_h,"
            "cold_fluid,T_in_c_K,P_in_c_kPa,mdot_c,Q_kW,dT_h_K,dPlim_h,dPlim_c")

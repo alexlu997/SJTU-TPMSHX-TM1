@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from sjtu_tpmshx.model_configs.df_domain import TRAIN_L_NODES, TRAIN_T_NODES
+from tm1.model_configs.df_domain import TRAIN_L_NODES, TRAIN_T_NODES
 
 from .colormap_popover import ToggleSwitch
 from .design_peek import (
@@ -773,8 +773,8 @@ class QuickDesignPage(QWidget):
 
     def _fill_table(self, feasible, *, partial: bool = False):
         """Show feasible designs in order of increasing volume."""
-        from sjtu_tpmshx.applications.design.report import warning_text
-        from sjtu_tpmshx.applications.design.select import pareto_tags
+        from tm1.applications.design.report import warning_text
+        from tm1.applications.design.select import pareto_tags
 
         rows = sorted(feasible, key=lambda d: d.V)
         tags = pareto_tags(feasible)
@@ -911,7 +911,7 @@ class QuickDesignPage(QWidget):
         self._qd_table.blockSignals(False)
         self.volume_dp_view.set_selected_index(row_idx)
 
-        from sjtu_tpmshx.applications.design.report import warning_text
+        from tm1.applications.design.report import warning_text
 
         d = self._feasible_rows[row_idx]
         d_tags = tuple(self._feasible_tags.get(id(d), ()))
@@ -1011,7 +1011,7 @@ class QuickDesignPage(QWidget):
 
     def _fill_energy_table(self, results):
         """Show existing final-case diagnostics for all completed candidates."""
-        from sjtu_tpmshx.applications.design.report import cid
+        from tm1.applications.design.report import cid
 
         rows = []
         for design in results:
@@ -1077,7 +1077,7 @@ class QuickDesignPage(QWidget):
         try:
             if Path(path).resolve() == Path(last["params"]["file"]).resolve():
                 raise ValueError("导出文件不能覆盖输入算例文件")
-            from sjtu_tpmshx.applications.design.report import write_xlsx
+            from tm1.applications.design.report import write_xlsx
 
             partial = last["partial"]
             reason = last["termination_reason"]
@@ -1181,7 +1181,7 @@ class QuickDesignPage(QWidget):
         self._rule_a_fields.append(edit)
 
     def _build_controls(self) -> None:
-        from sjtu_tpmshx.applications.design import sizing
+        from tm1.applications.design import sizing
 
         t = get_theme()
         self.setStyleSheet(f"QuickDesignPage {{ background: {t['canvas']}; border: none; }}")

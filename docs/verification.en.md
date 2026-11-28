@@ -15,7 +15,7 @@ Do not modify an environment in use. Run from the current repository root.
 
 ```bash
 PYTHON="$(head -n 1 .venv-path)"
-"$PYTHON" -m sjtu_tpmshx.development.runs.tools.check_locked_environment
+"$PYTHON" -m tm1.development.runs.tools.check_locked_environment
 "$PYTHON" -m pip check
 export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
 export QT_QPA_PLATFORM=offscreen PYTHONHASHSEED=0
@@ -23,7 +23,7 @@ export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_TH
 "$PYTHON" -m ruff check .
 "$PYTHON" -m engineering.scripts.check_types --platform darwin
 "$PYTHON" -m engineering.scripts.check_types --platform win32
-"$PYTHON" -m sjtu_tpmshx.development.runs.tools.audit_import_graph --fail-on-violations
+"$PYTHON" -m tm1.development.runs.tools.audit_import_graph --fail-on-violations
 "$PYTHON" -m pytest tests/python -q -ra -m "not slow and not heavy" --ignore=tests/python/integration_tm1 -n 2 --dist worksteal --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/fast.xml
 "$PYTHON" -m pytest tests/python/integration_tm1 -q -ra --timeout=600 --timeout-method=thread --durations=30 --junitxml=.cache/ci/integration.xml
 # Complete local acceptance: no -m filter. Replace auto with a fixed worker count for available resources.

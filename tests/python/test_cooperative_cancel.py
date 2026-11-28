@@ -2,10 +2,10 @@
 
 import pytest
 
-from sjtu_tpmshx.applications.gui.controllers.compute_orchestrator import CancelToken
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.data_types.compute_config import (
+from tm1.applications.gui.controllers.compute_orchestrator import CancelToken
+from tm1.run_control.cancellation import CancelledError
+from tm1.run_control.module_ports import RunControl
+from tm1.data_types.compute_config import (
     ComputeConfig, FluidConfig, GeometryConfig, SolverConfig,
 )
 
@@ -28,7 +28,7 @@ def _cfg(nz=1, enthalpy=False):
 @pytest.mark.parametrize('error_type', [CancelledError, InterruptedError, ValueError])
 @pytest.mark.parametrize('requested', [False, True])
 def test_ui_adapter_only_classifies_explicit_cancellation(tmp_path, monkeypatch, error_type, requested):
-    from sjtu_tpmshx.applications.gui.ui.single_run import _run_compute
+    from tm1.applications.gui.ui.single_run import _run_compute
     token = CancelToken()
     failure = error_type('solver stopped')
 
@@ -37,7 +37,7 @@ def test_ui_adapter_only_classifies_explicit_cancellation(tmp_path, monkeypatch,
             token.cancel()
         raise failure
 
-    monkeypatch.setattr('sjtu_tpmshx.applications.execution.recovery.compute_run', run)
+    monkeypatch.setattr('tm1.applications.execution.recovery.compute_run', run)
     with pytest.raises(error_type) as caught:
         _run_compute(_cfg(3), token, lambda *a: None, control=RunControl(), ui_hooks={},
                      run_directory=tmp_path, checkpoint_interval_s=60.)
@@ -45,10 +45,10 @@ def test_ui_adapter_only_classifies_explicit_cancellation(tmp_path, monkeypatch,
 
 
 def test_cancel_during_finalize_does_not_return_result(monkeypatch):
-    from sjtu_tpmshx.data_types.compute_result import ComputeResult
+    from tm1.data_types.compute_result import ComputeResult
     token = CancelToken()
     progress = []
-    from sjtu_tpmshx.compute import compute
+    from tm1.compute import compute
 
     def finalize(*args):
         token.cancel()

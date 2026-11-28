@@ -96,7 +96,7 @@ def qualification_reasons(qualification, evidence=None):
                         and sample.get('source') == row.get('source')
                         and sample.get('quantity') == row.get('quantity')
                         and sample.get('captured')):
-                    from sjtu_tpmshx.physical_models.range_policy import assess_range
+                    from tm1.physical_models.range_policy import assess_range
                     assessed = assess_range(sample)
                     if sample.get('minimum') is not None and sample.get('maximum') is not None:
                         lo, hi = assessed['allowed_bounds']

@@ -6,7 +6,7 @@ from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QApplication, QMessageBox
 from shiboken6 import isValid
 
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig, SolverConfig
+from tm1.data_types.compute_config import ComputeConfig, SolverConfig
 
 
 def _wait_for(predicate, timeout=10):
@@ -20,8 +20,8 @@ def _wait_for(predicate, timeout=10):
 
 @pytest.fixture
 def win(tmp_path, monkeypatch):
-    from sjtu_tpmshx.applications.gui.controllers.session_manager import SessionManager
-    from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
+    from tm1.applications.gui.controllers.session_manager import SessionManager
+    from tm1.applications.gui.ui.main_window import Main_Menu
 
     original_init = SessionManager.__init__
     monkeypatch.setattr(SessionManager, '__init__',
@@ -33,7 +33,7 @@ def win(tmp_path, monkeypatch):
     monkeypatch.setattr(window.single_run, 'preflight_grid', lambda config: True)
     monkeypatch.setattr(window.single_run, '_preflight_3d', lambda config: (True, 8, '2×2×2'))
     monkeypatch.setattr(window.results, 'finalize_plots', lambda: None)
-    monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.plot_3d_results.finalize_plots_3d',
+    monkeypatch.setattr('tm1.applications.gui.ui.plot_3d_results.finalize_plots_3d',
                         lambda _window: False)
     window._test_error_dialogs = []
     monkeypatch.setattr(QMessageBox, 'critical',
@@ -56,7 +56,7 @@ def win(tmp_path, monkeypatch):
 def _configure(win, monkeypatch, mode):
     cfg = ComputeConfig(solver=SolverConfig(Nz=2 if mode == '3d' else 1))
     win.combo_dim.setCurrentIndex(1 if mode == '3d' else 0)
-    monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.window_config.config_from_window',
+    monkeypatch.setattr('tm1.applications.gui.ui.window_config.config_from_window',
                         lambda *args, **kwargs: cfg)
     return cfg
 
@@ -65,20 +65,20 @@ def _configure(win, monkeypatch, mode):
 def _stub_stages(monkeypatch, mode, prepare):
     """Keep the real workflow and display mapping; replace numerical stages."""
     from tests.python.test_module_result_mapping import _synthetic_results
-    from sjtu_tpmshx.compute import compute
+    from tm1.compute import compute
     native, performance = _synthetic_results(2 if mode == '2d' else 3)
-    monkeypatch.setattr('sjtu_tpmshx.applications.execution.recovery.compute_run',
+    monkeypatch.setattr('tm1.applications.execution.recovery.compute_run',
                         lambda config, directory, *, control, progress_cb, **kwargs:
                         compute(config, control=control, progress_cb=progress_cb))
-    monkeypatch.setattr('sjtu_tpmshx.preprocess.api.prepare_case', prepare)
-    monkeypatch.setattr('sjtu_tpmshx.solvers.api.run_case', lambda *a: native)
-    monkeypatch.setattr('sjtu_tpmshx.postprocess.api.evaluate', lambda *a: performance)
+    monkeypatch.setattr('tm1.preprocess.api.prepare_case', prepare)
+    monkeypatch.setattr('tm1.solvers.api.run_case', lambda *a: native)
+    monkeypatch.setattr('tm1.postprocess.api.evaluate', lambda *a: performance)
 
 
 def _stub_compute_result(monkeypatch, execute):
     """Return a display fixture through the current saved-run boundary."""
     def run(config, directory, *, control, progress_cb, **kwargs):
         return None, execute(config, control=control, progress_cb=progress_cb), None
-    monkeypatch.setattr('sjtu_tpmshx.applications.execution.recovery.compute_run', run)
-    monkeypatch.setattr('sjtu_tpmshx.applications.result_adapter.to_compute_result',
+    monkeypatch.setattr('tm1.applications.execution.recovery.compute_run', run)
+    monkeypatch.setattr('tm1.applications.result_adapter.to_compute_result',
                         lambda display, performance: display)

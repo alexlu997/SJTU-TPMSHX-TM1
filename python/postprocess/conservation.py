@@ -1,6 +1,6 @@
 """Conservation certificate for a prepared public result."""
-from sjtu_tpmshx.data_types.field_result import FieldResult
-from sjtu_tpmshx.postprocess.result_math import compute_phase2a as _compute_phase2a
+from tm1.data_types.field_result import FieldResult
+from tm1.postprocess.result_math import compute_phase2a as _compute_phase2a
 
 
 def compute_phase2a(result: FieldResult):

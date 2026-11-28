@@ -14,14 +14,14 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 
-from sjtu_tpmshx.data_types.compute_config import (  # noqa: E402
+from tm1.data_types.compute_config import (  # noqa: E402
     ComputeConfig,
     FluidConfig,
     GeometryConfig,
     PartialBCConfig,
     SolverConfig,
 )
-from sjtu_tpmshx.data_types.compute_result import ComputeResult  # noqa: E402
+from tm1.data_types.compute_result import ComputeResult  # noqa: E402
 
 
 # ── ComputeConfig.validate — the script/optimizer boundary ────────────
@@ -68,8 +68,8 @@ def test_solver_integers_are_not_coerced(name, value):
 
 
 def test_fractional_nz_is_rejected_before_geometry_preparation(monkeypatch):
-    from sjtu_tpmshx.preprocess.api import prepare_case
-    from sjtu_tpmshx.preprocess.two_d import preparation as preparation
+    from tm1.preprocess.api import prepare_case
+    from tm1.preprocess.two_d import preparation as preparation
     monkeypatch.setattr(preparation, '_execute',
                         lambda *a, **kw: pytest.fail('invalid grid reached geometry'))
     config = ComputeConfig(solver=SolverConfig(Nz=1.9))
@@ -194,13 +194,13 @@ def _fake_window(**over):
 
 
 def test_strict_widgets_reject_nan():
-    from sjtu_tpmshx.applications.gui.ui.window_config import _validate_required_widgets
+    from tm1.applications.gui.ui.window_config import _validate_required_widgets
     with pytest.raises(ValueError, match='Domain Length'):
         _validate_required_widgets(_fake_window(le_L='nan'), is_3d=False)
 
 
 def test_strict_widgets_reject_negative():
-    from sjtu_tpmshx.applications.gui.ui.window_config import _validate_required_widgets
+    from tm1.applications.gui.ui.window_config import _validate_required_widgets
     with pytest.raises(ValueError, match='TPMS t'):
         _validate_required_widgets(_fake_window(le_t='-0.6'), is_3d=False)
 
@@ -208,7 +208,7 @@ def test_strict_widgets_reject_negative():
 def test_strict_widgets_allow_negative_celsius_temp():
     """Temp fields may hold °C text — sign check is deferred to
     ComputeConfig.validate (Kelvin domain)."""
-    from sjtu_tpmshx.applications.gui.ui.window_config import _validate_required_widgets
+    from tm1.applications.gui.ui.window_config import _validate_required_widgets
     _validate_required_widgets(_fake_window(le_TinA='-10'), is_3d=False)
 
 
@@ -224,7 +224,7 @@ def test_compute_result_has_converged_default_true():
 
 @pytest.mark.parametrize('cap', [10, 1000])
 def test_public_preparation_cell_cap(monkeypatch, cap):
-    from sjtu_tpmshx.preprocess.api import prepare_case
+    from tm1.preprocess.api import prepare_case
     monkeypatch.setenv('TPMSHX_MAX_CELLS_3D', str(cap))
     config = ComputeConfig(geometry=GeometryConfig(Lz_m=0.042), solver=SolverConfig(Nx=20, Ny=20, Nz=5))
     with pytest.raises(ValueError, match=f'{cap}-cell cap'):
@@ -234,7 +234,7 @@ def test_public_preparation_cell_cap(monkeypatch, cap):
 # ── corrupt-session quarantine ────────────────────────────────────────
 
 def test_corrupt_session_quarantined(tmp_path):
-    from sjtu_tpmshx.applications.gui.controllers.session_manager import SessionManager
+    from tm1.applications.gui.controllers.session_manager import SessionManager
     sm = SessionManager(base_dir=tmp_path)
     p = sm.session_path('A')
     p.parent.mkdir(parents=True, exist_ok=True)

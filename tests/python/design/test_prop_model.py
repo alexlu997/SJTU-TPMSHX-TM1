@@ -6,8 +6,8 @@ from __future__ import annotations
 import importlib
 import numpy as np
 import pytest
-from sjtu_tpmshx.applications.design.cases import DesignCase
-from sjtu_tpmshx.applications.design.forward import forward
+from tm1.applications.design.cases import DesignCase
+from tm1.applications.design.forward import forward
 
 
 def _case(dT):  # 单工况空气-空气, 可调热侧温降 ΔT
@@ -39,7 +39,7 @@ def test_mean_approx_const_for_small_dT():
 
 
 def test_mean_threads_solve_Lx_and_converges():
-    from sjtu_tpmshx.applications.design.sizing import solve_Lx
+    from tm1.applications.design.sizing import solve_Lx
     c = _case(300.)
     Lx, r = solve_Lx(c, "Diamond", 7., 0.5, 0.084, "cross", prop_model="mean")
     assert Lx is not None                          # mean 下二分收敛
@@ -47,8 +47,8 @@ def test_mean_threads_solve_Lx_and_converges():
 
 @pytest.mark.parametrize('side,value', [(i, v) for i in range(3) for v in (np.nan, np.inf)])
 def test_forward_rejects_nonfinite_external_seed_before_properties(monkeypatch, side, value):
-    preparation = importlib.import_module('sjtu_tpmshx.preprocess.quick_design')
-    execution = importlib.import_module('sjtu_tpmshx.solvers.quick_design')
+    preparation = importlib.import_module('tm1.preprocess.quick_design')
+    execution = importlib.import_module('tm1.solvers.quick_design')
     seed = [np.full((2, 2, 1), 400.) for _ in range(3)]
     seed[side][0, 0, 0] = value
 

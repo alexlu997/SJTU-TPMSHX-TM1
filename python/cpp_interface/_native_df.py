@@ -8,7 +8,7 @@ from functools import lru_cache
 
 import numpy as np
 
-from sjtu_tpmshx.model_configs.model_parameters import fixed_geometry_error
+from tm1.model_configs.model_parameters import fixed_geometry_error
 
 from ._native_values import TOPOLOGY_CODES, geometry_topology, real_scalar
 from ._df_abi import DragSummary as _Summary
@@ -192,7 +192,7 @@ def selection(topology, fluid, lengths, walls, velocity=None, *, transfer=False)
             if str(invalid) != 'HX velocity outside application window':
                 raise
             # The message keeps the original source-window and summary text.
-            from sjtu_tpmshx.model_configs.model_parameters import load_preparation_df_parameters
+            from tm1.model_configs.model_parameters import load_preparation_df_parameters
             lo, hi = load_preparation_df_parameters()['hx']['application_u_mps'][fluid][topology]
             raise ValueError(f'{fluid} HX experiment calibration requires {lo:.6g}<=u<='
                              f'{hi:.6g} m/s for {topology}; got {summary(velocity)}') from invalid

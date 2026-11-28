@@ -5,11 +5,11 @@ import warnings
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.run_control.run_warnings import (
+from tm1.run_control.run_warnings import (
     cache_warning_records, merge_warnings, range_context, range_observations,
     warning_messages, warning_scope,
 )
-from sjtu_tpmshx.physical_models import nu_correlations as nu
+from tm1.physical_models import nu_correlations as nu
 
 
 def _scalar_loop(tpms_type, values):

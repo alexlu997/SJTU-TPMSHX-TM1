@@ -177,8 +177,8 @@ def zone_statistics_2d(z_axis, zone_config, za, L, H,
         return None
     if z_axis == 'continuous':
         return dict(axis_dir=z_axis, boundaries=[], boundaries_x=[], boundaries_y=[], stats=[])
-    from sjtu_tpmshx.physical_models.zone_config import Zone, compute_zone_statistics
-    from sjtu_tpmshx.cpp_interface._native_result_metrics import capture_area_weights
+    from tm1.physical_models.zone_config import Zone, compute_zone_statistics
+    from tm1.cpp_interface._native_result_metrics import capture_area_weights
     zones = dict(axis_dir=z_axis)
     if z_axis == 'grid':
         zones.update(boundaries=[], boundaries_x=[b * L for b in za.get('x_bounds', [])],
@@ -192,6 +192,6 @@ def zone_statistics_2d(z_axis, zone_config, za, L, H,
                                  for z in definitions[:-1]])
     zones['stats'] = compute_zone_statistics(Ta, Tb, Ts, za['zone_id'], definitions,
         cell_area=capture_area_weights(energy_dx, energy_dy))
-    from sjtu_tpmshx.run_control.logutil import log_zone_report
+    from tm1.run_control.logutil import log_zone_report
     log_zone_report(zones['stats'])
     return zones

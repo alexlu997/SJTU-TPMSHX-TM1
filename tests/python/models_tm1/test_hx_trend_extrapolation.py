@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.physical_models.df_surrogate.experimental_correction import apply_correction, correction_scale
+from tm1.physical_models.df_surrogate.experimental_correction import apply_correction, correction_scale
 
 
 @pytest.mark.parametrize('fluid, speed, factor', [('air', 30., 2.649010286988306),

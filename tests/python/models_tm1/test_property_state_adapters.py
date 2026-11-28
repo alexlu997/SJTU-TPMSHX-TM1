@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 
 from tests.python import eos_reference as reference
-from sjtu_tpmshx.physical_models import fluid_props, sco2_props
+from tm1.physical_models import fluid_props, sco2_props
 
 
 def observation(function):

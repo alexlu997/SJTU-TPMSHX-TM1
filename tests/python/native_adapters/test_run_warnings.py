@@ -5,13 +5,13 @@ import warnings
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.run_control.run_warnings import (
+from tm1.run_control.run_warnings import (
     current_warnings, warning_scope, range_context, warning_messages, merge_warnings,
 )
-from sjtu_tpmshx.physical_models import fluid_props, nu_correlations as nu, tpms_props
-from sjtu_tpmshx.data_types.field_result import FieldResult
-from sjtu_tpmshx.compute import compute as run_workflow
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig
+from tm1.physical_models import fluid_props, nu_correlations as nu, tpms_props
+from tm1.data_types.field_result import FieldResult
+from tm1.compute import compute as run_workflow
+from tm1.data_types.compute_config import ComputeConfig
 
 
 @pytest.fixture
@@ -101,7 +101,7 @@ def test_property_values_and_standalone_warning_location(name, temperature,
 
 
 def test_compute_uses_underlying_nu_notice_once(standalone_registries):
-    from sjtu_tpmshx.physical_models.tpms_calc import compute
+    from tm1.physical_models.tpms_calc import compute
 
     with warning_scope({}) as records:
         result = compute('Gyroid', 7, 0.6, 0.001, 300, 101325, 16,
@@ -112,7 +112,7 @@ def test_compute_uses_underlying_nu_notice_once(standalone_registries):
 
 
 def test_compute_cache_hit_replays_warnings_without_recomputation(standalone_registries):
-    from sjtu_tpmshx.physical_models import tpms_calc
+    from tm1.physical_models import tpms_calc
     compute = tpms_calc.compute
 
     args = ('Diamond', 6.9, 0.59, 0.00123, 370.12, 101325, 16)
@@ -133,8 +133,8 @@ def test_compute_cache_hit_replays_warnings_without_recomputation(standalone_reg
 
 
 def test_failed_cache_miss_restores_recording_context():
-    from sjtu_tpmshx.run_control import run_warnings
-    from sjtu_tpmshx.physical_models import tpms_calc
+    from tm1.run_control import run_warnings
+    from tm1.physical_models import tpms_calc
 
     tpms_calc.compute.cache_clear()
     with warning_scope({}) as failed_records:
@@ -154,7 +154,7 @@ def test_failed_cache_miss_restores_recording_context():
 
 @pytest.mark.parametrize('policies', [(False, True), (True, False)])
 def test_pressure_limit_warning_matches_each_return_policy(monkeypatch, policies):
-    from sjtu_tpmshx.physical_models.df_surrogate import predict
+    from tm1.physical_models.df_surrogate import predict
 
     monkeypatch.setattr(predict, '_CHOKE_WARNED', set())
     args = ('Gyroid', 7, 0.6, 0.35, 1e5, 400, 101325, 2e-5, 0.1)
@@ -219,7 +219,7 @@ def test_nested_layout_inherits_side_and_stage():
 @pytest.mark.parametrize('pressure', [9e6, 12e6, 16e6])
 @pytest.mark.parametrize('zoned', [False, True])
 def test_sco2_nu_evidence_retains_unknown_qualification_without_eos(monkeypatch, pressure, zoned):
-    from sjtu_tpmshx.cpp_interface import _native_properties
+    from tm1.cpp_interface import _native_properties
 
     def forbidden(*args, **kwargs):
         pytest.fail('evidence notice must not query EOS')
@@ -372,7 +372,7 @@ def test_side_stage_layout_and_shape_isolation_and_scope_restore():
 
 @pytest.mark.parametrize('prewarm', [False, True])
 def test_cache_facts_bind_to_each_run_context(prewarm, standalone_registries):
-    from sjtu_tpmshx.physical_models.tpms_calc import compute
+    from tm1.physical_models.tpms_calc import compute
 
     compute.cache_clear()
     args = ('Gyroid', 7., .6, .001, 300., 101325., 16., 'water')
@@ -413,7 +413,7 @@ def test_worker_merge_keeps_single_snapshot_counts_and_does_not_mutate_source():
 def test_sigmoid_nu_warning_origin_and_run_scope(standalone_registries):
     from inspect import getsourcelines
     from pathlib import Path
-    from sjtu_tpmshx.physical_models import sigmoid_field
+    from tm1.physical_models import sigmoid_field
 
     shape = (2, 2)
     geometry = dict(eps_arr=np.full(shape, .8), eps_f_arr=np.full(shape, .4),

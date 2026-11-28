@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from sjtu_tpmshx.applications.gui.ui.theme import get_theme
+from tm1.applications.gui.ui.theme import get_theme
 
 DRAWER_WIDTH = 376
 DRAWER_WIDTH_COMPACT = 340

@@ -9,20 +9,20 @@ from uuid import uuid4
 
 import numpy as np
 
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-from sjtu_tpmshx.data_types.field_result import FieldResult
-from sjtu_tpmshx.data_types.metric_spec import full_metric_version
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.run_control.paused_run import PausedRun
-from sjtu_tpmshx.data_types.performance_result import PerformanceResult
-from sjtu_tpmshx.file_io.file_snapshot import copy_saved_file, copy_snapshot, register_runtime_snapshot, retain_runtime
-from sjtu_tpmshx.run_control.logutil import get_logger
-from sjtu_tpmshx.preprocess.api import (
+from tm1.run_control.cancellation import CancelledError
+from tm1.data_types.compute_config import ComputeConfig
+from tm1.data_types.field_result import FieldResult
+from tm1.data_types.metric_spec import full_metric_version
+from tm1.run_control.module_ports import RunControl
+from tm1.run_control.paused_run import PausedRun
+from tm1.data_types.performance_result import PerformanceResult
+from tm1.file_io.file_snapshot import copy_saved_file, copy_snapshot, register_runtime_snapshot, retain_runtime
+from tm1.run_control.logutil import get_logger
+from tm1.preprocess.api import (
     prepare_fixed_mass_flow_case,
     resolve_fixed_mass_flow_config as resolve_fixed_mass_flow_config,
 )
-from sjtu_tpmshx.preprocess.inlet_flow import total_inlet_mass_capacity
+from tm1.preprocess.inlet_flow import total_inlet_mass_capacity
 
 
 _log = get_logger(__name__)
@@ -56,7 +56,7 @@ def _check_baseline_case(reference, case, flow_a, flow_b):
         raise ValueError('baseline must retain the original uniform design')
     parameters = metadata['parameters']
     if case.grid['dimension'] == 2:
-        from sjtu_tpmshx.data_types.portable_data import mutable_data
+        from tm1.data_types.portable_data import mutable_data
         previous, current = (mutable_data(values['run_settings'])
                              for values in (parameters, case.parameters))
         for settings in (previous, current):
@@ -136,7 +136,7 @@ def _condition_output_paths(directory):
 
 
 def _solve_condition(case, config, directory, control, update, checkpoint_file=None, pause_check=None):
-    from sjtu_tpmshx.postprocess.api import evaluate
+    from tm1.postprocess.api import evaluate
 
     def evaluate_field(field):
         update(stage='validate_result')
@@ -148,7 +148,7 @@ def _solve_condition(case, config, directory, control, update, checkpoint_file=N
         return performance
 
     update(stage='solve')
-    from sjtu_tpmshx.applications.execution.recovery import compute_prepared_run, resume_run
+    from tm1.applications.execution.recovery import compute_prepared_run, resume_run
     primary_error = None
     try:
         if checkpoint_file is None:
@@ -185,8 +185,8 @@ def _init_condition_worker(cancel, events, pause):
 
 def _run_native_condition(index, case_file, directory, library, threads, checkpoint_file=None):
     import os
-    from sjtu_tpmshx.file_io.case_io import load_case
-    from sjtu_tpmshx.data_types.portable_data import mutable_data
+    from tm1.file_io.case_io import load_case
+    from tm1.data_types.portable_data import mutable_data
 
     directory = Path(directory)
     changes = dict(worker_pid=os.getpid(), cpu_threads=threads)
@@ -281,8 +281,8 @@ def saved_condition_config(row: dict, *, prepared_grid: bool = False) -> Compute
 
 def resume_condition_batch(batch_file, *, output_dir, control=RunControl(backend='cpp'), workers=None):
     """Keep completed members and continue saved native states in a new batch."""
-    from sjtu_tpmshx.file_io.result_io import load_result
-    from sjtu_tpmshx.file_io.metrics_io import load_metrics
+    from tm1.file_io.result_io import load_result
+    from tm1.file_io.metrics_io import load_metrics
 
     path = Path(batch_file).resolve(strict=True)
     destination = Path(output_dir).resolve()
@@ -343,7 +343,7 @@ def evaluate_compact_condition_batch(
 
 
 def _check_saved_condition(case, config, flow_a, flow_b, case_id, *, saved_config=None):
-    from sjtu_tpmshx.data_types.portable_data import mutable_data
+    from tm1.data_types.portable_data import mutable_data
 
     if case.case_id != case_id:
         raise ValueError('saved condition and prepared-case identity differ')
@@ -370,13 +370,13 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
                               on_update=None, pause_check=None, keep_failed=False,
                               allow_nu_re_extrapolation=False):
     """Run the batch for the public entries that select fields or compact summaries."""
-    from sjtu_tpmshx.file_io.case_io import load_case, save_case
-    from sjtu_tpmshx.file_io.result_io import load_result, save_result
-    from sjtu_tpmshx.file_io.metrics_io import load_metrics, save_metrics
+    from tm1.file_io.case_io import load_case, save_case
+    from tm1.file_io.result_io import load_result, save_result
+    from tm1.file_io.metrics_io import load_metrics, save_metrics
     import shutil
-    from sjtu_tpmshx.file_io.text_file import write_text
+    from tm1.file_io.text_file import write_text
 
-    from sjtu_tpmshx.run_control.module_ports import resolve_control
+    from tm1.run_control.module_ports import resolve_control
     control = resolve_control(control)
 
     if type(allow_nu_re_extrapolation) is not bool:
@@ -541,7 +541,7 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
             checkpoint = source_root / (previous.get('checkpoint_file')
                 or f"{previous['directory']}/run/checkpoint.h5")
             if checkpoint.is_file():
-                from sjtu_tpmshx.applications.execution.recovery import read_run_checkpoint
+                from tm1.applications.execution.recovery import read_run_checkpoint
                 _, case, _ = read_run_checkpoint(checkpoint)
                 row['resume_checkpoint'] = str(checkpoint)
                 row['recovery_mode'] = 'checkpoint'
@@ -585,7 +585,7 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
             results.append(result)
         row['stage'] = 'qualification'
         notify()
-        from sjtu_tpmshx.data_types.portable_data import mutable_data
+        from tm1.data_types.portable_data import mutable_data
         row['qualification'] = mutable_data(performance.qualification)
         acceptances = {}
         design.update(_condition_metrics([result], (condition_id,), 'candidate',
@@ -602,8 +602,8 @@ def _evaluate_condition_batch(conditions, *, output_dir, baseline=None,
         from concurrent.futures.process import BrokenProcessPool
         from multiprocessing import get_context
         from queue import Empty
-        from sjtu_tpmshx.file_io.case_io import load_case
-        from sjtu_tpmshx.file_io.metrics_io import load_metrics
+        from tm1.file_io.case_io import load_case
+        from tm1.file_io.metrics_io import load_metrics
 
         def finish_saved(index, row):
             case = load_case(root / row['case_file'])
@@ -896,7 +896,7 @@ def _condition_metrics(rows: Sequence[ConditionResult], condition_ids: tuple[str
                     and metric.spec.unit != ('W/m' if dimension == 2 else 'W')):
                 raise ValueError(f'{prefix}: Q_B unit disagrees with the result dimension')
         if qualify:
-            from sjtu_tpmshx.postprocess.api import evaluate_qualification
+            from tm1.postprocess.api import evaluate_qualification
             qualification = evaluate_qualification(field, performance.metrics)
             acceptance = _optimization_acceptance(field, qualification, allow_nu_re_extrapolation)
             if acceptances is not None:
@@ -918,8 +918,8 @@ def _optimization_acceptance(field, qualification, allow_nu_re_extrapolation):
     outside = []
     if (allow_nu_re_extrapolation and qualification['optimization']['reasons'] == ['applicability']
             and qualification['model_scope']['passed'] is True):
-        from sjtu_tpmshx.postprocess.api import evaluate_applicability
-        from sjtu_tpmshx.data_types.portable_data import mutable_data
+        from tm1.postprocess.api import evaluate_applicability
+        from tm1.data_types.portable_data import mutable_data
         application = evaluate_applicability(field)
         outside = [dict(group=group, **mutable_data(row)) for group, rows in application['checks'].items()
                    for row in rows if row['within_limit'] is not True]

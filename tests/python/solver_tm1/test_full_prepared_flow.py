@@ -2,17 +2,17 @@
 from dataclasses import replace
 import numpy as np
 import pytest
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.run_control.module_ports import resolve_control
-from sjtu_tpmshx.solvers import full_2d
+from tm1.run_control.module_ports import RunControl
+from tm1.preprocess.api import prepare_case
+from tm1.run_control.module_ports import resolve_control
+from tm1.solvers import full_2d
 from tests.python.integration_tm1.integration_support import baseline_config
 
 
 def test_full_prepared_flow_consumes_drag_without_prediction(monkeypatch):
-    from sjtu_tpmshx.physical_models.df_surrogate import predict
-    from sjtu_tpmshx.cpp_interface import _native_df
-    from sjtu_tpmshx.physical_models import grid as grids
+    from tm1.physical_models.df_surrogate import predict
+    from tm1.cpp_interface import _native_df
+    from tm1.physical_models import grid as grids
     config = baseline_config()
     config.solver = replace(config.solver, max_outer_ltne=2, max_iter_simple=500)
     case = prepare_case(config, case_id='prepared-flow')

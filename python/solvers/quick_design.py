@@ -6,16 +6,16 @@ from uuid import uuid4
 
 import numpy as np
 
-from sjtu_tpmshx.cpp_interface.quick_design import QuickSolver
-from sjtu_tpmshx.data_types.field_result import FieldResult
-from sjtu_tpmshx.physical_models.fluid_props import Props, QuickDesignWaterFieldError, WaterStateError
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.run_control.run_warnings import current_warnings, range_context, record_sample
+from tm1.cpp_interface.quick_design import QuickSolver
+from tm1.data_types.field_result import FieldResult
+from tm1.physical_models.fluid_props import Props, QuickDesignWaterFieldError, WaterStateError
+from tm1.run_control.cancellation import CancelledError
+from tm1.run_control.run_warnings import current_warnings, range_context, record_sample
 
 
 def _saved_case(case):
-    from sjtu_tpmshx.data_types.persistence_validation import validate_grid
-    from sjtu_tpmshx.model_configs.model_parameters import MODEL_VERSIONS
+    from tm1.data_types.persistence_validation import validate_grid
+    from tm1.model_configs.model_parameters import MODEL_VERSIONS
 
     shape = validate_grid(case.grid)
     if len(shape) != 3 or case.metadata['model'] != 'plug_ltne_analytic_dp_v1':
@@ -55,7 +55,7 @@ def _saved_case(case):
 def _record_pass(records):
     for key, sample in records.items():
         if key[:2] == ('nu', 'sco2'):
-            from sjtu_tpmshx.physical_models.nu_correlations import record_quick_sco2_pr_notice
+            from tm1.physical_models.nu_correlations import record_quick_sco2_pr_notice
             record_quick_sco2_pr_notice()
         record_sample(key, sample)
 
@@ -106,7 +106,7 @@ def run_case(case, control):
         for records in pass_ranges:
             _record_pass(records)
     if not pass_ranges:
-        from sjtu_tpmshx.physical_models.design_fluids import record_native_design_ranges
+        from tm1.physical_models.design_fluids import record_native_design_ranges
     pass_info = []
     for index, native_pass in enumerate(output.passes):
         pass_info.append(dict(converged=native_pass.stop == 0, iterations=native_pass.iterations,

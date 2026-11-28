@@ -5,11 +5,11 @@ from dataclasses import asdict
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.cpp_interface._native_values import grid_count, real_array, real_scalar
-from sjtu_tpmshx.data_types.compute_config import (
+from tm1.cpp_interface._native_values import grid_count, real_array, real_scalar
+from tm1.data_types.compute_config import (
     ComputeConfig, ExtrapPolicy, GeometryConfig, PartialBCConfig, SolverConfig,
 )
-from sjtu_tpmshx.preprocess import api
+from tm1.preprocess import api
 from tests.python import grid_source_reference as grid_reference
 
 

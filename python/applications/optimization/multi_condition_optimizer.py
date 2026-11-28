@@ -16,18 +16,18 @@ import numpy as np
 from scipy import __version__ as scipy_version
 from scipy.stats import qmc
 
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig, ZoneInputConfig
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.run_control.paused_run import PausedRun
-from sjtu_tpmshx.file_io.text_file import write_text
-from sjtu_tpmshx.run_control.logutil import get_logger
-from sjtu_tpmshx.physical_models.continuous_field import decision_bounds, decision_dim
-from sjtu_tpmshx.applications.optimization.multi_condition import (
+from tm1.run_control.cancellation import CancelledError
+from tm1.data_types.compute_config import ComputeConfig, ZoneInputConfig
+from tm1.run_control.module_ports import RunControl
+from tm1.run_control.paused_run import PausedRun
+from tm1.file_io.text_file import write_text
+from tm1.run_control.logutil import get_logger
+from tm1.physical_models.continuous_field import decision_bounds, decision_dim
+from tm1.applications.optimization.multi_condition import (
     condition_worker_count, evaluate_compact_condition_batch, saved_condition_config,
 )
-from sjtu_tpmshx.data_types.portable_data import mutable_data
-from sjtu_tpmshx.applications.optimization.mass_design import (
+from tm1.data_types.portable_data import mutable_data
+from tm1.applications.optimization.mass_design import (
     constraint_keys, mass_lower_bound, mass_observation, model_observation, validate_mass_requirements,
 )
 
@@ -348,7 +348,7 @@ def _run_multi_condition_optimization(
             raise ValueError('saved search input or software versions differ from this execution')
         _check_saved_search(saved, frozen, designs, lower, upper)
         # Keep all pending evidence local before a second pause can occur.
-        from sjtu_tpmshx.file_io.file_snapshot import copy_saved_file
+        from tm1.file_io.file_snapshot import copy_saved_file
         shutil.copytree(source_root, root, copy_function=copy_saved_file, ignore=lambda directory, names:
             {'optimization.json'} if Path(directory) == source_root else set())
     else:

@@ -6,7 +6,7 @@ Raw geometry queries use the shared native entry points.
 import numpy as np
 from scipy import ndimage
 
-from sjtu_tpmshx.physical_models.asym_geometry import eps_sides, a0_sides_mc
+from tm1.physical_models.asym_geometry import eps_sides, a0_sides_mc
 
 
 def _eps_from_C(phi: np.ndarray, C: float) -> float:
@@ -51,7 +51,7 @@ def a0_sides_richardson(tpms_type, C: float, delta: float, L_m: float,
     Those historical results are not acceptance of a new configuration.
     The default grids have a refinement ratio of 1.5.
     """
-    from sjtu_tpmshx.physical_models.tpms_geometry import _phi_grid
+    from tm1.physical_models.tpms_geometry import _phi_grid
     A_vals, B_vals = [], []
     for N in Ns:
         aA, aB = a0_sides_mc(_phi_grid(tpms_type, N), C, delta, L_m, N)

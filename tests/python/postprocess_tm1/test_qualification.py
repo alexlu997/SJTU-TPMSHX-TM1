@@ -7,12 +7,12 @@ import sys
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.metric_spec import MetricSpec
-from sjtu_tpmshx.data_types.performance_result import MetricValue, PerformanceResult
-from sjtu_tpmshx.data_types.portable_data import mutable_data
-from sjtu_tpmshx.file_io.metrics_io import load_metrics, save_metrics
-from sjtu_tpmshx.file_io.result_io import load_result, save_result
-from sjtu_tpmshx.postprocess.api import evaluate_qualification
+from tm1.data_types.metric_spec import MetricSpec
+from tm1.data_types.performance_result import MetricValue, PerformanceResult
+from tm1.data_types.portable_data import mutable_data
+from tm1.file_io.metrics_io import load_metrics, save_metrics
+from tm1.file_io.result_io import load_result, save_result
+from tm1.postprocess.api import evaluate_qualification
 from tests.python.postprocess_tm1.test_applicability import result_with_evidence
 from tests.python.postprocess_tm1.test_physical_balance import sample_result
 
@@ -108,7 +108,7 @@ def test_recorded_fine_temperature_is_checked(name):
 @pytest.mark.parametrize('name', ['Ta', 'Tb', 'Ts'])
 @pytest.mark.parametrize('missing', ['absent', 'none'])
 def test_missing_fine_temperature_stays_unverified_after_archive(tmp_path, name, missing):
-    from sjtu_tpmshx.postprocess.api import evaluate
+    from tm1.postprocess.api import evaluate
 
     result = qualified_result(2)
     fine = {key: np.full((4, 4), 330.) for key in ('Ta', 'Tb', 'Ts')}
@@ -256,13 +256,13 @@ def test_saved_new_process_verdict_needs_no_solver_or_eos(tmp_path, fluid):
     metric_path = save_metrics(performance, tmp_path / 'metrics.json')
     child = subprocess.run([sys.executable, '-c', '''
 import sys
-from sjtu_tpmshx.file_io.result_io import load_result
-from sjtu_tpmshx.file_io.metrics_io import load_metrics
-from sjtu_tpmshx.data_types.model_refs import freeze_mapping
-from sjtu_tpmshx.postprocess.api import evaluate_qualification
+from tm1.file_io.result_io import load_result
+from tm1.file_io.metrics_io import load_metrics
+from tm1.data_types.model_refs import freeze_mapping
+from tm1.postprocess.api import evaluate_qualification
 result, performance = load_result(sys.argv[1]), load_metrics(sys.argv[2])
 assert performance.qualification == freeze_mapping(evaluate_qualification(result, performance.metrics))
-for prefix in ('sjtu_tpmshx.solvers', 'sjtu_tpmshx.preprocess', 'CoolProp', 'numba', 'PySide6'):
+for prefix in ('tm1.solvers', 'tm1.preprocess', 'CoolProp', 'numba', 'PySide6'):
     assert not any(name == prefix or name.startswith(prefix + '.') for name in sys.modules), prefix
 ''', str(result_path), str(metric_path)], text=True, capture_output=True, timeout=30)
     assert child.returncode == 0, child.stderr

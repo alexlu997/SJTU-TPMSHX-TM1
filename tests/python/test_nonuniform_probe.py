@@ -1,17 +1,17 @@
 """Cursor readouts use the same physical mesh as the displayed fields."""
 from types import SimpleNamespace
-from sjtu_tpmshx.applications.gui.controllers.result_cache import ResultCache
-from sjtu_tpmshx.data_types.compute_result import ComputeResult
+from tm1.applications.gui.controllers.result_cache import ResultCache
+from tm1.data_types.compute_result import ComputeResult
 
 import numpy as np
 from matplotlib.figure import Figure
 from PySide6.QtWidgets import QLabel
 
-from sjtu_tpmshx.applications.gui.ui.coord_inspector import CoordInspector, _resolve_fields
-from sjtu_tpmshx.applications.gui.ui.matplotlib_canvas import MatplotlibCanvas, cell_index_mm
-from sjtu_tpmshx.applications.gui.ui.workbench import Workbench
-from sjtu_tpmshx.applications.gui.ui.plot_2d_results import finalize_plots, plot_temperature_3panel
-from sjtu_tpmshx.applications.gui.ui.theme import get_theme
+from tm1.applications.gui.ui.coord_inspector import CoordInspector, _resolve_fields
+from tm1.applications.gui.ui.matplotlib_canvas import MatplotlibCanvas, cell_index_mm
+from tm1.applications.gui.ui.workbench import Workbench
+from tm1.applications.gui.ui.plot_2d_results import finalize_plots, plot_temperature_3panel
+from tm1.applications.gui.ui.theme import get_theme
 
 
 def test_plot_hover_and_inspector_locate_nonuniform_cells():

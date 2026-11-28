@@ -24,7 +24,7 @@ def model_h_identity(library, dimension):
 
 
 def stage_control():
-    from sjtu_tpmshx.run_control.module_ports import RunControl
+    from tm1.run_control.module_ports import RunControl
     from tests.python.native.stage_interception import TABLES
     return RunControl(backend='cpp', native_library=str(library_path('TPMSHX_NATIVE_SOLVER_LIBRARY')),
                       native_table_directory=str(TABLES))
@@ -32,11 +32,11 @@ def stage_control():
 
 @pytest.mark.parametrize('mode', ['model_h', 'temperature'])
 def test_full_2d_identity_roundtrip(mode, tmp_path):
-    from sjtu_tpmshx.preprocess.api import prepare_case
-    from sjtu_tpmshx.cpp_interface.full_2d_stage import StageDriver
+    from tm1.preprocess.api import prepare_case
+    from tm1.cpp_interface.full_2d_stage import StageDriver
     from tests.python.native.stage_interception import run_stage
     from tests.python.native.test_full_2d import configuration
-    from sjtu_tpmshx.file_io.result_io import save_result, load_result
+    from tm1.file_io.result_io import save_result, load_result
     config = configuration(mode=mode, outer=2, partial=False, simple_max=3000)
     config = replace(config, fluid_A=replace(config.fluid_A, T_in_K=330.),
                      fluid_B=replace(config.fluid_B, T_in_K=330.))
@@ -61,7 +61,7 @@ def test_full_2d_identity_roundtrip(mode, tmp_path):
     ('staggered', (4, 4, 4), {'variable_rho_cp': False, 'conservative_ltne': True}),
 ])
 def test_full_3d_identity_uses_executed_route(route, counts, options):
-    from sjtu_tpmshx.cpp_interface import full_3d_stage
+    from tm1.cpp_interface import full_3d_stage
     from tests.python.native.stage_interception import run_stage
     from tests.python.native.test_cpp_full_3d import saved_case
     prepared = saved_case('air-air', directions=(0, 3), counts=counts, max_iter_simple=1,
@@ -79,9 +79,9 @@ def test_full_3d_identity_uses_executed_route(route, counts, options):
 
 
 def test_full_3d_portable_identity_roundtrip(tmp_path):
-    from sjtu_tpmshx.solvers.full_3d import run_case
+    from tm1.solvers.full_3d import run_case
     from tests.python.native.test_cpp_full_3d import case, control
-    from sjtu_tpmshx.file_io.result_io import save_result, load_result
+    from tm1.file_io.result_io import save_result, load_result
     prepared = case('air-air', cap=2)
     params = prepared.parameters
     prepared = replace(prepared, parameters=dict(params, max_iter_simple=1,

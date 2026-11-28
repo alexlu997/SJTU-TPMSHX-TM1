@@ -1,4 +1,4 @@
-"""Static import-graph audit for the sjtu_tpmshx package (P1.1, 2026-07-19).
+"""Static import-graph audit for the tm1 package (P1.1, 2026-07-19).
 
 AST-based — no module is actually imported, so GUI side effects cannot
 bite. Recognises current package-qualified and relative imports, plus historical
@@ -6,8 +6,8 @@ top-level imports when auditing old source. That recognition does not make old
 ``from solvers.x import y`` paths supported runtime entry points.
 
 Usage (from repo root):
-    python -m sjtu_tpmshx.development.runs.tools.audit_import_graph
-    python -m sjtu_tpmshx.development.runs.tools.audit_import_graph --fail-on-violations
+    python -m tm1.development.runs.tools.audit_import_graph
+    python -m tm1.development.runs.tools.audit_import_graph --fail-on-violations
 
 The audit also rejects import cycles between the modules of each owner in
 ``CYCLE_OWNERS`` and prints the cycle path.
@@ -114,7 +114,7 @@ def import_targets(node: ast.AST, package: str) -> list[str]:
     return []
 
 
-_NATIVE_ALIAS_PACKAGES = {"sjtu_tpmshx.shared", "sjtu_tpmshx.shared.models", "sjtu_tpmshx.physical_models"}
+_NATIVE_ALIAS_PACKAGES = {"tm1.shared", "tm1.shared.models", "tm1.physical_models"}
 
 
 def _resolved_native_target(name):
@@ -122,7 +122,7 @@ def _resolved_native_target(name):
         if name.startswith(package + "._native_"):
             module, dot, member = name[len(package) + 1:].partition(".")
             owner = "preprocess.quick_design" if module == "_native_quick_prepare" else "cpp_interface." + module
-            return "sjtu_tpmshx." + owner + dot + member
+            return "tm1." + owner + dot + member
     return name
 
 
@@ -136,7 +136,7 @@ def _policy_targets(node, package):
 
 def target_unit(name: str, units: set[str]) -> str | None:
     parts = _resolved_native_target(name).split(".")
-    if parts[0] == "sjtu_tpmshx":
+    if parts[0] == "tm1":
         parts = parts[1:]
     elif parts[0] in sys.stdlib_module_names:
         return None
@@ -149,7 +149,7 @@ def target_unit(name: str, units: set[str]) -> str | None:
     return None
 
 
-_DTO_PACKAGES = {"sjtu_tpmshx.data_types", "sjtu_tpmshx.shared.domain", "data_types", "shared.domain"}
+_DTO_PACKAGES = {"tm1.data_types", "tm1.shared.domain", "data_types", "shared.domain"}
 _STAGE_DTO_MODULES = {
     f"{package}.{module}" for package in _DTO_PACKAGES
     for module in ("case_data", "model_refs", "field_result", "metric_spec", "performance_result")
@@ -164,7 +164,7 @@ _FULL_2D_FORBIDDEN_SIBLINGS = {"full_3d_stage", "quick_design", "native_preparat
 _FULL_3D_FORBIDDEN_SIBLINGS = {"full_2d_stage", "quick_design", "native_preparation", "inlet_properties",
                                "result_evaluation", "_native_preparation_3d", "_native_quick_prepare",
                                "quick_preparation", "*"}
-_QUICK_PREPARATION_IMPORTS = {f"sjtu_tpmshx.{module}" for module in (
+_QUICK_PREPARATION_IMPORTS = {f"tm1.{module}" for module in (
     "cpp_interface.quick_preparation", "cpp_interface._native_quick_prepare", "shared._native_quick_prepare",
     "shared.models._native_quick_prepare", "physical_models._native_quick_prepare")}
 # Shared ABI layouts use wire types from _native_df and _native_result.
@@ -174,16 +174,16 @@ _FULL_PREPARATION_WIRE_MODULES = {
     "_native_df", "_native_result",
 }
 _TYPE_GUARDS = {"typing.TYPE_CHECKING", "typing_extensions.TYPE_CHECKING"}
-_BINDING_NAMESPACES = {"sjtu_tpmshx", "sjtu_tpmshx.cpp_interface", "sjtu_tpmshx.shared", "shared", *_DTO_PACKAGES,
+_BINDING_NAMESPACES = {"tm1", "tm1.cpp_interface", "tm1.shared", "shared", *_DTO_PACKAGES,
                        "typing", "typing_extensions", *_TYPE_GUARDS}
 
 
 def _invalid_stage_target(host, target, binding, operations):
-    if not target.startswith("sjtu_tpmshx."):
+    if not target.startswith("tm1."):
         return False
     if binding == "native_preparation":
         target = _resolved_native_target(target)
-    area, _, member = target.removeprefix("sjtu_tpmshx.").partition(".")
+    area, _, member = target.removeprefix("tm1.").partition(".")
     module, _, name = member.partition(".")
     # The shared resolver exposes the physical range policy through both domain packages.
     if area == "shared" and module == "domain":
@@ -307,7 +307,7 @@ class _StageImportAudit(ast.NodeVisitor):
     def visit_Import(self, node):
         targets = import_targets(node, self.package)
         if (self.binding == "native_preparation" and isinstance(node, ast.ImportFrom)
-                and node.names[0].name == "*" and targets[0].split(".", 1)[0] == "sjtu_tpmshx"):
+                and node.names[0].name == "*" and targets[0].split(".", 1)[0] == "tm1"):
             self.violations.append((node.lineno, targets[0] + ".*"))
         if not self.host:
             # Report the imported member when the statement names one.
@@ -560,7 +560,7 @@ CYCLE_OWNERS = ("solvers", "ui")
 
 
 def owner_modules(owner: str) -> dict[str, Path]:
-    return {'.'.join(('sjtu_tpmshx', *path.relative_to(PKG).with_suffix('').parts)).removesuffix('.__init__'): path
+    return {'.'.join(('tm1', *path.relative_to(PKG).with_suffix('').parts)).removesuffix('.__init__'): path
             for path in PKG.rglob('*.py') if unit_of(path) == owner}
 
 
@@ -586,7 +586,7 @@ def _is_sanctioned(edge: tuple[str, str], path: Path, node: ast.AST, module: str
     return (
         path == PKG / 'solvers/full_3d.py'
         and isinstance(node, ast.ImportFrom)
-        and module == 'sjtu_tpmshx.physical_models.df_surrogate'
+        and module == 'tm1.physical_models.df_surrogate'
         and sorted(alias.name for alias in node.names) == ['CFD_CAMPAIGN', 'CFD_SCOPE']
     )
 
@@ -607,7 +607,7 @@ def main() -> int:
             parse_errors.append(f"{py}: {exc}")
             continue
         package = ('.'.join(py.relative_to(PKG.parent).parts[:-1]) if src_unit == 'tests' and not py.is_relative_to(PKG)
-                   else '.'.join(('sjtu_tpmshx', *py.relative_to(PKG).parts[:-1])))
+                   else '.'.join(('tm1', *py.relative_to(PKG).parts[:-1])))
         violations.extend(_stage_boundary_violations(py, tree, package))
         for node in ast.walk(tree):
             names = _policy_targets(node, package)

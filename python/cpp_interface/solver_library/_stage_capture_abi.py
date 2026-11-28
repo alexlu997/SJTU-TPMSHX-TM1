@@ -179,7 +179,7 @@ def _plane_info(result, shape, widths, masses, *, capture_scalars=None):
             physical_boundary_complete=side.unknown_inflow_faces == 0,
             strict_normalization_W_per_m=side.normalization, residual_cellmax_rel=side.cell_ratio)
     if capture_scalars is None:
-        from sjtu_tpmshx.cpp_interface._native_result_metrics import capture_area
+        from tm1.cpp_interface._native_result_metrics import capture_area
     return dict(
         units='W/m; kg/(s m)', state='raw final thermal return', boundary_order=['-x', '+x', '-y', '+y'],
         **sides, sou_A=True, sou_B=True,

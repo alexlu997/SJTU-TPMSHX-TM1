@@ -1,18 +1,18 @@
 """Physical port edges and SIMPLE profiles must use the shared 2D grid."""
-from sjtu_tpmshx.applications.result_adapter import compute_result
-from sjtu_tpmshx.preprocess.api import prepare_case
+from tm1.applications.result_adapter import compute_result
+from tm1.preprocess.api import prepare_case
 
 import numpy as np
 import pytest
 
 
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig, PartialBCConfig
-from sjtu_tpmshx.physical_models.grid import _aligned_grid
+from tm1.data_types.compute_config import ComputeConfig, PartialBCConfig
+from tm1.physical_models.grid import _aligned_grid
 
 
 @pytest.mark.parametrize('staggered', [False, True])
 def test_port_roundoff_does_not_open_an_adjacent_wall(staggered):
-    from sjtu_tpmshx.physical_models.grid import _port_overlap_1d
+    from tm1.physical_models.grid import _port_overlap_1d
 
     widths = np.array([.007, .042, .133])
     edges = np.r_[0., np.cumsum(widths)]
@@ -51,8 +51,8 @@ def test_cell_average_is_invariant_to_subdividing_one_cell(depth):
 def test_port_wall_grid_prepared_counts_and_nested_port_area(counts):
     from dataclasses import asdict
     from tests.python.grid_reference import split_cells
-    from sjtu_tpmshx.physical_models.grid import _port_overlap_1d
-    from sjtu_tpmshx.preprocess.api import prepare_case
+    from tm1.physical_models.grid import _port_overlap_1d
+    from tm1.preprocess.api import prepare_case
 
     config = ComputeConfig()
     config.geometry.L_dom_m, config.geometry.H_dom_m = .182, .042
@@ -86,7 +86,7 @@ def test_port_wall_grid_prepared_counts_and_nested_port_area(counts):
 
 
 def test_port_wall_grid_rejects_insufficient_total_count():
-    from sjtu_tpmshx.physical_models.grid import build_port_wall_grid
+    from tm1.physical_models.grid import build_port_wall_grid
     with pytest.raises(ValueError, match='at least'):
         build_port_wall_grid((.182, .042), (8, 8),
                              (dict(dir=0, in_ctr=.021, in_w=.042, out_ctr=.021, out_w=.042),))
@@ -166,7 +166,7 @@ def test_default_direction_partial_grid_is_unchanged():
 
 @pytest.mark.parametrize('directions', [(0, 2), (2, 0), (0, 1), (2, 3)])
 def test_full_faces_keep_wall_refinement(directions):
-    from sjtu_tpmshx.physical_models.grid import build_master_refined_grid
+    from tm1.physical_models.grid import build_master_refined_grid
 
     cfg = _case(directions)
     cfg.bc_A = PartialBCConfig(dir=directions[0])

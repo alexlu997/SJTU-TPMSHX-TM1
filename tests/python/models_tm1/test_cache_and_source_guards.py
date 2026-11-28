@@ -9,7 +9,7 @@ def test_compute_geometry_returns_unpoisonable_copy():
     """compute_geometry's lru_cache used to hand every caller the SAME dict;
     mutating a result poisoned all later hits (the exact W7b mechanism
     tpms_calc.compute was fixed for)."""
-    from sjtu_tpmshx.physical_models.tpms_geometry import compute_geometry
+    from tm1.physical_models.tpms_geometry import compute_geometry
     a = compute_geometry('Diamond', 6.0, 0.4)
     a['D_h'] = -1.0                      # caller scribbles on its copy
     b = compute_geometry('Diamond', 6.0, 0.4)
@@ -18,7 +18,7 @@ def test_compute_geometry_returns_unpoisonable_copy():
 
 
 def test_compute_geometry_cache_management_reexposed():
-    from sjtu_tpmshx.physical_models.tpms_geometry import compute_geometry
+    from tm1.physical_models.tpms_geometry import compute_geometry
     assert callable(compute_geometry.cache_clear)
     assert compute_geometry.cache_info().maxsize == 32768
 
@@ -28,7 +28,7 @@ def test_phi_grid_cache_is_frozen():
     would silently corrupt every later geometry computation at that
     (type, N) key."""
     import pytest
-    from sjtu_tpmshx.physical_models.tpms_geometry import _phi_grid
+    from tm1.physical_models.tpms_geometry import _phi_grid
     phi = _phi_grid('Diamond', 32)
     assert phi.flags.writeable is False
     with pytest.raises((ValueError, RuntimeError)):
@@ -39,7 +39,7 @@ def test_chi_s_env_is_read_per_call(monkeypatch):
     """TPMSHX_CHI_S used to be read at import time only — setting it after
     the first import (monkeypatch.setenv included) was silently ignored
     (audit §5d). chi_s_eff must honor the CURRENT environment."""
-    from sjtu_tpmshx.physical_models.tpms_props import chi_s_eff
+    from tm1.physical_models.tpms_props import chi_s_eff
     from tests.python.geometry_reference import _CHI_S_FIT
     monkeypatch.delenv('TPMSHX_CHI_S', raising=False)
     c0, c1 = _CHI_S_FIT['Diamond']
@@ -52,7 +52,7 @@ def test_chi_s_env_is_read_per_call(monkeypatch):
 
 
 def test_compute_cache_hits_use_current_chi_s(monkeypatch):
-    from sjtu_tpmshx.physical_models import tpms_calc
+    from tm1.physical_models import tpms_calc
     monkeypatch.setattr(tpms_calc, '_tpms_geom', lambda *args: {
         'epsilon': .7, 'epsilon_A': .35, 'epsilon_B': .35, 'A_0': 1000., 'D_h': .002})
     monkeypatch.delenv('TPMSHX_CHI_S', raising=False)
@@ -84,7 +84,7 @@ def test_compute_cache_hits_use_current_chi_s(monkeypatch):
 
 @pytest.mark.slow
 def test_geometry_lut_cache_keys_on_kwargs(tmp_path):
-    from sjtu_tpmshx.physical_models.sigmoid_field import get_geometry_lut
+    from tm1.physical_models.sigmoid_field import get_geometry_lut
     lut_a = get_geometry_lut('Gyroid', n_L=3, n_t=2, N=32,
                              cache_dir=str(tmp_path))
     lut_b = get_geometry_lut('Gyroid', n_L=4, n_t=2, N=32,
@@ -101,9 +101,9 @@ def test_geometry_lut_cache_keys_on_kwargs(tmp_path):
 def test_geometry_lut_uses_external_cache_with_read_only_package(tmp_path, monkeypatch):
     from pathlib import Path
     import numpy as np
-    from sjtu_tpmshx.physical_models import sigmoid_field
+    from tm1.physical_models import sigmoid_field
 
-    package = tmp_path / 'installed' / 'sjtu_tpmshx'
+    package = tmp_path / 'installed' / 'tm1'
     (package / 'physical_models').mkdir(parents=True)
     (package / 'solvers').mkdir()
     monkeypatch.setattr(sigmoid_field, '__file__', str(package / 'physical_models' / 'sigmoid_field.py'))
@@ -112,7 +112,7 @@ def test_geometry_lut_uses_external_cache_with_read_only_package(tmp_path, monke
     (package / 'solvers').chmod(0o555)
     try:
         lut = sigmoid_field.GeometryLUT('Gyroid', n_L=3, n_t=2, N=24)
-        expected = cache / 'sjtu-tpmshx' / 'geometry' / 'lut_Gyroid_3x2_N24.npz'
+        expected = cache / 'tm1' / 'geometry' / 'lut_Gyroid_3x2_N24.npz'
         assert Path(lut._cache_path) == expected
         assert expected.is_file()
         assert list((package / 'solvers').iterdir()) == []
@@ -129,7 +129,7 @@ def test_geometry_lut_uses_external_cache_with_read_only_package(tmp_path, monke
 @pytest.mark.parametrize('corruption', ['shape', 'nan', 'complex', 'object'])
 def test_geometry_lut_rebuilds_invalid_cache(tmp_path, monkeypatch, corruption):
     import numpy as np
-    from sjtu_tpmshx.physical_models.sigmoid_field import GeometryLUT
+    from tm1.physical_models.sigmoid_field import GeometryLUT
 
     kwargs = dict(n_L=3, n_t=2, N=16, cache_dir=str(tmp_path))
     original = GeometryLUT('Gyroid', **kwargs)
@@ -165,7 +165,7 @@ def test_geometry_lut_rebuilds_invalid_cache(tmp_path, monkeypatch, corruption):
 
 
 def test_compute_pins_fixed_df_backend(monkeypatch):
-    from sjtu_tpmshx.physical_models import tpms_calc
+    from tm1.physical_models import tpms_calc
     args = ('Gyroid', 7.0, 0.6, 10.0, 422.0, 192362.0, 16.0)
 
     monkeypatch.delenv('TPMSHX_DF_METHOD', raising=False)
@@ -186,7 +186,7 @@ def test_compute_pins_fixed_df_backend(monkeypatch):
 
 
 def test_compute_hit_returns_unpoisonable_copy():
-    from sjtu_tpmshx.physical_models import tpms_calc
+    from tm1.physical_models import tpms_calc
     args = ('Gyroid', 7.0, 0.6, 10.0, 422.0, 192362.0, 16.0)
     tpms_calc.compute.cache_clear()
     r1 = tpms_calc.compute(*args)

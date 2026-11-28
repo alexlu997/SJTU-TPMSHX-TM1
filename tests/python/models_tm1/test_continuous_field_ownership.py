@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.physical_models.continuous_field import ContinuousFieldConfig, from_decision_vector
+from tm1.physical_models.continuous_field import ContinuousFieldConfig, from_decision_vector
 
 
 def test_asymmetric_decision_input_cannot_diverge_from_cached_xy_field():

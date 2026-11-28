@@ -11,14 +11,14 @@ evaluation of epsilon(L,t) and A_0(L,t).
 
 import os
 import numpy as np
-from sjtu_tpmshx.cpp_interface import _native_lut
+from tm1.cpp_interface import _native_lut
 
-from sjtu_tpmshx.cpp_interface import _native_geometry, _native_grid, _native_sigmoid
+from tm1.cpp_interface import _native_geometry, _native_grid, _native_sigmoid
 from .tpms_props import _resolve_chi_s
 from .tpms_calc import (air_density, air_viscosity, air_conductivity)
-from sjtu_tpmshx.model_configs.df_domain import TRAIN_L, TRAIN_T
+from tm1.model_configs.df_domain import TRAIN_L, TRAIN_T
 
-from sjtu_tpmshx.run_control.logutil import get_logger
+from tm1.run_control.logutil import get_logger
 
 _log = get_logger(__name__)
 
@@ -115,7 +115,7 @@ class GeometryLUT:
         if cache_dir is None:
             cache_dir = os.path.join(
                 os.environ.get('XDG_CACHE_HOME') or os.path.expanduser('~/.cache'),
-                'sjtu-tpmshx', 'geometry')
+                'tm1', 'geometry')
         os.makedirs(cache_dir, exist_ok=True)
         self._cache_path = os.path.join(
             cache_dir, f'lut_{tpms_type}_{len(self.L_vals)}x{len(self.t_vals)}_N{N}.npz')
@@ -310,7 +310,7 @@ def _geometry_from_fields(L_field, t_field, tpms_type, k_s, lut, *, allow_extrap
 def _fluid_arrays_from_geometry(geometry, tpms_type, u_A, u_B, T_inA, T_inB, *,
                                 P_in, P_inB, fluid_type):
     from .nu_correlations import nu_vec
-    from sjtu_tpmshx.cpp_interface import _native_properties
+    from tm1.cpp_interface import _native_properties
 
     # 5. Compute fluid properties (vectorized) — AIR ONLY (guarded above-call by
     # _check_zoned_fluid_support; this is the in-builder backstop so no caller

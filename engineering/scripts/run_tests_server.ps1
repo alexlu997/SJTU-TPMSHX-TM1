@@ -59,7 +59,7 @@ New-Item -ItemType Directory -Force $env:MPLCONFIGDIR, $env:XDG_CACHE_HOME | Out
 
 Set-Location $repo
 
-& $py -m sjtu_tpmshx.development.runs.tools.check_locked_environment $LockFile
+& $py -m tm1.development.runs.tools.check_locked_environment $LockFile
 if ($LASTEXITCODE -ne 0) { throw "Shared environment differs from $LockFile" }
 & $py -m pip check
 if ($LASTEXITCODE -ne 0) { throw "Shared environment failed pip check" }

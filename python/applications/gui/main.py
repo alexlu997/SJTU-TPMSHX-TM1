@@ -3,7 +3,7 @@ import sys
 
 from PySide6.QtWidgets import QApplication
 
-from sjtu_tpmshx.applications.gui.ui.theme import (
+from tm1.applications.gui.ui.theme import (
     set_theme,
     apply_mpl_theme, set_density,
 )
@@ -13,7 +13,7 @@ from sjtu_tpmshx.applications.gui.ui.theme import (
 def main(argv=None):
     """Start the desktop interface from source or an installed launcher."""
     import argparse
-    from sjtu_tpmshx.applications.cli.cli_options import add_run_control_arguments, run_control_from_args
+    from tm1.applications.cli.cli_options import add_run_control_arguments, run_control_from_args
     parser = argparse.ArgumentParser(description=__doc__)
     add_run_control_arguments(parser)
     args, qt_args = parser.parse_known_args(sys.argv[1:] if argv is None else argv)
@@ -25,12 +25,12 @@ def main(argv=None):
     import os as _os_main
     _os_main.environ.setdefault('QT_ENABLE_HIGHDPI_SCALING', '1')
     app = QApplication.instance() or QApplication([sys.argv[0], *qt_args])
-    from sjtu_tpmshx.applications.gui.controllers import main_thread_gc
+    from tm1.applications.gui.controllers import main_thread_gc
     main_thread_gc.install(app)
 
-    from sjtu_tpmshx.applications.gui.controllers.user_storage import load_appearance_settings
-    from sjtu_tpmshx.applications.gui.ui.microanim import apply_saved_reduced_motion
-    from sjtu_tpmshx.applications.gui.ui.theme import (
+    from tm1.applications.gui.controllers.user_storage import load_appearance_settings
+    from tm1.applications.gui.ui.microanim import apply_saved_reduced_motion
+    from tm1.applications.gui.ui.theme import (
         apply_saved_colormaps,
         set_accent_override,
     )
@@ -47,9 +47,9 @@ def main(argv=None):
     font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
     font.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
     app.setFont(font)
-    from sjtu_tpmshx.applications.gui.ui.typography import apply_app_font
+    from tm1.applications.gui.ui.typography import apply_app_font
     apply_app_font(app)
-    from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
+    from tm1.applications.gui.ui.main_window import Main_Menu
     apply_mpl_theme()
     window = Main_Menu(control=control)
     window.showMaximized()

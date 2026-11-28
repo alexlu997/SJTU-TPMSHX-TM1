@@ -8,12 +8,12 @@
 
 ## Offline data and formal preparation
 
-`sjtu_tpmshx.preprocess.offline` exposes experiment, water CFD, sCO2 core, and sCO2 segment cleaners. Each accepts `source=`. The caller selects the resource. A missing explicit input never triggers a search for an alternative.
+`tm1.preprocess.offline` exposes experiment, water CFD, sCO2 core, and sCO2 segment cleaners. Each accepts `source=`. The caller selects the resource. A missing explicit input never triggers a search for an alternative.
 
 Experiment cleaning keeps col47 friction dP, L8 Re>=1600, and Shanghai source/geometry exclusion guards. CFD cleaning keeps raw Dh, nominal Re, pressure-density guards, entrance exclusions, and water flow-suspect flags.
 
 ```python
-from sjtu_tpmshx.preprocess.offline import load_experiments, load_water
+from tm1.preprocess.offline import load_experiments, load_water
 
 frame = load_experiments(source=training_workbook)
 water = load_water('Diamond', source=water_workbook)
@@ -106,8 +106,8 @@ The GUI's Use Current Effective Coefficients action explicitly loads this versio
 
 ```python
 from dataclasses import asdict
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-from sjtu_tpmshx.physical_models.nu_correlations import sco2_effective_nu_config
+from tm1.data_types.compute_config import ComputeConfig
+from tm1.physical_models.nu_correlations import sco2_effective_nu_config
 
 config_dict["sco2_nu"] = asdict(sco2_effective_nu_config())
 config = ComputeConfig.from_dict(config_dict)
@@ -196,7 +196,7 @@ Objective = mean((Δp_pred/Δp_exp − 1)²)
 
 K0 is fixed. Only sF is fitted. Existing Δp ≥ 2000 Pa and duplicate-row exclusions stay. Low-flow case 1 lies outside the calibration range. Its calculation, extrapolation notice, and separate error stay.
 
-It does not enter conclusions for cases 2–16. `python -m sjtu_tpmshx.development.validation.df_refit.fit_experimental_effective` recalculates from the workbook. It outputs source file, sheet, row, and reviewed coefficients without overwriting production parameters.
+It does not enter conclusions for cases 2–16. `python -m tm1.development.validation.df_refit.fit_experimental_effective` recalculates from the workbook. It outputs source file, sheet, row, and reviewed coefficients without overwriting production parameters.
 
 The geometry is a uniform, symmetric Gyroid 7/0.6 mm, 182×42×42 mm exchanger, without zones and with δ=0. [Architecture constraints](architecture.md) still validate ports and other physical limits. This effective resistance correction belongs to this experiment and model convention. It is not a universal fluid constant independent of device, area, or pressure definition.
 

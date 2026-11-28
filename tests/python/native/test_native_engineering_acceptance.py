@@ -4,10 +4,10 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.compute_config import FluidConfig, PartialBCConfig, ZoneInputConfig
-from sjtu_tpmshx.postprocess.api import evaluate
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.api import run_case
+from tm1.data_types.compute_config import FluidConfig, PartialBCConfig, ZoneInputConfig
+from tm1.postprocess.api import evaluate
+from tm1.preprocess.api import prepare_case
+from tm1.solvers.api import run_case
 from tests.python.native import test_cpp_full_3d as native_3d
 from tests.python.native.test_native_execution import _config
 from tests.python.native.full_result_audit import physical_gates

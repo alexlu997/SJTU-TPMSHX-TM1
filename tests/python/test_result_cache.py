@@ -12,8 +12,8 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 from PySide6.QtCore import QCoreApplication
 
-from sjtu_tpmshx.applications.gui.controllers.result_cache import ResultCache
-from sjtu_tpmshx.data_types.compute_result import ComputeResult
+from tm1.applications.gui.controllers.result_cache import ResultCache
+from tm1.data_types.compute_result import ComputeResult
 
 
 def _app():

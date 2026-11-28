@@ -27,7 +27,7 @@ python3.13 -m venv .venv
 printf '%s\n' "$PWD/.venv/bin/python" > .venv-path
 PYTHON="$(head -n 1 .venv-path)"
 "$PYTHON" -m pip install -r engineering/requirements/base.txt
-"$PYTHON" -m sjtu_tpmshx.development.runs.tools.check_locked_environment
+"$PYTHON" -m tm1.development.runs.tools.check_locked_environment
 "$PYTHON" -m pip check
 ```
 
@@ -44,7 +44,7 @@ $tm1Python = (Resolve-Path .venv\Scripts\python.exe).Path
 [System.IO.File]::WriteAllText((Join-Path $PWD '.venv-path'), $tm1Python + [Environment]::NewLine)
 $tm1Python = Get-Content .venv-path -TotalCount 1
 & $tm1Python -m pip install -r engineering/requirements/base.txt
-& $tm1Python -m sjtu_tpmshx.development.runs.tools.check_locked_environment
+& $tm1Python -m tm1.development.runs.tools.check_locked_environment
 & $tm1Python -m pip check
 ```
 
@@ -82,9 +82,9 @@ PYTHON="$(head -n 1 .venv-path)"
 export MPLCONFIGDIR="$PWD/.cache/matplotlib" XDG_CACHE_HOME="$PWD/.cache/xdg"
 "$PYTHON" engineering/scripts/build_native_dependencies.py fetch
 "$PYTHON" engineering/scripts/build_native_dependencies.py publish
-"$PYTHON" -m sjtu_tpmshx.cli run examples/three_module/air_2d.json .cache/first-run-2d --case-id first-run-2d
-"$PYTHON" -m sjtu_tpmshx.cli run examples/three_module/air_3d.json .cache/first-run-3d --case-id first-run-3d
-"$PYTHON" -m sjtu_tpmshx.main
+"$PYTHON" -m tm1.cli run examples/three_module/air_2d.json .cache/first-run-2d --case-id first-run-2d
+"$PYTHON" -m tm1.cli run examples/three_module/air_3d.json .cache/first-run-3d --case-id first-run-3d
+"$PYTHON" -m tm1.main
 ```
 
 Windows：
@@ -95,9 +95,9 @@ $env:MPLCONFIGDIR = Join-Path $PWD '.cache/matplotlib'
 $env:XDG_CACHE_HOME = Join-Path $PWD '.cache/xdg'
 & $tm1Python engineering/scripts/build_native_dependencies.py fetch
 & $tm1Python engineering/scripts/build_native_dependencies.py publish
-& $tm1Python -m sjtu_tpmshx.cli run examples/three_module/air_2d.json .cache/first-run-2d --case-id first-run-2d
-& $tm1Python -m sjtu_tpmshx.cli run examples/three_module/air_3d.json .cache/first-run-3d --case-id first-run-3d
-& $tm1Python -m sjtu_tpmshx.main
+& $tm1Python -m tm1.cli run examples/three_module/air_2d.json .cache/first-run-2d --case-id first-run-2d
+& $tm1Python -m tm1.cli run examples/three_module/air_3d.json .cache/first-run-3d --case-id first-run-3d
+& $tm1Python -m tm1.main
 ```
 
 前两条计算命令分别输出 `case.yaml`、伴随 `case.h5`、`results.h5` 和
@@ -254,9 +254,9 @@ CaseData，温度相关物性和数值迭代在求解侧执行。后处理从 Fi
 压力和状态计算指标，缺数据时报告原因；不启动求解或读取 GUI、活动求解器对象。
 
 ```python
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.api import run_case
-from sjtu_tpmshx.postprocess.api import evaluate
+from tm1.preprocess.api import prepare_case
+from tm1.solvers.api import run_case
+from tm1.postprocess.api import evaluate
 
 case = prepare_case(config, case_id="example")
 result = run_case(case)
@@ -268,14 +268,14 @@ metrics = evaluate(result)
 ```bash
 PYTHON="$(head -n 1 .venv-path)"
 mkdir -p .cache/handoff
-"$PYTHON" -m sjtu_tpmshx.cli prepare examples/three_module/air_2d.json .cache/handoff/case.yaml --case-id example
-"$PYTHON" -m sjtu_tpmshx.cli solve .cache/handoff/case.yaml .cache/handoff/results.h5
-"$PYTHON" -m sjtu_tpmshx.cli postprocess .cache/handoff/results.h5 .cache/handoff/metrics.json
+"$PYTHON" -m tm1.cli prepare examples/three_module/air_2d.json .cache/handoff/case.yaml --case-id example
+"$PYTHON" -m tm1.cli solve .cache/handoff/case.yaml .cache/handoff/results.h5
+"$PYTHON" -m tm1.cli postprocess .cache/handoff/results.h5 .cache/handoff/metrics.json
 ```
 
 PowerShell 使用相同参数，将 `"$PYTHON"` 改为 `& $tm1Python`，目录先用
 `New-Item -ItemType Directory -Force .cache/handoff` 创建。
-各阶段参数可用 `"$PYTHON" -m sjtu_tpmshx.cli prepare --help` 等查看，PowerShell 同样使用 `& $tm1Python`。
+各阶段参数可用 `"$PYTHON" -m tm1.cli prepare --help` 等查看，PowerShell 同样使用 `& $tm1Python`。
 
 Case YAML 引用伴随 HDF5；result/VTK 导出和严格指标 JSON 的限制见
 [schema](contracts/three_module_v1/README.zh-CN.md)。CLI 输出必须与本次输入文件及 Case 的伴随 HDF5
@@ -287,8 +287,8 @@ Case YAML 引用伴随 HDF5；result/VTK 导出和严格指标 JSON 的限制见
 C++ 完整计算可以将迭代状态保存在新的运行目录：
 
 ```bash
-"$PYTHON" -m sjtu_tpmshx.cli run examples/three_module/air_2d.json .cache/run-01 --case-id example --backend cpp --checkpoint-interval 60
-"$PYTHON" -m sjtu_tpmshx.cli resume .cache/run-01/checkpoint.h5 .cache/run-02 --checkpoint-interval 60
+"$PYTHON" -m tm1.cli run examples/three_module/air_2d.json .cache/run-01 --case-id example --backend cpp --checkpoint-interval 60
+"$PYTHON" -m tm1.cli resume .cache/run-01/checkpoint.h5 .cache/run-02 --checkpoint-interval 60
 ```
 
 CLI 保存间隔须显式指定；保存会等待下一个完整求解步骤结束。

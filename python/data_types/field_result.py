@@ -4,8 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
-from sjtu_tpmshx.data_types.model_refs import ModelRef, freeze_mapping
-from sjtu_tpmshx.data_types.case_data import SCHEMA_VERSION
+from tm1.data_types.model_refs import ModelRef, freeze_mapping
+from tm1.data_types.case_data import SCHEMA_VERSION
 
 
 @dataclass(frozen=True)

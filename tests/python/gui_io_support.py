@@ -13,7 +13,7 @@ def win(tmp_path_factory):
     # 2026-07-13). Module-scoped fixture, so patch manually (monkeypatch
     # fixture is function-scoped) and undo after close.
     from _pytest.monkeypatch import MonkeyPatch
-    import sjtu_tpmshx.applications.gui.controllers.session_manager as sm_mod
+    import tm1.applications.gui.controllers.session_manager as sm_mod
     mp = MonkeyPatch()
     session_dir = tmp_path_factory.mktemp('session')
     orig_init = sm_mod.SessionManager.__init__
@@ -23,7 +23,7 @@ def win(tmp_path_factory):
                   parent=parent)
 
     mp.setattr(sm_mod.SessionManager, '__init__', _init)
-    import sjtu_tpmshx.applications.gui.ui.main_window as main_window
+    import tm1.applications.gui.ui.main_window as main_window
     w = main_window.Main_Menu()
     yield w
     w.close()

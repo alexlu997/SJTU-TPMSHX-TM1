@@ -1,5 +1,5 @@
 """Recover execution facts from full results without a native execution view."""
-from sjtu_tpmshx.data_types.field_result import execution_record
+from tm1.data_types.field_result import execution_record
 
 
 def full_execution_record(case, result, *, sides=None, thermal=None):

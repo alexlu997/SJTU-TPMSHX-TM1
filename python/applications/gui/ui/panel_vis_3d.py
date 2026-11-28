@@ -22,22 +22,22 @@ from PySide6.QtCore import QEasingCurve, QPoint, Qt, QTimer, QVariantAnimation, 
 from PySide6.QtGui import QImage, QKeySequence, QPainter, QRegion, QShortcut
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
-from sjtu_tpmshx.applications.gui.ui.microanim import is_reduced_motion, start_animation
-from sjtu_tpmshx.applications.gui.ui.symbols import MINUS, SYM, qsym
-from sjtu_tpmshx.applications.gui.ui.theme import get_theme, get_theme_name, resolve_cmap
-from sjtu_tpmshx.applications.gui.ui.typography import (
+from tm1.applications.gui.ui.microanim import is_reduced_motion, start_animation
+from tm1.applications.gui.ui.symbols import MINUS, SYM, qsym
+from tm1.applications.gui.ui.theme import get_theme, get_theme_name, resolve_cmap
+from tm1.applications.gui.ui.typography import (
     FONT_FAMILIES,
     SCREEN_CHART_FAMILIES,
     apply_vtk_font,
     matplotlib_font_families,
 )
-from sjtu_tpmshx.applications.gui.ui.vis3d_constants import (
+from tm1.applications.gui.ui.vis3d_constants import (
     FIELD_ORDER,
     field_color_limits,
     validate_color_range_state,
 )
-from sjtu_tpmshx.applications.gui.ui.vis3d_lattice_worker import LatticeBuilder, LatticeRequest
-from sjtu_tpmshx.applications.gui.ui.volume_overlays import (
+from tm1.applications.gui.ui.vis3d_lattice_worker import LatticeBuilder, LatticeRequest
+from tm1.applications.gui.ui.volume_overlays import (
     COLORBAR_HEIGHT,
     COLORBAR_WIDTH,
     LatticeDomainCard,
@@ -46,13 +46,13 @@ from sjtu_tpmshx.applications.gui.ui.volume_overlays import (
     PortChipOverlay,
     StudioColorbarCard,
 )
-from sjtu_tpmshx.applications.gui.ui.volume_toolbar import (
+from tm1.applications.gui.ui.volume_toolbar import (
     CAMERA_PRESETS,
     DISPLAY_MODES,
     VolumeToolbar,
 )
-from sjtu_tpmshx.physical_models.tpms_geometry import lattice_cell_size
-from sjtu_tpmshx.postprocess.result_display import PANEL_FIELD_SPECS
+from tm1.physical_models.tpms_geometry import lattice_cell_size
+from tm1.postprocess.result_display import PANEL_FIELD_SPECS
 
 _CAMERA_UPDATE_RATE = 120.0  # Adaptive motion budget, not a guaranteed FPS.
 
@@ -1298,7 +1298,7 @@ class ThreeDVisPanel(QWidget):
         faint = self._faint_port_sides()
 
         def _add_pair(flow_dir: str, tag: str, color: str) -> None:
-            from sjtu_tpmshx.physical_models.field_coordinates_3d import _port_rectangles
+            from tm1.physical_models.field_coordinates_3d import _port_rectangles
 
             op = 0.42 if tag in faint else 1.0
             axis = "xyz".index(flow_dir[-1])

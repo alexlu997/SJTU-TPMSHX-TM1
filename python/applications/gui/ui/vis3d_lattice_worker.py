@@ -11,8 +11,8 @@ from PySide6.QtCore import QObject, QThreadPool, Qt, Signal, Slot
 from scipy.interpolate import RegularGridInterpolator
 from vtkmodules.vtkFiltersCore import vtkStaticCleanPolyData
 
-from sjtu_tpmshx.physical_models.tpms_geometry import lattice_cell_size, signed_wall_grid
-from sjtu_tpmshx.run_control.cancellation import CancelledError
+from tm1.physical_models.tpms_geometry import lattice_cell_size, signed_wall_grid
+from tm1.run_control.cancellation import CancelledError
 
 
 # Samples per cell length L for the 细节 levels 低, 中 and 高.

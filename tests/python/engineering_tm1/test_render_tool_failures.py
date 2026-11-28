@@ -5,7 +5,7 @@ import numpy as np
 
 
 def test_smoke_solver_failure_restores_environment_and_fails(monkeypatch):
-    from sjtu_tpmshx.development.runs.smokes import smoke_ui_3d_modes as smoke
+    from tm1.development.runs.smokes import smoke_ui_3d_modes as smoke
     monkeypatch.setenv('TPMSHX_ROUGH_MODE', 'original')
     monkeypatch.delenv('TPMSHX_ROUGH_EPS_UM', raising=False)
     monkeypatch.setattr(smoke, 'run_case', lambda cfg: (_ for _ in ()).throw(RuntimeError('solve failed')))
@@ -15,6 +15,6 @@ def test_smoke_solver_failure_restores_environment_and_fails(monkeypatch):
 
 
 def test_smoke_nonfinite_result_is_failure(monkeypatch):
-    from sjtu_tpmshx.development.runs.smokes import smoke_ui_3d_modes as smoke
+    from tm1.development.runs.smokes import smoke_ui_3d_modes as smoke
     monkeypatch.setattr(smoke, 'run_case', lambda case: SimpleNamespace(metadata={'diagnostics': dict(Q_total=np.nan, dP_A=1., dP_B=1.)}))
     assert smoke.run_with_mode('test', 'baseline') is None

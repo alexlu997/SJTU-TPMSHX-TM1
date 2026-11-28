@@ -1,7 +1,7 @@
 """Real Qt checks for parameter storage and reversible canvas focus."""
 import pytest
 
-from sjtu_tpmshx.data_types.compute_result import ComputeResult
+from tm1.data_types.compute_result import ComputeResult
 
 pytest.importorskip('PySide6')
 
@@ -66,7 +66,7 @@ def test_unified_boundary_sides_contain_fluid_and_port_bands(win):
 def test_fit_view_targets_the_active_optimization_volume(win, monkeypatch):
     from types import SimpleNamespace
     from unittest.mock import Mock
-    from sjtu_tpmshx.applications.gui.ui.builders_canvas import canvas_zoom_reset
+    from tm1.applications.gui.ui.builders_canvas import canvas_zoom_reset
 
     main_panel, optimization_panel = (SimpleNamespace(
         fit_view=Mock(), cleanup=Mock(), color_range_state=lambda: {'mode': 'global', 'ranges': {}}) for _ in range(2))
@@ -89,7 +89,7 @@ def test_window_close_cleans_both_volume_plotters_and_their_popups(win):
     from types import MethodType, SimpleNamespace
     from unittest.mock import Mock
     from PySide6.QtWidgets import QDialog
-    from sjtu_tpmshx.applications.gui.ui.panel_vis_3d import ThreeDVisPanel
+    from tm1.applications.gui.ui.panel_vis_3d import ThreeDVisPanel
 
     panels = []
     popups = []
@@ -111,8 +111,8 @@ def test_window_close_cleans_both_volume_plotters_and_their_popups(win):
 
 
 def test_appearance_settings_toggle_units_theme_and_reduced_motion(win, monkeypatch):
-    from sjtu_tpmshx.applications.gui.ui.microanim import is_reduced_motion, set_reduced_motion
-    from sjtu_tpmshx.applications.gui.ui.theme import get_theme_name, set_theme
+    from tm1.applications.gui.ui.microanim import is_reduced_motion, set_reduced_motion
+    from tm1.applications.gui.ui.theme import get_theme_name, set_theme
 
     original_theme = get_theme_name()
     original_unit, inlet = win._temp_unit, float(win.le_TinA.text())
@@ -126,7 +126,7 @@ def test_appearance_settings_toggle_units_theme_and_reduced_motion(win, monkeypa
     assert float(win.le_TinA.text()) == pytest.approx(inlet, abs=.005)
     # A long degrees Celsius text keeps its digits and its kelvin value through a round trip.
     from decimal import Decimal
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.applications.gui.ui.window_config import config_from_window
     if win._temp_unit == 'K':
         win._toggle_temp_unit()
     text = '5.68434188608080148696899414062499999E-15'
@@ -138,7 +138,7 @@ def test_appearance_settings_toggle_units_theme_and_reduced_motion(win, monkeypa
     assert config_from_window(win).fluid_A.T_in_K == kelvin
 
     restart_notices = []
-    monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.shell_appearance.save_appearance_setting',
+    monkeypatch.setattr('tm1.applications.gui.ui.shell_appearance.save_appearance_setting',
                         lambda *_: True)
     monkeypatch.setattr(win.appearance, 'offer_restart', restart_notices.append)
     try:
@@ -149,7 +149,7 @@ def test_appearance_settings_toggle_units_theme_and_reduced_motion(win, monkeypa
         set_theme(original_theme)
 
     monkeypatch.setattr(
-        'sjtu_tpmshx.applications.gui.controllers.user_storage.save_appearance_setting',
+        'tm1.applications.gui.controllers.user_storage.save_appearance_setting',
         lambda *_: True,
     )
     prev_motion = is_reduced_motion()
@@ -373,7 +373,7 @@ def test_session_restores_drawer_page_and_legacy_defaults(win, monkeypatch):
 
 def test_palette_field_selection_updates_visible_buttons(win):
     from tests.python.gui_workbench_support import _result
-    from sjtu_tpmshx.applications.gui.ui.command_palette import build_actions
+    from tm1.applications.gui.ui.command_palette import build_actions
 
     win.combo_dim.setCurrentIndex(0)
     win.cache.set_result('2d', _result('2d'))
@@ -397,7 +397,7 @@ def test_palette_field_selection_updates_visible_buttons(win):
 def test_palette_enter_runs_selected_command_once(win, monkeypatch):
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
-    from sjtu_tpmshx.applications.gui.ui.command_palette import CommandPalette
+    from tm1.applications.gui.ui.command_palette import CommandPalette
 
     calls = []
     monkeypatch.setattr(win.result_export, 'export_results', lambda: calls.append('export'))
@@ -445,8 +445,8 @@ def test_volume_only_result_enables_the_result_tab(win):
 
 def test_same_field_refreshes_result_dimension_and_slice_controls(win):
     from tests.python.gui_workbench_support import _result
-    from sjtu_tpmshx.applications.gui.ui.plot_2d_results import finalize_plots
-    from sjtu_tpmshx.applications.gui.ui.plot_3d_results import _render_2d_slices_from_3d
+    from tm1.applications.gui.ui.plot_2d_results import finalize_plots
+    from tm1.applications.gui.ui.plot_3d_results import _render_2d_slices_from_3d
 
     for mode in ('2d', '3d', '2d'):
         result = _result(mode)
@@ -480,7 +480,7 @@ def test_rail_and_drawer_shortcuts_are_bound_to_appearance_toggles(win):
 
 
 def test_current_solver_controls_are_visible_and_roundtrip(win):
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.applications.gui.ui.window_config import config_from_window
 
     win.combo_dim.setCurrentIndex(1)
     win._select_param_page(2)
@@ -525,7 +525,7 @@ def test_first_show_reveal_is_once_and_keeps_restored_page_and_values(win, monke
     win.hide()
     QApplication.processEvents()
     calls = []
-    monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.shell_appearance.reveal', calls.append)
+    monkeypatch.setattr('tm1.applications.gui.ui.shell_appearance.reveal', calls.append)
     win.appearance._initial_reveal_scheduled = False
     win.show()
     QApplication.processEvents()

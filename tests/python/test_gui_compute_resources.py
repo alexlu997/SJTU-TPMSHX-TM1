@@ -5,10 +5,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from sjtu_tpmshx.run_control.cancellation import CancelledError
+from tm1.run_control.cancellation import CancelledError
 from tests.python.gui_workbench_support import win as win, _result
 from tests.python.gui_worker_support import _wait_for
-from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+from tm1.applications.gui.ui.window_config import config_from_window
 
 
 def test_cpu_budget_updates_consumers_without_changing_case_or_result(win, tmp_path):
@@ -31,8 +31,8 @@ def test_cpu_budget_updates_consumers_without_changing_case_or_result(win, tmp_p
 @pytest.mark.parametrize('kind', ['compute', 'optimize', 'quick_design'])
 def test_native_control_reaches_workers_and_stays_locked_through_cancel(
         win, tmp_path, monkeypatch, kind):
-    from sjtu_tpmshx.applications.gui.ui import optimize_panel, single_run
-    from sjtu_tpmshx.applications.gui.ui.background_tasks import has_active_tasks
+    from tm1.applications.gui.ui import optimize_panel, single_run
+    from tm1.applications.gui.ui.background_tasks import has_active_tasks
 
     library = tmp_path / 'solver-library'
     library.touch()
@@ -55,7 +55,7 @@ def test_native_control_reaches_workers_and_stays_locked_through_cancel(
         cancel = win.single_run.compute.cancel
     elif kind == 'optimize':
         monkeypatch.setattr(
-            'sjtu_tpmshx.applications.optimization.multi_condition_optimizer.run_multi_condition_optimization', held)
+            'tm1.applications.optimization.multi_condition_optimizer.run_multi_condition_optimization', held)
         monkeypatch.setattr(optimize_panel, 'optimization_output_dir', lambda: tmp_path)
         win.combo_dim.setCurrentIndex(0)
         win.optimization.conditions = [dict(condition_id='selector', T_in_A_K=400., P_in_A_Pa=130000.,
@@ -63,8 +63,8 @@ def test_native_control_reaches_workers_and_stays_locked_through_cancel(
         win.optimization.start()
         cancel = win.optimization.cancel
     else:
-        monkeypatch.setattr('sjtu_tpmshx.applications.design.cases.load_cases', lambda _: [SimpleNamespace(case='A', dPlim_h=.05, dPlim_c=.06)])
-        monkeypatch.setattr('sjtu_tpmshx.applications.design.sizing.size_fixed_cell', held)
+        monkeypatch.setattr('tm1.applications.design.cases.load_cases', lambda _: [SimpleNamespace(case='A', dPlim_h=.05, dPlim_c=.06)])
+        monkeypatch.setattr('tm1.applications.design.sizing.size_fixed_cell', held)
         page = win.quick_design
         page.le_qd_file.setText('not-read.xlsx')
         page.mode_selector.set_value('fixed')

@@ -1,7 +1,7 @@
 """Keep the accepted 3D result when the field or volume display is unavailable."""
 import pytest
 
-from sjtu_tpmshx.data_types.compute_result import ComputeResult
+from tm1.data_types.compute_result import ComputeResult
 from tests.python.gui_worker_support import win as win
 
 
@@ -13,7 +13,7 @@ def test_3d_field_delivery_keeps_the_result_and_defers_the_volume(win, monkeypat
             raise render_result
         return render_result
 
-    monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.plot_2d_results.ensure_result_plot', draw)
+    monkeypatch.setattr('tm1.applications.gui.ui.plot_2d_results.ensure_result_plot', draw)
     result = ComputeResult(Q_W=100., dP_A_Pa=50., diagnostics={'mode': '3d'})
     success = win.results.present(result, mode='3d', provenance=None, elapsed=1.)
     assert success is (render_result is True)

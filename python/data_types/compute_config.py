@@ -78,7 +78,7 @@ from math import isfinite
 from pathlib import Path
 from typing import Any, Dict, Literal, Optional, Tuple, Union
 
-from sjtu_tpmshx.model_configs.model_parameters import load_model_parameters
+from tm1.model_configs.model_parameters import load_model_parameters
 
 
 FluidType = Literal['air', 'water', 'sco2', 'co2']
@@ -369,7 +369,7 @@ class ZoneInputConfig:
         if self.axis not in ('x', 'y', 'grid', 'continuous'):
             raise ValueError(f'Zone axis must be x, y, grid or continuous, got {self.axis!r}')
         if self.axis == 'continuous':
-            from sjtu_tpmshx.model_configs.df_domain import TRAIN_L, TRAIN_T
+            from tm1.model_configs.df_domain import TRAIN_L, TRAIN_T
             required = {'x_decision', 'n_ctrl_x', 'n_ctrl_y', 'symmetric_y',
                         'spline_order', 'L_bounds', 't_bounds'}
             spec = self.config
@@ -547,7 +547,7 @@ class ComputeConfig:
         already consumes, so production validate scripts can switch
         with a one-line change.
         """
-        from sjtu_tpmshx.file_io.text_file import read_json
+        from tm1.file_io.text_file import read_json
         return cls.from_dict(read_json(path))
 
     def to_dict(self) -> dict[str, Any]:
@@ -559,7 +559,7 @@ class ComputeConfig:
 
     def to_json(self, path: Union[str, Path]) -> None:
         """Write the configuration archive as JSON."""
-        from sjtu_tpmshx.file_io.text_file import write_json
+        from tm1.file_io.text_file import write_json
         write_json(path, self.to_dict())
 
     def validate_static_inputs(self, *, _native_preparation: bool = False) -> 'ComputeConfig':
@@ -593,8 +593,8 @@ class ComputeConfig:
         _validate_inlet_speeds(self.fluid_A, self.fluid_B, resolved_inlet_speeds)
         ge = self.geometry
         if self.df_mode == 'experimental' and not native_preparation:
-            from sjtu_tpmshx.cpp_interface import _native_df
-            from sjtu_tpmshx.model_configs.model_parameters import load_preparation_df_parameters
+            from tm1.cpp_interface import _native_df
+            from tm1.model_configs.model_parameters import load_preparation_df_parameters
 
             domain = (ge.L_dom_m, ge.H_dom_m, ge.Lz_m) if self.is_3d else (ge.L_dom_m, ge.H_dom_m)
             native_domain = all(type(value) in (int, float) for value in (*domain, ge.delta_levelset))
@@ -863,7 +863,7 @@ def _validate_static_settings(values, is_3d, *, _native_preparation=False, port_
             window = (cross, pipe['in_ctr'], pipe['in_w'], pipe['out_ctr'], pipe['out_w'])
             if all(type(value) is float for value in window) and port_windows_fit(*window):
                 continue
-        from sjtu_tpmshx.data_types.validator import validate_pipe_config
+        from tm1.data_types.validator import validate_pipe_config
         problems = validate_pipe_config(
             pipe, ge.L_dom_m, ge.H_dom_m,
             Lz_dom=ge.Lz_m, is_3d=is_3d())
@@ -895,7 +895,7 @@ def _validate_static_settings(values, is_3d, *, _native_preparation=False, port_
             _bad(_gname, _gval)
         if not math.isfinite(fv) or fv <= 0.0:
             _bad(_gname, _gval)
-    from sjtu_tpmshx.run_control.run_environment import require_f2_mode
+    from tm1.run_control.run_environment import require_f2_mode
     require_f2_mode(solver.convergence_mode)
 
     if solver.max_iter_simple is not None:
@@ -916,7 +916,7 @@ def _validate_static_settings(values, is_3d, *, _native_preparation=False, port_
 
     # V2 production D-F closure is a water+sCO2 CFD table with bilinear
     # interpolation in geometry only. Extrapolation is not supported.
-    from sjtu_tpmshx.model_configs.df_domain import CASE_GEOMETRY_LIMITS, TRAIN_L, TRAIN_T
+    from tm1.model_configs.df_domain import CASE_GEOMETRY_LIMITS, TRAIN_L, TRAIN_T
     if not TRAIN_L[0] <= ge.L_cell_mm <= TRAIN_L[1] or not TRAIN_T[0] <= ge.t_wall_mm <= TRAIN_T[1]:
         raise ValueError(f'V2 geometry must lie inside the CFD grid: {CASE_GEOMETRY_LIMITS}')
 

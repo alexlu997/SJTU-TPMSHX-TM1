@@ -12,15 +12,15 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize_scalar
 
-from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
-from sjtu_tpmshx.physical_models.df_surrogate.experimental_correction import (
+from tm1.model_configs.units import CELSIUS_ZERO_K
+from tm1.physical_models.df_surrogate.experimental_correction import (
     correction_scale, hx_velocity_bounds)
-from sjtu_tpmshx.physical_models.df_surrogate.full_core_3cell_fixed_v2 import FullCore3CellFixedDFV2
-from sjtu_tpmshx.preprocess.offline.load_data import load_all
-from sjtu_tpmshx.development.validation.hx_experiments import (
+from tm1.physical_models.df_surrogate.full_core_3cell_fixed_v2 import FullCore3CellFixedDFV2
+from tm1.preprocess.offline.load_data import load_all
+from tm1.development.validation.hx_experiments import (
     A_FLOW, L_FLOW, P_ATM, R_AIR, air_mu, load_air_cases, load_water_cases)
-from sjtu_tpmshx.development.validation.sco2_exp.load_sco2_exp import load_exp
-from sjtu_tpmshx.physical_models.tpms_props import water_density, water_viscosity
+from tm1.development.validation.sco2_exp.load_sco2_exp import load_exp
+from tm1.physical_models.tpms_props import water_density, water_viscosity
 
 
 _REPO = Path(__file__).resolve().parents[4]
@@ -144,7 +144,7 @@ def fit_water_hx() -> tuple[pd.DataFrame, pd.DataFrame]:
         quality_valid = ~(raw.dp_nonphysical | raw.dup_row)
         T = (0.5 * (raw["水进口温度/℃"].to_numpy(float)
                     + raw["水出口温度/℃"].to_numpy(float)) + CELSIUS_ZERO_K)
-        from sjtu_tpmshx.physical_models.fluid_props import check_water_state
+        from tm1.physical_models.fluid_props import check_water_state
         check_water_state('water', T,
                           0.5 * (raw.water_P_in_abs_Pa + raw.water_P_out_abs_Pa),
                           where='water HX mean properties')

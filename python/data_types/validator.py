@@ -18,8 +18,8 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, cast
 
 import numpy as np
 
-from sjtu_tpmshx.model_configs.df_domain import TRAIN_L_NODES, TRAIN_T_NODES
-from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
+from tm1.model_configs.df_domain import TRAIN_L_NODES, TRAIN_T_NODES
+from tm1.model_configs.units import CELSIUS_ZERO_K
 
 
 # ---------------------------------------------------------------- types

@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from sjtu_tpmshx.development.validation.sco2_exp.load_sco2_exp import load_exp
+from tm1.development.validation.sco2_exp.load_sco2_exp import load_exp
 
 
 _XLSX = Path(__file__).resolve().parents[3] / 'data' / 'raw_data' / 'experiments' / 'sco2' / 'sco2_DG7-t0p6_hx_experiment_summary.xlsx'
@@ -24,8 +24,8 @@ def test_diamond_redo_cases_are_rejected():
 def test_gauge_conversion_endpoint_reference_and_cached_fields(
         monkeypatch, topology, reverse_hot):
     import pandas as pd
-    from sjtu_tpmshx.physical_models.sco2_props import sco2_prop
-    from sjtu_tpmshx.development.validation.sco2_exp import load_sco2_exp as loader
+    from tm1.physical_models.sco2_props import sco2_prop
+    from tm1.development.validation.sco2_exp import load_sco2_exp as loader
 
     mapping = loader._MAPS[topology]
     raw = pd.DataFrame(index=range(5), columns=range(39), dtype=object)

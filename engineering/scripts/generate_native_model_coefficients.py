@@ -13,7 +13,7 @@ import math
 import json
 from pathlib import Path
 
-from sjtu_tpmshx.model_configs.model_parameters import (
+from tm1.model_configs.model_parameters import (
     MODEL_VERSIONS, df_geometry_limits, load_co2_coefficients, load_model_parameters, load_preparation_df_parameters)
 
 
@@ -152,7 +152,7 @@ def df_header(csv_path=None):
     lengths, walls = data['domain']['L_nodes_mm'], data['domain']['t_nodes_mm']
     topologies, fluids = ('Diamond', 'Gyroid'), ('air', 'water', 'sco2')
     tables = {topology: {} for topology in topologies}
-    source = (files('sjtu_tpmshx') / 'physical_models' / 'df_surrogate' / '_prebuilt' / (data['method'] + '.csv')
+    source = (files('tm1') / 'physical_models' / 'df_surrogate' / '_prebuilt' / (data['method'] + '.csv')
               if csv_path is None else csv_path)
     with source.open(newline='', encoding='utf-8') as stream:
         reader = csv.DictReader(stream)

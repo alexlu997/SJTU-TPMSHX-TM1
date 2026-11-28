@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from sjtu_tpmshx.data_types.compute_result import ComputeResult
+from tm1.data_types.compute_result import ComputeResult
 
 from PySide6.QtCore import QObject
 

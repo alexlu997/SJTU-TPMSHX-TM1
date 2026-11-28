@@ -3,8 +3,8 @@ from dataclasses import replace
 
 import numpy as np
 
-from sjtu_tpmshx.data_types.field_result import FieldResult
-from sjtu_tpmshx.postprocess.api import evaluate
+from tm1.data_types.field_result import FieldResult
+from tm1.postprocess.api import evaluate
 
 
 def test_quick_native_duty_pressure_and_unconverged_state():

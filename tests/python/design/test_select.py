@@ -1,6 +1,6 @@
-from sjtu_tpmshx.applications.design.select import enumerate_select
-from sjtu_tpmshx.applications.design import select, sizing
-from sjtu_tpmshx.run_control.module_ports import RunControl
+from tm1.applications.design.select import enumerate_select
+from tm1.applications.design import select, sizing
+from tm1.run_control.module_ports import RunControl
 import pytest
 
 

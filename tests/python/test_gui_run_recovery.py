@@ -6,18 +6,18 @@ import threading
 import pytest
 from PySide6.QtWidgets import QMessageBox
 
-from sjtu_tpmshx.applications.gui.controllers.compute_orchestrator import CancelToken
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.run_control.paused_run import PausedRun
+from tm1.applications.gui.controllers.compute_orchestrator import CancelToken
+from tm1.run_control.module_ports import RunControl
+from tm1.run_control.paused_run import PausedRun
 from tests.python.gui_worker_support import win as win, _configure, _wait_for
 from tests.python.gui_workbench_support import _result
-from sjtu_tpmshx.applications.gui.ui.single_run import _run_compute
+from tm1.applications.gui.ui.single_run import _run_compute
 
 
 @pytest.mark.parametrize('resume', [False, True])
 def test_gui_worker_uses_recovery_and_maps_only_complete_results(tmp_path, monkeypatch, resume):
-    from sjtu_tpmshx.applications import result_adapter as module_adapter
-    from sjtu_tpmshx.applications.execution import recovery
+    from tm1.applications import result_adapter as module_adapter
+    from tm1.applications.execution import recovery
 
     token = CancelToken()
     native, performance, display, config = object(), object(), object(), object()
@@ -57,7 +57,7 @@ def test_gui_worker_uses_recovery_and_maps_only_complete_results(tmp_path, monke
 
 
 def test_saved_pause_keeps_the_last_complete_gui_result(win, tmp_path, monkeypatch):
-    from sjtu_tpmshx.applications.execution import recovery
+    from tm1.applications.execution import recovery
 
     _configure(win, monkeypatch, '2d')
     accepted = _result('2d')
@@ -100,8 +100,8 @@ def test_saved_pause_keeps_the_last_complete_gui_result(win, tmp_path, monkeypat
 @pytest.mark.parametrize('from_gui', [False, True])
 def test_resume_uses_saved_inputs_and_provenance_without_changing_draft(
         win, tmp_path, monkeypatch, mode, from_gui):
-    from sjtu_tpmshx.applications.execution import recovery
-    from sjtu_tpmshx.applications.gui.ui import single_run
+    from tm1.applications.execution import recovery
+    from tm1.applications.gui.ui import single_run
 
     config = _configure(win, monkeypatch, '2d')
     config = replace(config, geometry=replace(config.geometry, Lz_m=.03 if mode == '3d' else None),
@@ -180,8 +180,8 @@ def test_resume_uses_saved_inputs_and_provenance_without_changing_draft(
 @pytest.mark.parametrize('mode', ['2d', '3d'])
 def test_new_gui_run_saves_native_state_and_frozen_input_provenance(
         win, tmp_path, monkeypatch, mode):
-    from sjtu_tpmshx.applications import result_adapter as module_adapter
-    from sjtu_tpmshx.applications.execution import recovery
+    from tm1.applications import result_adapter as module_adapter
+    from tm1.applications.execution import recovery
 
     config = _configure(win, monkeypatch, mode)
     preset = win.case_files.capture_current_preset('Run inputs')
@@ -246,7 +246,7 @@ def test_rejected_new_run_clears_pending_recovery_state(win, monkeypatch, mode):
 @pytest.mark.parametrize('mode', ['2d', '3d'])
 def test_failed_new_run_keeps_accepted_result_and_exposes_saved_state(
         win, tmp_path, monkeypatch, mode):
-    from sjtu_tpmshx.applications.execution import recovery
+    from tm1.applications.execution import recovery
 
     _configure(win, monkeypatch, mode)
     win.results.publish(_result(mode))

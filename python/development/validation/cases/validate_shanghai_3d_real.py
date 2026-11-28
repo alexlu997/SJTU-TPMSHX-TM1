@@ -19,12 +19,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from sjtu_tpmshx.applications.result_adapter import compute_result
-from sjtu_tpmshx.development.validation.harness._harness import load_cases_df
-from sjtu_tpmshx.development.validation.harness._case_sets import (
+from tm1.applications.result_adapter import compute_result
+from tm1.development.validation.harness._harness import load_cases_df
+from tm1.development.validation.harness._case_sets import (
     shanghai_spec, SHANGHAI_XLSX, SHANGHAI_N_CASES,
 )
-from sjtu_tpmshx.development.validation.harness._provenance import (
+from tm1.development.validation.harness._provenance import (
     output_directory, output_path, write_csv_with_provenance,
 )
 
@@ -32,8 +32,8 @@ MAX_OUTER = 12
 
 def _pipeline_config(ci, df, Nx_u, Ny_u, Nz_u, max_outer=None,
                      port_wall_refine=False, df_mode='cfd_smooth'):
-    from sjtu_tpmshx.data_types.compute_config import SolverConfig
-    from sjtu_tpmshx.development.validation.harness._case_sets import shanghai_pipeline_config
+    from tm1.data_types.compute_config import SolverConfig
+    from tm1.development.validation.harness._case_sets import shanghai_pipeline_config
     cfg = shanghai_pipeline_config(ci, df,
         SolverConfig(Nx=Nx_u, Ny=Ny_u, Nz=Nz_u,
                      max_outer_ltne=None if max_outer is None else int(max_outer)),
@@ -146,7 +146,7 @@ def main(argv=None):
         ap.error(str(exc))
     explicit_grid = any(n is not None for n in (args.nx, args.ny, args.nz))
     port_refine = args.port_wall_refine or not explicit_grid
-    from sjtu_tpmshx.physical_models.grid import SHANGHAI_GRID_3D
+    from tm1.physical_models.grid import SHANGHAI_GRID_3D
     defaults = SHANGHAI_GRID_3D if port_refine else (20, 10, 3)
     Nx_u, Ny_u, Nz_u = (default if value is None else value
                         for value, default in zip((args.nx, args.ny, args.nz), defaults))

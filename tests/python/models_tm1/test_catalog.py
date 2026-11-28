@@ -2,16 +2,16 @@
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.model_refs import ModelRef
-from sjtu_tpmshx.physical_models.catalog import MODEL_VERSIONS, resolve_model
+from tm1.data_types.model_refs import ModelRef
+from tm1.physical_models.catalog import MODEL_VERSIONS, resolve_model
 
 
 def test_resolve_each_registered_resource():
-    from sjtu_tpmshx.model_configs.model_parameters import load_quick_design_parameters
-    from sjtu_tpmshx.physical_models.co2_correlations import geometry as co2_geometry
-    from sjtu_tpmshx.physical_models.fluid_props import get
-    from sjtu_tpmshx.physical_models.tpms_props import geometry
-    from sjtu_tpmshx.physical_models.df_surrogate.full_core_3cell_fixed_v2 import FullCore3CellFixedDFV2
+    from tm1.model_configs.model_parameters import load_quick_design_parameters
+    from tm1.physical_models.co2_correlations import geometry as co2_geometry
+    from tm1.physical_models.fluid_props import get
+    from tm1.physical_models.tpms_props import geometry
+    from tm1.physical_models.df_surrogate.full_core_3cell_fixed_v2 import FullCore3CellFixedDFV2
 
     parameters = {'fluid': {'fluid': 'air'}, 'co2_fluid': {'fluid': 'co2'},
                   'darcy_forchheimer': {'topology': 'Gyroid'}}
@@ -32,7 +32,7 @@ def test_resolve_each_registered_resource():
     ('catalog-alias', 'co2_fluid'), (' AIR ', 'fluid'), (' Water ', 'fluid'), (' sCO2 ', 'fluid'),
 ])
 def test_fluid_resource_matches_registered_identity(spelling, resource, monkeypatch):
-    from sjtu_tpmshx.physical_models.fluid_props import FLUIDS, get
+    from tm1.physical_models.fluid_props import FLUIDS, get
 
     monkeypatch.setitem(FLUIDS, 'catalog-alias', get('co2'))
     parameters = {'fluid': spelling}

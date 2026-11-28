@@ -20,7 +20,7 @@ channels (kr_A>1 large, kr_B<1 small).
 
 Output: python/development/runs/_out/asym_cfd/asym_cfd_worklist.xlsx
         (gitignored; TPMSHX_TOOL_OUT_DIR overrides the producer/consumer directory)
-Usage:  python -m sjtu_tpmshx.development.runs.tools.asym_build_cfd_worklist_xlsx
+Usage:  python -m tm1.development.runs.tools.asym_build_cfd_worklist_xlsx
 """
 import os
 from pathlib import Path
@@ -30,8 +30,8 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side as XLSide
 from openpyxl.utils import get_column_letter
 
-from sjtu_tpmshx.physical_models.tpms_geometry import _phi_grid, _C_from_tL
-from sjtu_tpmshx.development.runs.tools.asym_cfd_geometry import split_geometry
+from tm1.physical_models.tpms_geometry import _phi_grid, _C_from_tL
+from tm1.development.runs.tools.asym_cfd_geometry import split_geometry
 
 # ── geometry design (locked) ─────────────────────────────────────
 N = 128
@@ -193,7 +193,7 @@ def build():
         ("  旧 water-cfd-raw 是旧 CFD recipe → 新 r=1 应在同一 nTop+Fluent recipe 下重跑，旧数据仅作 validation 对账（新 r=1 应复现 r1_water_ref 的 K/c_F 再信其 κ 分母）。", None),
         ("", None),
         ("【流程】 nTop 建 24 域(12 case×2 side) → Fluent 跑 worklist(Um/ṁ 已给) → 填黄列 p0..p3 → dp_core=p0−p3 → 每 (case,side) 4-6 Re 拟", None),
-        ("  导出逐 (tpms,split,side,Re) 压降 CSV → python -m sjtu_tpmshx.development.runs.cfd_asym.asym_postproc_kappa <csv>。", None),
+        ("  导出逐 (tpms,split,side,Re) 压降 CSV → python -m tm1.development.runs.cfd_asym.asym_postproc_kappa <csv>。", None),
         ("  后处理拟合 (K,c_F)，按每拓扑 split_r≈1 的 CFD 拟合均值归一化；CSV 字段见该模块帮助，不能直接传 results sheet。", None),
         ("  ingest_cfd_kappa 是另一条研究路径，分母为对称模型预测，不等同于本工单的 CFD 自比。", None),
         ("  results_template：每 (lattice,split,side) 拟 |ΔP|/L=(μ/K)Um+c_F·ρ·Um² 后填黄色 K_cfd/cF_cfd；保留首行标准 7 列表头，另存 CSV 交给 ingest。", None),

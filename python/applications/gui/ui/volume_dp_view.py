@@ -14,8 +14,8 @@ import numpy as np
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
-from sjtu_tpmshx.applications.gui.ui.symbols import MPL, mpl_qd_row, val_unit
-from sjtu_tpmshx.applications.gui.ui.theme import get_theme
+from tm1.applications.gui.ui.symbols import MPL, mpl_qd_row, val_unit
+from tm1.applications.gui.ui.theme import get_theme
 
 _PT = 72.0 / 100.0
 _LIMIT_TOL = 1e-9

@@ -10,16 +10,16 @@ import warnings as W
 import numpy as np
 import pytest
 
-import sjtu_tpmshx.physical_models.tpms_calc as tpms_calc
-import sjtu_tpmshx.physical_models.tpms_props as tpms_props   # warn-state lives here (arch-b-c-e B)
-from sjtu_tpmshx.physical_models.tpms_calc import geometry, compute, water_density
-import sjtu_tpmshx.physical_models.nu_correlations as nu_correlations
-from sjtu_tpmshx.physical_models.nu_correlations import nu_water_topo
-from sjtu_tpmshx.physical_models.df_surrogate.predict import predict_dP_compressible
-from sjtu_tpmshx.data_types.compute_config import (ComputeConfig, FluidConfig,
+import tm1.physical_models.tpms_calc as tpms_calc
+import tm1.physical_models.tpms_props as tpms_props   # warn-state lives here (arch-b-c-e B)
+from tm1.physical_models.tpms_calc import geometry, compute, water_density
+import tm1.physical_models.nu_correlations as nu_correlations
+from tm1.physical_models.nu_correlations import nu_water_topo
+from tm1.physical_models.df_surrogate.predict import predict_dP_compressible
+from tm1.data_types.compute_config import (ComputeConfig, FluidConfig,
                                          ZoneInputConfig)
-from sjtu_tpmshx.preprocess.two_d.preparation import prepare_case
-from sjtu_tpmshx.physical_models.zone_config import ZoneConfig
+from tm1.preprocess.two_d.preparation import prepare_case
+from tm1.physical_models.zone_config import ZoneConfig
 
 
 # ── geometry degeneracy floor ──────────────────────────────────────────────
@@ -115,7 +115,7 @@ def test_compute_nu_window_unified_no_warn_at_re_581():
 
 # ── compressible dP infeasibility honesty ──────────────────────────────────
 def test_predict_dP_infeasible_warns_when_rescuing_to_pin():
-    import sjtu_tpmshx.physical_models.df_surrogate.predict as predmod
+    import tm1.physical_models.df_surrogate.predict as predmod
     predmod._CHOKE_WARNED.clear()
     with W.catch_warnings(record=True) as rec:
         W.simplefilter('always')
@@ -129,7 +129,7 @@ def test_predict_dP_infeasible_warns_when_rescuing_to_pin():
 
 def test_predict_dP_infeasible_warns_per_geometry_not_once_per_process():
     # An infeasible pressure estimate must warn for each distinct geometry.
-    import sjtu_tpmshx.physical_models.df_surrogate.predict as predmod
+    import tm1.physical_models.df_surrogate.predict as predmod
     predmod._CHOKE_WARNED.clear()
     geoms = [('Gyroid', 7.0, 0.5), ('Diamond', 4.0, 0.3)]
     warned = 0

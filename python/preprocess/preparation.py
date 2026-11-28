@@ -5,11 +5,11 @@ import warnings
 
 import numpy as np
 
-from sjtu_tpmshx.data_types.compute_config import Sco2NuConfig
-from sjtu_tpmshx.physical_models.preparation_cache import geometry_cache, inlet_cache, _InletCacheValue
-from sjtu_tpmshx.physical_models.preparation_notices import range_notices
-from sjtu_tpmshx.run_control.logutil import get_logger
-from sjtu_tpmshx.run_control.run_warnings import RangeRecord, current_warnings, record_warning, warning_messages
+from tm1.data_types.compute_config import Sco2NuConfig
+from tm1.physical_models.preparation_cache import geometry_cache, inlet_cache, _InletCacheValue
+from tm1.physical_models.preparation_notices import range_notices
+from tm1.run_control.logutil import get_logger
+from tm1.run_control.run_warnings import RangeRecord, current_warnings, record_warning, warning_messages
 
 
 GEOMETRY = ('epsilon', 'epsilon_A', 'epsilon_B', 'A_0', 'D_h')

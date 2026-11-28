@@ -23,7 +23,7 @@ water 与 air 使用相同的单侧有效 A_flow，不按通道数
 28/34 缩放，也不使用 42×42 mm 几何端面或简单除以 2。
 
 用法（从仓库根）:
-    python -m sjtu_tpmshx.development.validation.df_refit.cf_cross_fluid
+    python -m tm1.development.validation.df_refit.cf_cross_fluid
 
 输出: stdout 记分板 + .cache/reports/df_refit/cf_cross_fluid.csv。生产零改动。
 """
@@ -35,14 +35,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from sjtu_tpmshx.development.validation.hx_experiments import (
+from tm1.development.validation.hx_experiments import (
     AIR_BOOKS, A_FLOW, L_FLOW, P_ATM, R_AIR, DH_REF, air_mu, load_air_cases, load_water_cases)
-from sjtu_tpmshx.development.validation.sco2_exp.load_sco2_exp import load_exp
-from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
-from sjtu_tpmshx.physical_models.df_surrogate.full_core_3cell_fixed_v2 import FullCore3CellFixedDFV2
-from sjtu_tpmshx.physical_models.fluid_props import check_water_state
-from sjtu_tpmshx.physical_models.tpms_props import water_density, water_viscosity
-from sjtu_tpmshx.run_control.logutil import get_logger
+from tm1.development.validation.sco2_exp.load_sco2_exp import load_exp
+from tm1.model_configs.units import CELSIUS_ZERO_K
+from tm1.physical_models.df_surrogate.full_core_3cell_fixed_v2 import FullCore3CellFixedDFV2
+from tm1.physical_models.fluid_props import check_water_state
+from tm1.physical_models.tpms_props import water_density, water_viscosity
+from tm1.run_control.logutil import get_logger
 
 _log = get_logger(__name__)
 

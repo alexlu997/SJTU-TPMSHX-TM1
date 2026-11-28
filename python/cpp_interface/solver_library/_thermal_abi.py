@@ -57,7 +57,7 @@ class _FullEnergyEffectiveSettings(ct.Structure):
 
 
 def _energy_options(algorithm, tolerance):
-    from sjtu_tpmshx.data_types.compute_config import validate_enthalpy_algorithm
+    from tm1.data_types.compute_config import validate_enthalpy_algorithm
     validate_enthalpy_algorithm(algorithm, tolerance)
     return _EnergyOptions(_ENERGY_NAMES.index(algorithm), tolerance)
 

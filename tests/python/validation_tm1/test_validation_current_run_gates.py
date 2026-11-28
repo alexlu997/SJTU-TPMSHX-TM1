@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.development.validation.cases import validate_sco2_v1 as v1
+from tm1.development.validation.cases import validate_sco2_v1 as v1
 
 
 @pytest.mark.parametrize('damage', [None, 'Q_W', 'dP_A_Pa', 'dP_B_Pa',

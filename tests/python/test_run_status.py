@@ -4,15 +4,15 @@ import threading
 import pytest
 from PySide6.QtWidgets import QApplication, QBoxLayout
 
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.data_types.compute_result import ComputeResult
+from tm1.run_control.cancellation import CancelledError
+from tm1.data_types.compute_result import ComputeResult
 from tests.python.gui_worker_support import (
     _configure, _stub_compute_result, _wait_for, win as win,
 )
-from sjtu_tpmshx.applications.gui.ui.responsive import ResponsiveRow
-from sjtu_tpmshx.applications.gui.ui.run_status import RunStatusCard
-from sjtu_tpmshx.applications.gui.ui.icons import icon
-from sjtu_tpmshx.applications.gui.ui.theme import get_theme
+from tm1.applications.gui.ui.responsive import ResponsiveRow
+from tm1.applications.gui.ui.run_status import RunStatusCard
+from tm1.applications.gui.ui.icons import icon
+from tm1.applications.gui.ui.theme import get_theme
 
 
 @pytest.mark.parametrize('outcome', ['success', 'error', 'cancelled', 'warning', 'unconverged'])
@@ -26,7 +26,7 @@ def test_worker_lifecycle_keeps_cancel_logs_and_verdict(win, monkeypatch, tmp_pa
         action_icons.append((name, color))
         return icon(name, color)
 
-    monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.single_run.icon', action_icon)
+    monkeypatch.setattr('tm1.applications.gui.ui.single_run.icon', action_icon)
     released = threading.Event()
     callbacks_sent = threading.Event()
 

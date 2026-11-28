@@ -15,10 +15,10 @@ HDF5 保存根级模式和类型属性、UTF-8 JSON 描述符，以及 `/arrays`
 公共阶段命令为：
 
 ```
-python -m sjtu_tpmshx.cli prepare config.json case.yaml --case-id example
-python -m sjtu_tpmshx.cli solve case.yaml results.h5
-python -m sjtu_tpmshx.cli postprocess results.h5 metrics.json
-python -m sjtu_tpmshx.cli run config.json output-directory --case-id example
+python -m tm1.cli prepare config.json case.yaml --case-id example
+python -m tm1.cli solve case.yaml results.h5
+python -m tm1.cli postprocess results.h5 metrics.json
+python -m tm1.cli run config.json output-directory --case-id example
 ```
 
 以上命令使用当前工作树 `.venv-path` 中的解释器。退出码 0 表示该阶段完成其声明的检查。solve/run 未收敛时返回 2；postprocess 请求的核心指标不可用时返回 2；取消返回 130。postprocess 返回 0 不改变存档运行的数值或物理状态。阶段异常作为失败向上传播。

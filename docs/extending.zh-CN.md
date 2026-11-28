@@ -150,7 +150,7 @@
 - **对话框与面板接线**：[tests/python/test_quick_design_panel_wiring.py](../tests/python/test_quick_design_panel_wiring.py)、[tests/python/test_quick_design_dialog.py](../tests/python/test_quick_design_dialog.py)、[tests/python/test_optimize_panel_wiring.py](../tests/python/test_optimize_panel_wiring.py) 与 [tests/python/test_main_smoke.py](../tests/python/test_main_smoke.py)。
 - **结果缓存、叠加线与工作台状态**：[tests/python/test_result_cache.py](../tests/python/test_result_cache.py)、[tests/python/test_result_snapshot_lifecycle.py](../tests/python/test_result_snapshot_lifecycle.py)、[tests/python/test_workbench_field_selection.py](../tests/python/test_workbench_field_selection.py) 与 [tests/python/test_workbench_navigation.py](../tests/python/test_workbench_navigation.py)。
 - **布局与导入分层检查**：[tests/python/test_ui_layout_hygiene.py](../tests/python/test_ui_layout_hygiene.py)、[tests/python/architecture/test_three_module_imports.py](../tests/python/architecture/test_three_module_imports.py) 与 [tests/python/models_tm1/test_model_boundary.py](../tests/python/models_tm1/test_model_boundary.py)。
-  同时运行 `python -m sjtu_tpmshx.development.runs.tools.audit_import_graph --fail-on-violations`。
+  同时运行 `python -m tm1.development.runs.tools.audit_import_graph --fail-on-violations`。
 - 遵守[测试范围规则](collaboration.zh-CN.md#测试范围)：测试状态变化、公开契约与资源清理，不测试离屏像素坐标或固定边距数值。
 
 ### 5. 验证与数据要求

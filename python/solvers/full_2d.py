@@ -5,24 +5,24 @@ from uuid import uuid4
 
 import numpy as np
 
-from sjtu_tpmshx.cpp_interface import full_2d_stage
-from sjtu_tpmshx.data_types.case_data import resolved_input_record
-from sjtu_tpmshx.data_types.compute_config import (
+from tm1.cpp_interface import full_2d_stage
+from tm1.data_types.case_data import resolved_input_record
+from tm1.data_types.compute_config import (
     ComputeConfig,
     _checked_saved_2d_settings,
     validate_simple_velocity_relaxation,
 )
-from sjtu_tpmshx.data_types.field_result import FieldResult, execution_record
-from sjtu_tpmshx.data_types.persistence_validation import validate_grid, validate_thermal_geometry
-from sjtu_tpmshx.data_types.portable_data import mutable_data
-from sjtu_tpmshx.physical_models.envelope import ChokedFlowError
-from sjtu_tpmshx.physical_models.fluid_props import WaterStateError
-from sjtu_tpmshx.physical_models.zone_config import Zone, ZoneConfig
-from sjtu_tpmshx.physical_models.zone_units import _legacy_zone_units
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.run_control.run_environment import require_f2_mode, run_environment
-from sjtu_tpmshx.run_control.run_warnings import (
+from tm1.data_types.field_result import FieldResult, execution_record
+from tm1.data_types.persistence_validation import validate_grid, validate_thermal_geometry
+from tm1.data_types.portable_data import mutable_data
+from tm1.physical_models.envelope import ChokedFlowError
+from tm1.physical_models.fluid_props import WaterStateError
+from tm1.physical_models.zone_config import Zone, ZoneConfig
+from tm1.physical_models.zone_units import _legacy_zone_units
+from tm1.run_control.cancellation import CancelledError
+from tm1.run_control.module_ports import RunControl
+from tm1.run_control.run_environment import require_f2_mode, run_environment
+from tm1.run_control.run_warnings import (
     current_warnings,
     merge_warnings,
     replay_sco2_notices,
@@ -197,7 +197,7 @@ def zone_result(cfg, prepared, temperature, *, solver_library=None):
         (prepared['energy_dx'], prepared['energy_dy']), temperature,
         design['zone_id'], zones, (cfg['L'], cfg['H']), fractions,
         solver_library=solver_library)
-    from sjtu_tpmshx.run_control.logutil import log_zone_report
+    from tm1.run_control.logutil import log_zone_report
     log_zone_report(stats)
     if axis == 'grid':
         return dict(axis_dir=axis, boundaries=[], boundaries_x=x, boundaries_y=y, stats=stats)

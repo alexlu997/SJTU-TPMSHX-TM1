@@ -7,8 +7,8 @@ import sys
 
 import pytest
 
-from sjtu_tpmshx.development.runs.tools import audit_import_graph as audit
-from sjtu_tpmshx.development.runs.tools.audit_import_graph import LAYERS, import_targets, target_unit, unit_of
+from tm1.development.runs.tools import audit_import_graph as audit
+from tm1.development.runs.tools.audit_import_graph import LAYERS, import_targets, target_unit, unit_of
 from tests.python.packaging_support import PUBLIC_NAME_CHECK, df_package_identity_check
 
 REPO = Path(__file__).resolve().parents[3]
@@ -23,14 +23,14 @@ RULES = {
 }
 
 
-def forbidden_imports(source, forbidden, package='sjtu_tpmshx'):
+def forbidden_imports(source, forbidden, package='tm1'):
     violations = []
     for node in ast.walk(ast.parse(source)):
         for module in import_targets(node, package):
-            if not module.startswith('sjtu_tpmshx.'):
+            if not module.startswith('tm1.'):
                 continue
             owner = target_unit(module, LAYERS)
-            application = module.startswith('sjtu_tpmshx.applications') and owner != 'io'
+            application = module.startswith('tm1.applications') and owner != 'io'
             if owner in forbidden or ('applications' in forbidden and application):
                 violations.append((node.lineno, module))
     return violations
@@ -45,7 +45,7 @@ def test_implementation_import_boundaries():
             owner = 'backend'
         if owner in RULES:
             checked.add(owner)
-            package = '.'.join(('sjtu_tpmshx', *relative.parts[:-1]))
+            package = '.'.join(('tm1', *relative.parts[:-1]))
             for line, module in forbidden_imports(path.read_text(encoding='utf-8'), RULES[owner], package):
                 failures.append(f'{relative}:{line}: {module}')
     assert checked == RULES.keys()
@@ -57,15 +57,15 @@ def test_implementation_import_boundaries():
     'preprocess.two_d.preparation',
 ])
 def test_checker_detects_imports_across_stage_boundaries(module):
-    name = 'sjtu_tpmshx.' + module
+    name = 'tm1.' + module
     source = f'def evaluate():\n    import {name}\n'
     assert (2, name) in forbidden_imports(source, RULES['postprocess'])
 
 
 def test_checker_resolves_relative_imports_and_allows_shared_models():
-    assert (1, 'sjtu_tpmshx.solvers') in forbidden_imports(
-        'from .. import solvers', ('solvers',), 'sjtu_tpmshx.postprocess')
-    assert not forbidden_imports('from sjtu_tpmshx.physical_models.catalog import resolve_model', ('solvers',))
+    assert (1, 'tm1.solvers') in forbidden_imports(
+        'from .. import solvers', ('solvers',), 'tm1.postprocess')
+    assert not forbidden_imports('from tm1.physical_models.catalog import resolve_model', ('solvers',))
 
 
 @pytest.mark.parametrize('source, forbidden', [
@@ -83,8 +83,8 @@ def test_checker_resolves_relative_imports_and_allows_shared_models():
 ])
 def test_module_import_boundaries(source, forbidden):
     path = ROOT.joinpath(*source.split('.')).with_suffix('.py')
-    package = 'sjtu_tpmshx.' + source.rsplit('.', 1)[0]
-    forbidden = 'sjtu_tpmshx.' + forbidden
+    package = 'tm1.' + source.rsplit('.', 1)[0]
+    forbidden = 'tm1.' + forbidden
     for node in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
         for module in import_targets(node, package):
             assert module != forbidden and not module.startswith(forbidden + '.'), f'{path}:{node.lineno}'
@@ -100,13 +100,13 @@ def test_implementation_imports_have_no_cycles(owner):
 def test_configuration_and_native_properties_have_no_import_cycle():
     names = ('data_types.compute_config', 'file_io.config_io', 'file_io.text_file',
              'cpp_interface._native_df', 'cpp_interface._native_properties')
-    audit.check_cycles({'sjtu_tpmshx.' + name: ROOT.joinpath(*name.split('.')).with_suffix('.py')
+    audit.check_cycles({'tm1.' + name: ROOT.joinpath(*name.split('.')).with_suffix('.py')
                   for name in names})
 
 
 def test_checker_detects_cycle_across_solver_directories(tmp_path):
-    api, stage, host = ('sjtu_tpmshx.solvers.api', 'sjtu_tpmshx.cpp_interface.full_2d_stage',
-                        'sjtu_tpmshx.solvers.full_2d')
+    api, stage, host = ('tm1.solvers.api', 'tm1.cpp_interface.full_2d_stage',
+                        'tm1.solvers.full_2d')
     imports = {(api, stage), (stage, host), (host, api)}
     modules = {name: tmp_path / f'{name.rsplit(".", 1)[1]}.py' for name in (api, stage, host)}
     for source, target in imports:
@@ -120,27 +120,27 @@ def test_checker_detects_cycle_across_solver_directories(tmp_path):
 
 # Each probe runs in a new interpreter so that this module's imports cannot fill sys.modules.
 @pytest.mark.parametrize('probe', [
-    "import sjtu_tpmshx.physical_models.df_surrogate.predict\n"
-    "bad = {'sjtu_tpmshx.physical_models.tpms_calc', 'sjtu_tpmshx.physical_models.tpms_props'} & set(sys.modules)\n"
+    "import tm1.physical_models.df_surrogate.predict\n"
+    "bad = {'tm1.physical_models.tpms_calc', 'tm1.physical_models.tpms_props'} & set(sys.modules)\n"
     "assert not bad, f'df_surrogate pulled kernel modules: {bad}'",
-    "import sjtu_tpmshx.physical_models.df_surrogate.predict, sjtu_tpmshx.preprocess.api, sjtu_tpmshx.solvers.api\n"
-    "offline = ('sjtu_tpmshx.preprocess.offline', 'sjtu_tpmshx.development', 'CoolProp')\n"
+    "import tm1.physical_models.df_surrogate.predict, tm1.preprocess.api, tm1.solvers.api\n"
+    "offline = ('tm1.preprocess.offline', 'tm1.development', 'CoolProp')\n"
     "assert not any(name.startswith(offline) for name in sys.modules)",
-    "import sjtu_tpmshx.physical_models.tpms_props\n"
-    "bad = [m for m in sys.modules if m.startswith('sjtu_tpmshx.physical_models.df_surrogate')"
-    " or m.startswith('sjtu_tpmshx.solvers') or m == 'sjtu_tpmshx.physical_models.tpms_calc']\n"
+    "import tm1.physical_models.tpms_props\n"
+    "bad = [m for m in sys.modules if m.startswith('tm1.physical_models.df_surrogate')"
+    " or m.startswith('tm1.solvers') or m == 'tm1.physical_models.tpms_calc']\n"
     "if bad: raise SystemExit(f'tpms_props imported upper modules: {bad}')",
-    "import sjtu_tpmshx.preprocess.api, sjtu_tpmshx.solvers.api\n"
-    "import sjtu_tpmshx.preprocess.two_d.preparation, sjtu_tpmshx.preprocess.three_d.preparation\n"
-    "bad = [m for m in sys.modules if m.startswith('sjtu_tpmshx.applications.gui.controllers')]\n"
+    "import tm1.preprocess.api, tm1.solvers.api\n"
+    "import tm1.preprocess.two_d.preparation, tm1.preprocess.three_d.preparation\n"
+    "bad = [m for m in sys.modules if m.startswith('tm1.applications.gui.controllers')]\n"
     "assert not bad, f'preparation pulled controllers: {bad}'",
-    "from sjtu_tpmshx.data_types.compute_config import ComputeConfig, ZoneInputConfig\n"
-    "from sjtu_tpmshx.data_types.validator import validate_geometry\n"
+    "from tm1.data_types.compute_config import ComputeConfig, ZoneInputConfig\n"
+    "from tm1.data_types.validator import validate_geometry\n"
     "spec = dict(n_ctrl_x=1, n_ctrl_y=1, spline_order=1, symmetric_y=False,\n"
     "            x_decision=[7., .5], L_bounds=[4., 8.], t_bounds=[.3, .6])\n"
     "ComputeConfig(zones=ZoneInputConfig(enabled=True, axis='continuous', config=spec)).validate_static_inputs()\n"
     "validate_geometry(.1, .1, None, 7., .5)\n"
-    "if 'sjtu_tpmshx.physical_models' in sys.modules: raise SystemExit('Geometry validation imported physical models')",
+    "if 'tm1.physical_models' in sys.modules: raise SystemExit('Geometry validation imported physical models')",
 ], ids=['df-surrogate-below-kernel', 'runtime-without-offline', 'tpms-props-leaf',
         'preparation-without-controllers', 'geometry-validation'])
 def test_lower_modules_import_without_upper_modules(probe):
@@ -165,88 +165,88 @@ def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monke
 
 
 @pytest.mark.parametrize('filename,source,edge,exit_code', [
-    ('domain/probe.py', 'import sjtu_tpmshx.applications.gui.ui as widgets', 'domain -> ui', 1),
-    ('domain/probe.py', 'from sjtu_tpmshx.applications.gui.ui import theme as appearance', 'domain -> ui', 1),
-    ('domain/probe.py', 'from sjtu_tpmshx import ui as widgets', 'domain -> ui', 1),
+    ('domain/probe.py', 'import tm1.applications.gui.ui as widgets', 'domain -> ui', 1),
+    ('domain/probe.py', 'from tm1.applications.gui.ui import theme as appearance', 'domain -> ui', 1),
+    ('domain/probe.py', 'from tm1 import ui as widgets', 'domain -> ui', 1),
     ('domain/probe.py', 'from ...applications.gui import ui as widgets', 'domain -> ui', 1),
     ('domain/probe.py', 'def load():\n    from ...applications.gui import ui', 'domain -> ui', 1),
-    ('domain/probe.py', 'from sjtu_tpmshx.applications.gui.ui import *', 'domain -> ui', 1),
+    ('domain/probe.py', 'from tm1.applications.gui.ui import *', 'domain -> ui', 1),
     ('domain/probe.py', 'from ui.theme import get_theme', 'domain -> ui', 1),
-    ('domain/probe.py', 'from sjtu_tpmshx import tests as support', 'domain -> tests', 1),
+    ('domain/probe.py', 'from tm1 import tests as support', 'domain -> tests', 1),
     ('domain/probe.py', 'import io\nfrom io import StringIO', None, 0),
     ('domain/probe.py', 'from scipy import io', None, 0),
-    ('models/probe.py', 'from sjtu_tpmshx.data_types import case_data', 'models -> domain', 0),
-    ('models/probe.py', 'from sjtu_tpmshx import df_surrogate', 'models -> df_surrogate', 0),
+    ('models/probe.py', 'from tm1.data_types import case_data', 'models -> domain', 0),
+    ('models/probe.py', 'from tm1 import df_surrogate', 'models -> df_surrogate', 0),
     ('solvers/full_3d.py',
-     'from sjtu_tpmshx.physical_models.df_surrogate import CFD_CAMPAIGN, CFD_SCOPE',
+     'from tm1.physical_models.df_surrogate import CFD_CAMPAIGN, CFD_SCOPE',
      'solvers -> df_surrogate (1x):', 0),
     ('solvers/full_3d.py',
-     'from sjtu_tpmshx.physical_models.df_surrogate import CFD_CAMPAIGN, CFD_SCOPE, predict',
+     'from tm1.physical_models.df_surrogate import CFD_CAMPAIGN, CFD_SCOPE, predict',
      'solvers (L1) -> df_surrogate (L2) (1x): UPWARD import', 1),
-    ('solvers/api.py', 'from sjtu_tpmshx.physical_models.df_surrogate.predict import predict_K_cF',
+    ('solvers/api.py', 'from tm1.physical_models.df_surrogate.predict import predict_K_cF',
      'solvers (L1) -> df_surrogate (L2) (1x): UPWARD import', 1),
-    ('solvers/api.py', 'from sjtu_tpmshx.physical_models.df_surrogate import CFD_CAMPAIGN, CFD_SCOPE',
+    ('solvers/api.py', 'from tm1.physical_models.df_surrogate import CFD_CAMPAIGN, CFD_SCOPE',
      'solvers (L1) -> df_surrogate (L2) (1x): UPWARD import', 1),
     ('solvers/full_3d.py',
-     'from sjtu_tpmshx.physical_models.df_surrogate import CFD_CAMPAIGN, CFD_SCOPE\n'
-     'from sjtu_tpmshx.physical_models.df_surrogate import predict',
+     'from tm1.physical_models.df_surrogate import CFD_CAMPAIGN, CFD_SCOPE\n'
+     'from tm1.physical_models.df_surrogate import predict',
      'solvers (L1) -> df_surrogate (L2) (1x): UPWARD import', 1),
     ('cpp_interface/full_3d_stage.py',
-     'from sjtu_tpmshx.physical_models.df_surrogate import CFD_CAMPAIGN, CFD_SCOPE',
-     'full 3D solve boundary -> sjtu_tpmshx.physical_models.df_surrogate', 1),
+     'from tm1.physical_models.df_surrogate import CFD_CAMPAIGN, CFD_SCOPE',
+     'full 3D solve boundary -> tm1.physical_models.df_surrogate', 1),
     ('models/deep/probe.py', 'from ....applications.gui import ui', 'models -> ui', 1),
     ('models/__init__.py', 'from ...applications.gui import ui', 'models -> ui', 1),
-    ('domain/probe.py', 'from sjtu_tpmshx import io', 'domain -> io', 1),
-    ('preprocess/probe.py', 'from sjtu_tpmshx.compute import compute', 'preprocess -> compute', 1),
-    ('compute.py', 'from sjtu_tpmshx.preprocess.api import prepare_case', 'compute -> preprocess', 0),
+    ('domain/probe.py', 'from tm1 import io', 'domain -> io', 1),
+    ('preprocess/probe.py', 'from tm1.compute import compute', 'preprocess -> compute', 1),
+    ('compute.py', 'from tm1.preprocess.api import prepare_case', 'compute -> preprocess', 0),
     ('postprocess/api.py', 'def evaluate():\n    from ..cpp_interface import _native_result_stage as old',
-     'independent result boundary -> sjtu_tpmshx.cpp_interface._native_result_stage', 1),
+     'independent result boundary -> tm1.cpp_interface._native_result_stage', 1),
     ('postprocess/evaluation.py', 'from ..cpp_interface._native_result_stage import evaluate_applicability',
-     'independent result boundary -> sjtu_tpmshx.cpp_interface._native_result_stage', 1),
+     'independent result boundary -> tm1.cpp_interface._native_result_stage', 1),
     ('postprocess/evaluation.py', 'from ..cpp_interface.result_evaluation import _Evidence as raw',
-     'independent result boundary -> sjtu_tpmshx.cpp_interface.result_evaluation._Evidence', 1),
+     'independent result boundary -> tm1.cpp_interface.result_evaluation._Evidence', 1),
     ('postprocess/evaluation.py', 'from ..cpp_interface import result_evaluation as wire\nwire._Evidence()',
-     'independent result boundary -> sjtu_tpmshx.cpp_interface.result_evaluation._Evidence', 1),
+     'independent result boundary -> tm1.cpp_interface.result_evaluation._Evidence', 1),
     ('postprocess/evaluation.py', 'from ..cpp_interface import result_evaluation\n'
      'def source_ids(reports):\n    return [result_evaluation.source_result_id for result_evaluation in reports]',
      None, 0),
     ('postprocess/evaluation.py', 'from ..cpp_interface import result_evaluation as wire\n'
      'def reports():\n    return [wire.source_result_id for wire in wire._Evidence()]',
-     'independent result boundary -> sjtu_tpmshx.cpp_interface.result_evaluation._Evidence', 1),
+     'independent result boundary -> tm1.cpp_interface.result_evaluation._Evidence', 1),
     ('postprocess/evaluation.py', 'from ..cpp_interface import result_evaluation as wire\n'
      'def ids(reports):\n    wire = reports[0]\n    return (lambda wire: wire.source_result_id)(wire)',
      None, 0),
-    ('postprocess/api.py', 'from sjtu_tpmshx.shared import _native_result_stage',
-     'independent result boundary -> sjtu_tpmshx.shared._native_result_stage', 1),
+    ('postprocess/api.py', 'from tm1.shared import _native_result_stage',
+     'independent result boundary -> tm1.shared._native_result_stage', 1),
     ('cpp_interface/result_evaluation.py',
      'def assemble_record(provider=None):\n    from ..data_types import performance_result\n'
      '    records = performance_result if provider is None else provider\n'
      '    return records.PerformanceResult("new", "saved")',
-     'result_evaluation.py:2: independent result boundary -> sjtu_tpmshx.data_types.performance_result', 1),
+     'result_evaluation.py:2: independent result boundary -> tm1.data_types.performance_result', 1),
     ('cpp_interface/result_evaluation.py',
-     'from sjtu_tpmshx import data_types as dto\ndto.performance_result.PerformanceResult()',
-     'independent result boundary -> sjtu_tpmshx.data_types.performance_result', 1),
+     'from tm1 import data_types as dto\ndto.performance_result.PerformanceResult()',
+     'independent result boundary -> tm1.data_types.performance_result', 1),
     ('cpp_interface/result_evaluation.py',
      'from itertools import starmap\nfrom ..data_types.performance_result import MetricValue\n'
      'def records(rows):\n    return tuple(starmap(MetricValue, rows))',
-     'result_evaluation.py:2: independent result boundary -> sjtu_tpmshx.data_types.performance_result.MetricValue', 1),
+     'result_evaluation.py:2: independent result boundary -> tm1.data_types.performance_result.MetricValue', 1),
     ('cpp_interface/result_evaluation.py',
      'from ..data_types.performance_result import PerformanceResult as BuildReport\n'
      'from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from ._native_result_stage import Output as BuildReport\n'
      'BuildReport("new", "saved")',
-     'result_evaluation.py:1: independent result boundary -> sjtu_tpmshx.data_types.performance_result.PerformanceResult', 1),
-    ('cpp_interface/_native_result_stage.py', 'import sjtu_tpmshx.data_types.metric_spec as specs',
-     'independent result boundary -> sjtu_tpmshx.data_types.metric_spec', 1),
+     'result_evaluation.py:1: independent result boundary -> tm1.data_types.performance_result.PerformanceResult', 1),
+    ('cpp_interface/_native_result_stage.py', 'import tm1.data_types.metric_spec as specs',
+     'independent result boundary -> tm1.data_types.metric_spec', 1),
     ('cpp_interface/result_evaluation.py', 'from ..shared.domain.performance_result import *',
-     'independent result boundary -> sjtu_tpmshx.shared.domain.performance_result', 1),
+     'independent result boundary -> tm1.shared.domain.performance_result', 1),
     ('cpp_interface/_native_result_stage.py', 'from ..data_types.metric_spec import full_metric_version',
-     'independent result boundary -> sjtu_tpmshx.data_types.metric_spec.full_metric_version', 1),
+     'independent result boundary -> tm1.data_types.metric_spec.full_metric_version', 1),
     ('cpp_interface/result_evaluation.py', 'from ..data_types import MetricValue as Row',
-     'independent result boundary -> sjtu_tpmshx.data_types.MetricValue', 1),
+     'independent result boundary -> tm1.data_types.MetricValue', 1),
     ('cpp_interface/_native_result_stage.py',
      'from ..data_types.metric_spec import MetricSpec\n'
      'def check(item: MetricSpec):\n    return isinstance(item, MetricSpec)',
-     '_native_result_stage.py:1: independent result boundary -> sjtu_tpmshx.data_types.metric_spec.MetricSpec', 1),
+     '_native_result_stage.py:1: independent result boundary -> tm1.data_types.metric_spec.MetricSpec', 1),
     ('cpp_interface/_native_result_stage.py',
      'from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from ..data_types.metric_spec import MetricSpec\n'
      'def pack(spec: "MetricSpec"):\n    return spec.name',
@@ -258,126 +258,126 @@ def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monke
     ('cpp_interface/result_evaluation.py',
      'from typing import TYPE_CHECKING as checking\n'
      'def pack(checking):\n    if checking:\n        from ..data_types import metric_spec as local',
-     'result_evaluation.py:4: independent result boundary -> sjtu_tpmshx.data_types.metric_spec', 1),
+     'result_evaluation.py:4: independent result boundary -> tm1.data_types.metric_spec', 1),
     ('cpp_interface/_native_result_stage.py', 'from ..data_types import portable_data',
      'native_values -> domain', 0),
     ('cpp_interface/result_evaluation.py', 'from ..physical_models import fluid_props',
-     'independent result boundary -> sjtu_tpmshx.physical_models', 1),
+     'independent result boundary -> tm1.physical_models', 1),
     ('postprocess/evaluation.py', 'from ..cpp_interface.result_evaluation import query_result as run\nrun()', None, 0),
-    ('postprocess/evaluation.py', 'import sjtu_tpmshx.cpp_interface.result_evaluation as wire\nwire.query_result()', None, 0),
+    ('postprocess/evaluation.py', 'import tm1.cpp_interface.result_evaluation as wire\nwire.query_result()', None, 0),
     ('postprocess/result_math.py', 'from ..cpp_interface import _native_result_checks', None, 0),
     ('cpp_interface/quick_design.py', 'from ..physical_models import design_fluids',
-     'Quick solve boundary -> sjtu_tpmshx.physical_models', 1),
+     'Quick solve boundary -> tm1.physical_models', 1),
     ('cpp_interface/quick_design.py', 'def replay():\n    from ..solvers import quick_design',
-     'Quick solve boundary -> sjtu_tpmshx.solvers', 1),
+     'Quick solve boundary -> tm1.solvers', 1),
     ('cpp_interface/quick_design.py', 'from ..data_types.field_result import FieldResult as Result\nResult()',
-     'Quick solve boundary -> sjtu_tpmshx.data_types.field_result.FieldResult', 1),
+     'Quick solve boundary -> tm1.data_types.field_result.FieldResult', 1),
     ('cpp_interface/quick_design.py', 'from ..shared import domain\ndomain.field_result.FieldResult()',
-     'Quick solve boundary -> sjtu_tpmshx.shared.domain.field_result', 1),
+     'Quick solve boundary -> tm1.shared.domain.field_result', 1),
     ('cpp_interface/quick_design.py', 'from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n'
      '    from ..data_types.field_result import FieldResult', 'native_values -> domain', 0),
     ('solvers/quick_design.py', 'from ..cpp_interface import quick_design as wire\nwire._saved_v2()',
-     'Quick solve boundary -> sjtu_tpmshx.cpp_interface.quick_design._saved_v2', 1),
+     'Quick solve boundary -> tm1.cpp_interface.quick_design._saved_v2', 1),
     ('solvers/quick_design.py', 'from ..cpp_interface.quick_design import QuickSolver', None, 0),
     ('cpp_interface/quick_design.py', 'from .full_2d_stage import run_case as full_solve',
-     'Quick solve boundary -> sjtu_tpmshx.cpp_interface.full_2d_stage', 1),
+     'Quick solve boundary -> tm1.cpp_interface.full_2d_stage', 1),
     ('solvers/quick_design.py', 'from .backends.cpp.full_2d_stage import run_case as full_solve',
-     'Quick solve boundary -> sjtu_tpmshx.solvers.backends.cpp.full_2d_stage', 1),
+     'Quick solve boundary -> tm1.solvers.backends.cpp.full_2d_stage', 1),
     ('cpp_interface/quick_design.py', 'from .. import cpp_interface as native\nnative.full_3d_stage.run_case()',
-     'Quick solve boundary -> sjtu_tpmshx.cpp_interface.full_3d_stage', 1),
+     'Quick solve boundary -> tm1.cpp_interface.full_3d_stage', 1),
     ('solvers/quick_design.py', 'from .backends import cpp\ncpp.full_3d_stage.run_case()',
-     'Quick solve boundary -> sjtu_tpmshx.solvers.backends.cpp.full_3d_stage', 1),
+     'Quick solve boundary -> tm1.solvers.backends.cpp.full_3d_stage', 1),
     ('solvers/quick_design.py', 'from ..cpp_interface.quick_design import *\ncopy_ranges = closure_records',
-     'Quick solve boundary -> sjtu_tpmshx.cpp_interface.quick_design.*', 1),
+     'Quick solve boundary -> tm1.cpp_interface.quick_design.*', 1),
     ('cpp_interface/quick_design.py', 'from ..shared import _native_quick_prepare',
-     'Quick solve boundary -> sjtu_tpmshx.shared._native_quick_prepare', 1),
+     'Quick solve boundary -> tm1.shared._native_quick_prepare', 1),
     ('cpp_interface/quick_design.py', 'from .solver_library._stage_capture_abi import RangeRecordView\n'
      'from ._native_preparation_case import _QuickInputV2, _QuickPreparedV2', 'VIOLATIONS (0)', 0),
     ('cpp_interface/quick_preparation.py', 'from ..physical_models import co2_props as eos',
-     'Quick preparation boundary -> sjtu_tpmshx.physical_models', 1),
+     'Quick preparation boundary -> tm1.physical_models', 1),
     ('cpp_interface/native_preparation.py', 'def cache():\n    from ..physical_models import sigmoid_field',
-     'full preparation boundary -> sjtu_tpmshx.physical_models', 1),
+     'full preparation boundary -> tm1.physical_models', 1),
     ('cpp_interface/preparation_host.py', 'from ..shared.domain.range_policy import assess_range',
-     'full preparation boundary -> sjtu_tpmshx.shared.domain.range_policy', 1),
+     'full preparation boundary -> tm1.shared.domain.range_policy', 1),
     ('cpp_interface/inlet_properties.py', 'from ..preprocess import preparation',
-     'full preparation boundary -> sjtu_tpmshx.preprocess', 1),
+     'full preparation boundary -> tm1.preprocess', 1),
     ('cpp_interface/preparation_host.py', 'from ..shared._native_quick_prepare import prepare_values',
-     'full preparation boundary -> sjtu_tpmshx.shared._native_quick_prepare', 1),
+     'full preparation boundary -> tm1.shared._native_quick_prepare', 1),
     *(('cpp_interface/inlet_properties.py',
-        f'from sjtu_tpmshx.{package}._native_preparation_case import _InletQueryInput\n'
-        f'from sjtu_tpmshx.{package} import _native_preparation_case as wire\n'
-        f'import sjtu_tpmshx\nrecord = sjtu_tpmshx.{package}._native_preparation_case._InletQueryInput',
+        f'from tm1.{package}._native_preparation_case import _InletQueryInput\n'
+        f'from tm1.{package} import _native_preparation_case as wire\n'
+        f'import tm1\nrecord = tm1.{package}._native_preparation_case._InletQueryInput',
         'VIOLATIONS (0)', 0) for package in ('shared', 'shared.models', 'physical_models')),
     *(('cpp_interface/inlet_properties.py', 'def request_type(enabled):\n'
        '    if enabled:\n'
-       f'        import sjtu_tpmshx.{package}._native_preparation_case\n'
+       f'        import tm1.{package}._native_preparation_case\n'
        '    else:\n'
        '        return None\n'
-       f'    return sjtu_tpmshx.{package}._native_preparation_case._InletQueryInput',
+       f'    return tm1.{package}._native_preparation_case._InletQueryInput',
        'VIOLATIONS (0)', 0) for package in ('shared.models', 'physical_models')),
-    *(('cpp_interface/inlet_properties.py', f'from sjtu_tpmshx.{package} import _native_quick_prepare as quick',
-        f'full preparation boundary -> sjtu_tpmshx.{package}._native_quick_prepare', 1)
+    *(('cpp_interface/inlet_properties.py', f'from tm1.{package} import _native_quick_prepare as quick',
+        f'full preparation boundary -> tm1.{package}._native_quick_prepare', 1)
       for package in ('shared', 'shared.models', 'physical_models')),
     ('cpp_interface/inlet_properties.py', 'from ..physical_models import _native_preparation_case, tpms_calc',
-     'full preparation boundary -> sjtu_tpmshx.physical_models.tpms_calc', 1),
+     'full preparation boundary -> tm1.physical_models.tpms_calc', 1),
     ('cpp_interface/preparation_host.py', 'from ..shared import result_display',
-     'full preparation boundary -> sjtu_tpmshx.shared.result_display', 1),
-    ('cpp_interface/inlet_properties.py', 'import sjtu_tpmshx.shared as published\nratio = published.result_math.pressure_ratio',
-     'full preparation boundary -> sjtu_tpmshx.shared.result_math', 1),
+     'full preparation boundary -> tm1.shared.result_display', 1),
+    ('cpp_interface/inlet_properties.py', 'import tm1.shared as published\nratio = published.result_math.pressure_ratio',
+     'full preparation boundary -> tm1.shared.result_math', 1),
     ('cpp_interface/native_preparation.py', 'from ..shared import _native_lut',
-     'full preparation boundary -> sjtu_tpmshx.shared._native_lut', 1),
+     'full preparation boundary -> tm1.shared._native_lut', 1),
     ('cpp_interface/native_preparation.py', 'from . import result_evaluation',
-     'full preparation boundary -> sjtu_tpmshx.cpp_interface.result_evaluation', 1),
+     'full preparation boundary -> tm1.cpp_interface.result_evaluation', 1),
     ('cpp_interface/preparation_host.py', 'from .. import cpp_interface as wire\nquery = wire.result_evaluation.query_result',
-     'full preparation boundary -> sjtu_tpmshx.cpp_interface.result_evaluation', 1),
+     'full preparation boundary -> tm1.cpp_interface.result_evaluation', 1),
     ('cpp_interface/preparation_host.py', 'from . import *',
-     'full preparation boundary -> sjtu_tpmshx.cpp_interface.*', 1),
+     'full preparation boundary -> tm1.cpp_interface.*', 1),
     ('cpp_interface/inlet_properties.py', 'from ._native_preparation_case import *',
-     'full preparation boundary -> sjtu_tpmshx.cpp_interface._native_preparation_case.*', 1),
+     'full preparation boundary -> tm1.cpp_interface._native_preparation_case.*', 1),
     ('cpp_interface/inlet_properties.py', 'from ._native_preparation_case import _InletQueryInput\n'
      'from ..shared.domain import run_warnings', 'VIOLATIONS (0)', 0),
     ('cpp_interface/inlet_properties.py', 'from typing import TYPE_CHECKING\n'
      'if TYPE_CHECKING:\n    from ..data_types.case_data import CaseData', 'VIOLATIONS (0)', 0),
     ('cpp_interface/native_preparation.py', 'from ..shared.domain import case_data as dto',
-     'full preparation boundary -> sjtu_tpmshx.shared.domain.case_data', 1),
+     'full preparation boundary -> tm1.shared.domain.case_data', 1),
     ('cpp_interface/preparation_host.py', 'from ..data_types.model_refs import ModelRef', 'VIOLATIONS (0)', 0),
     ('preprocess/two_d/preparation.py', 'from ...cpp_interface import native_preparation as native\nf = native._copy_case',
-     'full preparation boundary -> sjtu_tpmshx.cpp_interface.native_preparation._copy_case', 1),
+     'full preparation boundary -> tm1.cpp_interface.native_preparation._copy_case', 1),
     ('preprocess/two_d/preparation.py', 'from ...physical_models import _native_preparation_3d as native',
-     'full preparation boundary -> sjtu_tpmshx.physical_models._native_preparation_3d', 1),
+     'full preparation boundary -> tm1.physical_models._native_preparation_3d', 1),
     ('preprocess/two_d/preparation.py', 'from ... import physical_models as models\n'
      'query = models._native_result_stage.evaluate',
-     'full preparation boundary -> sjtu_tpmshx.physical_models._native_result_stage', 1),
+     'full preparation boundary -> tm1.physical_models._native_result_stage', 1),
     ('preprocess/two_d/preparation.py', 'from ...solvers.backends.cpp.full_2d_stage import run_case',
-     'full preparation boundary -> sjtu_tpmshx.solvers.backends.cpp.full_2d_stage', 1),
+     'full preparation boundary -> tm1.solvers.backends.cpp.full_2d_stage', 1),
     ('preprocess/two_d/preparation.py', 'from ...cpp_interface.native_preparation import *',
-     'full preparation boundary -> sjtu_tpmshx.cpp_interface.native_preparation.*', 1),
+     'full preparation boundary -> tm1.cpp_interface.native_preparation.*', 1),
     ('preprocess/two_d/preparation.py', 'from ...cpp_interface.native_preparation import run_preparation',
      'VIOLATIONS (0)', 0),
-    ('preprocess/three_d/preparation.py', 'from sjtu_tpmshx.cpp_interface import _native_preparation_3d as three',
-     'full 3D preparation boundary -> sjtu_tpmshx.cpp_interface._native_preparation_3d', 1),
+    ('preprocess/three_d/preparation.py', 'from tm1.cpp_interface import _native_preparation_3d as three',
+     'full 3D preparation boundary -> tm1.cpp_interface._native_preparation_3d', 1),
     ('preprocess/three_d/preparation.py', 'def pack():\n    from ...cpp_interface._native_preparation_case import _Options',
-     'full 3D preparation boundary -> sjtu_tpmshx.cpp_interface._native_preparation_case', 1),
+     'full 3D preparation boundary -> tm1.cpp_interface._native_preparation_case', 1),
     ('preprocess/three_d/preparation.py', 'from ...cpp_interface._native_values import GridPort',
-     'full 3D preparation boundary -> sjtu_tpmshx.cpp_interface._native_values', 1),
+     'full 3D preparation boundary -> tm1.cpp_interface._native_values', 1),
     ('preprocess/three_d/preparation.py', 'from ...cpp_interface import preparation_host as host\nhost._geometry_values(None)',
-     'full 3D preparation boundary -> sjtu_tpmshx.cpp_interface.preparation_host', 1),
+     'full 3D preparation boundary -> tm1.cpp_interface.preparation_host', 1),
     ('preprocess/three_d/preparation.py', 'from ... import cpp_interface as wire\nwire.preparation_host._geometry_values(None)',
-     'full 3D preparation boundary -> sjtu_tpmshx.cpp_interface.preparation_host._geometry_values', 1),
+     'full 3D preparation boundary -> tm1.cpp_interface.preparation_host._geometry_values', 1),
     ('preprocess/three_d/preparation.py', 'from ...cpp_interface import native_preparation as wire\nwire._copy_case(None)',
-     'full 3D preparation boundary -> sjtu_tpmshx.cpp_interface.native_preparation._copy_case', 1),
+     'full 3D preparation boundary -> tm1.cpp_interface.native_preparation._copy_case', 1),
     ('preprocess/three_d/preparation.py', 'from ...cpp_interface.native_preparation import pack_input',
-     'full 3D preparation boundary -> sjtu_tpmshx.cpp_interface.native_preparation.pack_input', 1),
+     'full 3D preparation boundary -> tm1.cpp_interface.native_preparation.pack_input', 1),
     ('preprocess/three_d/preparation.py', 'from ...cpp_interface.native_preparation import *',
-     'full 3D preparation boundary -> sjtu_tpmshx.cpp_interface.native_preparation.*', 1),
-    ('preprocess/three_d/preparation.py', 'from sjtu_tpmshx.shared import _native_preparation_3d',
-     'full 3D preparation boundary -> sjtu_tpmshx.shared._native_preparation_3d', 1),
-    ('preprocess/three_d/preparation.py', 'from sjtu_tpmshx.shared.models._native_preparation_case import _Options',
-     'full 3D preparation boundary -> sjtu_tpmshx.shared.models._native_preparation_case', 1),
-    ('preprocess/three_d/preparation.py', 'from sjtu_tpmshx.physical_models import _native_preparation_3d',
-     'full 3D preparation boundary -> sjtu_tpmshx.physical_models._native_preparation_3d', 1),
+     'full 3D preparation boundary -> tm1.cpp_interface.native_preparation.*', 1),
+    ('preprocess/three_d/preparation.py', 'from tm1.shared import _native_preparation_3d',
+     'full 3D preparation boundary -> tm1.shared._native_preparation_3d', 1),
+    ('preprocess/three_d/preparation.py', 'from tm1.shared.models._native_preparation_case import _Options',
+     'full 3D preparation boundary -> tm1.shared.models._native_preparation_case', 1),
+    ('preprocess/three_d/preparation.py', 'from tm1.physical_models import _native_preparation_3d',
+     'full 3D preparation boundary -> tm1.physical_models._native_preparation_3d', 1),
     ('preprocess/three_d/preparation.py', 'from ... import physical_models as models\nmodels._native_preparation_3d.pack_input()',
-     'full 3D preparation boundary -> sjtu_tpmshx.physical_models._native_preparation_3d', 1),
+     'full 3D preparation boundary -> tm1.physical_models._native_preparation_3d', 1),
     ('preprocess/three_d/preparation.py',
      'from ...cpp_interface import native_preparation\n'
      'native_preparation.pack_volume_input()\nnative_preparation.run_volume_preparation()',
@@ -386,151 +386,151 @@ def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monke
      'from ...cpp_interface.native_preparation import pack_volume_input, run_volume_preparation',
      'VIOLATIONS (0)', 0),
     ('cpp_interface/_native_preparation_3d.py', 'from ..physical_models import tpms_props',
-     'full preparation boundary -> sjtu_tpmshx.physical_models', 1),
+     'full preparation boundary -> tm1.physical_models', 1),
     ('cpp_interface/_native_preparation_3d.py', 'def build():\n    from ..data_types.case_data import CaseData',
-     'full preparation boundary -> sjtu_tpmshx.data_types.case_data.CaseData', 1),
+     'full preparation boundary -> tm1.data_types.case_data.CaseData', 1),
     ('cpp_interface/_native_preparation_3d.py', 'from ..preprocess.three_d import preparation',
-     'full preparation boundary -> sjtu_tpmshx.preprocess', 1),
+     'full preparation boundary -> tm1.preprocess', 1),
     ('cpp_interface/_native_preparation_3d.py',
      'from . import _native_preparation_case as native, preparation_host as host\n'
      'from ._native_values import GridPort, real_scalar\n'
      'from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from ..data_types.case_data import CaseData',
      'VIOLATIONS (0)', 0),
     ('cpp_interface/_native_preparation_case.py', 'from ..preprocess.three_d import preparation',
-     'full preparation boundary -> sjtu_tpmshx.preprocess', 1),
+     'full preparation boundary -> tm1.preprocess', 1),
     ('cpp_interface/_native_preparation_case.py', 'from ..data_types.case_data import CaseData',
-     'full preparation boundary -> sjtu_tpmshx.data_types.case_data.CaseData', 1),
+     'full preparation boundary -> tm1.data_types.case_data.CaseData', 1),
     ('cpp_interface/_native_preparation_case.py',
      'from ._native_df import _Pressure\nfrom ._native_properties import _Failure\n'
      'from ._native_values import DoubleArray, Text',
      'VIOLATIONS (0)', 0),
     ('preprocess/api.py', 'from .. import cpp_interface as wire\nprepare = wire.native_preparation.run_preparation',
-     'full preparation boundary -> sjtu_tpmshx.cpp_interface.native_preparation', 1),
+     'full preparation boundary -> tm1.cpp_interface.native_preparation', 1),
     ('preprocess/api.py', 'from ..cpp_interface import *',
-     'full preparation boundary -> sjtu_tpmshx.cpp_interface.*', 1),
+     'full preparation boundary -> tm1.cpp_interface.*', 1),
     ('preprocess/api.py', 'from .two_d.preparation import prepare_case', 'VIOLATIONS (0)', 0),
     ('cpp_interface/quick_preparation.py', 'from ..physical_models.range_policy import assess_range',
-     'Quick preparation boundary -> sjtu_tpmshx.physical_models.range_policy', 1),
-    ('cpp_interface/quick_preparation.py', 'from sjtu_tpmshx.shared.domain.range_policy import assess_range',
-     'Quick preparation boundary -> sjtu_tpmshx.shared.domain.range_policy', 1),
-    ('cpp_interface/quick_preparation.py', 'from sjtu_tpmshx.data_types.range_policy import assess_range',
-     'Quick preparation boundary -> sjtu_tpmshx.data_types.range_policy', 1),
+     'Quick preparation boundary -> tm1.physical_models.range_policy', 1),
+    ('cpp_interface/quick_preparation.py', 'from tm1.shared.domain.range_policy import assess_range',
+     'Quick preparation boundary -> tm1.shared.domain.range_policy', 1),
+    ('cpp_interface/quick_preparation.py', 'from tm1.data_types.range_policy import assess_range',
+     'Quick preparation boundary -> tm1.data_types.range_policy', 1),
     ('cpp_interface/quick_preparation.py', 'from ..data_types import range_policy as limits',
-     'Quick preparation boundary -> sjtu_tpmshx.data_types.range_policy', 1),
+     'Quick preparation boundary -> tm1.data_types.range_policy', 1),
     ('cpp_interface/quick_preparation.py', 'from ..shared import domain\nassess = domain.range_policy.assess_range',
-     'Quick preparation boundary -> sjtu_tpmshx.shared.domain.range_policy', 1),
+     'Quick preparation boundary -> tm1.shared.domain.range_policy', 1),
     ('cpp_interface/quick_preparation.py', 'from ..shared.domain import run_warnings', 'VIOLATIONS (0)', 0),
     ('cpp_interface/quick_preparation.py', 'def local():\n    from ..preprocess.quick_design import prepare_values',
-     'Quick preparation boundary -> sjtu_tpmshx.preprocess.quick_design', 1),
+     'Quick preparation boundary -> tm1.preprocess.quick_design', 1),
     ('cpp_interface/quick_preparation.py', 'from .full_2d_stage import run_case',
-     'Quick preparation boundary -> sjtu_tpmshx.cpp_interface.full_2d_stage', 1),
+     'Quick preparation boundary -> tm1.cpp_interface.full_2d_stage', 1),
     ('cpp_interface/quick_preparation.py', 'from .preparation_host import observe_range',
-     'Quick preparation boundary -> sjtu_tpmshx.cpp_interface.preparation_host', 1),
+     'Quick preparation boundary -> tm1.cpp_interface.preparation_host', 1),
     ('cpp_interface/quick_preparation.py', 'from ..data_types import case_data as inputs',
-     'Quick preparation boundary -> sjtu_tpmshx.data_types.case_data', 1),
+     'Quick preparation boundary -> tm1.data_types.case_data', 1),
     ('cpp_interface/quick_preparation.py', 'def refs():\n    from ..shared.domain.model_refs import ModelRef',
-     'Quick preparation boundary -> sjtu_tpmshx.shared.domain.model_refs.ModelRef', 1),
+     'Quick preparation boundary -> tm1.shared.domain.model_refs.ModelRef', 1),
     ('cpp_interface/quick_preparation.py', 'from typing import TYPE_CHECKING\n'
      'if TYPE_CHECKING:\n    from ..data_types.case_data import CaseData', 'VIOLATIONS (0)', 0),
     ('preprocess/quick_design.py', 'from ..cpp_interface.quick_preparation import _Bindings',
-     'Quick preparation boundary -> sjtu_tpmshx.cpp_interface.quick_preparation._Bindings', 1),
+     'Quick preparation boundary -> tm1.cpp_interface.quick_preparation._Bindings', 1),
     ('preprocess/quick_design.py', 'from ..cpp_interface.quick_preparation import run_preparation',
      'VIOLATIONS (0)', 0),
     ('preprocess/api.py', 'from ..cpp_interface._native_quick_prepare import prepare_quick_design',
-     'Quick preparation boundary -> sjtu_tpmshx.cpp_interface._native_quick_prepare', 1),
+     'Quick preparation boundary -> tm1.cpp_interface._native_quick_prepare', 1),
     ('applications/design/sizing.py', 'from ...shared.models._native_quick_prepare import pressure_fractions',
-     'Quick preparation boundary -> sjtu_tpmshx.shared.models._native_quick_prepare', 1),
+     'Quick preparation boundary -> tm1.shared.models._native_quick_prepare', 1),
     ('applications/design/sizing.py', 'from ...cpp_interface import quick_preparation as wire',
-     'Quick preparation boundary -> sjtu_tpmshx.cpp_interface.quick_preparation', 1),
+     'Quick preparation boundary -> tm1.cpp_interface.quick_preparation', 1),
     ('cpp_interface/full_3d_stage.py', 'from ..physical_models import nu_correlations',
-     'full 3D solve boundary -> sjtu_tpmshx.physical_models', 1),
+     'full 3D solve boundary -> tm1.physical_models', 1),
     ('cpp_interface/full_3d_stage.py', 'from ..shared.domain.range_policy import assess_range',
-     'full 3D solve boundary -> sjtu_tpmshx.shared.domain.range_policy', 1),
+     'full 3D solve boundary -> tm1.shared.domain.range_policy', 1),
     ('cpp_interface/full_3d_stage.py', 'def local():\n    from ..solvers import full_3d',
-     'full 3D solve boundary -> sjtu_tpmshx.solvers', 1),
+     'full 3D solve boundary -> tm1.solvers', 1),
     ('cpp_interface/full_3d_stage.py', 'from ..solvers.backends.cpp.full_3d_stage import run_case',
-     'full 3D solve boundary -> sjtu_tpmshx.solvers.backends.cpp.full_3d_stage', 1),
+     'full 3D solve boundary -> tm1.solvers.backends.cpp.full_3d_stage', 1),
     ('cpp_interface/full_3d_stage.py', 'from ..data_types.field_result import FieldResult as Result\nResult()',
-     'full 3D solve boundary -> sjtu_tpmshx.data_types.field_result.FieldResult', 1),
+     'full 3D solve boundary -> tm1.data_types.field_result.FieldResult', 1),
     ('cpp_interface/full_3d_stage.py', 'from ..shared import domain\ndomain.field_result.FieldResult()',
-     'full 3D solve boundary -> sjtu_tpmshx.shared.domain.field_result', 1),
+     'full 3D solve boundary -> tm1.shared.domain.field_result', 1),
     ('cpp_interface/full_3d_stage.py', 'from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n'
      '    from ..data_types.field_result import FieldResult', 'native_values -> domain', 0),
     ('cpp_interface/full_3d_stage.py', 'from .full_2d_stage import run_case',
-     'full 3D solve boundary -> sjtu_tpmshx.cpp_interface.full_2d_stage', 1),
+     'full 3D solve boundary -> tm1.cpp_interface.full_2d_stage', 1),
     ('cpp_interface/full_3d_stage.py', 'from . import result_evaluation',
-     'full 3D solve boundary -> sjtu_tpmshx.cpp_interface.result_evaluation', 1),
+     'full 3D solve boundary -> tm1.cpp_interface.result_evaluation', 1),
     ('cpp_interface/full_3d_stage.py', 'from . import *',
-     'full 3D solve boundary -> sjtu_tpmshx.cpp_interface.*', 1),
+     'full 3D solve boundary -> tm1.cpp_interface.*', 1),
     ('cpp_interface/full_3d_stage.py', 'from ..cpp_interface import *',
-     'full 3D solve boundary -> sjtu_tpmshx.cpp_interface.*', 1),
-    ('cpp_interface/full_3d_stage.py', 'from sjtu_tpmshx.shared import result_display',
-     'full 3D solve boundary -> sjtu_tpmshx.shared.result_display', 1),
+     'full 3D solve boundary -> tm1.cpp_interface.*', 1),
+    ('cpp_interface/full_3d_stage.py', 'from tm1.shared import result_display',
+     'full 3D solve boundary -> tm1.shared.result_display', 1),
     ('cpp_interface/full_3d_stage.py', 'from ..shared import result_math',
-     'full 3D solve boundary -> sjtu_tpmshx.shared.result_math', 1),
-    ('cpp_interface/full_3d_stage.py', 'import sjtu_tpmshx.shared as shared\nshared.result_math.pressure_ratio',
-     'full 3D solve boundary -> sjtu_tpmshx.shared.result_math', 1),
+     'full 3D solve boundary -> tm1.shared.result_math', 1),
+    ('cpp_interface/full_3d_stage.py', 'import tm1.shared as shared\nshared.result_math.pressure_ratio',
+     'full 3D solve boundary -> tm1.shared.result_math', 1),
     ('cpp_interface/full_3d_stage.py', 'from .run_state import NativeRun\n'
      'from .preparation_host import borrow_solver_mesh\n'
      'from .solver_library._full_3d_abi import _Input\n'
      'from .solver_library import stage_capture', 'VIOLATIONS (0)', 0),
     ('solvers/full_3d.py', 'from ..cpp_interface import full_3d_stage as wire\nwire._detach()',
-     'full 3D solve boundary -> sjtu_tpmshx.cpp_interface.full_3d_stage._detach', 1),
+     'full 3D solve boundary -> tm1.cpp_interface.full_3d_stage._detach', 1),
     ('solvers/full_3d.py', 'from ..cpp_interface.full_3d_stage import *\nkeep = _copy',
-     'full 3D solve boundary -> sjtu_tpmshx.cpp_interface.full_3d_stage.*', 1),
+     'full 3D solve boundary -> tm1.cpp_interface.full_3d_stage.*', 1),
     ('solvers/full_3d.py', 'from ..cpp_interface import preparation_host',
-     'full 3D solve boundary -> sjtu_tpmshx.cpp_interface.preparation_host', 1),
-    ('solvers/full_3d.py', 'from sjtu_tpmshx.physical_models import _native_result_stage',
-     'full 3D solve boundary -> sjtu_tpmshx.physical_models._native_result_stage', 1),
-    ('solvers/full_3d.py', 'import sjtu_tpmshx.physical_models as models\nmodels._native_result_stage.Evidence()',
-     'full 3D solve boundary -> sjtu_tpmshx.physical_models._native_result_stage', 1),
+     'full 3D solve boundary -> tm1.cpp_interface.preparation_host', 1),
+    ('solvers/full_3d.py', 'from tm1.physical_models import _native_result_stage',
+     'full 3D solve boundary -> tm1.physical_models._native_result_stage', 1),
+    ('solvers/full_3d.py', 'import tm1.physical_models as models\nmodels._native_result_stage.Evidence()',
+     'full 3D solve boundary -> tm1.physical_models._native_result_stage', 1),
     ('solvers/full_3d.py', 'from .backends.cpp import *',
-     'full 3D solve boundary -> sjtu_tpmshx.solvers.backends.cpp.*', 1),
+     'full 3D solve boundary -> tm1.solvers.backends.cpp.*', 1),
     ('solvers/full_3d.py', 'from ..cpp_interface import *',
-     'full 3D solve boundary -> sjtu_tpmshx.cpp_interface.*', 1),
+     'full 3D solve boundary -> tm1.cpp_interface.*', 1),
     ('solvers/full_3d.py', 'from ..cpp_interface.full_3d_stage import open_library, borrow_mesh, '
      'require_saved_stage, execution_view_query, run_saved', None, 0),
     ('solvers/api.py', 'from ..cpp_interface.full_3d_stage import run_saved',
-     'solver API boundary -> sjtu_tpmshx.cpp_interface.full_3d_stage', 1),
+     'solver API boundary -> tm1.cpp_interface.full_3d_stage', 1),
     ('solvers/api.py', 'from ..cpp_interface import full_3d_stage',
-     'solver API boundary -> sjtu_tpmshx.cpp_interface.full_3d_stage', 1),
+     'solver API boundary -> tm1.cpp_interface.full_3d_stage', 1),
     ('solvers/api.py', 'from .. import cpp_interface\ncpp_interface.full_3d_stage.run_saved()',
-     'solver API boundary -> sjtu_tpmshx.cpp_interface.full_3d_stage', 1),
-    ('solvers/api.py', 'import sjtu_tpmshx.cpp_interface as ci\nci.full_3d_stage.run_saved()',
-     'solver API boundary -> sjtu_tpmshx.cpp_interface.full_3d_stage', 1),
+     'solver API boundary -> tm1.cpp_interface.full_3d_stage', 1),
+    ('solvers/api.py', 'import tm1.cpp_interface as ci\nci.full_3d_stage.run_saved()',
+     'solver API boundary -> tm1.cpp_interface.full_3d_stage', 1),
     ('solvers/api.py', 'from ..cpp_interface import *',
-     'solver API boundary -> sjtu_tpmshx.cpp_interface.*', 1),
+     'solver API boundary -> tm1.cpp_interface.*', 1),
     ('solvers/api.py', 'from ..cpp_interface.full_2d_stage import run_stage',
-     'solver API boundary -> sjtu_tpmshx.cpp_interface.full_2d_stage', 1),
+     'solver API boundary -> tm1.cpp_interface.full_2d_stage', 1),
     ('solvers/api.py', 'from ..cpp_interface.quick_design import QuickSolver',
-     'solver API boundary -> sjtu_tpmshx.cpp_interface.quick_design', 1),
+     'solver API boundary -> tm1.cpp_interface.quick_design', 1),
     ('solvers/api.py', 'from .backends.cpp.full_2d_stage import run_case',
-     'solver API boundary -> sjtu_tpmshx.solvers.backends.cpp.full_2d_stage', 1),
+     'solver API boundary -> tm1.solvers.backends.cpp.full_2d_stage', 1),
     ('solvers/api.py', 'from .backends.cpp import *',
-     'solver API boundary -> sjtu_tpmshx.solvers.backends.cpp.*', 1),
+     'solver API boundary -> tm1.solvers.backends.cpp.*', 1),
     ('solvers/api.py', 'from .full_2d import run_case as run_2d\n'
      'from .full_3d import run_case as run_3d\n'
      'from .quick_design import run_case as run_quick', 'VIOLATIONS (0)', 0),
     ('cpp_interface/full_2d_stage.py', 'def assemble():\n    from ..solvers.physical_ledger import ports_complete',
-     'full 2D solve boundary -> sjtu_tpmshx.solvers', 1),
+     'full 2D solve boundary -> tm1.solvers', 1),
     ('cpp_interface/full_2d_stage.py', 'from ..physical_models.envelope import ChokedFlowError',
-     'full 2D solve boundary -> sjtu_tpmshx.physical_models', 1),
+     'full 2D solve boundary -> tm1.physical_models', 1),
     ('cpp_interface/full_2d_stage.py', 'from ..physical_models.zone_config import Zone',
-     'full 2D solve boundary -> sjtu_tpmshx.physical_models', 1),
+     'full 2D solve boundary -> tm1.physical_models', 1),
     ('cpp_interface/full_2d_stage.py', 'from ..data_types.field_result import FieldResult',
-     'full 2D solve boundary -> sjtu_tpmshx.data_types.field_result.FieldResult', 1),
+     'full 2D solve boundary -> tm1.data_types.field_result.FieldResult', 1),
     ('cpp_interface/full_2d_stage.py', 'from ..data_types.case_data import CaseData',
-     'full 2D solve boundary -> sjtu_tpmshx.data_types.case_data.CaseData', 1),
+     'full 2D solve boundary -> tm1.data_types.case_data.CaseData', 1),
     ('cpp_interface/full_2d_stage.py', 'from ..shared import domain\ndomain.field_result.FieldResult()',
-     'full 2D solve boundary -> sjtu_tpmshx.shared.domain.field_result', 1),
-    ('cpp_interface/full_2d_stage.py', 'import sjtu_tpmshx.data_types as dt\ndt.FieldResult()',
-     'full 2D solve boundary -> sjtu_tpmshx.data_types.FieldResult', 1),
+     'full 2D solve boundary -> tm1.shared.domain.field_result', 1),
+    ('cpp_interface/full_2d_stage.py', 'import tm1.data_types as dt\ndt.FieldResult()',
+     'full 2D solve boundary -> tm1.data_types.FieldResult', 1),
     ('cpp_interface/full_2d_stage.py', 'from .full_3d_stage import run_saved',
-     'full 2D solve boundary -> sjtu_tpmshx.cpp_interface.full_3d_stage', 1),
+     'full 2D solve boundary -> tm1.cpp_interface.full_3d_stage', 1),
     ('cpp_interface/full_2d_stage.py', 'from ..solvers.backends.cpp.full_2d_stage import run_case',
-     'full 2D solve boundary -> sjtu_tpmshx.solvers.backends.cpp.full_2d_stage', 1),
+     'full 2D solve boundary -> tm1.solvers.backends.cpp.full_2d_stage', 1),
     ('cpp_interface/full_2d_stage.py', 'from . import *',
-     'full 2D solve boundary -> sjtu_tpmshx.cpp_interface.*', 1),
+     'full 2D solve boundary -> tm1.cpp_interface.*', 1),
     ('cpp_interface/full_2d_stage.py', 'from ..run_control.cancellation import CancelledError\n'
      'from ..run_control.module_ports import RunControl\n'
      'from ..data_types.portable_data import mutable_data\n'
@@ -538,88 +538,88 @@ def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monke
      'from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n'
      '    from ..data_types.field_result import FieldResult', 'native_values -> domain', 0),
     ('solvers/full_2d.py', 'from ..cpp_interface import full_2d_stage as wire\nwire._Run()',
-     'full 2D solve boundary -> sjtu_tpmshx.cpp_interface.full_2d_stage._Run', 1),
+     'full 2D solve boundary -> tm1.cpp_interface.full_2d_stage._Run', 1),
     ('solvers/full_2d.py', 'from ..cpp_interface import full_2d_stage as wire\nwire._StageResult()',
-     'full 2D solve boundary -> sjtu_tpmshx.cpp_interface.full_2d_stage._StageResult', 1),
+     'full 2D solve boundary -> tm1.cpp_interface.full_2d_stage._StageResult', 1),
     ('solvers/full_2d.py', 'from ..cpp_interface.full_2d_stage import *',
-     'full 2D solve boundary -> sjtu_tpmshx.cpp_interface.full_2d_stage.*', 1),
+     'full 2D solve boundary -> tm1.cpp_interface.full_2d_stage.*', 1),
     ('solvers/full_2d.py', 'from ..cpp_interface.solver_library import stage_capture',
-     'full 2D solve boundary -> sjtu_tpmshx.cpp_interface.solver_library', 1),
+     'full 2D solve boundary -> tm1.cpp_interface.solver_library', 1),
     ('solvers/full_2d.py', 'from .backends.cpp.full_2d_stage import run_case',
-     'full 2D solve boundary -> sjtu_tpmshx.solvers.backends.cpp.full_2d_stage', 1),
+     'full 2D solve boundary -> tm1.solvers.backends.cpp.full_2d_stage', 1),
     ('solvers/full_2d.py', 'from ..cpp_interface import full_2d_stage\n'
      'full_2d_stage.StageDriver()\nfull_2d_stage.borrow_mesh()\nfull_2d_stage.stage_entries()\n'
      'full_2d_stage.check_experiment()\nfull_2d_stage.run_stage()\nfull_2d_stage.zone_temperatures()',
      None, 0),
     ('cpp_interface/run_state.py', 'from ..physical_models.fluid_props import WaterStateError',
-     'native binding boundary -> sjtu_tpmshx.physical_models', 1),
+     'native binding boundary -> tm1.physical_models', 1),
     ('cpp_interface/run_state.py', 'import ctypes\nimport numpy', None, 0),
     ('cpp_interface/solver_library/stage_capture.py', 'from ...solvers import full_2d',
-     'native binding boundary -> sjtu_tpmshx.solvers', 1),
+     'native binding boundary -> tm1.solvers', 1),
     ('cpp_interface/solver_library/stage_capture.py', 'from ...physical_models import tpms_props',
-     'native binding boundary -> sjtu_tpmshx.physical_models', 1),
+     'native binding boundary -> tm1.physical_models', 1),
     ('cpp_interface/solver_library/stage_capture.py', 'from ...data_types.field_result import FieldResult',
-     'native binding boundary -> sjtu_tpmshx.data_types.field_result.FieldResult', 1),
+     'native binding boundary -> tm1.data_types.field_result.FieldResult', 1),
     ('cpp_interface/solver_library/stage_capture.py',
      'from ...run_control.run_warnings import RangeRecord', 'native_values -> domain', 0),
     ('cpp_interface/new_binding.py', 'from ..physical_models.range_policy import assess_range',
-     'native binding boundary -> sjtu_tpmshx.physical_models.range_policy', 1),
+     'native binding boundary -> tm1.physical_models.range_policy', 1),
     ('cpp_interface/new_binding.py', 'from ..file_io.text_file import read_text',
-     'native binding boundary -> sjtu_tpmshx.file_io.text_file', 1),
+     'native binding boundary -> tm1.file_io.text_file', 1),
     ('cpp_interface/new_binding.py', 'from ..shared.domain import range_policy',
-     'native binding boundary -> sjtu_tpmshx.shared.domain.range_policy', 1),
+     'native binding boundary -> tm1.shared.domain.range_policy', 1),
     ('cpp_interface/new_binding.py', 'from ..data_types import range_policy as bounds',
-     'native binding boundary -> sjtu_tpmshx.data_types.range_policy', 1),
+     'native binding boundary -> tm1.data_types.range_policy', 1),
     ('cpp_interface/new_binding.py', 'from ..applications import cli',
-     'native binding boundary -> sjtu_tpmshx.applications', 1),
+     'native binding boundary -> tm1.applications', 1),
     ('cpp_interface/new_binding.py', 'from ..compute import compute',
-     'native binding boundary -> sjtu_tpmshx.compute', 1),
+     'native binding boundary -> tm1.compute', 1),
     ('cpp_interface/new_binding.py', 'from ..shared import _native_quick_prepare',
-     'native binding boundary -> sjtu_tpmshx.shared._native_quick_prepare', 1),
+     'native binding boundary -> tm1.shared._native_quick_prepare', 1),
     ('cpp_interface/new_binding.py', 'from ..shared import *',
-     'native binding boundary -> sjtu_tpmshx.shared.*', 1),
+     'native binding boundary -> tm1.shared.*', 1),
     ('cpp_interface/new_binding.py', 'from .. import *',
-     'native binding boundary -> sjtu_tpmshx.*', 1),
+     'native binding boundary -> tm1.*', 1),
     ('cpp_interface/new_binding.py', 'from ..data_types import *',
-     'native binding boundary -> sjtu_tpmshx.data_types.*', 1),
+     'native binding boundary -> tm1.data_types.*', 1),
     ('cpp_interface/new_binding.py', 'from ..shared.domain import *',
-     'native binding boundary -> sjtu_tpmshx.shared.domain.*', 1),
+     'native binding boundary -> tm1.shared.domain.*', 1),
     ('cpp_interface/quick_design.py', 'from ..shared import *',
-     'Quick solve boundary -> sjtu_tpmshx.shared.*', 1),
+     'Quick solve boundary -> tm1.shared.*', 1),
     ('cpp_interface/quick_design.py', 'from ..data_types import *',
-     'Quick solve boundary -> sjtu_tpmshx.data_types.*', 1),
+     'Quick solve boundary -> tm1.data_types.*', 1),
     ('cpp_interface/quick_design.py', 'from ..solvers.backends.cpp.stage_capture import executed_view',
-     'Quick solve boundary -> sjtu_tpmshx.solvers.backends.cpp.stage_capture', 1),
+     'Quick solve boundary -> tm1.solvers.backends.cpp.stage_capture', 1),
     ('cpp_interface/quick_design.py', 'from ..solvers.backends.cpp.quick_design import run_case',
-     'Quick solve boundary -> sjtu_tpmshx.solvers.backends.cpp.quick_design', 1),
+     'Quick solve boundary -> tm1.solvers.backends.cpp.quick_design', 1),
     ('cpp_interface/quick_preparation.py', 'from ..solvers.backends.cpp.stage_capture import executed_view',
-     'Quick preparation boundary -> sjtu_tpmshx.solvers.backends.cpp.stage_capture', 1),
+     'Quick preparation boundary -> tm1.solvers.backends.cpp.stage_capture', 1),
     ('solvers/quick_design.py', 'from .backends.cpp.stage_capture import executed_view',
-     'Quick solve boundary -> sjtu_tpmshx.solvers.backends.cpp.stage_capture', 1),
+     'Quick solve boundary -> tm1.solvers.backends.cpp.stage_capture', 1),
     ('preprocess/quick_design.py', 'from ..solvers.backends.cpp.stage_capture import executed_view',
-     'Quick preparation boundary -> sjtu_tpmshx.solvers.backends.cpp.stage_capture', 1),
+     'Quick preparation boundary -> tm1.solvers.backends.cpp.stage_capture', 1),
     ('cpp_interface/new_binding.py', 'from ..data_types.case_data import CaseData',
-     'native binding boundary -> sjtu_tpmshx.data_types.case_data.CaseData', 1),
+     'native binding boundary -> tm1.data_types.case_data.CaseData', 1),
     ('cpp_interface/new_binding.py', 'from ..data_types.performance_result import PerformanceResult',
-     'native binding boundary -> sjtu_tpmshx.data_types.performance_result.PerformanceResult', 1),
+     'native binding boundary -> tm1.data_types.performance_result.PerformanceResult', 1),
     ('cpp_interface/new_binding.py', 'from ..data_types.model_refs import ModelRef',
-     'native binding boundary -> sjtu_tpmshx.data_types.model_refs.ModelRef', 1),
+     'native binding boundary -> tm1.data_types.model_refs.ModelRef', 1),
     ('cpp_interface/new_binding.py', 'from ..model_configs import model_parameters\n'
      'from ..run_control.run_warnings import RangeRecord', 'native_values -> domain', 0),
     ('cpp_interface/solver_library/new_helper.py', 'from ...preprocess import api',
-     'native binding boundary -> sjtu_tpmshx.preprocess', 1),
+     'native binding boundary -> tm1.preprocess', 1),
     ('cpp_interface/solver_library/new_helper.py', 'from ...postprocess import api',
-     'native binding boundary -> sjtu_tpmshx.postprocess', 1),
+     'native binding boundary -> tm1.postprocess', 1),
     ('cpp_interface/solver_library/new_helper.py', 'from ...data_types.metric_spec import MetricSpec',
-     'native binding boundary -> sjtu_tpmshx.data_types.metric_spec.MetricSpec', 1),
+     'native binding boundary -> tm1.data_types.metric_spec.MetricSpec', 1),
     ('cpp_interface/quick_design.py', 'from ..data_types.case_data import CaseData',
-     'Quick solve boundary -> sjtu_tpmshx.data_types.case_data.CaseData', 1),
+     'Quick solve boundary -> tm1.data_types.case_data.CaseData', 1),
     ('cpp_interface/preparation_host.py', 'from ..data_types.field_result import FieldResult',
-     'full preparation boundary -> sjtu_tpmshx.data_types.field_result.FieldResult', 1),
+     'full preparation boundary -> tm1.data_types.field_result.FieldResult', 1),
 ])
 def test_layer_audit_applies_policy_to_each_import_spelling(tmp_path, monkeypatch, capsys,
                                                            filename, source, edge, exit_code):
-    package = tmp_path / 'sjtu_tpmshx'
+    package = tmp_path / 'tm1'
     for unit in ('shared/domain', 'shared/models', 'applications/gui/ui',
                  'development/tests', 'shared/io', 'shared/df_surrogate', 'preprocess'):
         (package / unit).mkdir(parents=True, exist_ok=True)
@@ -640,16 +640,16 @@ def test_layer_audit_applies_policy_to_each_import_spelling(tmp_path, monkeypatc
 
 
 def test_logger_names_do_not_include_the_package_name():
-    from sjtu_tpmshx.run_control.logutil import get_logger
-    logger = get_logger('sjtu_tpmshx.solvers.api')
-    assert logger.name == 'tpmshx.solvers.api'
+    from tm1.run_control.logutil import get_logger
+    logger = get_logger('tm1.solvers.api')
+    assert logger.name == 'tm1.solvers.api'
     assert get_logger('solvers.api') is logger
 
 
 def test_checkout_keeps_published_submodule_identity():
     subprocess.run([sys.executable, '-c',
-                    "from pathlib import Path\nimport sjtu_tpmshx\n"
-                    "assert Path(sjtu_tpmshx.__file__).resolve() == Path.cwd() / 'python/__init__.py'\n"
+                    "from pathlib import Path\nimport tm1\n"
+                    "assert Path(tm1.__file__).resolve() == Path.cwd() / 'python/__init__.py'\n"
                     + PUBLIC_NAME_CHECK], cwd=REPO, check=True, timeout=60)
 
 
@@ -660,13 +660,13 @@ def test_checkout_keeps_df_package_identity(shared_first):
 
 
 def test_published_sco2_reader_runs_in_a_fresh_interpreter():
-    subprocess.run([sys.executable, '-m', 'sjtu_tpmshx.shared.df_surrogate.load_sco2_cfd'],
+    subprocess.run([sys.executable, '-m', 'tm1.shared.df_surrogate.load_sco2_cfd'],
                    cwd=REPO, check=True, timeout=60)
 
 
 @pytest.mark.parametrize('module', [
-    'sjtu_tpmshx.shared.df_surrogate.ingest_cfd_kappa',
-    'sjtu_tpmshx.development.runs.cfd_asym.ingest_cfd_kappa',
+    'tm1.shared.df_surrogate.ingest_cfd_kappa',
+    'tm1.development.runs.cfd_asym.ingest_cfd_kappa',
 ])
 def test_published_workbook_module_help_uses_strict_cp1252_output(monkeypatch, module):
     monkeypatch.setenv('PYTHONIOENCODING', 'cp1252:strict')

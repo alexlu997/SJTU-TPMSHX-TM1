@@ -15,7 +15,7 @@ import math
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.physical_models.df_surrogate.predict import predict_dP_compressible
+from tm1.physical_models.df_surrogate.predict import predict_dP_compressible
 
 
 # --- predict_dP_compressible (geometry-routed) infeasible / feasible -----

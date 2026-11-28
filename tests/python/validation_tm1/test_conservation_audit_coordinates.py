@@ -2,8 +2,8 @@
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.field_result import FieldResult
-from sjtu_tpmshx.development.validation.cases import audit_3d_conservation as audit
+from tm1.data_types.field_result import FieldResult
+from tm1.development.validation.cases import audit_3d_conservation as audit
 
 
 @pytest.fixture(params=range(6))

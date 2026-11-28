@@ -1,7 +1,7 @@
 """Check current GUI navigation and dimensions offscreen without solving.
 
 Run from the repository root as
-``python -m sjtu_tpmshx.development.runs.smokes.smoke_ui_offscreen``.
+``python -m tm1.development.runs.smokes.smoke_ui_offscreen``.
 Uses temporary user state; missing controls, failed navigation or callback
 exceptions return exit code 1. This does not qualify native 3D rendering.
 """
@@ -14,7 +14,7 @@ from tempfile import TemporaryDirectory
 import traceback
 from unittest.mock import patch
 
-from sjtu_tpmshx.development.runs import _smoke_boot   # sets QT_QPA=offscreen BEFORE any Qt import
+from tm1.development.runs import _smoke_boot   # sets QT_QPA=offscreen BEFORE any Qt import
 
 from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QPushButton, QToolButton, QComboBox
@@ -35,13 +35,13 @@ def _smoke_window():
 
     with TemporaryDirectory(dir=cache) as directory:
         state_dir = Path(directory)
-        with patch('sjtu_tpmshx.applications.gui.controllers.session_manager.user_data_dir',
+        with patch('tm1.applications.gui.controllers.session_manager.user_data_dir',
                    return_value=state_dir), \
-             patch('sjtu_tpmshx.applications.gui.controllers.user_storage._appearance_dir',
+             patch('tm1.applications.gui.controllers.user_storage._appearance_dir',
                    return_value=state_dir), \
              patch.dict(os.environ, {'QT_REDUCED_MOTION': '1'}), \
              patch.object(sys, 'excepthook', hook):
-            from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
+            from tm1.applications.gui.ui.main_window import Main_Menu
             win = Main_Menu()
             try:
                 win.resize(1600, 1000)

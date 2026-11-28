@@ -10,9 +10,9 @@ import warnings
 
 import numpy as np
 
-from sjtu_tpmshx.model_configs.model_parameters import load_model_parameters
-from sjtu_tpmshx.run_control.run_warnings import record_warning
-from sjtu_tpmshx.cpp_interface import _native_df
+from tm1.model_configs.model_parameters import load_model_parameters
+from tm1.run_control.run_warnings import record_warning
+from tm1.cpp_interface import _native_df
 from .backend import METHOD as SCO2_DF_METHOD  # noqa: F401 - public model identifier
 from .backend import available_methods as available_methods
 from .backend import get_backend, resolve_method as _resolve_method

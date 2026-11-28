@@ -21,8 +21,8 @@ from PySide6.QtWidgets import (
     QPushButton, QApplication, QSizePolicy,
 )
 
-from sjtu_tpmshx.data_types.validator import kelvin_to_display
-from sjtu_tpmshx.postprocess.result_display import RESULT_FIELD_SPECS
+from tm1.data_types.validator import kelvin_to_display
+from tm1.postprocess.result_display import RESULT_FIELD_SPECS
 
 from .theme import get_theme
 from .matplotlib_canvas import cell_index_mm

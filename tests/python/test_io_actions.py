@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.compute_result import ComputeResult
+from tm1.data_types.compute_result import ComputeResult
 from tests.python.gui_io_support import win as win
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
@@ -22,8 +22,8 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 def test_figure_export_records_current_source_and_version(tmp_path, monkeypatch, win):
     from PIL import Image
-    from sjtu_tpmshx._version import __version__
-    from sjtu_tpmshx.applications.gui.ui import result_export
+    from tm1._version import __version__
+    from tm1.applications.gui.ui import result_export
 
     path = tmp_path / 'figure.png'
     choices = iter([('温度', True), ('150（屏幕）', True)])
@@ -47,7 +47,7 @@ def test_figure_export_records_current_source_and_version(tmp_path, monkeypatch,
 
 @pytest.mark.parametrize('side', ['A', 'B'])
 def test_sco2_switch_default_and_explicit_pressure_preserved(win, side):
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.applications.gui.ui.window_config import config_from_window
 
     win._apply_shanghai_defaults()
     combo = getattr(win, f'combo_fluid{side}')
@@ -82,7 +82,7 @@ def test_complete_config_menu_roundtrip(tmp_path, monkeypatch, win,
                                         dim, unit, fluids, axis, df):
     from dataclasses import asdict
     from PySide6.QtWidgets import QFileDialog, QTableWidgetItem, QMessageBox
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.applications.gui.ui.window_config import config_from_window
 
     win._apply_shanghai_defaults()
     win.combo_dim.setCurrentIndex(dim)
@@ -177,7 +177,7 @@ def test_complete_config_menu_roundtrip(tmp_path, monkeypatch, win,
     assert win._undo_last['le_L'] == '0.182'
     assert win._user_edited_grid
     # Exercise the real Compute entry point without starting numerical work.
-    from sjtu_tpmshx.applications.gui.ui.single_run import _run_compute
+    from tm1.applications.gui.ui.single_run import _run_compute
     calls = []
     monkeypatch.setattr(win.single_run, 'validate_inputs', lambda: True)
     monkeypatch.setattr(win.single_run, 'preflight_grid', lambda config: True)
@@ -196,7 +196,7 @@ def test_complete_config_menu_roundtrip(tmp_path, monkeypatch, win,
 def test_polygon_file_is_rejected_without_changing_inputs_or_results(
         tmp_path, monkeypatch, win, shape):
     from PySide6.QtWidgets import QFileDialog, QMessageBox
-    from sjtu_tpmshx.applications.gui.ui.window_config import DOMAIN_SHAPE_NOTICE
+    from tm1.applications.gui.ui.window_config import DOMAIN_SHAPE_NOTICE
 
     win._apply_shanghai_defaults()
     before = win.case_files.capture_current_preset('current')
@@ -222,7 +222,7 @@ def test_polygon_file_is_rejected_without_changing_inputs_or_results(
 def test_polygon_session_does_not_partially_restore(win, monkeypatch, shape):
     from PySide6.QtCore import QTimer
     from PySide6.QtWidgets import QMessageBox
-    from sjtu_tpmshx.applications.gui.ui.window_config import DOMAIN_SHAPE_NOTICE
+    from tm1.applications.gui.ui.window_config import DOMAIN_SHAPE_NOTICE
 
     win._apply_shanghai_defaults()
     before = win.case_files.capture_current_preset('current')
@@ -248,8 +248,8 @@ def test_deferred_session_notice_follows_window_lifetime(
     from PySide6.QtCore import QCoreApplication, QEvent
     from PySide6.QtWidgets import QApplication, QMessageBox
     from shiboken6 import isValid
-    from sjtu_tpmshx.applications.gui.controllers import session_manager
-    from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
+    from tm1.applications.gui.controllers import session_manager
+    from tm1.applications.gui.ui.main_window import Main_Menu
 
     original_init = session_manager.SessionManager.__init__
     monkeypatch.setattr(session_manager.SessionManager, '__init__',
@@ -424,7 +424,7 @@ def test_continuous_session_rejects_invalid_checks_without_losing_state(
 
 def test_config_io_failures_and_cancel(tmp_path, monkeypatch, win):
     from PySide6.QtWidgets import QFileDialog, QMessageBox
-    import sjtu_tpmshx.applications.gui.controllers.session_manager as sm_mod
+    import tm1.applications.gui.controllers.session_manager as sm_mod
 
     errors = []
     monkeypatch.setattr(QMessageBox, 'critical', lambda *a: errors.append(a))
@@ -488,8 +488,8 @@ def test_legacy_file_preserves_fields_and_reports_missing_inputs(tmp_path, monke
 @pytest.mark.parametrize('sides', ['A', 'B', 'AB'])
 def test_legacy_velocity_import_replaces_only_its_inlet_mode(win, tmp_path, monkeypatch, sides):
     from PySide6.QtWidgets import QMessageBox
-    from sjtu_tpmshx.preprocess.api import resolve_inlet_flow_config
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.preprocess.api import resolve_inlet_flow_config
+    from tm1.applications.gui.ui.window_config import config_from_window
 
     win._apply_shanghai_defaults()
     before = config_from_window(win, strict=True)
@@ -516,10 +516,10 @@ def test_legacy_velocity_import_replaces_only_its_inlet_mode(win, tmp_path, monk
 @pytest.mark.parametrize('unit', ['K', 'C'])
 def test_shanghai_preset_restores_ports_and_valid_grid(win, name, unit):
     from dataclasses import asdict
-    from sjtu_tpmshx.data_types.compute_config import bc_to_dict
-    from sjtu_tpmshx.physical_models.grid import build_port_wall_grid
+    from tm1.data_types.compute_config import bc_to_dict
+    from tm1.physical_models.grid import build_port_wall_grid
     from tests.python.test_sco2_nu_modes import SYNTHETIC
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.applications.gui.ui.window_config import config_from_window
 
     win._temp_unit = unit
     win._sync_temp_unit_labels()
@@ -582,8 +582,8 @@ def test_shanghai_preset_restores_ports_and_valid_grid(win, name, unit):
 @pytest.mark.parametrize('name', ['Shanghai (3D Gyroid)', 'Shanghai (2D Gyroid)'])
 def test_shanghai_recorded_inputs_survive_units_and_saved_preset(win, name, tmp_path):
     from dataclasses import replace
-    from sjtu_tpmshx.preprocess.api import prepare_inlet_mass_capacities, resolve_inlet_flow_config
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.preprocess.api import prepare_inlet_mass_capacities, resolve_inlet_flow_config
+    from tm1.applications.gui.ui.window_config import config_from_window
 
     win._temp_unit = 'K'
     win.case_files.load_named_preset(name)
@@ -610,7 +610,7 @@ def test_shanghai_recorded_inputs_survive_units_and_saved_preset(win, name, tmp_
 
 
 def test_diamond_remains_available_without_a_shanghai_experiment_preset(win):
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.applications.gui.ui.window_config import config_from_window
 
     assert win.case_files.BUILTIN_PRESETS == ['Shanghai (3D Gyroid)', 'Shanghai (2D Gyroid)']
     win._apply_shanghai_defaults()
@@ -664,7 +664,7 @@ def test_partial_preset_allowlist_and_session_preserves_saved_case(win):
 @pytest.mark.parametrize('unit', ['K', 'C'])
 def test_session_restores_complete_physical_case_in_kelvin(win, monkeypatch, unit):
     from dataclasses import asdict
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.applications.gui.ui.window_config import config_from_window
 
     win._apply_shanghai_defaults()
     win._temp_unit = unit
@@ -790,7 +790,7 @@ def test_legacy_session_without_zone_data_disables_and_clears_stale_zones(win, m
 def test_shared_preset_callers_restore_new_inputs(monkeypatch, win, route):
     from types import SimpleNamespace
     from PySide6.QtWidgets import QInputDialog
-    import sjtu_tpmshx.applications.gui.ui.run_history as history
+    import tm1.applications.gui.ui.run_history as history
 
     win.chk_allow_extrap.setChecked(True)
     win.combo_zone_axis.setCurrentIndex(1)
@@ -860,7 +860,7 @@ def test_export_results_writes_2d_values(tmp_path, monkeypatch, win):
 
 def test_export_results_writes_3d_values_and_fields(tmp_path, monkeypatch, win):
     from PySide6.QtWidgets import QFileDialog
-    from sjtu_tpmshx.data_types.compute_result import ComputeResult
+    from tm1.data_types.compute_result import ComputeResult
 
     out = tmp_path / 'results.csv'
     field = np.arange(24.0).reshape(2, 3, 4)
@@ -905,7 +905,7 @@ def test_export_results_writes_3d_values_and_fields(tmp_path, monkeypatch, win):
 
 def test_export_failure_preserves_old_pair_and_memory_then_retries(tmp_path, monkeypatch, win):
     from PySide6.QtWidgets import QFileDialog, QMessageBox
-    from sjtu_tpmshx.data_types.compute_result import ComputeResult
+    from tm1.data_types.compute_result import ComputeResult
     csv_path = tmp_path / 'result.csv'
     npz_path = tmp_path / 'result_fields.npz'
     csv_path.write_text('previous successful CSV')
@@ -945,8 +945,8 @@ def test_result_status_survives_notification_and_mode_switch(
         tmp_path, monkeypatch, win, converged, envelope, outer):
     import csv
     from PySide6.QtWidgets import QFileDialog, QMessageBox
-    from sjtu_tpmshx.data_types.compute_result import ComputeResult
-    from sjtu_tpmshx.applications.gui.ui.plot_2d_results import finalize_plots
+    from tm1.data_types.compute_result import ComputeResult
+    from tm1.applications.gui.ui.plot_2d_results import finalize_plots
 
     notices, errors = [], []
     monkeypatch.setattr(QMessageBox, 'warning', lambda *a: notices.append(a))
@@ -1040,9 +1040,9 @@ def test_result_status_survives_notification_and_mode_switch(
 
 def test_current_nu_button_explicit_selection_and_saved_parameter_restore(win):
     from dataclasses import asdict
-    from sjtu_tpmshx.physical_models.nu_correlations import sco2_effective_nu_config
+    from tm1.physical_models.nu_correlations import sco2_effective_nu_config
     from tests.python.test_sco2_nu_modes import SYNTHETIC
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.applications.gui.ui.window_config import config_from_window
 
     win._apply_shanghai_defaults()
     assert config_from_window(win).sco2_nu.mode == 'cfd_smooth'
@@ -1067,7 +1067,7 @@ def test_nu_parameters_import_save_load_snapshot(win, monkeypatch, tmp_path, nu_
     from dataclasses import asdict
     from PySide6.QtWidgets import QFileDialog
     from tests.python.test_sco2_nu_modes import SYNTHETIC
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.applications.gui.ui.window_config import config_from_window
     win._apply_shanghai_defaults()
     parameter_file = tmp_path / 'synthetic.json'
     parameter_file.write_text(json.dumps(asdict(SYNTHETIC)))
@@ -1099,7 +1099,7 @@ def test_nu_parameters_import_save_load_snapshot(win, monkeypatch, tmp_path, nu_
 def test_saved_older_solver_settings_upgrade_once_and_save_current_values(
         win, tmp_path, monkeypatch, missing_inlet_flags):
     from PySide6.QtWidgets import QFileDialog, QMessageBox
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.applications.gui.ui.window_config import config_from_window
 
     win._apply_shanghai_defaults()
     win.combo_dim.setCurrentIndex(0)
@@ -1144,7 +1144,7 @@ def test_saved_older_solver_settings_upgrade_once_and_save_current_values(
 def test_session_restore_reports_solver_update_and_resave_removes_repeat(win, monkeypatch):
     from PySide6.QtCore import QTimer
     from PySide6.QtWidgets import QMessageBox
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.applications.gui.ui.window_config import config_from_window
 
     win._apply_shanghai_defaults()
     old = win.case_files.capture_current_preset('previous session')
@@ -1184,7 +1184,7 @@ def _drop_json(window, path):
 @pytest.mark.parametrize('entry', ['menu', 'drop'])
 def test_current_and_old_configs_use_the_same_import_path(
         tmp_path, monkeypatch, win, file_format, entry):
-    from sjtu_tpmshx.applications.gui.ui import case_files
+    from tm1.applications.gui.ui import case_files
     win._apply_shanghai_defaults()
     win.le_uA.setText('20.0')
     path = tmp_path / 'config.json'
@@ -1215,7 +1215,7 @@ def test_current_and_old_configs_use_the_same_import_path(
 @pytest.mark.parametrize('entry', ['menu', 'drop'])
 def test_both_import_entries_reject_unknown_format_without_changing_input(
         tmp_path, monkeypatch, win, entry):
-    from sjtu_tpmshx.applications.gui.ui import case_files
+    from tm1.applications.gui.ui import case_files
     path = tmp_path / 'bad.json'
     path.write_text(json.dumps({'config_format': 999, 'preset':
                                 {'line_edits': {'le_uA': '1'}}}))
@@ -1240,7 +1240,7 @@ def _study_front(X, F):
 def test_pareto_figure_copy_export_survives_field_result_then_clears_on_empty(
         tmp_path, monkeypatch, win):
     from PySide6.QtGui import QGuiApplication
-    from sjtu_tpmshx.applications.gui.ui import result_export
+    from tm1.applications.gui.ui import result_export
     front = _study_front([[.5, .6], [.3, .7]], [[-8., .8], [-9., 1.1]])
     win.cache.clear()
     win.btn_export.setEnabled(False)
@@ -1292,7 +1292,7 @@ def test_continuous_field_preview_button_shows_and_exports_after_preset_load(
     from PIL import Image
     from PySide6.QtWidgets import QPushButton
     from PySide6.QtGui import QGuiApplication
-    from sjtu_tpmshx.applications.gui.ui import result_export
+    from tm1.applications.gui.ui import result_export
     win.case_files.load_named_preset('Shanghai (2D Gyroid)')
     win.cache.clear()
     win.optimization.show_pareto(_study_front([], []))
@@ -1345,7 +1345,7 @@ def test_continuous_field_preview_button_shows_and_exports_after_preset_load(
 
 def test_optimization_copy_uses_selected_result_tab_and_rejects_empty_field(win, monkeypatch):
     from PySide6.QtGui import QColor, QGuiApplication, QPixmap
-    from sjtu_tpmshx.applications.gui.ui import result_export
+    from tm1.applications.gui.ui import result_export
     win.case_files.load_named_preset('Shanghai (2D Gyroid)')
     win.cache.clear()
     front = _study_front([[.5, .6]], [[-1., .8]])
@@ -1400,7 +1400,7 @@ def test_optimization_validates_explicit_2d_flow_conversion_depth(win, depth):
 def test_retained_pareto_export_does_not_take_new_compute_preset_name(
         win, monkeypatch, tmp_path):
     from PIL import Image
-    from sjtu_tpmshx.applications.gui.ui import result_export
+    from tm1.applications.gui.ui import result_export
     win.case_files.load_named_preset('Shanghai (2D Gyroid)')
     front = _study_front(np.ones((2, 18)), [[-1., .8], [-2., 1.1]])
     win.optimization.show_pareto(front)
@@ -1428,9 +1428,9 @@ def test_optimization_volume_copy_and_export_require_current_render(
     from unittest.mock import Mock
     from PIL import Image
     from PySide6.QtGui import QGuiApplication
-    from sjtu_tpmshx.applications.gui.ui import result_export
-    from sjtu_tpmshx.applications.gui.ui.builders_canvas import refresh_field_controls
-    from sjtu_tpmshx.applications.gui.ui.panel_vis_3d import ThreeDVisPanel
+    from tm1.applications.gui.ui import result_export
+    from tm1.applications.gui.ui.builders_canvas import refresh_field_controls
+    from tm1.applications.gui.ui.panel_vis_3d import ThreeDVisPanel
 
     win.cache.clear()
     win.optimization.show_pareto(_study_front([], []))

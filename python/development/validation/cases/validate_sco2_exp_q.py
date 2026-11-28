@@ -24,22 +24,22 @@ import numpy as np
 import pandas as pd
 
 
-from sjtu_tpmshx.applications.result_adapter import compute_result
-from sjtu_tpmshx.data_types.compute_config import (
+from tm1.applications.result_adapter import compute_result
+from tm1.data_types.compute_config import (
     ComputeConfig,
     FluidConfig,
     GeometryConfig,
     PartialBCConfig,
     SolverConfig,
 )
-from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
-from sjtu_tpmshx.physical_models import fluid_props
-from sjtu_tpmshx.file_io.file_set import staged_files
-from sjtu_tpmshx.physical_models.sco2_props import P_RANGE_PA
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.physical_models.tpms_props import geometry as tpms_geometry
-from sjtu_tpmshx.development.validation.sco2_exp.load_sco2_exp import load_exp
-from sjtu_tpmshx.development.validation.harness._provenance import (
+from tm1.model_configs.units import CELSIUS_ZERO_K
+from tm1.physical_models import fluid_props
+from tm1.file_io.file_set import staged_files
+from tm1.physical_models.sco2_props import P_RANGE_PA
+from tm1.run_control.cancellation import CancelledError
+from tm1.physical_models.tpms_props import geometry as tpms_geometry
+from tm1.development.validation.sco2_exp.load_sco2_exp import load_exp
+from tm1.development.validation.harness._provenance import (
     _git_sha, _iso_now, output_path, output_directory, check_distinct_outputs,
 )
 from . import _sco2_checkpoints as checkpoints

@@ -4,10 +4,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from sjtu_tpmshx.applications.design import sizing, select, optimize, cli
-from sjtu_tpmshx.applications.design.cases import DesignCase
-from sjtu_tpmshx.applications.design.forward import ForwardResult
-from sjtu_tpmshx.run_control.run_warnings import record_warning, warning_scope
+from tm1.applications.design import sizing, select, optimize, cli
+from tm1.applications.design.cases import DesignCase
+from tm1.applications.design.forward import ForwardResult
+from tm1.run_control.run_warnings import record_warning, warning_scope
 
 
 def _case(number=1):
@@ -91,14 +91,14 @@ def test_cli_refined_best_and_both_export_sheets(monkeypatch, tmp_path, capsys, 
 def test_forward_labels_without_extra_property_or_thermal_calls(
         monkeypatch, model, passes, diagnostic_state):
     import importlib
-    f = importlib.import_module('sjtu_tpmshx.applications.design.forward')
-    execution = importlib.import_module('sjtu_tpmshx.solvers.quick_design')
-    postprocess = importlib.import_module('sjtu_tpmshx.postprocess.api')
-    from sjtu_tpmshx.preprocess import quick_design as quick_prepare
-    from sjtu_tpmshx.physical_models import design_fluids as fluids
-    from sjtu_tpmshx.physical_models import tpms_props
-    from sjtu_tpmshx.cpp_interface._native_result_checks import record_range
-    from sjtu_tpmshx.run_control.run_warnings import range_context, warning_messages
+    f = importlib.import_module('tm1.applications.design.forward')
+    execution = importlib.import_module('tm1.solvers.quick_design')
+    postprocess = importlib.import_module('tm1.postprocess.api')
+    from tm1.preprocess import quick_design as quick_prepare
+    from tm1.physical_models import design_fluids as fluids
+    from tm1.physical_models import tpms_props
+    from tm1.cpp_interface._native_result_checks import record_range
+    from tm1.run_control.run_warnings import range_context, warning_messages
     calls, solves, diagnostics = [], [], []
     evaluate, native_run = postprocess.evaluate, execution.run_case
     record_native = execution._record_pass
@@ -172,9 +172,9 @@ def test_forward_labels_without_extra_property_or_thermal_calls(
 
 def test_source_notices_survive_global_suppression_and_repeated_scopes():
     import warnings
-    from sjtu_tpmshx.physical_models.tpms_props import air_cp
-    from sjtu_tpmshx.physical_models.nu_correlations import nu_from_Re
-    from sjtu_tpmshx.run_control.run_warnings import warning_messages
+    from tm1.physical_models.tpms_props import air_cp
+    from tm1.physical_models.nu_correlations import nu_from_Re
+    from tm1.run_control.run_warnings import warning_messages
     def sources():
         air_cp(2000.)
         nu_from_Re('Diamond', 1., .25, 7., 1.)

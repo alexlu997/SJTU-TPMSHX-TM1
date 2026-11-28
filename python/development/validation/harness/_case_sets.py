@@ -7,8 +7,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sjtu_tpmshx.development.validation.harness._harness import SpecimenSpec
-from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
+from tm1.development.validation.harness._harness import SpecimenSpec
+from tm1.model_configs.units import CELSIUS_ZERO_K
 
 _PKG_ROOT = Path(__file__).resolve().parents[3]     # Python package root
 _DATA = _PKG_ROOT.parent / 'data' / 'raw_data'
@@ -19,8 +19,8 @@ SHANGHAI_N_CASES = 16
 def shanghai_spec() -> SpecimenSpec:
     """Shanghai Electric gas-heater specimen, from the canonical baseline
     JSON (configs/shanghai_baseline.json, audit Item 3 / AR8)."""
-    from sjtu_tpmshx.model_configs import load_shanghai_baseline
-    from sjtu_tpmshx.data_types.compute_config import ComputeConfig
+    from tm1.model_configs import load_shanghai_baseline
+    from tm1.data_types.compute_config import ComputeConfig
     sh = load_shanghai_baseline()
     cc = ComputeConfig.from_dict(sh)
     return SpecimenSpec(
@@ -49,10 +49,10 @@ def shanghai_pipeline_config(ci, df, solver, *, port_wall_refine=False):
     through the full 42 mm depth. Historical frozen-water geometry and
     rounded flow-area results remain separately in Git history.
     """
-    from sjtu_tpmshx.data_types.compute_config import (
+    from tm1.data_types.compute_config import (
         ComputeConfig, FluidConfig, GeometryConfig, PartialBCConfig,
         ExtrapPolicy, FeatureFlags)
-    from sjtu_tpmshx.physical_models.fluid_props import get
+    from tm1.physical_models.fluid_props import get
 
     spec = shanghai_spec()
     L, H, depth = spec.L_dom_m, spec.H_dom_m, spec.Lz_m

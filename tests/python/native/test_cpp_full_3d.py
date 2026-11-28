@@ -9,14 +9,14 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.compute_config import FluidConfig, ZoneInputConfig
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.run_control.run_warnings import warning_scope
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.physical_models.envelope import R_AIR_DEFAULT
-from sjtu_tpmshx.postprocess.api import evaluate, evaluate_physical_balance
-from sjtu_tpmshx.solvers.api import run_case as cpp_run
+from tm1.data_types.compute_config import FluidConfig, ZoneInputConfig
+from tm1.run_control.module_ports import RunControl
+from tm1.run_control.cancellation import CancelledError
+from tm1.run_control.run_warnings import warning_scope
+from tm1.preprocess.api import prepare_case
+from tm1.physical_models.envelope import R_AIR_DEFAULT
+from tm1.postprocess.api import evaluate, evaluate_physical_balance
+from tm1.solvers.api import run_case as cpp_run
 from tests.python.native.test_native_execution import _config
 from tests.python.native.test_full_3d import ROOT
 from tests.python.native.full_result_audit import physical_gates
@@ -43,7 +43,7 @@ def case(pair='air-air', cap=30):
 def saved_case(pair='air-air', *, prepared_values=(), environment=(), directions=None, counts=None, mesh=None,
                **parameters):
     """Return a prepared 3D case with changed saved parameters, environment and run limits."""
-    from sjtu_tpmshx.data_types.portable_data import mutable_data
+    from tm1.data_types.portable_data import mutable_data
     from tests.python.native.test_full_3d import prepared_case
     base = prepared_case(pair, directions=directions, counts=counts, mesh=mesh)
     values = mutable_data(base.parameters)
@@ -122,7 +122,7 @@ def test_native_deep_bootstrap_cancel_keeps_partial_trace_without_field_result(n
 
 @pytest.mark.parametrize('enabled', [False, True])
 def test_public_bootstrap_trace_roundtrip_and_old_diagnostics_remain_readable(native_path, tmp_path, enabled):
-    from sjtu_tpmshx.file_io.result_io import load_result, save_result
+    from tm1.file_io.result_io import load_result, save_result
     prepared = case('air-air', 2)
     prepared = replace(prepared, parameters=dict(prepared.parameters, use_coarse_bootstrap=enabled,
                                                  coarse_bootstrap_max_iter=7))
@@ -148,7 +148,7 @@ def test_public_bootstrap_trace_roundtrip_and_old_diagnostics_remain_readable(na
 
 @pytest.mark.parametrize('symbol', ['tpmshx_full_3d_get_bootstrap_trace_v1'])
 def test_full3d_library_missing_query_has_explicit_capability_error(native_path, monkeypatch, symbol):
-    from sjtu_tpmshx.cpp_interface import full_3d_stage
+    from tm1.cpp_interface import full_3d_stage
     prepared = case(cap=2)
     open_library = full_3d_stage.open_library
 
@@ -294,9 +294,9 @@ def test_capped_public_keeps_distinct_pressure_states(native_path):
 
 def test_pre_cancelled_case_skips_preparation_and_library_load(tmp_path):
     prepared = case()
-    with patch('sjtu_tpmshx.solvers.full_3d.validate_saved_case',
+    with patch('tm1.solvers.full_3d.validate_saved_case',
                side_effect=AssertionError('cancelled case prepared for execution')), \
-            patch('sjtu_tpmshx.cpp_interface.full_3d_stage.open_library',
+            patch('tm1.cpp_interface.full_3d_stage.open_library',
                   side_effect=AssertionError('cancelled case loaded a library')):
         with pytest.raises(CancelledError):
             cpp_run(prepared, control(tmp_path/'missing.dll', cancel_check=lambda: True))
@@ -313,7 +313,7 @@ def test_native_cancellation_never_returns_a_field_result(native_path,during):
 
 def tracked_release(monkeypatch):
     """Record the owner of each released saved 3D result after its release."""
-    from sjtu_tpmshx.cpp_interface import full_3d_stage
+    from tm1.cpp_interface import full_3d_stage
     release, released = full_3d_stage.release_result, []
 
     def tracked(library, result):
@@ -326,7 +326,7 @@ def tracked_release(monkeypatch):
 
 
 def test_interrupt_after_native_return_releases_owner(native_path, monkeypatch):
-    from sjtu_tpmshx.cpp_interface import full_3d_stage
+    from tm1.cpp_interface import full_3d_stage
     released = tracked_release(monkeypatch)
     require_completed = full_3d_stage.require_completed
 
@@ -358,7 +358,7 @@ def test_owned_fields_survive_subsequent_and_parallel_calls(native_path):
 @pytest.mark.parametrize('solid_dtype', [np.float64, np.float32])
 def test_native_call_borrows_case_arrays_and_recovers(native_path, monkeypatch, dimension, failure, solid_dtype):
     import ctypes as ct
-    from sjtu_tpmshx.cpp_interface import full_2d_stage, full_3d_stage
+    from tm1.cpp_interface import full_2d_stage, full_3d_stage
     from tests.python.native.test_full_2d import configuration
 
     config = configuration(outer=2) if dimension == 2 else _config(3, True)
@@ -486,7 +486,7 @@ def test_prepared_spatial_and_asymmetric_geometry(native_path,design_mode):
 @pytest.mark.parametrize('pair,offset', [('water-water', 0.), ('air-air', .05),
                                         ('water-air', .05), ('air-water', .05)])
 def test_two_sided_integral_defaults_keep_physics_and_saved_evidence(native_path, tmp_path, pair, offset):
-    from sjtu_tpmshx.file_io.result_io import load_result, save_result
+    from tm1.file_io.result_io import load_result, save_result
     cfg = _config(3, True)
     fluids = [replace(getattr(cfg, 'fluid_'+side), type=fluid,
                       u_mps=3. if fluid == 'air' else .2,
@@ -519,8 +519,8 @@ def test_two_sided_integral_defaults_keep_physics_and_saved_evidence(native_path
 
 @pytest.mark.parametrize('pair',['air-air','air-water','water-air','air-sco2','sco2-water'])
 def test_runtime_range_evidence_preserves_original_sources_and_denominators(native_path, pair):
-    from sjtu_tpmshx.cpp_interface.solver_library import stage_capture
-    from sjtu_tpmshx.solvers.full_3d import run_case as adapter_run
+    from tm1.cpp_interface.solver_library import stage_capture
+    from tm1.solvers.full_3d import run_case as adapter_run
     from tests.python.native.test_cpp_full_2d_capture import check_range_records
     records, captured = {}, []
     original = stage_capture.stage_closures
@@ -544,19 +544,19 @@ def test_runtime_range_evidence_preserves_original_sources_and_denominators(nati
 @pytest.mark.parametrize('converged', [False, True])
 def test_public_saved_case_cli_replay_and_postprocess_without_python_kernels(
         native_path, tmp_path, converged):
-    from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-    from sjtu_tpmshx.file_io.case_io import save_case
-    from sjtu_tpmshx.file_io.result_io import load_result
+    from tm1.data_types.compute_config import ComputeConfig
+    from tm1.file_io.case_io import save_case
+    from tm1.file_io.result_io import load_result
     prepared = (prepare_case(ComputeConfig.from_json(str(ROOT/'examples/three_module/air_3d.json')),
                             case_id='full3d-cpp-replay') if converged else case('air-sco2', 2))
     case_path, result_path = tmp_path/'case.h5', tmp_path/'result.h5'
     save_case(prepared, case_path)
     code = '''
 import sys
-from sjtu_tpmshx.file_io.result_io import load_result
-from sjtu_tpmshx.file_io.metrics_io import load_metrics
-from sjtu_tpmshx.postprocess.api import evaluate, evaluate_physical_balance
-from sjtu_tpmshx.applications.cli.stages import main
+from tm1.file_io.result_io import load_result
+from tm1.file_io.metrics_io import load_metrics
+from tm1.postprocess.api import evaluate, evaluate_physical_balance
+from tm1.applications.cli.stages import main
 converged = sys.argv[5] == 'True'
 status = main(['solve', sys.argv[1], sys.argv[2], '--backend', 'cpp',
     '--native-library', sys.argv[3], '--native-table-directory', sys.argv[4]])
@@ -569,8 +569,8 @@ assert evaluate(result).metrics['Q'].status == 'available'
 assert main(['postprocess', sys.argv[2], sys.argv[2]+'.json']) == 0
 assert load_metrics(sys.argv[2]+'.json').metrics == evaluate(result).metrics
 assert sys.argv[3] not in str(result.metadata) and sys.argv[4] not in str(result.metadata)
-forbidden = ('numba', 'sjtu_tpmshx.solvers.ltne_', 'sjtu_tpmshx.solvers.simple_',
-    'sjtu_tpmshx.solvers._kernels', 'sjtu_tpmshx.solvers.backends.python.three_d.runtime')
+forbidden = ('numba', 'tm1.solvers.ltne_', 'tm1.solvers.simple_',
+    'tm1.solvers._kernels', 'tm1.solvers.backends.python.three_d.runtime')
 assert not [name for name in sys.modules if name.startswith(forbidden)]
 '''
     process = subprocess.run([sys.executable, '-c', code, str(case_path), str(result_path),
@@ -600,7 +600,7 @@ def test_public_full3d_missing_library_never_falls_back(tmp_path, relative):
 ])
 def test_application_capture_owns_shared_aliases_and_keeps_full_evidence(
         native_path, tmp_path, pair, route, audit):
-    from sjtu_tpmshx.file_io.result_io import load_result, save_result
+    from tm1.file_io.result_io import load_result, save_result
     prepared = case(pair, 2)
     parameters = dict(prepared.parameters, max_iter_simple=1, _emit_audit=audit, ltne_enthalpy_outer=2,
                       ltne_enthalpy_nsweep=1, prepared=dict(prepared.parameters['prepared'], max_outer=1, ltne_max_iter=1))
@@ -644,7 +644,7 @@ def test_application_capture_owns_shared_aliases_and_keeps_full_evidence(
 
 @pytest.mark.parametrize('failure', ['detach', 'query'])
 def test_application_failure_releases_native_owner(native_path, monkeypatch, failure):
-    from sjtu_tpmshx.cpp_interface import full_3d_stage
+    from tm1.cpp_interface import full_3d_stage
     released = tracked_release(monkeypatch)
 
     def fail(*args, **kwargs):
@@ -660,10 +660,10 @@ def test_application_failure_releases_native_owner(native_path, monkeypatch, fai
 
 @pytest.mark.parametrize('dimension,real_co2', [(2, False), (3, False), (2, True), (3, True)])
 def test_public_applicability_keeps_original_inlet_and_last_local_sources(native_path, tmp_path, dimension, real_co2):
-    from sjtu_tpmshx.data_types.portable_data import mutable_data
-    from sjtu_tpmshx.file_io.result_io import save_result, load_result
-    from sjtu_tpmshx.postprocess.api import evaluate_applicability
-    from sjtu_tpmshx.solvers.api import run_case
+    from tm1.data_types.portable_data import mutable_data
+    from tm1.file_io.result_io import save_result, load_result
+    from tm1.postprocess.api import evaluate_applicability
+    from tm1.solvers.api import run_case
     from tests.python.native.test_full_2d import configuration
     from tests.python.native.test_cpp_full_2d_capture import check_model_range_bounds
     prepared = (prepare_case(configuration(outer=2), case_id='ranges-2d')
@@ -716,7 +716,7 @@ def test_first_thermal_sampling_distinguishes_inlet_and_seed(native_path, seeded
 @pytest.mark.parametrize('directions', [(4, 1), (5, 0)])
 @pytest.mark.parametrize('local_pressure', [False, True])
 def test_outer_transport_keeps_changed_temperature_and_pressure(native_path, directions, local_pressure):
-    from sjtu_tpmshx.physical_models.fluid_props import get
+    from tm1.physical_models.fluid_props import get
     stages = []
     for outer in (1, 2):
         prepared = saved_case('sco2-water', directions=directions, counts=(3, 4, 5), _emit_audit=True,
@@ -767,8 +767,8 @@ def test_retired_single_sco2_rejected_before_numerical_work(native_path, nz, con
 
 @pytest.mark.parametrize('pair', ['air-air', 'water-air'])
 def test_public_model_h_controls_retain_native_calls_and_startup_budget(native_path, tmp_path, pair):
-    from sjtu_tpmshx.file_io.case_io import load_case, save_case
-    from sjtu_tpmshx.file_io.result_io import load_result, save_result
+    from tm1.file_io.case_io import load_case, save_case
+    from tm1.file_io.result_io import load_result, save_result
     prepared = case(pair, 2)
     prepared = replace(prepared, parameters={**prepared.parameters,
         'model_h_max_iterations': 17, 'model_h_temperature_tol_K': 1e-5, 'model_h_q_relative_tol': 1e-8})
@@ -839,11 +839,11 @@ def _exact_resume_values(actual, expected, path=''):
 # Each pair and each cut occurs once. The pairs do not change the cut logic.
 @pytest.mark.parametrize('pair, cut', [('air-air', 0), ('water-air', 1), ('sco2-water', 3)])
 def test_native_checkpoint_hdf5_round_trip(native_path, tmp_path, pair, cut):
-    from sjtu_tpmshx.data_types.solver_checkpoint import SolverCheckpoint
-    from sjtu_tpmshx.file_io.case_io import save_case
-    from sjtu_tpmshx.file_io.solver_checkpoint_io import (
+    from tm1.data_types.solver_checkpoint import SolverCheckpoint
+    from tm1.file_io.case_io import save_case
+    from tm1.file_io.solver_checkpoint_io import (
         save_solver_checkpoint, load_solver_checkpoint, load_checkpoint_case)
-    from sjtu_tpmshx.solvers.full_3d import run_case
+    from tm1.solvers.full_3d import run_case
     prepared_case = case(pair, cap=3)
     case_path = save_case(prepared_case, tmp_path/'case.h5')
     saved_path = tmp_path/'checkpoint.h5'
@@ -870,7 +870,7 @@ def test_native_checkpoint_hdf5_round_trip(native_path, tmp_path, pair, cut):
                                      'thermal', 'geometry', 'phase', 'nonfinite',
                                      'premature_finish', 'different_exit', 'thermal_mode'])
 def test_native_checkpoint_rejects_damaged_fields(native_path, damage):
-    from sjtu_tpmshx.solvers.full_3d import run_case
+    from tm1.solvers.full_3d import run_case
     prepared = case(cap=3)
     saved = {}
     def pause(state):
@@ -918,13 +918,13 @@ _CHECKPOINT_CHILD = r'''
 import os
 from pathlib import Path
 import sys
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.data_types.solver_checkpoint import SolverCheckpoint
-from sjtu_tpmshx.file_io.case_io import load_case
-from sjtu_tpmshx.file_io.result_io import save_result
-from sjtu_tpmshx.file_io.solver_checkpoint_io import (
+from tm1.run_control.module_ports import RunControl
+from tm1.data_types.solver_checkpoint import SolverCheckpoint
+from tm1.file_io.case_io import load_case
+from tm1.file_io.result_io import save_result
+from tm1.file_io.solver_checkpoint_io import (
     load_solver_checkpoint, save_solver_checkpoint, load_checkpoint_case)
-from sjtu_tpmshx.solvers.full_3d import run_case
+from tm1.solvers.full_3d import run_case
 mode, case_path, saved_path, result_path, library, tables = sys.argv[1:]
 control = RunControl(backend='cpp', native_library=library, native_table_directory=tables)
 if mode == 'interrupt':
@@ -944,10 +944,10 @@ save_result(result, result_path)
 @pytest.mark.parametrize('pair,overrides', [('air-air', {}), ('sco2-water', {}),
     ('water-air', dict(model_h_max_iterations=17, model_h_temperature_tol_K=1e-5, model_h_q_relative_tol=1e-8))])
 def test_native_checkpoint_continues_after_process_exit(native_path, tmp_path, pair, overrides):
-    from sjtu_tpmshx.file_io.case_io import save_case
-    from sjtu_tpmshx.file_io.result_io import load_result
-    from sjtu_tpmshx.file_io.solver_checkpoint_io import load_solver_checkpoint
-    from sjtu_tpmshx.solvers.full_3d import run_case
+    from tm1.file_io.case_io import save_case
+    from tm1.file_io.result_io import load_result
+    from tm1.file_io.solver_checkpoint_io import load_solver_checkpoint
+    from tm1.solvers.full_3d import run_case
     prepared_case = case(pair, cap=3)
     prepared_case = replace(prepared_case, parameters={**prepared_case.parameters, **overrides})
     case_path = save_case(prepared_case, tmp_path/'case.h5')
@@ -975,10 +975,10 @@ def test_native_checkpoint_continues_after_process_exit(native_path, tmp_path, p
 
 
 def test_checkpoint_write_failure_keeps_previous_file(native_path, tmp_path, monkeypatch):
-    from sjtu_tpmshx.data_types.solver_checkpoint import SolverCheckpoint
-    from sjtu_tpmshx.file_io import hdf5_data
-    from sjtu_tpmshx.file_io.solver_checkpoint_io import save_solver_checkpoint, load_solver_checkpoint
-    from sjtu_tpmshx.solvers.full_3d import run_case
+    from tm1.data_types.solver_checkpoint import SolverCheckpoint
+    from tm1.file_io import hdf5_data
+    from tm1.file_io.solver_checkpoint_io import save_solver_checkpoint, load_solver_checkpoint
+    from tm1.solvers.full_3d import run_case
     prepared_case = case(cap=3)
     saved_path = tmp_path/'checkpoint.h5'
     states = []
@@ -1001,8 +1001,8 @@ def test_checkpoint_write_failure_keeps_previous_file(native_path, tmp_path, mon
 
 def test_checkpoint_process_kill_before_publish_keeps_previous_file(native_path, tmp_path):
     import time
-    from sjtu_tpmshx.file_io.case_io import save_case
-    from sjtu_tpmshx.file_io.solver_checkpoint_io import load_solver_checkpoint
+    from tm1.file_io.case_io import save_case
+    from tm1.file_io.solver_checkpoint_io import load_solver_checkpoint
     prepared_case = case(cap=3)
     case_path = save_case(prepared_case, tmp_path/'case.h5')
     saved_path = tmp_path/'checkpoint.h5'
@@ -1017,8 +1017,8 @@ def test_checkpoint_process_kill_before_publish_keeps_previous_file(native_path,
 from pathlib import Path
 import sys
 import time
-from sjtu_tpmshx.file_io import hdf5_data
-from sjtu_tpmshx.file_io.solver_checkpoint_io import load_solver_checkpoint, save_solver_checkpoint
+from tm1.file_io import hdf5_data
+from tm1.file_io.solver_checkpoint_io import load_solver_checkpoint, save_solver_checkpoint
 path, ready = map(Path, sys.argv[1:])
 previous = load_solver_checkpoint(path)
 def before_publish(*_):
@@ -1078,7 +1078,7 @@ def test_checkpoint_covers_energy_routes(native_path, route, cut):
 
 
 def test_checkpoint_cancel_keeps_last_complete_boundary(native_path):
-    from sjtu_tpmshx.solvers.full_3d import run_case
+    from tm1.solvers.full_3d import run_case
     prepared_case = case(cap=3)
     saved = []
     cancel = False
@@ -1098,7 +1098,7 @@ def test_checkpoint_cancel_keeps_last_complete_boundary(native_path):
 
 
 def test_checkpoint_callback_error_keeps_original_exception(native_path):
-    from sjtu_tpmshx.solvers.full_3d import run_case
+    from tm1.solvers.full_3d import run_case
     original = OSError('checkpoint storage is unavailable')
     def failed_write(_):
         raise original
@@ -1128,7 +1128,7 @@ def test_full_checkpoint_keeps_active_pressure_hierarchies(native_path):
 @pytest.mark.parametrize('name,value', [('model_h_max_iterations', 18),
     ('model_h_temperature_tol_K', 1e-4), ('model_h_q_relative_tol', 1e-7)])
 def test_checkpoint_rejects_changed_model_h_controls_before_flow(native_path, name, value):
-    from sjtu_tpmshx.solvers.full_3d import run_case
+    from tm1.solvers.full_3d import run_case
     controls = dict(model_h_max_iterations=17, model_h_temperature_tol_K=1e-5, model_h_q_relative_tol=1e-8)
     prepared = case('water-air', cap=3)
     prepared = replace(prepared, parameters=dict(prepared.parameters, **controls))
@@ -1150,8 +1150,8 @@ def test_checkpoint_rejects_changed_model_h_controls_before_flow(native_path, na
 
 @pytest.mark.parametrize('relaxation', [None, .35])
 def test_prepared_velocity_relaxation_is_executed_and_saved(native_path, tmp_path, relaxation):
-    from sjtu_tpmshx.data_types.portable_data import mutable_data
-    from sjtu_tpmshx.file_io.result_io import load_result, save_result
+    from tm1.data_types.portable_data import mutable_data
+    from tm1.file_io.result_io import load_result, save_result
     prepared = case(cap=2)
     parameters = mutable_data(prepared.parameters)
     parameters['simple_velocity_relaxation'] = relaxation
@@ -1168,7 +1168,7 @@ def test_prepared_velocity_relaxation_is_executed_and_saved(native_path, tmp_pat
 
 
 def test_checkpoint_rejects_changed_velocity_relaxation(native_path):
-    from sjtu_tpmshx.solvers.full_3d import run_case
+    from tm1.solvers.full_3d import run_case
     prepared = case(cap=3)
     prepared = replace(prepared, parameters=dict(prepared.parameters, simple_velocity_relaxation=.35))
     saved = {}
@@ -1387,12 +1387,12 @@ _INNER_CHECKPOINT_CHILD = r'''
 import os
 from pathlib import Path
 import sys
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.data_types.solver_checkpoint import SolverCheckpoint
-from sjtu_tpmshx.file_io.case_io import load_case
-from sjtu_tpmshx.file_io.result_io import save_result
-from sjtu_tpmshx.file_io.solver_checkpoint_io import load_solver_checkpoint, save_solver_checkpoint, load_checkpoint_case
-from sjtu_tpmshx.solvers.full_3d import run_case
+from tm1.run_control.module_ports import RunControl
+from tm1.data_types.solver_checkpoint import SolverCheckpoint
+from tm1.file_io.case_io import load_case
+from tm1.file_io.result_io import save_result
+from tm1.file_io.solver_checkpoint_io import load_solver_checkpoint, save_solver_checkpoint, load_checkpoint_case
+from tm1.solvers.full_3d import run_case
 from tests.python.native.test_cpp_full_3d import _inner_position
 mode, case_path, saved_path, result_path, library, tables, target = sys.argv[1:]
 control = RunControl(backend='cpp', native_library=library, native_table_directory=tables)
@@ -1421,10 +1421,10 @@ save_result(result, result_path)
     ('strict_water', 'temperature_sou'),
     ('enthalpy', 'temperature_sou')])
 def test_inner_checkpoint_continues_after_process_exit(native_path, tmp_path, target, algorithm):
-    from sjtu_tpmshx.file_io.case_io import save_case
-    from sjtu_tpmshx.file_io.result_io import load_result
-    from sjtu_tpmshx.file_io.solver_checkpoint_io import load_solver_checkpoint
-    from sjtu_tpmshx.solvers.full_3d import run_case
+    from tm1.file_io.case_io import save_case
+    from tm1.file_io.result_io import load_result
+    from tm1.file_io.solver_checkpoint_io import load_solver_checkpoint
+    from tm1.solvers.full_3d import run_case
     pair = 'sco2-water' if target == 'enthalpy' else 'water-water' if target == 'strict_water' else 'air-air'
     prepared_case = case(pair, cap=2)
     parameters = dict(prepared_case.parameters, max_iter_simple=40, ltne_max_iter=800,
@@ -1485,10 +1485,10 @@ def test_inner_checkpoint_retains_water_startup_retry_budget(native_path, reject
 @pytest.mark.parametrize('dimension', [2, 3])
 @pytest.mark.parametrize('side', ['A', 'B'])
 def test_co2_pt_state_continues_after_process_exit(native_path, tmp_path, dimension, side):
-    from sjtu_tpmshx.file_io.case_io import save_case
-    from sjtu_tpmshx.file_io.result_io import load_result
-    from sjtu_tpmshx.file_io.solver_checkpoint_io import load_solver_checkpoint
-    from sjtu_tpmshx.solvers import full_2d, full_3d
+    from tm1.file_io.case_io import save_case
+    from tm1.file_io.result_io import load_result
+    from tm1.file_io.solver_checkpoint_io import load_solver_checkpoint
+    from tm1.solvers import full_2d, full_3d
     from tests.python.native import test_cpp_full_2d_run as planar
     from tests.python.preprocess.test_co2_model import co2_config
 

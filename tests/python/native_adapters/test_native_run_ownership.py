@@ -7,12 +7,12 @@ import pytest
 from tests.python.native_adapters import test_native_run_adapter as plane
 
 from tests.python.native.shared_library import library_path
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.solvers.api import run_case
-from sjtu_tpmshx.solvers import full_2d, full_3d
-from sjtu_tpmshx.cpp_interface import full_2d_stage
-from sjtu_tpmshx.cpp_interface import full_3d_stage
+from tm1.preprocess.api import prepare_case
+from tm1.run_control.module_ports import RunControl
+from tm1.solvers.api import run_case
+from tm1.solvers import full_2d, full_3d
+from tm1.cpp_interface import full_2d_stage
+from tm1.cpp_interface import full_3d_stage
 from tests.python import native_stage_support
 
 
@@ -101,7 +101,7 @@ def test_interrupt_after_native_transfer_releases_owner(dimension, boundary, exc
 
 
 def test_full_2d_capture_detaches_before_release_and_survives_second_solve(monkeypatch):
-    from sjtu_tpmshx.postprocess.api import evaluate
+    from tm1.postprocess.api import evaluate
 
     library = library_path()
     control = RunControl(native_library=str(library), cpu_threads=1)
@@ -163,9 +163,9 @@ def test_full_2d_capture_detaches_before_release_and_survives_second_solve(monke
 
 def test_fake_owner_mutation_on_release_leaves_detached_capture_intact():
     import numpy as np
-    from sjtu_tpmshx.cpp_interface import _native_result as core
-    from sjtu_tpmshx.cpp_interface import _native_result_stage as wire
-    from sjtu_tpmshx.cpp_interface.solver_library import stage_capture
+    from tm1.cpp_interface import _native_result as core
+    from tm1.cpp_interface import _native_result_stage as wire
+    from tm1.cpp_interface.solver_library import stage_capture
 
     buf = (ct.c_double * 4)(10.5, 20.25, 30.75, 40.125)
     shape = (ct.c_size_t * 2)(2, 2)
@@ -223,7 +223,7 @@ def test_fake_owner_mutation_on_release_leaves_detached_capture_intact():
 ])
 def test_full_2d_injected_failures_preserve_exception_and_release_once(monkeypatch, exception_type, seam):
     from dataclasses import replace
-    from sjtu_tpmshx.cpp_interface.solver_library import stage_capture
+    from tm1.cpp_interface.solver_library import stage_capture
 
     library = library_path()
     control = RunControl(native_library=str(library), cpu_threads=1)
@@ -277,9 +277,9 @@ def test_full_2d_injected_failures_preserve_exception_and_release_once(monkeypat
 
 
 def test_copy_applicability_and_zone_temperatures_preserve_stop_iteration(monkeypatch):
-    from sjtu_tpmshx.cpp_interface import _native_result as core
-    from sjtu_tpmshx.cpp_interface import _native_result_stage as wire
-    from sjtu_tpmshx.cpp_interface.solver_library import stage_capture
+    from tm1.cpp_interface import _native_result as core
+    from tm1.cpp_interface import _native_result_stage as wire
+    from tm1.cpp_interface.solver_library import stage_capture
 
     sentinel = StopIteration('native-read-stop')
 
@@ -315,10 +315,10 @@ def test_copy_applicability_and_zone_temperatures_preserve_stop_iteration(monkey
 
 
 def test_native_run_requires_error_types_and_stage_maps_match_hosts():
-    from sjtu_tpmshx.cpp_interface.run_state import NativeRun
-    from sjtu_tpmshx.physical_models.envelope import ChokedFlowError
-    from sjtu_tpmshx.physical_models.fluid_props import WaterStateError
-    from sjtu_tpmshx.run_control.cancellation import CancelledError
+    from tm1.cpp_interface.run_state import NativeRun
+    from tm1.physical_models.envelope import ChokedFlowError
+    from tm1.physical_models.fluid_props import WaterStateError
+    from tm1.run_control.cancellation import CancelledError
 
     assert not hasattr(NativeRun, 'error_types')
     with pytest.raises(TypeError):
@@ -357,9 +357,9 @@ def test_native_run_requires_error_types_and_stage_maps_match_hosts():
 def test_zone_result_warning_stacklevel_and_solver_only_image_isolation(monkeypatch, tmp_path):
     import warnings
     import numpy as np
-    from sjtu_tpmshx.cpp_interface import _native_result as core
-    from sjtu_tpmshx.cpp_interface import _native_result_stage as wire
-    from sjtu_tpmshx.physical_models.zone_config import Zone, ZoneConfig
+    from tm1.cpp_interface import _native_result as core
+    from tm1.cpp_interface import _native_result_stage as wire
+    from tm1.physical_models.zone_config import Zone, ZoneConfig
     from tests.python.native_adapters import test_native_prepare_spatial_adapter as spatial
     from tests.python.native_preparation_abi import _configuration_fluids
 
@@ -418,7 +418,7 @@ def test_zone_result_warning_stacklevel_and_solver_only_image_isolation(monkeypa
         r_disc = run_case(discrete_case, control)
         r_cont = run_case(cont_case, control)
         r_exp = run_case(exp_case, control)
-    from sjtu_tpmshx.data_types.portable_data import mutable_data
+    from tm1.data_types.portable_data import mutable_data
     assert r_disc.run_status['execution'] == 'completed'
     assert len(r_disc.metadata['application']['zones']['stats']) == 2
     assert r_cont.run_status['execution'] == 'completed'

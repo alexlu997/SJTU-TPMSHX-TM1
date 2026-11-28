@@ -25,7 +25,7 @@ Git 操作使用[任务持续授权](../AGENTS.md#1-task-scope-and-authority)。
    工作树之外。适用锁文件一致时才能共用。环境相关工作开始前完成
    [环境检查](../AGENTS.md#3-work-setup-and-environment)。仅当解释器、依赖锁和已安装依赖均未改变时，
    才复用已通过的检查结果。环境相关故障后重新执行两项检查。
-5. 项目源码从当前工作树导入。在源码工作树中使用 `python -m sjtu_tpmshx.cli`，不使用仅安装态提供的 `tpmshx-run` 命令。
+5. 项目源码从当前工作树导入。在源码工作树中使用 `python -m tm1.cli`，不使用仅安装态提供的 `tpmshx-run` 命令。
    运行 Matplotlib、Qt 冒烟和 pytest 命令时，将 `MPLCONFIGDIR` 和 `XDG_CACHE_HOME` 设为本工作树忽略的 `.cache/` 路径。
    原生物性表缓存放在本工作树忽略的 `.cache/` 中。另行记录实际原生库及其源码和构建身份。检查是否仍引用待移除的工作树。
 

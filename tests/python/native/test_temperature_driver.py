@@ -307,9 +307,9 @@ def test_zero_equation_is_arithmetic_failure_not_false_convergence(temperature_n
 
 @pytest.mark.parametrize("arrangement", ["cross", "counter"])
 def test_actual_quick_design_const_and_mean_prepared_passes(arrangement):
-    from sjtu_tpmshx.physical_models.design_fluids import fluid_props
-    from sjtu_tpmshx.preprocess.api import prepare_quick_design
-    from sjtu_tpmshx.solvers.api import run_case
+    from tm1.physical_models.design_fluids import fluid_props
+    from tm1.preprocess.api import prepare_quick_design
+    from tm1.solvers.api import run_case
     from tests.python.design.test_forward import _case
     operating = _case()
     results = {}

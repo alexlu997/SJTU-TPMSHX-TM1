@@ -5,9 +5,9 @@ import warnings
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.development.validation import surrogate_domain
-from sjtu_tpmshx.cpp_interface import _native_result_checks
-from sjtu_tpmshx.physical_models import co2_correlations, fluid_props
+from tm1.development.validation import surrogate_domain
+from tm1.cpp_interface import _native_result_checks
+from tm1.physical_models import co2_correlations, fluid_props
 
 
 def _observe(function):

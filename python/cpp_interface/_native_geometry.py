@@ -10,7 +10,7 @@ import weakref
 import numpy as np
 
 from ._native_values import geometry_topology, real_scalar
-from sjtu_tpmshx.run_control.provenance import PUBLISHED_LIBRARY_DIR
+from tm1.run_control.provenance import PUBLISHED_LIBRARY_DIR
 
 
 _DoubleP = ct.POINTER(ct.c_double)

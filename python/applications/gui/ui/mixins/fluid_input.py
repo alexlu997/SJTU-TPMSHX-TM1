@@ -17,11 +17,11 @@ import math
 
 from PySide6.QtWidgets import QMessageBox
 
-from sjtu_tpmshx.data_types.validator import convert_temp_decimal, temp_text_to_kelvin
-from sjtu_tpmshx.applications.gui.ui.field_factory import _format_decimal_exact
-from sjtu_tpmshx.physical_models.design_fluids import nu_re_window
-from sjtu_tpmshx.physical_models.tpms_calc import compute as tpms_compute
-from sjtu_tpmshx.applications.gui.ui.ui_constants import TOAST_MS_MED
+from tm1.data_types.validator import convert_temp_decimal, temp_text_to_kelvin
+from tm1.applications.gui.ui.field_factory import _format_decimal_exact
+from tm1.physical_models.design_fluids import nu_re_window
+from tm1.physical_models.tpms_calc import compute as tpms_compute
+from tm1.applications.gui.ui.ui_constants import TOAST_MS_MED
 
 
 def _fluid_styles() -> dict:
@@ -29,7 +29,7 @@ def _fluid_styles() -> dict:
     time (the old module-global _VAL/_VAL_WARN snapshot in main.py went
     stale after a theme switch)."""
     try:
-        from sjtu_tpmshx.applications.gui.ui.theme import _build_styles
+        from tm1.applications.gui.ui.theme import _build_styles
         s = _build_styles()
         return {'VAL': s.get('VAL', ''), 'VAL_WARN': s.get('VAL_WARN', '')}
     except Exception:
@@ -47,14 +47,14 @@ class FluidInputMixin:
             'B': (self.le_uB, self.le_TinB, self.le_PinB),
         }[fluid]
         try:
-            from sjtu_tpmshx.applications.gui.ui.window_config import (
+            from tm1.applications.gui.ui.window_config import (
                 config_from_window, df_mode_from_window, fluid_types_from_window,
                 mass_flow_active, sco2_nu_from_window,
             )
             fluid_types = fluid_types_from_window(self)
             _ftype = fluid_types[fluid]
             if mass_flow_active(self, fluid):
-                from sjtu_tpmshx.preprocess.api import resolve_inlet_flow_config
+                from tm1.preprocess.api import resolve_inlet_flow_config
                 resolved = resolve_inlet_flow_config(config_from_window(self, strict=True))
                 for side in 'AB':
                     if mass_flow_active(self, side):
@@ -205,7 +205,7 @@ class FluidInputMixin:
         temperature fields. Converts the displayed text AND rewrites the
         label suffixes (`[K]` ↔ `[°C]`) so the UI is self-consistent.
         """
-        from sjtu_tpmshx.applications.gui.ui.expr_eval import eval_expr, is_expression
+        from tm1.applications.gui.ui.expr_eval import eval_expr, is_expression
         self._refresh_field_validation()
         cur = self._temp_unit
         new_unit = 'C' if cur == 'K' else 'K'
@@ -231,8 +231,8 @@ class FluidInputMixin:
         self._discard_temperature_history()
         self.case_files.resync_undo_baseline()
         self.results.refresh_summary()
-        from sjtu_tpmshx.applications.gui.ui.layout_drawer import refresh_last_2d_thumbnail
-        from sjtu_tpmshx.applications.gui.ui.plot_2d_results import redraw_result_fields
+        from tm1.applications.gui.ui.layout_drawer import refresh_last_2d_thumbnail
+        from tm1.applications.gui.ui.plot_2d_results import redraw_result_fields
         redraw_result_fields(self)
         refresh_last_2d_thumbnail(self)
         self.dialogs.notify(
@@ -247,7 +247,7 @@ class FluidInputMixin:
 
     def _on_dir_changed(self):
         """Show the actual transverse axis for each port pair row under Rule A."""
-        from sjtu_tpmshx.data_types.validator import cross_axes_for_dir
+        from tm1.data_types.validator import cross_axes_for_dir
         for combo, prefix in [(self.combo_dirA, 'pipeA'),
                               (self.combo_dirB, 'pipeB')]:
             try:
@@ -265,16 +265,16 @@ class FluidInputMixin:
         return combo.currentIndex()
 
     def _inlet_wall(self, d):
-        from sjtu_tpmshx.data_types.validator import wall_for_dir
+        from tm1.data_types.validator import wall_for_dir
         return wall_for_dir(d, 'inlet')
 
     def _outlet_wall(self, d):
-        from sjtu_tpmshx.data_types.validator import wall_for_dir
+        from tm1.data_types.validator import wall_for_dir
         return wall_for_dir(d, 'outlet')
 
     def _fluid_config(self, which):
         """Read a preview BC using the compute adapter's transverse pairs."""
-        from sjtu_tpmshx.applications.gui.ui.window_config import _read_partial_bc
+        from tm1.applications.gui.ui.window_config import _read_partial_bc
         cfg = dict(dir=self._dir_int(getattr(self, f'combo_dir{which}')))
         # Keep the preview's required first-axis fields strict.
         for field in ('in_ctr', 'in_w', 'out_ctr', 'out_w'):
@@ -287,7 +287,7 @@ class FluidInputMixin:
         return cfg
 
     def _draw_layout(self):
-        from sjtu_tpmshx.applications.gui.ui.layout_drawer import draw_layout
+        from tm1.applications.gui.ui.layout_drawer import draw_layout
         return draw_layout(self)
 
     def _preview_initial_geometry(self):

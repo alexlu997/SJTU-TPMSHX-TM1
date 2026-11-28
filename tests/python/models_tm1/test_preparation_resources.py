@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from engineering.scripts.generate_native_model_coefficients import df_header
-from sjtu_tpmshx.model_configs import model_parameters as resources
+from tm1.model_configs import model_parameters as resources
 from tests.python import df_reference as reference
 
 

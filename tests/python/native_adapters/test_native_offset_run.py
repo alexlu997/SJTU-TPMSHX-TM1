@@ -6,13 +6,13 @@ import json
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.preprocess.api import prepare_case
+from tm1.preprocess.api import prepare_case
 from tests.python.native_adapters import test_native_run_adapter as adapter
 from tests.python.native_adapters import test_native_prepare_spatial_adapter as spatial
 from tests.python.native_adapters.test_native_prepare_adapter import _same
-from sjtu_tpmshx.file_io.case_io import load_case, save_case
-from sjtu_tpmshx.cpp_interface import full_2d_stage as stage
-from sjtu_tpmshx.solvers import full_2d
+from tm1.file_io.case_io import load_case, save_case
+from tm1.cpp_interface import full_2d_stage as stage
+from tm1.solvers import full_2d
 from tests.python import native_stage_support
 from tests.python import result_stage_fixture
 
@@ -43,7 +43,7 @@ def _saved(case):
 
 def _report(case, result):
     from tests.python.applicability_evidence import capture_applicability
-    from sjtu_tpmshx.solvers.execution_record import full_execution_record
+    from tm1.solvers.execution_record import full_execution_record
     enriched = replace(result, metadata=dict(result.metadata,
         execution_record=full_execution_record(case, result),
         applicability_evidence=capture_applicability(case, result, {})))
@@ -138,7 +138,7 @@ def test_saved_v5_diagnostic_and_output_aliases(monkeypatch, tmp_path, operation
     saved, request, control, keepalive = _saved(case)
     library = ct.CDLL(str(adapter.library_path()))
     function = getattr(library, 'tpmshx_stage_run_2d_' + operation + '_saved_v5')
-    from sjtu_tpmshx.cpp_interface.run_state import _Field
+    from tm1.cpp_interface.run_state import _Field
     common = [ct.POINTER(stage._Saved), ct.POINTER(stage._Request), ct.POINTER(stage._Control)]
     if operation == 'restore':
         common += [ct.POINTER(_Field), ct.c_size_t]

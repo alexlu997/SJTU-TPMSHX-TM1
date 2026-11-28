@@ -13,7 +13,7 @@ import json
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.physical_models.continuous_field import (
+from tm1.physical_models.continuous_field import (
     ContinuousFieldConfig,
     decision_dim,
     decision_bounds,
@@ -45,7 +45,7 @@ def test_decision_dim_3x3_symmetric_is_12():
 @pytest.mark.parametrize('shape', [(1, 1), (1, 5), (2, 3), (5, 1),
                                   (1, 1, 1), (1, 2, 5), (2, 1, 3), (5, 3, 1), (5, 5, 5)])
 def test_mixed_control_counts_reproduce_linear_fields_and_constant_axes(shape):
-    from sjtu_tpmshx.physical_models.continuous_field import control_axis
+    from tm1.physical_models.continuous_field import control_axis
 
     lengths = (.1, .05, .04)[:len(shape)]
     controls = [control_axis(count, length) for count, length in zip(shape, lengths)]
@@ -219,7 +219,7 @@ def test_from_decision_vector_round_trip():
 
 
 def test_original_config_and_csv_replay_preserve_asymmetric_quadratic_field(tmp_path):
-    from sjtu_tpmshx.applications.optimization.pareto_io import read_pareto_csv
+    from tm1.applications.optimization.pareto_io import read_pareto_csv
 
     cfg = {'tpms_type': 'Gyroid', 'k_s': 17., 'L_domain': 0.182,
            'H_domain': 0.042, 'n_ctrl_x': 3, 'n_ctrl_y': 3,

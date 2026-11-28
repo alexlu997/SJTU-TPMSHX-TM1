@@ -3,16 +3,16 @@ from unittest.mock import Mock
 
 import pytest
 
-from sjtu_tpmshx.compute import compute
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig, ExtrapPolicy, GeometryConfig, SolverConfig, ZoneInputConfig
-from sjtu_tpmshx.physical_models.zone_config import Zone, ZoneConfig
+from tm1.compute import compute
+from tm1.data_types.compute_config import ComputeConfig, ExtrapPolicy, GeometryConfig, SolverConfig, ZoneInputConfig
+from tm1.physical_models.zone_config import Zone, ZoneConfig
 
 
 @pytest.mark.parametrize('axis', ['x', 'y'])
 def test_canonical_1d_json_restores_the_same_zone_fields(tmp_path, capsys, axis):
     import json
-    from sjtu_tpmshx.applications.cli.main import main
-    from sjtu_tpmshx.preprocess.two_d.preparation import prepare_case
+    from tm1.applications.cli.main import main
+    from tm1.preprocess.two_d.preparation import prepare_case
 
     cfg = ComputeConfig(
         geometry=GeometryConfig(tpms='Diamond'),
@@ -24,7 +24,7 @@ def test_canonical_1d_json_restores_the_same_zone_fields(tmp_path, capsys, axis)
     cfg.to_json(path)
     loaded = ComputeConfig.from_json(path)
     assert isinstance(loaded.zones.config, dict)
-    from sjtu_tpmshx.solvers.full_2d import _zone_objects
+    from tm1.solvers.full_2d import _zone_objects
     from tests.python.native.stage_interception import saved_2d_inputs
     expected = prepare_case(cfg, case_id='original').design_fields
     case = prepare_case(loaded, case_id='loaded')
@@ -54,7 +54,7 @@ def test_canonical_loader_keeps_unused_1d_config_semantics(enabled, axis):
 def test_canonical_1d_stage_does_not_mutate_or_share_source_dict():
     from copy import deepcopy
     from dataclasses import asdict
-    from sjtu_tpmshx.preprocess.two_d.preparation import prepare_case
+    from tm1.preprocess.two_d.preparation import prepare_case
 
     cfg = ComputeConfig(geometry=GeometryConfig(tpms='Diamond'),
         solver=SolverConfig(Nx=8, Ny=6), extrap=ExtrapPolicy(allow=True),
@@ -79,7 +79,7 @@ def test_canonical_1d_stage_does_not_mutate_or_share_source_dict():
 @pytest.mark.parametrize('invalid', ['gap', 'missing_field'])
 def test_canonical_1d_json_does_not_swallow_invalid_zones(tmp_path, invalid):
     import json
-    from sjtu_tpmshx.preprocess.two_d.preparation import prepare_case
+    from tm1.preprocess.two_d.preparation import prepare_case
 
     cfg = ComputeConfig(geometry=GeometryConfig(tpms='Diamond'),
         zones=ZoneInputConfig(enabled=True,
@@ -117,7 +117,7 @@ def test_valid_partial_grid_coverage_is_not_redefined():
 ])
 def test_nonfinite_stripe_endpoints_never_solve(tmp_path, axis, source, index, endpoint, value):
     import yaml
-    from sjtu_tpmshx.file_io.config_io import load_config
+    from tm1.file_io.config_io import load_config
 
     zones = ZoneConfig([Zone('first', 0, .5, 6, .3),
                         Zone('last', .5, 1, 7, .5)], 'Diamond', 16)
@@ -142,7 +142,7 @@ def test_nonfinite_stripe_endpoints_never_solve(tmp_path, axis, source, index, e
 @pytest.mark.parametrize('source', ['object', 'yaml'])
 def test_unknown_active_zone_axis_never_solves(tmp_path, axis, source):
     import yaml
-    from sjtu_tpmshx.file_io.config_io import load_config
+    from tm1.file_io.config_io import load_config
 
     cfg = ComputeConfig(
         solver=SolverConfig(Nx=8, Ny=6), extrap=ExtrapPolicy(allow=True),
@@ -167,7 +167,7 @@ def test_disabled_zone_axis_remains_an_unchecked_draft():
 
 @pytest.mark.parametrize('dimension', [2, 3])
 def test_direct_stage_rejects_invalid_grid(dimension):
-    from sjtu_tpmshx.preprocess.api import prepare_case
+    from tm1.preprocess.api import prepare_case
     cfg = ComputeConfig(
         geometry=GeometryConfig(Lz_m=0.042), solver=SolverConfig(Nz=dimension - 1),
         extrap=ExtrapPolicy(allow=True), zones=ZoneInputConfig(
@@ -179,7 +179,7 @@ def test_direct_stage_rejects_invalid_grid(dimension):
 
 @pytest.mark.parametrize('axis', ['x', 'y', 'grid'])
 def test_supported_air_zones_build_fields(axis):
-    from sjtu_tpmshx.preprocess.two_d.preparation import prepare_case
+    from tm1.preprocess.two_d.preparation import prepare_case
     grid = dict(cells=[dict(x0=0, x1=1, y0=0, y1=1, L=6, t=0.3)],
                 tpms_type='Diamond', k_s=16)
     zones = ZoneInputConfig(enabled=True, axis=axis, grid=grid,
@@ -192,7 +192,7 @@ def test_supported_air_zones_build_fields(axis):
 
 
 def test_supported_3d_grid_is_consumed():
-    from sjtu_tpmshx.preprocess.api import prepare_case
+    from tm1.preprocess.api import prepare_case
     cells = [dict(x0=0, x1=1, y0=0, y1=1, L=6, t=0.3)]
     cfg = ComputeConfig(geometry=GeometryConfig(Lz_m=0.042),
                         solver=SolverConfig(Nx=4, Ny=4, Nz=2),
@@ -228,7 +228,7 @@ def test_missing_zones_never_solve_or_finalize(dimension, axis, grid, monkeypatc
 @pytest.mark.parametrize('callback', ['geometry', 'inlet', 'observe_range'])
 @pytest.mark.parametrize('axis', ['x', 'y', 'grid'])
 def test_native_zone_callback_error_propagates(callback, axis, monkeypatch):
-    from sjtu_tpmshx.preprocess.preparation import PreparationCache
+    from tm1.preprocess.preparation import PreparationCache
     zones = ZoneInputConfig(enabled=True, axis=axis,
         config=ZoneConfig.single_zone(6, .3, 'Diamond', 16),
         grid=dict(cells=[dict(x0=0, x1=1, y0=0, y1=1, L=6, t=.3)],
@@ -269,7 +269,7 @@ def test_invalid_grid_rectangle_never_solves(dimension, axis, start, end, monkey
 
 @pytest.mark.parametrize('axis', ['x', 'y', 'grid'])
 def test_native_zone_stage_error_never_solves_or_finalizes(monkeypatch, axis):
-    from sjtu_tpmshx.cpp_interface import preparation_host as native
+    from tm1.cpp_interface import preparation_host as native
     zones = ZoneInputConfig(enabled=True, axis=axis,
         config=ZoneConfig.single_zone(6, .3, 'Diamond', 16),
         grid=dict(cells=[dict(x0=0., x1=1., y0=0., y1=1., L=6., t=.3)],

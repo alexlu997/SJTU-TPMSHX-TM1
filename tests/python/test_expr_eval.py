@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from sjtu_tpmshx.applications.gui.ui.expr_eval import eval_expr
+from tm1.applications.gui.ui.expr_eval import eval_expr
 
 
 @pytest.mark.parametrize('text,expected', [
@@ -38,7 +38,7 @@ def test_deep_expression_returns_parse_failure():
 def test_large_power_returns_without_unbounded_integer_work():
     subprocess.run(
         [sys.executable, '-c',
-         'from sjtu_tpmshx.applications.gui.ui.expr_eval import eval_expr; '
+         'from tm1.applications.gui.ui.expr_eval import eval_expr; '
          'assert eval_expr("9**9**9") is None'],
         check=True, capture_output=True, text=True, timeout=5,
     )

@@ -28,10 +28,10 @@ Nonfinite diagnostics stay in HDF5, never converted to a valid metric.
 The public stage commands are:
 
 ```
-python -m sjtu_tpmshx.cli prepare config.json case.yaml --case-id example
-python -m sjtu_tpmshx.cli solve case.yaml results.h5
-python -m sjtu_tpmshx.cli postprocess results.h5 metrics.json
-python -m sjtu_tpmshx.cli run config.json output-directory --case-id example
+python -m tm1.cli prepare config.json case.yaml --case-id example
+python -m tm1.cli solve case.yaml results.h5
+python -m tm1.cli postprocess results.h5 metrics.json
+python -m tm1.cli run config.json output-directory --case-id example
 ```
 
 Use the interpreter in the worktree's `.venv-path` for these commands. Exit 0 means that stage completed its stated checks. Solve/run returns 2 for

@@ -11,7 +11,7 @@ import os
 
 import pytest
 
-from sjtu_tpmshx.data_types.compute_result import ComputeResult
+from tm1.data_types.compute_result import ComputeResult
 
 pytest.importorskip("PySide6")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -21,8 +21,8 @@ from PySide6.QtWidgets import QApplication, QBoxLayout, QScrollArea  # noqa: E40
 
 @pytest.fixture(scope="module")
 def win(tmp_path_factory):
-    import sjtu_tpmshx.applications.gui.controllers.session_manager as sm_mod
-    import sjtu_tpmshx.applications.gui.controllers.user_storage as storage_mod
+    import tm1.applications.gui.controllers.session_manager as sm_mod
+    import tm1.applications.gui.controllers.user_storage as storage_mod
 
     session_dir = tmp_path_factory.mktemp("ui-layout-session")
     original_init = sm_mod.SessionManager.__init__
@@ -38,7 +38,7 @@ def win(tmp_path_factory):
     patch.setattr(sm_mod.SessionManager, '__init__', _init)
     patch.setattr(storage_mod, '_appearance_dir', lambda: session_dir)
     app = QApplication.instance() or QApplication([])
-    from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
+    from tm1.applications.gui.ui.main_window import Main_Menu
     w = Main_Menu()
     w.resize(1600, 1000)
     w.show()
@@ -74,7 +74,7 @@ def test_responsive_row_direction_flips():
     (the parent layout re-imposes geometry), so the flip is tested on a
     top-level ResponsiveRow."""
     from PySide6.QtWidgets import QLabel
-    from sjtu_tpmshx.applications.gui.ui.responsive import ResponsiveRow
+    from tm1.applications.gui.ui.responsive import ResponsiveRow
     app = QApplication.instance() or QApplication([])
     row = ResponsiveRow(threshold=520)
     row.addWidget(QLabel("A"))
@@ -186,7 +186,7 @@ def test_tpms_computed_is_visible_before_and_after_calculation(win):
 
 def test_diagnostics_reachable_via_run_info_and_dialogs(win, monkeypatch):
     from PySide6.QtWidgets import QLabel, QPushButton
-    from sjtu_tpmshx.data_types.compute_result import ComputeResult
+    from tm1.data_types.compute_result import ComputeResult
 
     calls = []
     monkeypatch.setattr(win.results, 'show_diag_dialog', lambda: calls.append(True))
@@ -215,7 +215,7 @@ def test_diagnostics_reachable_via_run_info_and_dialogs(win, monkeypatch):
 
 
 def test_group_badge_counts_empty_field(win):
-    from sjtu_tpmshx.applications.gui.ui.ui_builders import refresh_group_badges
+    from tm1.applications.gui.ui.ui_builders import refresh_group_badges
     _tab_idx, band = win._drawer_bands["grid_rect"]
     old = win.le_Nx.text()
     win.le_Nx.setText("")
@@ -249,7 +249,7 @@ def test_group_badge_updates_via_validator_debounce(win):
 
 
 def test_group_badge_survives_toggle(win):
-    from sjtu_tpmshx.applications.gui.ui.ui_builders import refresh_group_badges
+    from tm1.applications.gui.ui.ui_builders import refresh_group_badges
     _tab_idx, band = win._drawer_bands["grid_rect"]
     old = win.le_Nx.text()
     win.le_Nx.setText("")
@@ -453,7 +453,7 @@ def test_no_raw_hex_outside_theme():
 
 def test_numeric_inputs_rule_a_left_aligned_with_unit_suffix(win):
     from PySide6.QtCore import Qt as _Qt
-    from sjtu_tpmshx.applications.gui.ui.field_factory import UnitLineEdit
+    from tm1.applications.gui.ui.field_factory import UnitLineEdit
     orig_dim = win.combo_dim.currentIndex()
     win.combo_dim.setCurrentIndex(0)
     assert isinstance(win.le_L, UnitLineEdit)
@@ -507,7 +507,7 @@ def test_numeric_inputs_rule_a_left_aligned_with_unit_suffix(win):
         win.le_uA.editingFinished.emit()
         assert win.le_uA.text() == '0.3'
 
-        from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+        from tm1.applications.gui.ui.window_config import config_from_window
         QLineEdit.setText(win.le_TinA, '70 F')
         win.le_TinA.editingFinished.emit()
         t_in_k_from_k = config_from_window(win, strict=True).fluid_A.T_in_K
@@ -530,8 +530,8 @@ def test_numeric_inputs_rule_a_left_aligned_with_unit_suffix(win):
 
 def test_dialog_theme_applies_first_and_changed_styles_only(monkeypatch):
     from unittest.mock import Mock
-    from sjtu_tpmshx.applications.gui.ui.shell_dialogs import ShellDialogs
-    from sjtu_tpmshx.applications.gui.ui.theme import get_theme, get_theme_name, set_theme
+    from tm1.applications.gui.ui.shell_dialogs import ShellDialogs
+    from tm1.applications.gui.ui.theme import get_theme, get_theme_name, set_theme
 
     app = QApplication.instance() or QApplication([])
     previous_style, previous_theme = app.styleSheet(), get_theme_name()
@@ -565,9 +565,9 @@ def test_dialog_theme_applies_first_and_changed_styles_only(monkeypatch):
 def test_preflight_dialogs_use_active_theme_tokens(win, monkeypatch, theme_name):
     """Input and grid preflight HTML must use active theme tokens."""
     from PySide6.QtWidgets import QMessageBox
-    from sjtu_tpmshx.applications.gui.ui.preflight import Preflight
-    from sjtu_tpmshx.applications.gui.ui.theme import get_theme, get_theme_name, set_theme
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.applications.gui.ui.preflight import Preflight
+    from tm1.applications.gui.ui.theme import get_theme, get_theme_name, set_theme
+    from tm1.applications.gui.ui.window_config import config_from_window
 
     previous_theme = get_theme_name()
     original_L = win.le_L.text()
@@ -577,7 +577,7 @@ def test_preflight_dialogs_use_active_theme_tokens(win, monkeypatch, theme_name)
         QMessageBox, 'exec',
         lambda box: dialogs.append(box.text()) or QMessageBox.StandardButton.Ok)
     monkeypatch.setattr(
-        'sjtu_tpmshx.applications.gui.ui.preflight.compute_preflight',
+        'tm1.applications.gui.ui.preflight.compute_preflight',
         lambda **_kwargs: Preflight(
             errors=['grid error'], warnings=['grid warning'], info=['grid info']))
     try:
@@ -620,8 +620,8 @@ def test_preflight_dialogs_use_active_theme_tokens(win, monkeypatch, theme_name)
 
 def test_result_label_state_and_unit_hint():
     from PySide6.QtWidgets import QGridLayout, QWidget
-    from sjtu_tpmshx.applications.gui.ui.field_factory import FieldFactory
-    from sjtu_tpmshx.applications.gui.ui.theme_manager import ThemeManager
+    from tm1.applications.gui.ui.field_factory import FieldFactory
+    from tm1.applications.gui.ui.theme_manager import ThemeManager
 
     QApplication.instance() or QApplication([])
     host = QWidget()
@@ -654,7 +654,7 @@ def test_mode_gates_survive_group_toggle(win):
 
 def test_collapsing_and_resizing_preserves_solver_inputs(win):
     from dataclasses import asdict
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.applications.gui.ui.window_config import config_from_window
 
     before = asdict(config_from_window(win))
     for width in (900, 1440):
@@ -675,7 +675,7 @@ def test_collapsing_and_resizing_preserves_solver_inputs(win):
 
 
 def test_reveal_invalid_input_opens_its_page_and_inspector(win):
-    from sjtu_tpmshx.applications.gui.ui.ui_builders import reveal_parameter
+    from tm1.applications.gui.ui.ui_builders import reveal_parameter
 
     win._select_param_page(1)
     win._drawer_bands['grid_rect'][1].set_expanded(False)
@@ -693,7 +693,7 @@ def test_reveal_invalid_input_opens_its_page_and_inspector(win):
 
 @pytest.mark.parametrize('side', ['A', 'B'])
 def test_model_visibility_follows_preset_without_changing_inputs(win, side):
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.applications.gui.ui.window_config import config_from_window
 
     win.case_files.apply_user_preset({'combos': {'combo_fluidA': 0, 'combo_fluidB': 1}})
     section = win._ia_sections['sco2_nu']
@@ -725,7 +725,7 @@ def test_property_preview_keyboard_toggle_keeps_inputs(win):
     from dataclasses import asdict
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.applications.gui.ui.window_config import config_from_window
 
     section = win._fluid_computed_A
     header = section.layout().itemAt(0).widget()

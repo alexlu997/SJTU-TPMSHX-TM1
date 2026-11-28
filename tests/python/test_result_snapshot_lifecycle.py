@@ -13,8 +13,8 @@ from tests.python.gui_worker_support import _stub_compute_result
 from tests.python.gui_worker_support import (
     _configure, _wait_for, win as win,
 )
-from sjtu_tpmshx.applications.gui.ui.field_results import FieldResults
-from sjtu_tpmshx.applications.gui.ui.plot_3d_results import finalize_plots_3d
+from tm1.applications.gui.ui.field_results import FieldResults
+from tm1.applications.gui.ui.plot_3d_results import finalize_plots_3d
 
 
 @pytest.fixture
@@ -23,7 +23,7 @@ def snapshot_window(win, monkeypatch):
     # numerical work are replaced. Every result carries distinguishable fields.
     monkeypatch.setattr(win.results, 'finalize_plots',
                         lambda: FieldResults.finalize_plots(win.results))
-    monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.plot_3d_results.finalize_plots_3d',
+    monkeypatch.setattr('tm1.applications.gui.ui.plot_3d_results.finalize_plots_3d',
                         finalize_plots_3d)
     monkeypatch.setattr(win, 'canvas_3d', SimpleNamespace(
         cleanup=lambda: None, color_range_state=lambda: {},
@@ -50,7 +50,7 @@ def _publish(win, monkeypatch, mode, marker):
 
 
 def _assert_export(win, monkeypatch, path, result):
-    from sjtu_tpmshx.applications.gui.ui import result_export
+    from tm1.applications.gui.ui import result_export
     monkeypatch.setattr(result_export.QFileDialog, 'getSaveFileName',
                         lambda *args: (str(path), 'CSV (*.csv)'))
     win.result_export.export_results()
@@ -163,7 +163,7 @@ def test_new_publication_replaces_snapshot_even_if_renderer_raises(
 @pytest.mark.parametrize('accepted_mode,new_mode', [('2d', '3d'), ('2d', '2d'), ('3d', '2d')])
 def test_export_keeps_clicked_snapshot_while_dialog_delivers_new_result(
         snapshot_window, monkeypatch, tmp_path, accepted_mode, new_mode):
-    from sjtu_tpmshx.applications.gui.ui import result_export
+    from tm1.applications.gui.ui import result_export
     win = snapshot_window
     accepted = _publish(win, monkeypatch, accepted_mode, 111)
     _configure(win, monkeypatch, new_mode)
@@ -219,7 +219,7 @@ def test_named_preset_source_reaches_accepted_result_and_export(snapshot_window,
 
 def test_field_figure_metadata_uses_accepted_source_after_draft_changes(
         snapshot_window, monkeypatch, tmp_path):
-    from sjtu_tpmshx.applications.gui.ui import result_export
+    from tm1.applications.gui.ui import result_export
     win = snapshot_window
     _publish(win, monkeypatch, '2d', 111)
     win.case_files.active_preset_name = 'new draft'
@@ -272,7 +272,7 @@ def _overlay_positions_mm(canvas):
 ])
 def test_zone_overlays_read_isolated_cache_and_clear_on_unzoned_run(
         snapshot_window, zones, expected_x, expected_y):
-    from sjtu_tpmshx.applications.gui.ui.plot_2d_results import ensure_result_plot
+    from tm1.applications.gui.ui.plot_2d_results import ensure_result_plot
 
     win = snapshot_window
     zoned = _result('2d')

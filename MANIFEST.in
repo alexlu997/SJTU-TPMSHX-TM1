@@ -7,7 +7,7 @@ graft geometry
 graft numerics
 graft include
 graft tests/cpp
-include sjtu_tpmshx.py tests/__init__.py
+include tm1.py tests/__init__.py
 graft python
 graft tests/python
 graft engineering

@@ -5,9 +5,9 @@ import json
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.portable_data import mutable_data
-from sjtu_tpmshx.applications.optimization import mass_design as mass
-from sjtu_tpmshx.applications.optimization import multi_condition_optimizer as search
+from tm1.data_types.portable_data import mutable_data
+from tm1.applications.optimization import mass_design as mass
+from tm1.applications.optimization import multi_condition_optimizer as search
 from tests.python.test_module_result_mapping import _synthetic_results
 from tests.python.optimization_support import _conditions, _fake_batches
 
@@ -93,8 +93,8 @@ def test_invalid_limits_fail_before_native_evaluation(tmp_path, monkeypatch, mut
 
 @pytest.mark.parametrize('dimension', [2, 3])
 def test_optional_outlet_limits_keep_side_units_and_condition_identity(tmp_path, monkeypatch, dimension):
-    from sjtu_tpmshx.data_types.metric_spec import MetricSpec
-    from sjtu_tpmshx.data_types.performance_result import MetricValue
+    from tm1.data_types.metric_spec import MetricSpec
+    from tm1.data_types.performance_result import MetricValue
     field, performance = _synthetic_results(dimension)
     metadata = mutable_data(field.metadata)
     metadata['quantity_basis'] = 'per_unit_depth' if dimension == 2 else 'total'
@@ -163,7 +163,7 @@ def test_outlet_violation_trains_model_but_blocks_selection_and_survives_resume(
         output_dir=tmp_path/'resumed', workers=1)
     assert resumed['history'] == result['history']
     _assert_export_counts(resumed, tmp_path/'exports', budget=4, evaluated=4, usable=3)
-    from sjtu_tpmshx.applications.optimization.pareto_io import export_pareto_data
+    from tm1.applications.optimization.pareto_io import export_pareto_data
     resumed['history'][1]['feasible'] = True
     with pytest.raises(ValueError, match='every constraint'):
         export_pareto_data(resumed, tmp_path/'invalid.csv')
@@ -281,7 +281,7 @@ def test_mass_search_carries_nu_re_policy_through_batches_and_recovery(tmp_path,
 @pytest.mark.parametrize('model_name', ['tpms_geometry', 'co2_correlations'])
 def test_geometry_bound_covers_clipped_interior_and_edge_points(topology, model_name):
     from importlib import import_module
-    model = import_module('sjtu_tpmshx.physical_models.' + model_name)
+    model = import_module('tm1.physical_models.' + model_name)
     lengths, walls = [5.3, 7.4], [.33, .57]
     bound = model.minimum_solid_geometry(topology, lengths, walls)
     geometry = model.geometry if model_name == 'co2_correlations' else model.compute_geometry
@@ -295,7 +295,7 @@ def test_geometry_bound_covers_clipped_interior_and_edge_points(topology, model_
 @pytest.mark.parametrize('fluid,model_name', [('air','tpms_geometry'),
     ('sco2','tpms_geometry'), ('co2','co2_correlations')])
 def test_mass_bound_uses_the_fluid_geometry_model(monkeypatch, fluid, model_name):
-    from sjtu_tpmshx.physical_models import co2_correlations, tpms_geometry
+    from tm1.physical_models import co2_correlations, tpms_geometry
     config = _conditions()[0][1]
     config = replace(config, fluid_A=replace(config.fluid_A, type=fluid))
     for model in (co2_correlations, tpms_geometry):
@@ -353,8 +353,8 @@ def test_mass_bound_stop_requires_every_hard_limit_and_survives_resume(
 def _assert_export_counts(report, output, *, budget, evaluated, usable):
     import csv
     from openpyxl import load_workbook
-    from sjtu_tpmshx.applications.optimization.pareto_io import export_pareto_data
-    from sjtu_tpmshx.applications.optimization.export_ntop_csv import export_study_design
+    from tm1.applications.optimization.pareto_io import export_pareto_data
+    from tm1.applications.optimization.export_ntop_csv import export_study_design
 
     export_pareto_data(report, output/'data.csv')
     with (output/'data.csv').open(encoding='utf-8-sig') as stream:

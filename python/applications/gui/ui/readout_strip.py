@@ -8,7 +8,7 @@ from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
-from sjtu_tpmshx.applications.gui.ui.theme import get_theme
+from tm1.applications.gui.ui.theme import get_theme
 
 STRIP_HEIGHT = 52
 
