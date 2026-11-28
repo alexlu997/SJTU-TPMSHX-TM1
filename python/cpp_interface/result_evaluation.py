@@ -4,7 +4,7 @@ import json
 import weakref
 
 from . import _native_result as core
-from ._native_diagnostics import native_error
+from ._native_diagnostics import native_code, native_error
 from ._native_result_stage import (
     Events, HostError, Input, InputError, Metric, Output, P, Spec, Z,
     _Evidence, _cause, _text,
@@ -27,6 +27,8 @@ def _result_error(status, cause, raw):
     message = raw.decode('utf-8', errors='replace')
     if status == 4 and cause == 6:
         return native_error('result', operation, status, message, cause=cause, key=message)
+    if status == 4 and native_code('result', operation, status, cause=cause) == 'contract.unknown_status':
+        message = 'native result stage returned an invalid numerical cause'
     return native_error('result', operation, status, message or f'native result stage failed with status {status}',
                         cause=cause)
 

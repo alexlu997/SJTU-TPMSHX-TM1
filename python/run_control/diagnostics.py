@@ -28,7 +28,7 @@ def diagnostic_catalog():
 
 
 def record_value(value):
-    """Copy a diagnostic value. Encode nonfinite evidence and retain sequence order."""
+    """Copy a diagnostic value. Encode nonfinite evidence and keep sequence order."""
     if isinstance(value, np.ndarray):
         value = value.tolist()
     elif isinstance(value, np.generic):

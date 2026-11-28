@@ -108,15 +108,14 @@ def _check_status(operation, status, error, failure, water_error):
     causes = []
     for item in failure.causes[:failure.cause_count]:
         message = item.message.decode('utf-8', errors='replace')
-        cause = native_error('preparation', operation, status, message, kind=item.kind, side=side,
-                             problem=water_error(message) if item.kind == 2 else None)
+        cause = native_error('preparation', operation, status, message, kind=item.kind, nested=True,
+                             side=side, water_error=water_error)
         causes.append(cause)
     text = error.value.decode('utf-8', errors='replace')
     problem = native_error('preparation', operation, status, text, kind=failure.kind, side=side, route=route,
                            side_status='available' if side is not None else 'not_recorded',
                            observations=range_diagnostics(current_warnings() or {}, route),
-                           causes=[item.diagnostic for item in causes],
-                           problem=water_error(text) if failure.kind == 2 and status != 2 else None)
+                           causes=[item.diagnostic for item in causes], water_error=water_error)
     for outer, inner in zip([problem, *causes], causes):
         outer.__cause__ = inner
     raise problem

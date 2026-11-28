@@ -11,6 +11,7 @@ inline constexpr char flow_choked[] = "flow.choked";
 inline constexpr char fluid_co2_state[] = "fluid.co2_state";
 inline constexpr char fluid_sco2_state[] = "fluid.sco2_state";
 inline constexpr char fluid_water_state[] = "fluid.water_state";
+inline constexpr char geometry_fit_range[] = "geometry.fit_range";
 inline constexpr char input_index_error[] = "input.index_error";
 inline constexpr char input_invalid[] = "input.invalid";
 inline constexpr char input_key_error[] = "input.key_error";

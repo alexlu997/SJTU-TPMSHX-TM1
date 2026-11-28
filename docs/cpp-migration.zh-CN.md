@@ -103,7 +103,9 @@ Python wheel 仅包含 Python 模块与模型资源，不含原生库。
 
 `python/cpp_interface/stage_libraries.py` 按需独立加载 preparation ABI 3。
 Preparation ABI 3 采用扁平的 `(abi_version, struct_size)` 输入结构、统一的 `tpmshx_preparation_callbacks_v1` 以及简洁的 `v1` 族入口名称。
-其状态码定义为：0 成功、1 输入无效、2 分配失败、3 运行时错误，10/11/12 分别表示水／CO2／sCO2 状态错误。
+状态码 0 表示成功，1 表示输入无效，2 表示分配失败，3 表示运行时错误。
+状态码 10、11、12 分别表示水、CO2、sCO2 状态错误。
+流动和快速设计准备入口在标量除零时返回状态码 13。
 所有现行二维、三维、入口查询和 Quick Design 准备入口见[原生阶段接口](native-stages.zh-CN.md)：
 
 - [入口物性查询](native-stages.zh-CN.md#入口物性查询)：`tpmshx_query_inlet_properties_v2` 返回 12 个 `float64` 标量，无需网格或求解器。

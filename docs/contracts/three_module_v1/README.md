@@ -48,11 +48,12 @@ The result query returns a missing key as its original string.
 The named sCO₂ pressure validator attaches `input.invalid` to its `ValueError`.
 Its details identify the side, field, measured absolute pressure, and pressure bounds in Pa.
 
-Range records preserve source order, side, route, stage, layout, shape, extrema, indices, bounds, sample counts, and the last observation.
-Temperature uses K. Reynolds and Prandtl numbers have unit `1`. Pressure fractions use inlet absolute pressure as their basis.
+Range records keep source order, side, route, stage, layout, shape, extrema, indices, bounds, sample counts, and the last observation.
+Temperature uses K. Reynolds and Prandtl numbers have unit `1`. Cell length and wall thickness use mm. Inlet velocity uses m/s.
+Pressure fractions use inlet absolute pressure as their basis.
 An unavailable measurement has a null value and a status or reason.
 Strict JSON represents nonfinite values as `"NaN"`, `"Infinity"`, or `"-Infinity"`.
-Finite values retain float64 precision and the sign of zero.
+Finite values keep float64 precision and the sign of zero.
 Ordered record collections use tuples in stage data and after HDF5 load. JSON uses arrays.
 The catalog also reserves warning, candidate-reason, and protocol codes for their respective producers.
 

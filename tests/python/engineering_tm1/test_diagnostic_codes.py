@@ -1,4 +1,4 @@
-"""Check the installed names, native status dialects and typed records."""
+"""Mapping tests for installed names, native status codes, and typed records."""
 import errno
 import ctypes as ct
 import json
@@ -71,21 +71,48 @@ def test_budget_stop_and_operation_specific_overflow():
     assert property_error.args == (errno.ERANGE, os.strerror(errno.ERANGE))
 
 
-def test_preparation_failure_copies_ordered_causes():
+@pytest.mark.parametrize('status,outer_type,code,second_kind,second_type,second_code', [
+    (3, diagnostics.WaterStateError, 'fluid.water_state', 4, NotImplementedError, 'capability.unsupported'),
+    (2, MemoryError, 'native.allocation', 2, diagnostics.WaterStateError, 'fluid.water_state'),
+])
+def test_preparation_failure_copies_ordered_causes(status, outer_type, code, second_kind, second_type, second_code):
     from tm1.cpp_interface import _native_preparation_case as wire, preparation_host
     failure = wire._Failure(kind=2, side=1, cause_count=2)
-    for item, kind, message in zip(failure.causes, (1, 4), (b'first', b'second'), strict=True):
+    for item, kind, message in zip(failure.causes, (1, second_kind), (b'first', b'second'), strict=True):
         item.kind, item.message = kind, message
-    with pytest.raises(diagnostics.WaterStateError) as caught:
-        preparation_host._check_status('tpmshx_preparation_2d_uniform_prepare_case_v1', 3,
+    with pytest.raises(outer_type) as caught:
+        preparation_host._check_status('tpmshx_preparation_2d_uniform_prepare_case_v1', status,
                                        ct.create_string_buffer(b'outer'), failure, diagnostics.WaterStateError)
     failure.causes[0].message = b'released'
     outer = caught.value
+    assert type(outer) is outer_type and outer.diagnostic['code'] == code
     assert outer.diagnostic['details']['side'] == 'B'
+    assert type(outer.__cause__) is ValueError
     assert outer.__cause__.args == ('first',)
-    assert type(outer.__cause__.__cause__) is NotImplementedError
-    assert [(row['code'], row['message']) for row in outer.diagnostic['details']['causes']] == [
-        ('stage.invalid_input', 'first'), ('capability.unsupported', 'second')]
+    assert type(outer.__cause__.__cause__) is second_type
+    assert [(row['code'], row['message'], row['details']['status']) for row in outer.diagnostic['details']['causes']] == [
+        ('stage.invalid_input', 'first', status), (second_code, 'second', status)]
+
+
+@pytest.mark.parametrize('status,kind', [(99, 2), (1, 0)])
+def test_unknown_preparation_identity_keeps_raw_status_and_kind(status, kind):
+    from tm1.cpp_interface import _native_preparation_case as wire, preparation_host
+    with pytest.raises(RuntimeError) as caught:
+        preparation_host._check_status('tpmshx_preparation_2d_uniform_prepare_case_v1', status,
+                                       ct.create_string_buffer(b'error'), wire._Failure(kind=kind),
+                                       diagnostics.WaterStateError)
+    record = caught.value.diagnostic
+    assert type(caught.value) is RuntimeError and caught.value.args == ('error',)
+    assert record['code'] == 'contract.unknown_status'
+    assert (record['details']['status'], record['details']['kind']) == (status, kind)
+
+
+def test_result_unknown_numerical_cause_keeps_public_message():
+    problem = _result_error(4, 8, b'buffer text')
+    assert type(problem) is RuntimeError
+    assert problem.args == ('native result stage returned an invalid numerical cause',)
+    assert problem.diagnostic['code'] == 'contract.unknown_status'
+    assert problem.diagnostic['details']['cause'] == 8
 
 
 def test_record_copies_ordered_samples_and_uses_strict_json():

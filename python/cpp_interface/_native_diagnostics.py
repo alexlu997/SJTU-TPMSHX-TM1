@@ -17,12 +17,15 @@ def _operations():
             for operation in family['operations']}
 
 
-def native_code(image, operation, status, *, kind=0, cause=0, stop=None):
+def native_code(image, operation, status, *, kind=None, cause=0, stop=None, nested=False):
     """Return the producer code. A successful stop has no error record."""
     unknown = 'contract.unknown_status'
     family = _operations().get((image, operation))
     if family is None:
         return unknown
+    if nested:
+        # A nested preparation cause has its own kind and no status of its own.
+        return family.get('kind', {}).get(str(kind), unknown)
     if status == 0:
         if stop is None:
             return None
@@ -30,7 +33,7 @@ def native_code(image, operation, status, *, kind=0, cause=0, stop=None):
     code = family['status'].get(str(status), unknown)
     if cause and status in family.get('cause_status', ()):
         return family['cause'].get(str(cause), unknown)
-    if kind and status != 2 and str(status) in family['status'] and 'kind' in family:
+    if kind is not None and status != 2 and str(status) in family['status'] and 'kind' in family:
         return family['kind'].get(str(kind), unknown)
     return code
 
@@ -47,15 +50,17 @@ def result_host_causes():
                  for number, code in catalog['native_operations']['result']['cause'].items())
 
 
-def native_error(image, operation, status, message, *, cause=0, kind=0, stop=None,
-                 causes=(), problem=None, **evidence):
+def native_error(image, operation, status, message, *, cause=0, kind=None, stop=None, nested=False,
+                 causes=(), problem=None, water_error=WaterStateError, **evidence):
     """Build the public exception and copy its raw identity and ordered causes."""
     family = _operations().get((image, operation), {})
-    code = native_code(image, operation, status, cause=cause, kind=kind, stop=stop)
+    code = native_code(image, operation, status, cause=cause, kind=kind, stop=stop, nested=nested)
     if 'unresolved_token' in evidence:
         code = 'contract.unknown_status'
     exception = diagnostic_catalog()['codes'][code]['exception']
     cls = _DOMAIN_ERRORS.get(exception) or getattr(builtins, exception)
+    if cls is WaterStateError:
+        cls = water_error
     if problem is None:
         if code == 'numeric.overflow' and image == 'preparation':
             problem = cls(errno.ERANGE, os.strerror(errno.ERANGE))
@@ -63,7 +68,7 @@ def native_error(image, operation, status, message, *, cause=0, kind=0, stop=Non
             problem = cls(message)
     suffix = operation.rpartition('_v')[2]
     details = dict(image=image, operation=operation, version=int(suffix) if suffix.isdigit() else None,
-                   status=status, kind=kind, cause=cause, stop=stop, causes=tuple(causes),
+                   status=status, kind=kind if kind is not None else 0, cause=cause, stop=stop, causes=tuple(causes),
                    severity='error', stage=family.get('stage', 'unknown'), **evidence)
     if code == 'internal.error':
         details.update(type=exception, notes=())

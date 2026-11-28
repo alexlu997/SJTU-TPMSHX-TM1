@@ -37,10 +37,16 @@ def test_first_difference_per_case(tmp_path, capsys):
 @pytest.mark.parametrize('name', ['air-2d', 'handoff-2d', 'handoff-3d'])
 def test_legacy_projection_keeps_original_field_and_performance(name):
     old = dict(field=dict(metadata={'original': -0.}), performance={'Q': 5.})
+    required = ('field', 'settings')
+    if name == 'air-2d':
+        old['prepared'] = {'metadata': {}}
+        required += ('prepared',)
     new = deepcopy(old)
     new['field']['metadata'].update(diagnostic_records=[], effective_settings={'version': 'effective_settings_v1'})
+    if name == 'air-2d':
+        new['prepared']['metadata']['diagnostic_records'] = []
     def compare_case():
-        return legacy_difference(name, old, deepcopy(new), {'air-2d'}, ('field', 'settings'))
+        return legacy_difference(name, old, deepcopy(new), {'air-2d'}, required)
     assert compare_case() is None
     new['performance']['other'] = []
     assert 'performance.other: added' in compare_case()
@@ -73,18 +79,29 @@ def test_design_projection_only_accepts_original_rows_and_conditions():
     assert '.best.reason:' in check()
 
 
-def test_owner_rejection_keeps_measured_pressure_and_original_text():
+@pytest.mark.parametrize('boolean_pressure', [False, True], ids=['frozen-rejection', 'boolean-input'])
+def test_owner_rejection_keeps_measured_pressure_and_original_text(boolean_pressure):
     from tm1.preprocess.api import prepare_case
     spec = read(CASES)
     cfg = configuration(spec, spec['stages'][spec['rejected']['case']])
-    cfg.fluid_A.P_in_Pa = spec['rejected']['P_in_Pa']
+    cfg.fluid_A.P_in_Pa = True if boolean_pressure else spec['rejected']['P_in_Pa']
     with pytest.raises(ValueError) as caught:
         prepare_case(cfg, case_id='rejected')
     record = caught.value.diagnostic
     assert type(caught.value) is ValueError
     assert str(caught.value) == 'sCO2 fluid A pressure must be 7.9..16 MPa'
     assert record == dict(code='input.invalid', message=str(caught.value),
-                          details=dict(field='fluid_A.P_in_Pa', side='A', P_abs_Pa=7e6, bounds_Pa=(7.9e6, 16e6)))
+                          details=dict(field='fluid_A.P_in_Pa', side='A', P_abs_Pa=1 if boolean_pressure else 7e6,
+                                       bounds_Pa=(7.9e6, 16e6)))
+    assert type(record['details']['P_abs_Pa']) in (int, float)
+
+
+def test_rejected_projection_removes_only_the_diagnostic():
+    old = {'message': 'original'}
+    new = {**old, 'diagnostic': {}}
+    assert legacy_difference('rejected', old, new.copy(), (), ('rejected',)) is None
+    new['other'] = 1
+    assert '.other: added' in legacy_difference('rejected', old, new, (), ('rejected',))
 
 
 @pytest.mark.parametrize('stage', ['case', 'result'])

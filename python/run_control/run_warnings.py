@@ -123,14 +123,23 @@ def _range_message(key, value):
     )
 
 
+_RANGE_CODES = {
+    'T': ('property.temperature_range', '_K'),
+    'Re': ('nu.re_range', ''),
+    'Pr': ('nu.pr_range', ''),
+    'inlet u': ('df.extrapolation', '_m_s'),
+    'cell length': ('geometry.fit_range', '_mm'),
+    'wall thickness': ('geometry.fit_range', '_mm'),
+}
+
+
 def range_diagnostics(records, route):
     """Copy bound source samples before the native error or result is released."""
     rows = []
     for key, value in records.items():
         if not isinstance(value, RangeRecord):
             continue
-        code = {'T': 'property.temperature_range', 'Re': 'nu.re_range', 'Pr': 'nu.pr_range'}[value.quantity]
-        suffix = '_K' if value.quantity == 'T' else ''
+        code, suffix = _RANGE_CODES[value.quantity]
         shape, (side, stage, layout) = key[-2:]
 
         def sample(data):
@@ -145,7 +154,7 @@ def range_diagnostics(records, route):
         outside = bool(value.low or value.high or value.nonfinite)
         details = dict(route=route, stage=stage, side=side, layout=layout, source=key[:-2], shape=shape,
                        severity='warning' if outside else 'observation', quantity=value.quantity,
-                       unit='K' if suffix else '1', last=sample(value.last) if value.last is not None else None,
+                       unit=value.unit if suffix else '1', last=sample(value.last) if value.last is not None else None,
                        last_status='available' if value.last is not None else 'not_recorded',
                        **sample(vars(value)))
         details['bounds' + suffix] = value.bounds

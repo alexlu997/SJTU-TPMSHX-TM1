@@ -139,6 +139,7 @@ def _call(function, *arguments):
     status = function(*arguments, error, len(error))
     if status:
         message = error.value.decode('utf-8', errors='replace') or f'native geometry failed with code {status}'
+        # Standalone geometry queries load the error decoder only on failure.
         from ._native_diagnostics import native_error
         raise native_error('geometry', function.__name__, status, message)
 

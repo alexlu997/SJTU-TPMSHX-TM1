@@ -167,6 +167,7 @@ TPMSHX_THERMAL_API void TPMSHX_THERMAL_CALL tpmshx_quick_run_release_v1(
  * Text uses explicit byte lengths. No environment is read.
  * Native callers provide all 13 values; have_height=0 substitutes span.
  * Status 10/11/12 reports a water/CO2/sCO2 state error.
+ * Status 13 reports scalar division by zero.
  * The pressure-only query skips full validation and allocates no thermal grid.
  * Every non-cross arrangement uses counter sections for that query only.
  * Results require version=2, exact struct_size and owner=NULL where present.

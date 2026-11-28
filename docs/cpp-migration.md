@@ -103,7 +103,9 @@ This project needs no solver runtime, `run_state`, SuperLU, or AMG.
 
 `python/cpp_interface/stage_libraries.py` loads preparation ABI 3 independently on demand.
 Preparation ABI 3 uses flat `(abi_version, struct_size)` input structs, unified `tpmshx_preparation_callbacks_v1`, and clean `v1` family entry names.
-Its status codes are 0 for success, 1 for invalid input, 2 for allocation, 3 for runtime error, and 10/11/12 for water/CO2/sCO2 state errors.
+Status 0 indicates success, 1 invalid input, 2 allocation failure, and 3 a runtime error.
+Status 10, 11, or 12 indicates a water, CO2, or sCO2 state error, respectively.
+The flow and Quick Design preparation entries return status 13 for scalar division by zero.
 See [native stages](native-stages.md) for every active 2D, 3D, inlet-query, and Quick Design preparation entry:
 
 - [Inlet-property query](native-stages.md#inlet-property-query): `tpmshx_query_inlet_properties_v2` returns 12 `float64` values with no grid or solver.

@@ -423,6 +423,36 @@ def test_worker_merge_keeps_single_snapshot_counts_and_does_not_mutate_source():
     assert sources[0] == before
 
 
+def test_native_water_failure_keeps_experimental_and_geometry_ranges():
+    from tm1.preprocess.two_d.preparation import prepare_case
+    from tests.python.test_experimental_df_v3 import _water_air_cfg
+
+    cfg = _water_air_cfg()
+    cfg.solver.Nz = 1
+    with warning_scope({}) as records:
+        prepare_case(cfg, case_id='geometry-and-inlet-ranges')
+        cfg.fluid_A.T_in_K = 400.
+        with pytest.raises(fluid_props.WaterStateError, match='inlet A') as caught:
+            prepare_case(cfg, case_id='water-rejection')
+
+    assert caught.value.diagnostic['code'] == 'fluid.water_state'
+    observations = caught.value.diagnostic['details']['observations']
+    quantities = {'cell length': ('geometry.fit_range', 'mm', '_mm'),
+                  'wall thickness': ('geometry.fit_range', 'mm', '_mm'),
+                  'inlet u': ('df.extrapolation', 'm/s', '_m_s')}
+    actual = {row['details']['quantity']: row for row in observations}
+    for quantity, (code, unit, suffix) in quantities.items():
+        row = actual[quantity]
+        details = row['details']
+        key = (*details['source'], details['shape'], (details['side'], details['stage'], details['layout']))
+        sample = records[key]
+        assert (row['code'], details['unit']) == (code, unit)
+        assert details['bounds' + suffix] == tuple(sample.bounds)
+        for name in ('minimum', 'maximum'):
+            assert details[name + suffix] == getattr(sample, name)[0]
+            assert details['last'][name + suffix] == sample.last[name][0]
+
+
 def test_sigmoid_nu_warning_origin_and_run_scope(standalone_registries):
     from inspect import getsourcelines
     from pathlib import Path
