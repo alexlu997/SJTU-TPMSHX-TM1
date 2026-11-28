@@ -56,9 +56,6 @@ OWNERS = {
     "model_configs": "configs",
     "applications.cli.cli_options": "io",
     "cpp_interface": "native_values",
-    **{f"shared.{name}": name for name in (
-        "domain", "models", "df_surrogate", "io", "configs",
-        "logutil", "result_math", "result_display")},
     **{f"applications.gui.{name}": name for name in ("main", "ui", "controllers")},
     **{f"applications.{name}": name for name in (
         "design", "optimization", "cli", "result_adapter")},
@@ -114,28 +111,8 @@ def import_targets(node: ast.AST, package: str) -> list[str]:
     return []
 
 
-_NATIVE_ALIAS_PACKAGES = {"tm1.shared", "tm1.shared.models", "tm1.physical_models"}
-
-
-def _resolved_native_target(name):
-    for package in _NATIVE_ALIAS_PACKAGES:
-        if name.startswith(package + "._native_"):
-            module, dot, member = name[len(package) + 1:].partition(".")
-            owner = "preprocess.quick_design" if module == "_native_quick_prepare" else "cpp_interface." + module
-            return "tm1." + owner + dot + member
-    return name
-
-
-def _policy_targets(node, package):
-    targets = import_targets(node, package)
-    if isinstance(node, ast.ImportFrom) and targets[0] in _NATIVE_ALIAS_PACKAGES and len(targets) > 1:
-        # A from-import of a published child uses that child's owner.
-        return targets[1:]
-    return targets
-
-
 def target_unit(name: str, units: set[str]) -> str | None:
-    parts = _resolved_native_target(name).split(".")
+    parts = name.split(".")
     if parts[0] == "tm1":
         parts = parts[1:]
     elif parts[0] in sys.stdlib_module_names:
@@ -149,24 +126,19 @@ def target_unit(name: str, units: set[str]) -> str | None:
     return None
 
 
-_DTO_PACKAGES = {"tm1.data_types", "tm1.shared.domain", "data_types", "shared.domain"}
+_DTO_PACKAGES = {"tm1.data_types", "data_types"}
 _STAGE_DTO_MODULES = {
     f"{package}.{module}" for package in _DTO_PACKAGES
     for module in ("case_data", "model_refs", "field_result", "metric_spec", "performance_result")
 }
 _STAGE_DTO_TYPES = {"CaseData", "FieldResult", "MetricSpec", "MetricValue", "PerformanceResult", "ModelRef"}
 _OTHER_STAGE_MODULES = {"full_2d_stage", "full_3d_stage", "run_state", "native_preparation", "preparation_host",
-                        "inlet_properties", "quick_design", "_native_preparation_3d", "_native_quick_prepare",
-                        "quick_preparation"}
+                        "inlet_properties", "quick_design", "_native_preparation_3d", "quick_preparation"}
 _FULL_2D_FORBIDDEN_SIBLINGS = {"full_3d_stage", "quick_design", "native_preparation", "inlet_properties",
-                               "result_evaluation", "_native_preparation_3d", "_native_quick_prepare",
-                               "quick_preparation", "*"}
+                               "result_evaluation", "_native_preparation_3d", "quick_preparation", "*"}
 _FULL_3D_FORBIDDEN_SIBLINGS = {"full_2d_stage", "quick_design", "native_preparation", "inlet_properties",
-                               "result_evaluation", "_native_preparation_3d", "_native_quick_prepare",
-                               "quick_preparation", "*"}
-_QUICK_PREPARATION_IMPORTS = {f"tm1.{module}" for module in (
-    "cpp_interface.quick_preparation", "cpp_interface._native_quick_prepare", "shared._native_quick_prepare",
-    "shared.models._native_quick_prepare", "physical_models._native_quick_prepare")}
+                               "result_evaluation", "_native_preparation_3d", "quick_preparation", "*"}
+_QUICK_PREPARATION_IMPORTS = {"tm1.cpp_interface.quick_preparation"}
 # Shared ABI layouts use wire types from _native_df and _native_result.
 _FULL_PREPARATION_WIRE_MODULES = {
     "native_preparation", "preparation_host", "inlet_properties", "stage_libraries",
@@ -174,33 +146,17 @@ _FULL_PREPARATION_WIRE_MODULES = {
     "_native_df", "_native_result",
 }
 _TYPE_GUARDS = {"typing.TYPE_CHECKING", "typing_extensions.TYPE_CHECKING"}
-_BINDING_NAMESPACES = {"tm1", "tm1.cpp_interface", "tm1.shared", "shared", *_DTO_PACKAGES,
+_BINDING_NAMESPACES = {"tm1", "tm1.cpp_interface", *_DTO_PACKAGES,
                        "typing", "typing_extensions", *_TYPE_GUARDS}
 
 
 def _invalid_stage_target(host, target, binding, operations):
     if not target.startswith("tm1."):
         return False
-    if binding == "native_preparation":
-        target = _resolved_native_target(target)
     area, _, member = target.removeprefix("tm1.").partition(".")
     module, _, name = member.partition(".")
-    # The shared resolver exposes the physical range policy through both domain packages.
-    if area == "shared" and module == "domain":
-        area = "data_types"
-        module, _, name = name.partition(".")
-    elif area == "shared" and module in {"result_display", "result_math"}:
-        area = "postprocess"
-    if area == "data_types" and module == "range_policy":
-        area = "physical_models"
-    elif host and area == "physical_models" and module.startswith("_native_"):
-        area = "cpp_interface"
     if binding == "solver_api":
-        return (
-            (area == "cpp_interface" and bool(module))
-            or (area == "solvers" and member.startswith("backends.cpp."))
-            or (area == "shared" and (module == "*" or member.startswith(("_native_", "models._native_"))))
-        )
+        return area == "cpp_interface" and bool(module)
     if binding == "native_preparation":
         if host and not operations and area == "cpp_interface":
             # The public API reaches these native operations through the stage host.
@@ -209,36 +165,19 @@ def _invalid_stage_target(host, target, binding, operations):
             return True
         if not host and area == "cpp_interface" and module:
             return module not in _FULL_PREPARATION_WIRE_MODULES
-        if host and area == "solvers" and member.startswith("backends.cpp."):
-            return True
     if binding in {"quick_design", "quick_preparation"}:
-        if area == "solvers" and member.startswith("backends.cpp."):
-            return True
         if area == "cpp_interface" and module != binding and module in _OTHER_STAGE_MODULES:
-            return True
-        if area == "shared" and member.startswith(("_native_", "models._native_")) and (
-                member.removeprefix("models.").partition(".")[0] in _OTHER_STAGE_MODULES):
             return True
     elif binding in {"full_2d_stage", "full_3d_stage"}:
         forbidden_siblings = _FULL_2D_FORBIDDEN_SIBLINGS if binding == "full_2d_stage" else _FULL_3D_FORBIDDEN_SIBLINGS
-        if area == "solvers" and member.startswith("backends.cpp."):
-            return True
         if area == "cpp_interface" and module in forbidden_siblings:
             return True
-        if area == "shared" and module == "*":
-            return True
-        if area == "shared" and member.startswith(("_native_", "models._native_")) and (
-                member.removeprefix("models.").partition(".")[0] in forbidden_siblings):
-            return True
     if host:
-        if area == "shared":
-            return member.startswith(("_native_", "models._native_"))
         return area == "cpp_interface" and bool(module) and (
             module != binding or name.partition(".")[0] not in operations)
     return (area in {"applications", "compute", "file_io", "physical_models",
                      "postprocess", "preprocess", "solvers", "*"}
-            or (area == "data_types" and module == "*")
-            or (area == "shared" and module in {"models", "df_surrogate", "io", "_native_quick_prepare", "*"}))
+            or (area == "data_types" and module == "*"))
 
 
 def _dto_import(target, modules, types):
@@ -344,11 +283,6 @@ class _StageImportAudit(ast.NodeVisitor):
                         target in self.dto_modules
                         or (target.rpartition(".")[0] in _DTO_PACKAGES and target.rpartition(".")[2] in self.dto_types)))):
                 self.violations.append((node.lineno, target))
-        targets.discard("")  # A path without an import has no parent package.
-        if (self.binding == "native_preparation" and targets
-                and all(_resolved_native_target(target) != target for target in targets)):
-            # The published prefix is a namespace on this path to the native module.
-            return
         self.visit(node.value)
 
     def type_guard(self, test):
@@ -539,7 +473,7 @@ def _stage_boundary_violations(path, tree, package):
             modules = {name for name in modules if not name.endswith(".model_refs")}
             types = types - {"ModelRef"}
     for node in ast.walk(tree):
-        targets = _policy_targets(node, package)
+        targets = import_targets(node, package)
         if (((not host and binding != "native_preparation")
              or binding in {"full_2d_stage", "full_3d_stage", "solver_api"}
              or (host and binding in {"quick_design", "quick_preparation"}))
@@ -610,7 +544,7 @@ def main() -> int:
                    else '.'.join(('tm1', *py.relative_to(PKG).parts[:-1])))
         violations.extend(_stage_boundary_violations(py, tree, package))
         for node in ast.walk(tree):
-            names = _policy_targets(node, package)
+            names = import_targets(node, package)
             targets = {target_unit(name, units) for name in names}
             for dst in targets:
                 if dst and dst != src_unit and dst in units:
