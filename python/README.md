@@ -95,7 +95,7 @@ $tm1Python = Get-Content .venv-path -TotalCount 1
 | 目录 | 职责与边界 |
 | --- | --- |
 | [preprocess/](preprocess/) | 前处理与显式离线模型准备。 |
-| [solvers/](solvers/) | 求解 API、二维／三维与 Quick Design 求解宿主、执行与账本辅助模块及兼容公开名称。C++ 实现在 [solver/](../solver/)。 |
+| [solvers/](solvers/) | 求解 API、二维／三维与 Quick Design 求解宿主及执行与账本辅助模块。C++ 实现在 [solver/](../solver/)。 |
 | [postprocess/](postprocess/) | 已记录结果的指标、物理审计、资格结论和导出。 |
 | [data_types/](data_types/) | 配置、准备好的工况、场与性能结果的数据定义。 |
 | [file_io/](file_io/) | 工况、结果、指标和检查点的文件读写。 |
@@ -105,7 +105,7 @@ $tm1Python = Get-Content .venv-path -TotalCount 1
 | [applications/](applications/) | [GUI](applications/gui/)、[CLI](applications/cli/)、[快速设计](applications/design/)、[BO 优化](applications/optimization/)和[历史运行恢复](applications/execution/recovery.py)。 |
 | [development/](development/) | 数值与实验验证、诊断和开发工具。自动测试位于 [tests/python/](../tests/python/)。 |
 
-`python/shared.py` 在当前 `tm1` 包根下以零重复方式将 `tm1.shared.*` 与 `tm1.solvers.backends.cpp.*` 别名路径解析至规范所有者；仍使用旧包根的本地脚本需更新导入或使用记录的原源码版本。
+仍使用已退役模块路径的本地脚本需更新导入，或使用记录的原源码版本。
 使用根目录 [main.py](../main.py) 启动应用。它将 GUI 分派到 [applications/gui/main.py](applications/gui/main.py)，文件阶段分派到 [applications/cli/stages.py](applications/cli/stages.py)，`summary` 分派到 [applications/cli/main.py](applications/cli/main.py)，`design` 分派到 [applications/design/cli.py](applications/design/cli.py)，`optimize` 分派到 [applications/optimization/cli.py](applications/optimization/cli.py)。
 计算代码直接调用上述四个入口。
 根 [engineering/](../engineering/) 保存构建与检查脚本、打包配置和依赖锁。

@@ -35,7 +35,7 @@ Four independent C++ shared libraries own all production numerical calculations:
 
 All active C++ stage interfaces normalize numeric buffers to `float64` and zone labels to `int32`.
 The [source map](../python/README.en.md) lists C++ edit locations by responsibility.
-See [kept Python responsibilities](architecture.md#retained-python-responsibilities) for the exact Python boundary, including `python/shared.py`.
+See [kept Python responsibilities](architecture.md#retained-python-responsibilities) for the exact Python boundary.
 Pure-formula test oracles remain under `tests/python/` as independent regression references.
 PR CI, merged-main CI, desktop delivery, cell-cap memory checks, real 3D BO, performance, and experimental validation stay separate gates.
 

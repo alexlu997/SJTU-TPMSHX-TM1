@@ -35,7 +35,7 @@ Linux x86_64 仅支持独立结果评估。
 
 所有现行 C++ 阶段接口均将数值缓冲区规范化为 `float64`，分区标签规范化为 `int32`。
 按职责查找 C++ 修改入口见[源码地图](../python/README.md)。
-Python 保留边界（包括 `python/shared.py`）见[架构说明中的保留职责](architecture.zh-CN.md#retained-python-responsibilities)。
+Python 保留边界见[架构说明中的保留职责](architecture.zh-CN.md#retained-python-responsibilities)。
 纯公式测试参考实现保留在 `tests/python/` 中，作为独立回归校验基准。
 PR CI、合并主分支 CI、桌面交付、单元上限附近内存检查、真实三维 BO、性能验收和实验验证保持为独立门槛。
 

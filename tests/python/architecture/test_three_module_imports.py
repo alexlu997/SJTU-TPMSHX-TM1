@@ -1,4 +1,4 @@
-"""Check import boundaries, layer policy, and published module identity."""
+"""Tests of import boundaries and the layer policy."""
 import ast
 from graphlib import CycleError
 from pathlib import Path
@@ -9,7 +9,6 @@ import pytest
 
 from tm1.development.runs.tools import audit_import_graph as audit
 from tm1.development.runs.tools.audit_import_graph import LAYERS, import_targets, target_unit, unit_of
-from tests.python.packaging_support import PUBLIC_NAME_CHECK, df_package_identity_check
 
 REPO = Path(__file__).resolve().parents[3]
 ROOT = REPO / 'python'
@@ -41,7 +40,7 @@ def test_implementation_import_boundaries():
     for path in ROOT.rglob('*.py'):
         relative = path.relative_to(ROOT)
         owner = unit_of(path)
-        if owner == 'solvers' and (relative.parts[0] == 'cpp_interface' or relative.parts[:2] == ('solvers', 'backends')):
+        if relative.parts[0] == 'cpp_interface':
             owner = 'backend'
         if owner in RULES:
             checked.add(owner)
@@ -123,7 +122,8 @@ def test_checker_detects_cycle_across_solver_directories(tmp_path):
     "import tm1.physical_models.df_surrogate.predict\n"
     "bad = {'tm1.physical_models.tpms_calc', 'tm1.physical_models.tpms_props'} & set(sys.modules)\n"
     "assert not bad, f'df_surrogate pulled kernel modules: {bad}'",
-    "import tm1.physical_models.df_surrogate.predict, tm1.preprocess.api, tm1.solvers.api\n"
+    "import tm1.physical_models.df_surrogate.predict, tm1.physical_models.df_surrogate.experimental_correction,"
+    " tm1.physical_models.df_surrogate.full_core_3cell_fixed_v2, tm1.preprocess.api, tm1.solvers.api\n"
     "offline = ('tm1.preprocess.offline', 'tm1.development', 'CoolProp')\n"
     "assert not any(name.startswith(offline) for name in sys.modules)",
     "import tm1.physical_models.tpms_props\n"
@@ -165,18 +165,18 @@ def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monke
 
 
 @pytest.mark.parametrize('filename,source,edge,exit_code', [
-    ('domain/probe.py', 'import tm1.applications.gui.ui as widgets', 'domain -> ui', 1),
-    ('domain/probe.py', 'from tm1.applications.gui.ui import theme as appearance', 'domain -> ui', 1),
-    ('domain/probe.py', 'from tm1 import ui as widgets', 'domain -> ui', 1),
-    ('domain/probe.py', 'from ...applications.gui import ui as widgets', 'domain -> ui', 1),
-    ('domain/probe.py', 'def load():\n    from ...applications.gui import ui', 'domain -> ui', 1),
-    ('domain/probe.py', 'from tm1.applications.gui.ui import *', 'domain -> ui', 1),
-    ('domain/probe.py', 'from ui.theme import get_theme', 'domain -> ui', 1),
-    ('domain/probe.py', 'from tm1 import tests as support', 'domain -> tests', 1),
-    ('domain/probe.py', 'import io\nfrom io import StringIO', None, 0),
-    ('domain/probe.py', 'from scipy import io', None, 0),
-    ('models/probe.py', 'from tm1.data_types import case_data', 'models -> domain', 0),
-    ('models/probe.py', 'from tm1 import df_surrogate', 'models -> df_surrogate', 0),
+    ('data_types/probe.py', 'import tm1.applications.gui.ui as widgets', 'domain -> ui', 1),
+    ('data_types/probe.py', 'from tm1.applications.gui.ui import theme as appearance', 'domain -> ui', 1),
+    ('data_types/probe.py', 'from tm1 import ui as widgets', 'domain -> ui', 1),
+    ('data_types/probe.py', 'from ..applications.gui import ui as widgets', 'domain -> ui', 1),
+    ('data_types/probe.py', 'def load():\n    from ..applications.gui import ui', 'domain -> ui', 1),
+    ('data_types/probe.py', 'from tm1.applications.gui.ui import *', 'domain -> ui', 1),
+    ('data_types/probe.py', 'from ui.theme import get_theme', 'domain -> ui', 1),
+    ('data_types/probe.py', 'from tm1 import tests as support', 'domain -> tests', 1),
+    ('data_types/probe.py', 'import io\nfrom io import StringIO', None, 0),
+    ('data_types/probe.py', 'from scipy import io', None, 0),
+    ('physical_models/probe.py', 'from tm1.data_types import case_data', 'models -> domain', 0),
+    ('physical_models/probe.py', 'from tm1 import df_surrogate', 'models -> df_surrogate', 0),
     ('solvers/full_3d.py',
      'from tm1.physical_models.df_surrogate import CFD_CAMPAIGN, CFD_SCOPE',
      'solvers -> df_surrogate (1x):', 0),
@@ -194,9 +194,9 @@ def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monke
     ('cpp_interface/full_3d_stage.py',
      'from tm1.physical_models.df_surrogate import CFD_CAMPAIGN, CFD_SCOPE',
      'full 3D solve boundary -> tm1.physical_models.df_surrogate', 1),
-    ('models/deep/probe.py', 'from ....applications.gui import ui', 'models -> ui', 1),
-    ('models/__init__.py', 'from ...applications.gui import ui', 'models -> ui', 1),
-    ('domain/probe.py', 'from tm1 import io', 'domain -> io', 1),
+    ('physical_models/deep/probe.py', 'from ...applications.gui import ui', 'models -> ui', 1),
+    ('physical_models/__init__.py', 'from ..applications.gui import ui', 'models -> ui', 1),
+    ('data_types/probe.py', 'from tm1 import io', 'domain -> io', 1),
     ('preprocess/probe.py', 'from tm1.compute import compute', 'preprocess -> compute', 1),
     ('compute.py', 'from tm1.preprocess.api import prepare_case', 'compute -> preprocess', 0),
     ('postprocess/api.py', 'def evaluate():\n    from ..cpp_interface import _native_result_stage as old',
@@ -216,8 +216,6 @@ def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monke
     ('postprocess/evaluation.py', 'from ..cpp_interface import result_evaluation as wire\n'
      'def ids(reports):\n    wire = reports[0]\n    return (lambda wire: wire.source_result_id)(wire)',
      None, 0),
-    ('postprocess/api.py', 'from tm1.shared import _native_result_stage',
-     'independent result boundary -> tm1.shared._native_result_stage', 1),
     ('cpp_interface/result_evaluation.py',
      'def assemble_record(provider=None):\n    from ..data_types import performance_result\n'
      '    records = performance_result if provider is None else provider\n'
@@ -237,8 +235,8 @@ def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monke
      'result_evaluation.py:1: independent result boundary -> tm1.data_types.performance_result.PerformanceResult', 1),
     ('cpp_interface/_native_result_stage.py', 'import tm1.data_types.metric_spec as specs',
      'independent result boundary -> tm1.data_types.metric_spec', 1),
-    ('cpp_interface/result_evaluation.py', 'from ..shared.domain.performance_result import *',
-     'independent result boundary -> tm1.shared.domain.performance_result', 1),
+    ('cpp_interface/result_evaluation.py', 'from ..data_types.performance_result import *',
+     'independent result boundary -> tm1.data_types.performance_result', 1),
     ('cpp_interface/_native_result_stage.py', 'from ..data_types.metric_spec import full_metric_version',
      'independent result boundary -> tm1.data_types.metric_spec.full_metric_version', 1),
     ('cpp_interface/result_evaluation.py', 'from ..data_types import MetricValue as Row',
@@ -272,8 +270,6 @@ def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monke
      'Quick solve boundary -> tm1.solvers', 1),
     ('cpp_interface/quick_design.py', 'from ..data_types.field_result import FieldResult as Result\nResult()',
      'Quick solve boundary -> tm1.data_types.field_result.FieldResult', 1),
-    ('cpp_interface/quick_design.py', 'from ..shared import domain\ndomain.field_result.FieldResult()',
-     'Quick solve boundary -> tm1.shared.domain.field_result', 1),
     ('cpp_interface/quick_design.py', 'from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n'
      '    from ..data_types.field_result import FieldResult', 'native_values -> domain', 0),
     ('solvers/quick_design.py', 'from ..cpp_interface import quick_design as wire\nwire._saved_v2()',
@@ -281,51 +277,20 @@ def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monke
     ('solvers/quick_design.py', 'from ..cpp_interface.quick_design import QuickSolver', None, 0),
     ('cpp_interface/quick_design.py', 'from .full_2d_stage import run_case as full_solve',
      'Quick solve boundary -> tm1.cpp_interface.full_2d_stage', 1),
-    ('solvers/quick_design.py', 'from .backends.cpp.full_2d_stage import run_case as full_solve',
-     'Quick solve boundary -> tm1.solvers.backends.cpp.full_2d_stage', 1),
     ('cpp_interface/quick_design.py', 'from .. import cpp_interface as native\nnative.full_3d_stage.run_case()',
      'Quick solve boundary -> tm1.cpp_interface.full_3d_stage', 1),
-    ('solvers/quick_design.py', 'from .backends import cpp\ncpp.full_3d_stage.run_case()',
-     'Quick solve boundary -> tm1.solvers.backends.cpp.full_3d_stage', 1),
     ('solvers/quick_design.py', 'from ..cpp_interface.quick_design import *\ncopy_ranges = closure_records',
      'Quick solve boundary -> tm1.cpp_interface.quick_design.*', 1),
-    ('cpp_interface/quick_design.py', 'from ..shared import _native_quick_prepare',
-     'Quick solve boundary -> tm1.shared._native_quick_prepare', 1),
     ('cpp_interface/quick_design.py', 'from .solver_library._stage_capture_abi import RangeRecordView\n'
      'from ._native_preparation_case import _QuickInputV2, _QuickPreparedV2', 'VIOLATIONS (0)', 0),
     ('cpp_interface/quick_preparation.py', 'from ..physical_models import co2_props as eos',
      'Quick preparation boundary -> tm1.physical_models', 1),
     ('cpp_interface/native_preparation.py', 'def cache():\n    from ..physical_models import sigmoid_field',
      'full preparation boundary -> tm1.physical_models', 1),
-    ('cpp_interface/preparation_host.py', 'from ..shared.domain.range_policy import assess_range',
-     'full preparation boundary -> tm1.shared.domain.range_policy', 1),
     ('cpp_interface/inlet_properties.py', 'from ..preprocess import preparation',
      'full preparation boundary -> tm1.preprocess', 1),
-    ('cpp_interface/preparation_host.py', 'from ..shared._native_quick_prepare import prepare_values',
-     'full preparation boundary -> tm1.shared._native_quick_prepare', 1),
-    *(('cpp_interface/inlet_properties.py',
-        f'from tm1.{package}._native_preparation_case import _InletQueryInput\n'
-        f'from tm1.{package} import _native_preparation_case as wire\n'
-        f'import tm1\nrecord = tm1.{package}._native_preparation_case._InletQueryInput',
-        'VIOLATIONS (0)', 0) for package in ('shared', 'shared.models', 'physical_models')),
-    *(('cpp_interface/inlet_properties.py', 'def request_type(enabled):\n'
-       '    if enabled:\n'
-       f'        import tm1.{package}._native_preparation_case\n'
-       '    else:\n'
-       '        return None\n'
-       f'    return tm1.{package}._native_preparation_case._InletQueryInput',
-       'VIOLATIONS (0)', 0) for package in ('shared.models', 'physical_models')),
-    *(('cpp_interface/inlet_properties.py', f'from tm1.{package} import _native_quick_prepare as quick',
-        f'full preparation boundary -> tm1.{package}._native_quick_prepare', 1)
-      for package in ('shared', 'shared.models', 'physical_models')),
-    ('cpp_interface/inlet_properties.py', 'from ..physical_models import _native_preparation_case, tpms_calc',
-     'full preparation boundary -> tm1.physical_models.tpms_calc', 1),
-    ('cpp_interface/preparation_host.py', 'from ..shared import result_display',
-     'full preparation boundary -> tm1.shared.result_display', 1),
-    ('cpp_interface/inlet_properties.py', 'import tm1.shared as published\nratio = published.result_math.pressure_ratio',
-     'full preparation boundary -> tm1.shared.result_math', 1),
-    ('cpp_interface/native_preparation.py', 'from ..shared import _native_lut',
-     'full preparation boundary -> tm1.shared._native_lut', 1),
+    ('cpp_interface/inlet_properties.py', 'from ..physical_models import tpms_calc',
+     'full preparation boundary -> tm1.physical_models', 1),
     ('cpp_interface/native_preparation.py', 'from . import result_evaluation',
      'full preparation boundary -> tm1.cpp_interface.result_evaluation', 1),
     ('cpp_interface/preparation_host.py', 'from .. import cpp_interface as wire\nquery = wire.result_evaluation.query_result',
@@ -335,21 +300,14 @@ def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monke
     ('cpp_interface/inlet_properties.py', 'from ._native_preparation_case import *',
      'full preparation boundary -> tm1.cpp_interface._native_preparation_case.*', 1),
     ('cpp_interface/inlet_properties.py', 'from ._native_preparation_case import _InletQueryInput\n'
-     'from ..shared.domain import run_warnings', 'VIOLATIONS (0)', 0),
+     'from ..run_control import run_warnings', 'VIOLATIONS (0)', 0),
     ('cpp_interface/inlet_properties.py', 'from typing import TYPE_CHECKING\n'
      'if TYPE_CHECKING:\n    from ..data_types.case_data import CaseData', 'VIOLATIONS (0)', 0),
-    ('cpp_interface/native_preparation.py', 'from ..shared.domain import case_data as dto',
-     'full preparation boundary -> tm1.shared.domain.case_data', 1),
+    ('cpp_interface/native_preparation.py', 'from ..data_types import case_data as dto',
+     'full preparation boundary -> tm1.data_types.case_data', 1),
     ('cpp_interface/preparation_host.py', 'from ..data_types.model_refs import ModelRef', 'VIOLATIONS (0)', 0),
     ('preprocess/two_d/preparation.py', 'from ...cpp_interface import native_preparation as native\nf = native._copy_case',
      'full preparation boundary -> tm1.cpp_interface.native_preparation._copy_case', 1),
-    ('preprocess/two_d/preparation.py', 'from ...physical_models import _native_preparation_3d as native',
-     'full preparation boundary -> tm1.physical_models._native_preparation_3d', 1),
-    ('preprocess/two_d/preparation.py', 'from ... import physical_models as models\n'
-     'query = models._native_result_stage.evaluate',
-     'full preparation boundary -> tm1.physical_models._native_result_stage', 1),
-    ('preprocess/two_d/preparation.py', 'from ...solvers.backends.cpp.full_2d_stage import run_case',
-     'full preparation boundary -> tm1.solvers.backends.cpp.full_2d_stage', 1),
     ('preprocess/two_d/preparation.py', 'from ...cpp_interface.native_preparation import *',
      'full preparation boundary -> tm1.cpp_interface.native_preparation.*', 1),
     ('preprocess/two_d/preparation.py', 'from ...cpp_interface.native_preparation import run_preparation',
@@ -370,14 +328,6 @@ def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monke
      'full 3D preparation boundary -> tm1.cpp_interface.native_preparation.pack_input', 1),
     ('preprocess/three_d/preparation.py', 'from ...cpp_interface.native_preparation import *',
      'full 3D preparation boundary -> tm1.cpp_interface.native_preparation.*', 1),
-    ('preprocess/three_d/preparation.py', 'from tm1.shared import _native_preparation_3d',
-     'full 3D preparation boundary -> tm1.shared._native_preparation_3d', 1),
-    ('preprocess/three_d/preparation.py', 'from tm1.shared.models._native_preparation_case import _Options',
-     'full 3D preparation boundary -> tm1.shared.models._native_preparation_case', 1),
-    ('preprocess/three_d/preparation.py', 'from tm1.physical_models import _native_preparation_3d',
-     'full 3D preparation boundary -> tm1.physical_models._native_preparation_3d', 1),
-    ('preprocess/three_d/preparation.py', 'from ... import physical_models as models\nmodels._native_preparation_3d.pack_input()',
-     'full 3D preparation boundary -> tm1.physical_models._native_preparation_3d', 1),
     ('preprocess/three_d/preparation.py',
      'from ...cpp_interface import native_preparation\n'
      'native_preparation.pack_volume_input()\nnative_preparation.run_volume_preparation()',
@@ -411,15 +361,7 @@ def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monke
     ('preprocess/api.py', 'from .two_d.preparation import prepare_case', 'VIOLATIONS (0)', 0),
     ('cpp_interface/quick_preparation.py', 'from ..physical_models.range_policy import assess_range',
      'Quick preparation boundary -> tm1.physical_models.range_policy', 1),
-    ('cpp_interface/quick_preparation.py', 'from tm1.shared.domain.range_policy import assess_range',
-     'Quick preparation boundary -> tm1.shared.domain.range_policy', 1),
-    ('cpp_interface/quick_preparation.py', 'from tm1.data_types.range_policy import assess_range',
-     'Quick preparation boundary -> tm1.data_types.range_policy', 1),
-    ('cpp_interface/quick_preparation.py', 'from ..data_types import range_policy as limits',
-     'Quick preparation boundary -> tm1.data_types.range_policy', 1),
-    ('cpp_interface/quick_preparation.py', 'from ..shared import domain\nassess = domain.range_policy.assess_range',
-     'Quick preparation boundary -> tm1.shared.domain.range_policy', 1),
-    ('cpp_interface/quick_preparation.py', 'from ..shared.domain import run_warnings', 'VIOLATIONS (0)', 0),
+    ('cpp_interface/quick_preparation.py', 'from ..run_control import run_warnings', 'VIOLATIONS (0)', 0),
     ('cpp_interface/quick_preparation.py', 'def local():\n    from ..preprocess.quick_design import prepare_values',
      'Quick preparation boundary -> tm1.preprocess.quick_design', 1),
     ('cpp_interface/quick_preparation.py', 'from .full_2d_stage import run_case',
@@ -428,32 +370,22 @@ def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monke
      'Quick preparation boundary -> tm1.cpp_interface.preparation_host', 1),
     ('cpp_interface/quick_preparation.py', 'from ..data_types import case_data as inputs',
      'Quick preparation boundary -> tm1.data_types.case_data', 1),
-    ('cpp_interface/quick_preparation.py', 'def refs():\n    from ..shared.domain.model_refs import ModelRef',
-     'Quick preparation boundary -> tm1.shared.domain.model_refs.ModelRef', 1),
+    ('cpp_interface/quick_preparation.py', 'def refs():\n    from ..data_types.model_refs import ModelRef',
+     'Quick preparation boundary -> tm1.data_types.model_refs.ModelRef', 1),
     ('cpp_interface/quick_preparation.py', 'from typing import TYPE_CHECKING\n'
      'if TYPE_CHECKING:\n    from ..data_types.case_data import CaseData', 'VIOLATIONS (0)', 0),
     ('preprocess/quick_design.py', 'from ..cpp_interface.quick_preparation import _Bindings',
      'Quick preparation boundary -> tm1.cpp_interface.quick_preparation._Bindings', 1),
     ('preprocess/quick_design.py', 'from ..cpp_interface.quick_preparation import run_preparation',
      'VIOLATIONS (0)', 0),
-    ('preprocess/api.py', 'from ..cpp_interface._native_quick_prepare import prepare_quick_design',
-     'Quick preparation boundary -> tm1.cpp_interface._native_quick_prepare', 1),
-    ('applications/design/sizing.py', 'from ...shared.models._native_quick_prepare import pressure_fractions',
-     'Quick preparation boundary -> tm1.shared.models._native_quick_prepare', 1),
     ('applications/design/sizing.py', 'from ...cpp_interface import quick_preparation as wire',
      'Quick preparation boundary -> tm1.cpp_interface.quick_preparation', 1),
     ('cpp_interface/full_3d_stage.py', 'from ..physical_models import nu_correlations',
      'full 3D solve boundary -> tm1.physical_models', 1),
-    ('cpp_interface/full_3d_stage.py', 'from ..shared.domain.range_policy import assess_range',
-     'full 3D solve boundary -> tm1.shared.domain.range_policy', 1),
     ('cpp_interface/full_3d_stage.py', 'def local():\n    from ..solvers import full_3d',
      'full 3D solve boundary -> tm1.solvers', 1),
-    ('cpp_interface/full_3d_stage.py', 'from ..solvers.backends.cpp.full_3d_stage import run_case',
-     'full 3D solve boundary -> tm1.solvers.backends.cpp.full_3d_stage', 1),
     ('cpp_interface/full_3d_stage.py', 'from ..data_types.field_result import FieldResult as Result\nResult()',
      'full 3D solve boundary -> tm1.data_types.field_result.FieldResult', 1),
-    ('cpp_interface/full_3d_stage.py', 'from ..shared import domain\ndomain.field_result.FieldResult()',
-     'full 3D solve boundary -> tm1.shared.domain.field_result', 1),
     ('cpp_interface/full_3d_stage.py', 'from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n'
      '    from ..data_types.field_result import FieldResult', 'native_values -> domain', 0),
     ('cpp_interface/full_3d_stage.py', 'from .full_2d_stage import run_case',
@@ -464,12 +396,8 @@ def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monke
      'full 3D solve boundary -> tm1.cpp_interface.*', 1),
     ('cpp_interface/full_3d_stage.py', 'from ..cpp_interface import *',
      'full 3D solve boundary -> tm1.cpp_interface.*', 1),
-    ('cpp_interface/full_3d_stage.py', 'from tm1.shared import result_display',
-     'full 3D solve boundary -> tm1.shared.result_display', 1),
-    ('cpp_interface/full_3d_stage.py', 'from ..shared import result_math',
-     'full 3D solve boundary -> tm1.shared.result_math', 1),
-    ('cpp_interface/full_3d_stage.py', 'import tm1.shared as shared\nshared.result_math.pressure_ratio',
-     'full 3D solve boundary -> tm1.shared.result_math', 1),
+    ('cpp_interface/full_3d_stage.py', 'from ..postprocess import result_display',
+     'full 3D solve boundary -> tm1.postprocess', 1),
     ('cpp_interface/full_3d_stage.py', 'from .run_state import NativeRun\n'
      'from .preparation_host import borrow_solver_mesh\n'
      'from .solver_library._full_3d_abi import _Input\n'
@@ -480,12 +408,6 @@ def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monke
      'full 3D solve boundary -> tm1.cpp_interface.full_3d_stage.*', 1),
     ('solvers/full_3d.py', 'from ..cpp_interface import preparation_host',
      'full 3D solve boundary -> tm1.cpp_interface.preparation_host', 1),
-    ('solvers/full_3d.py', 'from tm1.physical_models import _native_result_stage',
-     'full 3D solve boundary -> tm1.physical_models._native_result_stage', 1),
-    ('solvers/full_3d.py', 'import tm1.physical_models as models\nmodels._native_result_stage.Evidence()',
-     'full 3D solve boundary -> tm1.physical_models._native_result_stage', 1),
-    ('solvers/full_3d.py', 'from .backends.cpp import *',
-     'full 3D solve boundary -> tm1.solvers.backends.cpp.*', 1),
     ('solvers/full_3d.py', 'from ..cpp_interface import *',
      'full 3D solve boundary -> tm1.cpp_interface.*', 1),
     ('solvers/full_3d.py', 'from ..cpp_interface.full_3d_stage import open_library, borrow_mesh, '
@@ -504,10 +426,6 @@ def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monke
      'solver API boundary -> tm1.cpp_interface.full_2d_stage', 1),
     ('solvers/api.py', 'from ..cpp_interface.quick_design import QuickSolver',
      'solver API boundary -> tm1.cpp_interface.quick_design', 1),
-    ('solvers/api.py', 'from .backends.cpp.full_2d_stage import run_case',
-     'solver API boundary -> tm1.solvers.backends.cpp.full_2d_stage', 1),
-    ('solvers/api.py', 'from .backends.cpp import *',
-     'solver API boundary -> tm1.solvers.backends.cpp.*', 1),
     ('solvers/api.py', 'from .full_2d import run_case as run_2d\n'
      'from .full_3d import run_case as run_3d\n'
      'from .quick_design import run_case as run_quick', 'VIOLATIONS (0)', 0),
@@ -521,14 +439,10 @@ def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monke
      'full 2D solve boundary -> tm1.data_types.field_result.FieldResult', 1),
     ('cpp_interface/full_2d_stage.py', 'from ..data_types.case_data import CaseData',
      'full 2D solve boundary -> tm1.data_types.case_data.CaseData', 1),
-    ('cpp_interface/full_2d_stage.py', 'from ..shared import domain\ndomain.field_result.FieldResult()',
-     'full 2D solve boundary -> tm1.shared.domain.field_result', 1),
     ('cpp_interface/full_2d_stage.py', 'import tm1.data_types as dt\ndt.FieldResult()',
      'full 2D solve boundary -> tm1.data_types.FieldResult', 1),
     ('cpp_interface/full_2d_stage.py', 'from .full_3d_stage import run_saved',
      'full 2D solve boundary -> tm1.cpp_interface.full_3d_stage', 1),
-    ('cpp_interface/full_2d_stage.py', 'from ..solvers.backends.cpp.full_2d_stage import run_case',
-     'full 2D solve boundary -> tm1.solvers.backends.cpp.full_2d_stage', 1),
     ('cpp_interface/full_2d_stage.py', 'from . import *',
      'full 2D solve boundary -> tm1.cpp_interface.*', 1),
     ('cpp_interface/full_2d_stage.py', 'from ..run_control.cancellation import CancelledError\n'
@@ -545,8 +459,6 @@ def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monke
      'full 2D solve boundary -> tm1.cpp_interface.full_2d_stage.*', 1),
     ('solvers/full_2d.py', 'from ..cpp_interface.solver_library import stage_capture',
      'full 2D solve boundary -> tm1.cpp_interface.solver_library', 1),
-    ('solvers/full_2d.py', 'from .backends.cpp.full_2d_stage import run_case',
-     'full 2D solve boundary -> tm1.solvers.backends.cpp.full_2d_stage', 1),
     ('solvers/full_2d.py', 'from ..cpp_interface import full_2d_stage\n'
      'full_2d_stage.StageDriver()\nfull_2d_stage.borrow_mesh()\nfull_2d_stage.stage_entries()\n'
      'full_2d_stage.check_experiment()\nfull_2d_stage.run_stage()\nfull_2d_stage.zone_temperatures()',
@@ -566,38 +478,16 @@ def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monke
      'native binding boundary -> tm1.physical_models.range_policy', 1),
     ('cpp_interface/new_binding.py', 'from ..file_io.text_file import read_text',
      'native binding boundary -> tm1.file_io.text_file', 1),
-    ('cpp_interface/new_binding.py', 'from ..shared.domain import range_policy',
-     'native binding boundary -> tm1.shared.domain.range_policy', 1),
-    ('cpp_interface/new_binding.py', 'from ..data_types import range_policy as bounds',
-     'native binding boundary -> tm1.data_types.range_policy', 1),
     ('cpp_interface/new_binding.py', 'from ..applications import cli',
      'native binding boundary -> tm1.applications', 1),
     ('cpp_interface/new_binding.py', 'from ..compute import compute',
      'native binding boundary -> tm1.compute', 1),
-    ('cpp_interface/new_binding.py', 'from ..shared import _native_quick_prepare',
-     'native binding boundary -> tm1.shared._native_quick_prepare', 1),
-    ('cpp_interface/new_binding.py', 'from ..shared import *',
-     'native binding boundary -> tm1.shared.*', 1),
     ('cpp_interface/new_binding.py', 'from .. import *',
      'native binding boundary -> tm1.*', 1),
     ('cpp_interface/new_binding.py', 'from ..data_types import *',
      'native binding boundary -> tm1.data_types.*', 1),
-    ('cpp_interface/new_binding.py', 'from ..shared.domain import *',
-     'native binding boundary -> tm1.shared.domain.*', 1),
-    ('cpp_interface/quick_design.py', 'from ..shared import *',
-     'Quick solve boundary -> tm1.shared.*', 1),
     ('cpp_interface/quick_design.py', 'from ..data_types import *',
      'Quick solve boundary -> tm1.data_types.*', 1),
-    ('cpp_interface/quick_design.py', 'from ..solvers.backends.cpp.stage_capture import executed_view',
-     'Quick solve boundary -> tm1.solvers.backends.cpp.stage_capture', 1),
-    ('cpp_interface/quick_design.py', 'from ..solvers.backends.cpp.quick_design import run_case',
-     'Quick solve boundary -> tm1.solvers.backends.cpp.quick_design', 1),
-    ('cpp_interface/quick_preparation.py', 'from ..solvers.backends.cpp.stage_capture import executed_view',
-     'Quick preparation boundary -> tm1.solvers.backends.cpp.stage_capture', 1),
-    ('solvers/quick_design.py', 'from .backends.cpp.stage_capture import executed_view',
-     'Quick solve boundary -> tm1.solvers.backends.cpp.stage_capture', 1),
-    ('preprocess/quick_design.py', 'from ..solvers.backends.cpp.stage_capture import executed_view',
-     'Quick preparation boundary -> tm1.solvers.backends.cpp.stage_capture', 1),
     ('cpp_interface/new_binding.py', 'from ..data_types.case_data import CaseData',
      'native binding boundary -> tm1.data_types.case_data.CaseData', 1),
     ('cpp_interface/new_binding.py', 'from ..data_types.performance_result import PerformanceResult',
@@ -616,17 +506,20 @@ def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monke
      'Quick solve boundary -> tm1.data_types.case_data.CaseData', 1),
     ('cpp_interface/preparation_host.py', 'from ..data_types.field_result import FieldResult',
      'full preparation boundary -> tm1.data_types.field_result.FieldResult', 1),
+    ('run_control/probe.py', 'from tm1.physical_models import range_policy', None, 0),
+    ('run_control/probe.py', 'from tm1.physical_models import fluid_props',
+     'domain (L0) -> models (L0.5) (1x): UPWARD import', 1),
+    ('run_control/probe.py', 'import tm1.physical_models',
+     'domain (L0) -> models (L0.5) (1x): UPWARD import', 1),
 ])
 def test_layer_audit_applies_policy_to_each_import_spelling(tmp_path, monkeypatch, capsys,
                                                            filename, source, edge, exit_code):
     package = tmp_path / 'tm1'
-    for unit in ('shared/domain', 'shared/models', 'applications/gui/ui',
-                 'development/tests', 'shared/io', 'shared/df_surrogate', 'preprocess'):
+    for unit in ('data_types', 'physical_models', 'applications/gui/ui',
+                 'development/tests', 'file_io', 'physical_models/df_surrogate', 'preprocess'):
         (package / unit).mkdir(parents=True, exist_ok=True)
         (package / unit / '__init__.py').touch()
     (package / 'compute.py').touch()
-    if filename.split('/')[0] in ('domain', 'models'):
-        filename = 'shared/' + filename
     path = package / filename
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(source, encoding='utf-8')
@@ -646,31 +539,9 @@ def test_logger_names_do_not_include_the_package_name():
     assert get_logger('solvers.api') is logger
 
 
-def test_checkout_keeps_published_submodule_identity():
-    subprocess.run([sys.executable, '-c',
-                    "from pathlib import Path\nimport tm1\n"
-                    "assert Path(tm1.__file__).resolve() == Path.cwd() / 'python/__init__.py'\n"
-                    + PUBLIC_NAME_CHECK], cwd=REPO, check=True, timeout=60)
-
-
-@pytest.mark.parametrize('shared_first', [False, True], ids=['canonical-first', 'shared-first'])
-def test_checkout_keeps_df_package_identity(shared_first):
-    subprocess.run([sys.executable, '-c', df_package_identity_check(shared_first)],
-                   cwd=REPO, check=True, timeout=60)
-
-
-def test_published_sco2_reader_runs_in_a_fresh_interpreter():
-    subprocess.run([sys.executable, '-m', 'tm1.shared.df_surrogate.load_sco2_cfd'],
-                   cwd=REPO, check=True, timeout=60)
-
-
-@pytest.mark.parametrize('module', [
-    'tm1.shared.df_surrogate.ingest_cfd_kappa',
-    'tm1.development.runs.cfd_asym.ingest_cfd_kappa',
-])
-def test_published_workbook_module_help_uses_strict_cp1252_output(monkeypatch, module):
+def test_published_workbook_module_help_uses_strict_cp1252_output(monkeypatch):
     monkeypatch.setenv('PYTHONIOENCODING', 'cp1252:strict')
-    result = subprocess.run([sys.executable, '-m', module, '--help'],
+    result = subprocess.run([sys.executable, '-m', 'tm1.development.runs.cfd_asym.ingest_cfd_kappa', '--help'],
                             cwd=REPO, capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
     assert 'usage:' in result.stdout

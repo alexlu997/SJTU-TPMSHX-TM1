@@ -12,7 +12,6 @@ import zipfile
 import pytest
 
 from engineering.scripts import check_distributions as distributions
-from tests.python.packaging_support import PUBLIC_NAME_CHECK, df_package_identity_check
 
 
 @pytest.fixture
@@ -225,7 +224,6 @@ installed = Path(sys.argv[1]).resolve()
 sys.path.insert(0, str(installed))
 import tm1
 assert Path(tm1.__file__).resolve().is_relative_to(installed)
-""" + PUBLIC_NAME_CHECK + r"""
 assert importlib.util.find_spec('tm1.development.tests') is None
 package = files('tm1')
 for name in json.loads(sys.argv[3]):
@@ -260,6 +258,8 @@ except SystemExit as error:
 else:
     raise AssertionError('CLI help must exit successfully')
 assert main([sys.argv[2], '--dry-run', '--json']) == 0
+from tm1.development.runs.cfd_asym import ingest_cfd_kappa
+assert 'tm1.development.runs.cfd_asym.kappa_asym' in sys.modules
 assert not {'PySide6', 'CoolProp', 'sympy', 'skimage'}.intersection(sys.modules)
 print('installed CLI, resources and retained tools passed')
 """
@@ -285,18 +285,11 @@ def test_installed_wheel_runtime(kind):
                                  json.dumps(sorted(distributions.declared_resources(root)))],
                                 cwd=directory, env=env, capture_output=True, text=True, timeout=120)
         assert result.returncode == 0, result.stdout + result.stderr
-        for shared_first in (False, True):
-            code = "import sys\nsys.path.insert(0, sys.argv[1])\n" + df_package_identity_check(shared_first)
-            result = subprocess.run([sys.executable, "-I", "-c", code, str(target)], cwd=directory,
-                                    env=env, capture_output=True, text=True, timeout=60)
-            assert result.returncode == 0, result.stderr
-        for module in ("tm1.shared.df_surrogate.ingest_cfd_kappa",
-                       "tm1.development.runs.cfd_asym.ingest_cfd_kappa"):
-            result = subprocess.run([sys.executable, "-m", module, "--help"], cwd=directory,
-                                    env=dict(env, PYTHONPATH=str(target), PYTHONIOENCODING="cp1252:strict"),
-                                    capture_output=True, text=True, timeout=60)
-            assert result.returncode == 0, result.stderr
-            assert "usage:" in result.stdout
+        result = subprocess.run([sys.executable, "-m", "tm1.development.runs.cfd_asym.ingest_cfd_kappa", "--help"],
+                                cwd=directory, env=dict(env, PYTHONPATH=str(target), PYTHONIOENCODING="cp1252:strict"),
+                                capture_output=True, text=True, timeout=60)
+        assert result.returncode == 0, result.stderr
+        assert "usage:" in result.stdout
 
 
 def test_wheel_check_accepts_windows_source_paths(project, tmp_path, monkeypatch):

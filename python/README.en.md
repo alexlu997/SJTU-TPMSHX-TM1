@@ -97,7 +97,7 @@ See [C++ builds](../docs/cpp-migration.md#native-geometry-core) for separate com
 | Directory | Responsibility and boundary |
 | --- | --- |
 | [preprocess](preprocess/) | Preprocessing and explicit offline model preparation. |
-| [solvers](solvers/) | Solver API, 2D/3D and Quick Design hosts, execution and ledger helpers, and compatibility names. C++ implementation is in [solver](../solver/). |
+| [solvers](solvers/) | Solver API, 2D/3D and Quick Design hosts, and execution and ledger helpers. C++ implementation is in [solver](../solver/). |
 | [postprocess](postprocess/) | Metrics, physical audits, qualification, and exports from recorded results. |
 | [data_types](data_types/) | Configuration, prepared cases, fields, and performance results. |
 | [file_io](file_io/) | Read and write case, result, metric, and checkpoint files. |
@@ -107,8 +107,7 @@ See [C++ builds](../docs/cpp-migration.md#native-geometry-core) for separate com
 | [applications](applications/) | [GUI](applications/gui/), [CLI](applications/cli/), [Quick Design](applications/design/), [Bayesian optimization](applications/optimization/), and [run recovery](applications/execution/recovery.py). |
 | [development](development/) | Validation, diagnostics, and developer tools. Automated tests live in [tests/python](../tests/python/). |
 
-`python/shared.py` resolves `tm1.shared.*` and `tm1.solvers.backends.cpp.*` aliases under the current `tm1` root to their canonical owners without code duplication.
-Old local scripts that use the previous package root must update their imports or use the recorded source revision.
+Old local scripts that use retired module paths must update their imports or use the recorded source revision.
 Start applications with the root [main.py](../main.py). It routes the GUI to [applications/gui/main.py](applications/gui/main.py), the file stages to [applications/cli/stages.py](applications/cli/stages.py), `summary` to [applications/cli/main.py](applications/cli/main.py), `design` to [applications/design/cli.py](applications/design/cli.py), and `optimize` to [applications/optimization/cli.py](applications/optimization/cli.py).
 Computation code calls the four entries above directly.
 Root [engineering](../engineering/) holds build and check scripts, packaging configuration, and dependency locks.
