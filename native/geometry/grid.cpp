@@ -50,7 +50,7 @@ bool any(const Values& values) {
 }  // namespace
 
 double divide(double a,double b) {
-    if (b==0.) throw std::domain_error("float division by zero");
+    if (b==0.) throw ZeroDivision();
     return a/b;
 }
 

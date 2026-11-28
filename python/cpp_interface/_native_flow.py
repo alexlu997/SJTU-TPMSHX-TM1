@@ -5,6 +5,7 @@ from functools import lru_cache
 import numpy as np
 
 from .stage_libraries import preparation_library
+from ._native_diagnostics import native_error
 from ._native_values import real_scalar
 
 
@@ -52,13 +53,10 @@ def _current():
     return _bindings(preparation_library.path())
 
 
-def _check_status(status, error):
+def _check_status(operation, status, error):
     if status:
         text = error.value.decode('utf-8', errors='replace') or f'native preparation failed with code {status}'
-        if text == 'float division by zero':
-            raise ZeroDivisionError(text)
-        exception = {1: ValueError, 2: MemoryError}.get(status, RuntimeError)
-        raise exception(text)
+        raise native_error('preparation', operation, status, text)
 
 
 def _scalar(value):
@@ -75,7 +73,7 @@ def _values(value, *, shape=None):
 
 def _result(function, arguments, count):
     output, error = (_D * count)(), ct.create_string_buffer(2048)
-    _check_status(function(*arguments, output, count, error, len(error)), error)
+    _check_status(function.__name__, function(*arguments, output, count, error, len(error)), error)
     return tuple(output)
 
 
@@ -147,7 +145,8 @@ def closure_geometry_ratio(diameter_m, cell_mm):
     shape = np.broadcast(np.asarray(diameter_m), np.asarray(cell_mm)).shape
     inputs = [_values(value, shape=shape) for value in (diameter_m, cell_mm)]
     output, error = np.empty(inputs[0][0].size), ct.create_string_buffer(2048)
-    _check_status(_current().closure_geometry_ratio(inputs[0][1], inputs[1][1], output.ctypes.data_as(_DP),
+    function = _current().closure_geometry_ratio
+    _check_status(function.__name__, function(inputs[0][1], inputs[1][1], output.ctypes.data_as(_DP),
                   output.size, error, len(error)), error)
     result = output.reshape(shape)
     return result if result.ndim else float(result)

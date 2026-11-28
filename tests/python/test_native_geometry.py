@@ -539,11 +539,11 @@ def test_prebuilt_library_rejects_unsupported_abi_or_missing_symbols(monkeypatch
 
 @pytest.mark.parametrize('status,exception', [(1, ValueError), (2, ZeroDivisionError), (3, RuntimeError)])
 def test_c_error_status_preserves_its_python_exception_class(status, exception):
-    def failed(error, capacity):
+    def tpmshx_geometry_counts_v1(error, capacity):
         error.value = b'geometry boundary failure'
         return status
     with pytest.raises(exception, match='geometry boundary failure'):
-        native._call(failed)
+        native._call(tpmshx_geometry_counts_v1)
 
 
 def test_import_and_archived_result_read_need_no_geometry_library(tmp_path):

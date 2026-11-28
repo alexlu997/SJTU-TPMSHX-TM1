@@ -299,5 +299,10 @@ def test_late_scalar_division_failure_preserves_all_speeds():
     output, error = _sentinel(2), ct.create_string_buffer(256)
     before = bytes(output)
     status = native._current().inlet_speeds(targets, capacities, 2, output, 2, error, len(error))
-    assert status == 3 and bytes(output) == before
+    assert status == 13 and bytes(output) == before
     assert error.value == b'float division by zero'
+    with pytest.raises(ZeroDivisionError) as caught:
+        native.inlet_speeds(targets, capacities)
+    assert caught.value.args == ('float division by zero',)
+    assert caught.value.diagnostic['code'] == 'numeric.zero_division'
+    assert caught.value.diagnostic['details']['status'] == status

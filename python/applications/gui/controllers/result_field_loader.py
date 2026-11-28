@@ -25,19 +25,12 @@ _DIRECT_RESULT_FIELDS = frozenset({
 })
 
 
-def _require_result_id(expected_result_id: str) -> str:
-    if not isinstance(expected_result_id, str) or not expected_result_id:
-        raise ValueError('expected_result_id must be a non-empty string')
-    return expected_result_id
-
-
 def _read_checked(reader, result_file: str | Path, field_name: str, expected_result_id: str) -> np.ndarray:
-    expected = _require_result_id(expected_result_id)
     selected = reader(result_file, field_name)
-    if selected.source_result_id != expected:
+    if selected.source_result_id != expected_result_id:
         raise ValueError(
             f'result file changed on disk: expected source_result_id '
-            f'{expected!r}, got {selected.source_result_id!r}'
+            f'{expected_result_id!r}, got {selected.source_result_id!r}'
         )
     return selected.values
 
@@ -85,35 +78,34 @@ def read_saved_display_field(
     expected_result_id: str,
 ) -> np.ndarray:
     """Read one display field from a saved result file through the selected-field reader."""
-    expected = _require_result_id(expected_result_id)
     if field_key in _DIRECT_RESULT_FIELDS:
-        return _read_checked(load_result_field, result_file, field_key, expected)
+        return _read_checked(load_result_field, result_file, field_key, expected_result_id)
     if field_key == 'P_fA':
-        return _read_checked(load_result_field, result_file, 'P_report_A', expected)
+        return _read_checked(load_result_field, result_file, 'P_report_A', expected_result_id)
     if field_key == 'P_fB':
-        return _read_checked(load_result_field, result_file, 'P_report_B', expected)
+        return _read_checked(load_result_field, result_file, 'P_report_B', expected_result_id)
     if field_key == 'P_kPa':
-        raw = _read_checked(load_result_field, result_file, 'P_report_A', expected)
+        raw = _read_checked(load_result_field, result_file, 'P_report_A', expected_result_id)
         return np.ascontiguousarray(raw * RESULT_FIELD_SPECS['P_fA'].display_scale)
     if field_key == 'P_B_kPa':
-        raw = _read_checked(load_result_field, result_file, 'P_report_B', expected)
+        raw = _read_checked(load_result_field, result_file, 'P_report_B', expected_result_id)
         return np.ascontiguousarray(raw * RESULT_FIELD_SPECS['P_fB'].display_scale)
     if field_key in ('vmag', 'vmag_A'):
         if mode == '3d':
-            return _read_checked(load_result_field, result_file, 'vmag_A', expected)
-        u = _read_checked(load_result_field, result_file, 'ucA', expected)
-        v = _read_checked(load_result_field, result_file, 'vcA', expected)
+            return _read_checked(load_result_field, result_file, 'vmag_A', expected_result_id)
+        u = _read_checked(load_result_field, result_file, 'ucA', expected_result_id)
+        v = _read_checked(load_result_field, result_file, 'vcA', expected_result_id)
         return np.hypot(u, v)
     if field_key == 'vmag_B':
         if mode == '3d':
-            return _read_checked(load_result_field, result_file, 'vmag_B', expected)
-        u = _read_checked(load_result_field, result_file, 'ucB', expected)
-        v = _read_checked(load_result_field, result_file, 'vcB', expected)
+            return _read_checked(load_result_field, result_file, 'vmag_B', expected_result_id)
+        u = _read_checked(load_result_field, result_file, 'ucB', expected_result_id)
+        v = _read_checked(load_result_field, result_file, 'vcB', expected_result_id)
         return np.hypot(u, v)
     if field_key == 'L_mm':
-        return _read_checked(load_result_design_field, result_file, 'L_field_m', expected) * 1e3
+        return _read_checked(load_result_design_field, result_file, 'L_field_m', expected_result_id) * 1e3
     if field_key == 't_mm':
-        return _read_checked(load_result_design_field, result_file, 't_field_m', expected) * 1e3
+        return _read_checked(load_result_design_field, result_file, 't_field_m', expected_result_id) * 1e3
     raise KeyError(field_key)
 
 
@@ -124,12 +116,11 @@ def load_all_saved_display_fields(
     expected_result_id: str,
 ) -> dict[str, Any]:
     """Read every display field from a saved result file through the full load_result path."""
-    expected = _require_result_id(expected_result_id)
     result = load_result(result_file)
-    if result.result_id != expected:
+    if result.result_id != expected_result_id:
         raise ValueError(
             f'result file changed on disk: expected source_result_id '
-            f'{expected!r}, got {result.result_id!r}'
+            f'{expected_result_id!r}, got {result.result_id!r}'
         )
     actual_mode = f"{result.grid['dimension']}d"
     if actual_mode != mode:

@@ -12,7 +12,7 @@ typedef struct {
 extern "C" {
 #endif
 
-/* Values and outputs use float64. A scalar quotient with a zero divisor fails.
+/* Values and outputs use float64. A zero scalar divisor returns TPMSHX_PREPARATION_SCALAR_DIVISION.
  * Empty 2D buffers are valid numerical inputs; their zero capacity remains
  * available to the existing application guard.
  */

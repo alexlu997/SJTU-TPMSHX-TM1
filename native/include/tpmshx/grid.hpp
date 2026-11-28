@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -14,6 +15,9 @@ struct Port { int direction; bool active; std::array<End,2> ends; };
 struct Aligned { Values widths; Values lengths; double total; std::vector<std::int64_t> counts; };
 struct WallSpec {std::size_t layers,minimum;double first,growth;};
 // Scalar configuration quotients reject a zero divisor, as Python float division does.
+struct ZeroDivision : std::domain_error {
+    ZeroDivision() : std::domain_error("float division by zero") {}
+};
 double divide(double a,double b);
 bool port_window_within(double cross_length,double center,double width);
 Values segment_lengths(const Values& ordered_bounds);

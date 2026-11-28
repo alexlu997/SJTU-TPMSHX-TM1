@@ -275,7 +275,7 @@ template<class T,class Function>int boundary(const tpmshx_quick_input_v2* input,
     T* output,char* error,size_t capacity,Function operation) {
     if(!tpmshx::fields::c_api::error_buffer_valid(error,capacity))return TPMSHX_PREPARATION_INVALID;
     try {buffers(input,callbacks,output,error,capacity);}catch(...){return TPMSHX_PREPARATION_INVALID;}
-    return p::c_api::boundary(error,capacity,operation);
+    return p::c_api::boundary<TPMSHX_PREPARATION_SCALAR_DIVISION>(error,capacity,operation);
 }
 } // namespace
 

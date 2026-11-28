@@ -1,4 +1,5 @@
 #include "tpmshx/preparation_flow_c_api.h"
+#include "tpmshx/diagnostic_codes.hpp"
 #include "tpmshx/preparation_flow.hpp"
 #include "tpmshx/grid.hpp"
 #include "preparation_c_boundary.hpp"
@@ -11,6 +12,7 @@ namespace p=tpmshx::preparation;
 namespace g=tpmshx::grid;
 using namespace p::c_api;
 using Values=tpmshx_preparation_flow_values_v1;
+static_assert(TPMSHX_PREPARATION_SCALAR_DIVISION == tpmshx::diagnostic::flow_status::numeric_zero_division);
 void flag(std::uint32_t value) {
     if (value>1) throw std::invalid_argument("preparation flag must be zero or one");
 }
@@ -24,7 +26,7 @@ template<class Function> int result_boundary(char* error,size_t size,double* out
     if (!tpmshx::fields::c_api::error_buffer_valid(error,size)) return TPMSHX_PREPARATION_INVALID;
     try {require_disjoint(error,size,output,output_count);}
     catch (...) {return TPMSHX_PREPARATION_INVALID;}
-    return boundary(error,size,[&] {
+    return boundary<TPMSHX_PREPARATION_SCALAR_DIVISION>(error,size,[&] {
         require_output(output,output_count,expected);
         const auto result=function();
         for (size_t i=0;i<expected;++i) output[i]=result[i];

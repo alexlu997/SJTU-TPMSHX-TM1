@@ -1,8 +1,16 @@
 #include <tpmshx/result_stage_c_api.h>
+#include <tpmshx/diagnostic_codes.hpp>
 #include <tpmshx/result_checks_c_api.h>
 #include <cstring>
 
 #include <iostream>
+
+namespace result_cause = tpmshx::diagnostic::result_cause;
+static_assert(TPMSHX_RESULT_ZERO_DIVISION == result_cause::numeric_zero_division);
+static_assert(TPMSHX_RESULT_OVERFLOW == result_cause::numeric_overflow);
+static_assert(TPMSHX_RESULT_VALUE_ERROR == result_cause::numeric_value_error);
+static_assert(TPMSHX_RESULT_TYPE_ERROR == result_cause::input_type_error);
+static_assert(TPMSHX_RESULT_INDEX_ERROR == result_cause::input_index_error);
 
 int main() {
     if (tpmshx_result_abi_version_v1() != TPMSHX_RESULT_ABI_VERSION) return 1;

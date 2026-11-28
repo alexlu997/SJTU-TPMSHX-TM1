@@ -1,4 +1,5 @@
 #pragma once
+#include "tpmshx/diagnostic_codes.hpp"
 #include "tpmshx/recorded_report.hpp"
 #include "tpmshx/result_arithmetic.hpp"
 #include <array>
@@ -9,11 +10,21 @@
 #include <optional>
 #include <string>
 #include <type_traits>
+#include <utility>
 #include <variant>
 #include <vector>
 
 namespace tpmshx::result::stage {
-enum HostCause : std::uint32_t {key_error = 6, not_implemented = 7, host_exception = 8};
+enum HostCause : std::uint32_t {
+    key_error = diagnostic::result_cause::input_key_error,
+    not_implemented = diagnostic::result_cause::capability_unsupported,
+    host_exception = 8
+};
+struct Missing : NumericError {
+    std::string key;
+    explicit Missing(std::string raw_key, bool quoted = true)
+        : NumericError(key_error, quoted ? "'" + raw_key + "'" : raw_key), key(std::move(raw_key)) {}
+};
 struct HostError : NumericError {
     std::uint64_t token{};
     HostError(std::uint32_t cause, std::string message, std::uint64_t identity = 0)

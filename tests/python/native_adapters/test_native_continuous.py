@@ -314,11 +314,11 @@ def test_field_loader_rejects_wrong_abi_and_missing_symbols(monkeypatch, abi, mi
 
 @pytest.mark.parametrize('status,exception', ((1, ValueError), (2, MemoryError), (3, RuntimeError)))
 def test_field_status_two_keeps_its_allocation_meaning(status, exception):
-    def failed(error, capacity):
+    def tpmshx_field_clip_v1(error, capacity):
         error.value = b'field boundary failure'
         return status
     with pytest.raises(exception, match='field boundary failure'):
-        native._call(failed)
+        native._call(tpmshx_field_clip_v1)
 
 
 def test_fit_keeps_its_creating_library_after_cache_eviction(fields, monkeypatch):

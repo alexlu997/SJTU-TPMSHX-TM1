@@ -32,6 +32,7 @@ FORBIDDEN_SUFFIXES = {".xlsx", ".xlsm", ".pyc", ".pyo", ".nbi", ".nbc", ".a", ".
 PRIVATE_FILES = {".venv-path", ".last_session.json", ".session_timeline.jsonl", ".first_run_done"}
 GENERATED_HEADERS = {"native_state_build.hpp", "tpmshx/model_coefficients.hpp", "tpmshx/preparation_df_data.hpp"}
 REQUIRED_RESOURCES = {
+    f"{PACKAGE}/model_configs/diagnostic_codes_v1.json",
     f"{PACKAGE}/model_configs/model_parameters_v1.json",
     f"{PACKAGE}/model_configs/preparation_df_v1.json",
     f"{PACKAGE}/model_configs/co2_segment2_v1.json",

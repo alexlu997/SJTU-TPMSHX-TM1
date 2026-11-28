@@ -89,6 +89,22 @@ def test_applicability_does_not_touch_unrelated_numeric_protocols():
     compare(replace(result, metadata=metadata), 'applicability')
 
 
+@pytest.mark.parametrize('key', ['missing', '', "p'流,\n"])
+def test_native_missing_group_returns_raw_key_and_keeps_rendered_verdict(key):
+    from tests.python.postprocess_tm1.test_applicability import result_with_evidence
+    result = result_with_evidence()
+    metadata = mutable_data(result.metadata)
+    metadata['applicability_evidence']['required'][0]['group'] = key
+    result = replace(result, metadata=metadata)
+    with pytest.raises(KeyError) as caught:
+        api.evaluate_applicability(result)
+    assert caught.value.args == (key,)
+    assert caught.value.diagnostic['details']['key'] == key
+    assert caught.value.diagnostic['code'] == 'input.key_error'
+    verdict = api.evaluate_qualification(result, {})['applicability']
+    assert verdict['reason'] == "'" + key + "'"
+
+
 def test_fixed_overflow_warning_precedes_delayed_qualification_error():
     result = result_fixture(3)
     pressure = mutable_data(result.pressure_evidence)
@@ -103,6 +119,26 @@ def test_fixed_overflow_warning_precedes_delayed_qualification_error():
             api.evaluate(result, request)
     overflows = [item for item in emitted if 'overflow' in str(item.message) and item.category is RuntimeWarning]
     assert overflows and all(item.filename == api.__file__ for item in overflows)
+
+
+def test_result_callback_rethrows_the_host_object(monkeypatch):
+    result = result_fixture(3)
+    pressure = mutable_data(result.pressure_evidence)
+    pressure['A'].update(P=np.full((2, 2, 2), np.finfo(float).max),
+        dx=np.ones(2), dy=np.ones(2), dz=np.ones(2),
+        inlet_frac=np.ones((2, 2)), outlet_frac=np.ones((2, 2)))
+    marker, cause = RuntimeError('host', 7), OSError('caller')
+    marker.add_note('caller note')
+
+    def observe_events(diagnostics, *, stacklevel):
+        if diagnostics.event_count:
+            raise marker from cause
+
+    monkeypatch.setattr(core, 'notify', observe_events)
+    with pytest.raises(RuntimeError) as caught:
+        api.evaluate(replace(result, pressure_evidence=pressure), MetricSpec('dP', 'Pa', 'pressure_face_v1'))
+    assert caught.value is marker and marker.__cause__ is cause
+    assert marker.args == ('host', 7) and marker.__notes__ == ['caller note']
 
 
 @pytest.mark.parametrize('query', ['evaluate', 'physical_balance', 'qualification'])

@@ -18,6 +18,7 @@ from numpy.typing import ArrayLike
 
 from tm1.model_configs.model_parameters import load_model_parameters
 from tm1.cpp_interface import _native_result_checks
+from tm1.run_control.diagnostics import ChokedFlowError
 
 _MODEL_PARAMETERS = load_model_parameters()
 R_AIR_DEFAULT = _MODEL_PARAMETERS['envelope']['r_air_default']
@@ -29,10 +30,6 @@ ENVELOPE_MODES = ('raise', 'warn', 'off')
 # model parameter. A minimum absolute pressure at or below the floor, including
 # its relative tolerance, is outside the compressible envelope.
 PRESSURE_FLOOR_PA = _MODEL_PARAMETERS['envelope']['pressure_floor_pa']
-
-
-class ChokedFlowError(RuntimeError):
-    """A compressible validity check failed; the message identifies the check."""
 
 
 def predict_outlet_p_sq(P_in: float, T_in: float, C_est: float, L: float,

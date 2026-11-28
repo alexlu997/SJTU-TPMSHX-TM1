@@ -3,21 +3,15 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from types import MappingProxyType, SimpleNamespace
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
 
-from tm1.data_types.case_data import SCHEMA_VERSION
-from tm1.data_types.field_result import FieldResult
+from tm1.data_types.field_result import FieldResult, validate_field_result_invariants
 from tm1.data_types.model_refs import ModelRef, freeze_mapping, freeze_value
 from tm1.data_types.persistence_validation import validate_result
 from .hdf5_data import ArrayDescriptor, read_record, read_record_selection, write_record
-
-_RESULT_MAPPINGS = (
-    'grid', 'fields', 'boundary_fluxes', 'pressure_evidence',
-    'run_status', 'metadata', 'field_metadata',
-)
 
 # Cell-shaped TPMS geometry design fields documented in docs/contracts/three_module_v1/.
 _DESIGN_FIELD_UNITS: dict[str, str] = {
@@ -60,54 +54,11 @@ class ResultHeader:
     model_refs: tuple[ModelRef, ...]
 
 
-def _check_portable_tree(value: Any) -> None:
-    if value is None or isinstance(value, (bool, int, float, str, bytes, ArrayDescriptor)):
-        return
-    if isinstance(value, np.generic):
-        return
-    if isinstance(value, Mapping):
-        if any(not isinstance(key, str) for key in value):
-            raise TypeError('contract mapping keys must be strings')
-        for item in value.values():
-            _check_portable_tree(item)
-        return
-    if isinstance(value, (list, tuple)):
-        for item in value:
-            _check_portable_tree(item)
-        return
-    if isinstance(value, np.ndarray):
-        if value.dtype.kind not in 'biuf':
-            raise TypeError('contract arrays must contain real numbers or booleans, not objects')
-        return
-    raise TypeError('contract data cannot contain callables or runtime objects')
-
-
-def _freeze_header_value(value: Any) -> Any:
-    """Freeze header metadata while keeping unloaded arrays as ArrayDescriptor entries."""
-    if isinstance(value, ArrayDescriptor):
-        return value
-    if isinstance(value, Mapping):
-        if any(not isinstance(key, str) for key in value):
-            raise TypeError('contract mapping keys must be strings')
-        return MappingProxyType({key: _freeze_header_value(item) for key, item in value.items()})
-    if isinstance(value, (list, tuple)):
-        return tuple(_freeze_header_value(item) for item in value)
-    return freeze_value(value)
-
-
 def _validate_selected_result_data(data: dict[str, Any]) -> tuple[int, ...]:
     """Run the same identity, container, and schema validation as load_result."""
-    if not data['result_id'] or not data['case_id'] or not data['backend_id']:
-        raise ValueError('FieldResult requires result_id, case_id and backend_id')
-    if data['schema_version'] != SCHEMA_VERSION:
-        raise ValueError(f"unsupported FieldResult schema_version: {data['schema_version']}")
-    for name in _RESULT_MAPPINGS:
-        if not isinstance(data[name], Mapping):
-            raise TypeError('contract field must be a mapping')
-        _check_portable_tree(data[name])
-    if any(not isinstance(ref, ModelRef) for ref in data['model_refs']):
-        raise TypeError('FieldResult.model_refs must contain ModelRef values')
-    validate_result(SimpleNamespace(**data))
+    record = SimpleNamespace(**data)
+    validate_field_result_invariants(record, freeze=False, preserved_types=(ArrayDescriptor,))
+    validate_result(record)
     grid = data['grid']
     return tuple(len(grid['d' + axis]) for axis in grid['axis_order'])
 
@@ -220,7 +171,7 @@ def load_result_header(path) -> ResultHeader:
         available_fields=tuple(data['fields']),
         available_design_fields=available_design,
         field_metadata=freeze_mapping(data['field_metadata']),
-        run_status=_freeze_header_value(data['run_status']),
-        metadata=_freeze_header_value(data['metadata']),
+        run_status=freeze_mapping(data['run_status'], preserved_types=(ArrayDescriptor,)),
+        metadata=freeze_mapping(data['metadata'], preserved_types=(ArrayDescriptor,)),
         model_refs=tuple(data['model_refs']),
     )

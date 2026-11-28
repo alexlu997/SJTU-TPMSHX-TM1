@@ -28,7 +28,7 @@ class ResultCache(QObject):
         self._result: ComputeResult | None = None
         self._mode: str | None = None
         self._result_file: Path | None = None
-        self._source_result_id: str | None = None
+        self._source_result_id: str = ''
         self._available_fields: frozenset[str] = frozenset()
         # Which tabs have been drawn for the current result snapshot.
         # Cleared when a new payload arrives so the canvas repaints.
@@ -67,7 +67,7 @@ class ResultCache(QObject):
                 self._available_fields = frozenset(available_fields)
             else:
                 self._result_file = None
-                self._source_result_id = None
+                self._source_result_id = ''
                 self._available_fields = frozenset()
             self._drawn_tabs.clear()
 
@@ -86,7 +86,7 @@ class ResultCache(QObject):
         """Return the source result ID recorded for the backing HDF5 file, if any."""
         if self.get_result(mode) is None:
             return None
-        return self._source_result_id
+        return self._source_result_id or None
 
     def has_field(self, key: str, mode: str | None = None) -> bool:
         """Return True if `key` is present in memory or in the backing result file."""
@@ -118,7 +118,6 @@ class ResultCache(QObject):
         if (
             self._result_file is not None
             and self._mode is not None
-            and self._source_result_id is not None
             and key in self._available_fields
         ):
             return read_saved_display_field(
@@ -134,7 +133,7 @@ class ResultCache(QObject):
         result = self.get_result(mode)
         if result is None:
             return {}
-        if self._result_file is None or self._mode is None or self._source_result_id is None:
+        if self._result_file is None or self._mode is None:
             return dict(result.fields)
         merged = dict(result.fields)
         merged.update(
@@ -152,7 +151,7 @@ class ResultCache(QObject):
             self._result = None
             self._mode = None
             self._result_file = None
-            self._source_result_id = None
+            self._source_result_id = ''
             self._available_fields = frozenset()
             self._drawn_tabs.clear()
         else:

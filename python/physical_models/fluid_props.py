@@ -22,14 +22,8 @@ import numpy as np
 
 from tm1.physical_models import co2_correlations, co2_props, nu_correlations, sco2_props, tpms_props
 from tm1.cpp_interface import _native_properties
-
-
-class WaterStateError(ValueError):
-    """An actual water state is unsupported or cannot be confirmed."""
-
-
-class QuickDesignWaterFieldError(WaterStateError):
-    """A quick-design field cannot satisfy the existing liquid-water contract."""
+from tm1.run_control.diagnostics import QuickDesignWaterFieldError as QuickDesignWaterFieldError
+from tm1.run_control.diagnostics import WaterStateError, diagnosed
 
 
 def validate_fluid_type(fluid_type: str, side: str) -> None:
@@ -60,15 +54,21 @@ def check_water_state(fluid, T, P, *, where="water state") -> None:
     try:
         _native_properties.paired_state('water_pt', temperatures, pressures)
     except _native_properties.StateError as error:
+        details = error.diagnostic['details']
         if not temperatures.size:
-            raise WaterStateError(f'{where}: water requires finite positive K and Pa(abs)') from None
+            failure = WaterStateError(f'{where}: water requires finite positive K and Pa(abs)')
+            raise diagnosed(failure, 'fluid.water_state', **details, state_status='empty') from None
         index = tuple(map(int, np.unravel_index(error.failure.index, temperatures.shape)))
         failure = WaterStateError(
             f'{where}: water index={index}, T={temperatures[index]:g} K, '
             f'P_abs={pressures[index]:g} Pa: {error}')
+        details = dict(details, cell_index=index, T_K=temperatures[index], P_abs_Pa=pressures[index])
         if error.failure.reason == 1:
-            raise failure from None
+            raise diagnosed(failure, 'fluid.water_state', **details) from None
         cause = WaterStateError(str(error)) if error.failure.reason == 6 else ValueError(str(error))
+        cause_code = 'fluid.water_state' if error.failure.reason == 6 else 'numeric.value_error'
+        diagnosed(cause, cause_code, **details)
+        diagnosed(failure, 'fluid.water_state', **dict(details, causes=(cause.diagnostic,)))
         raise failure from cause
 
 

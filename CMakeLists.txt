@@ -71,6 +71,7 @@ foreach(component IN LISTS TPMSHX_COMPONENTS)
 endforeach()
 
 set(sdk_headers
+    diagnostic_codes.hpp
     closure_evidence_c_api.h
     enthalpy_driver_c_api.h
     field_continuous_c_api.h

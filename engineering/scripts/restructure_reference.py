@@ -80,18 +80,21 @@ def difference(left, right, path):
             i = int(mismatches[0])
             index = tuple(map(int, np.unravel_index(i, left.shape)))
             return f'{path}{index}: {exact(left.flat[i])} != {exact(right.flat[i])} (bytes {a[i].tobytes().hex()} / {b[i].tobytes().hex()})'
-    elif isinstance(left, dict):
+    elif isinstance(left, Mapping):
         for key in left | right:
             if key not in left or key not in right:
                 return f'{path}.{key}: {"added" if key in right else "missing"}'
             if message := difference(left[key], right[key], f'{path}.{key}'):
                 return message
-    elif isinstance(left, list):
+    elif isinstance(left, (list, tuple)):
         if len(left) != len(right):
             return f'{path}: length {len(left)} != {len(right)}'
         for i, (a, b) in enumerate(zip(left, right)):
             if message := difference(a, b, f'{path}[{i}]'):
                 return message
+    elif isinstance(left, float):
+        if struct.pack('>d', left) != struct.pack('>d', right):
+            return f'{path}: {exact(left)} != {exact(right)}'
     elif left != right:
         return f'{path}: {left!r} != {right!r}'
     return None
@@ -113,7 +116,55 @@ def load(folder):
             object_hook=lambda node: arrays[node['$array']][...] if node.keys() == {'$array'} else node)
 
 
-def compare(reference, current):
+EXTENSIONS = ('prepared', 'field', 'settings', 'design', 'rejected')
+
+
+def extension_paths(name, old, stages):
+    """Select only new members of the original case, row, or condition."""
+    if name in stages:
+        yield 'prepared', ('prepared', 'metadata', 'diagnostic_records')
+    if name in stages or name in ('handoff-2d', 'handoff-3d'):
+        yield 'field', ('field', 'metadata', 'diagnostic_records')
+        yield 'settings', ('field', 'metadata', 'effective_settings')
+    if name == 'rejected':
+        yield 'rejected', ('diagnostic',)
+    if name == 'quick-design':
+        rows = [(('rows', i), row) for i, row in enumerate(old['rows'])]
+        if old['best'] is not None:
+            rows.append((('best',), old['best']))
+        for prefix, row in rows:
+            for key in ('code', 'details'):
+                yield 'design', (*prefix, key)
+            for j in range(len(row['percase'])):
+                for key in ('acceptance_records', 'warning_records'):
+                    yield 'design', (*prefix, 'percase', j, key)
+
+
+def legacy_difference(name, old, candidate, stages, required):
+    """Compare original fields. Project additions only from the loaded candidate."""
+    for group, path in extension_paths(name, old, stages):
+        left, right = old, candidate
+        for part in path[:-1]:
+            if type(left) is not type(right):
+                break
+            if isinstance(part, int):
+                if not isinstance(left, list) or part >= min(len(left), len(right)):
+                    break
+            elif not isinstance(left, dict) or part not in left or part not in right:
+                break
+            left, right = left[part], right[part]
+        else:
+            if isinstance(left, dict) and isinstance(right, dict):
+                key = path[-1]
+                if group in required and key not in right:
+                    location = ''.join(f'[{p}]' if isinstance(p, int) else f'.{p}' for p in path)
+                    return f'case.{name}{location}: required addition missing'
+                if key not in left:
+                    right.pop(key, None)
+    return difference(old, candidate, f'case.{name}')
+
+
+def compare(reference, current, *, legacy=False, required=()):
     left, right = load(reference), load(current)
     images = [{name: row['sha256'] for name, row in run['native'].items()} for run in (left, right)]
     print('Native images:', 'identical' if images[0] == images[1] else 'different builds')
@@ -121,9 +172,13 @@ def compare(reference, current):
     if any(kernels):
         print('BoTorch kernel:', 'identical' if kernels[0] == kernels[1] else f'{kernels[0]} -> {kernels[1]}')
     a, b = left['cases'], right['cases']
+    stages = read(CASES)['stages']
     failed = 0
     for name in a | b:
-        message = difference({name: a[name]} if name in a else {}, {name: b[name]} if name in b else {}, 'case')
+        if legacy and name in a and name in b:
+            message = legacy_difference(name, a[name], b[name], stages, required)
+        else:
+            message = difference({name: a[name]} if name in a else {}, {name: b[name]} if name in b else {}, 'case')
         print(message or f'{name}: equal')
         failed += message is not None
     return bool(failed)
@@ -165,6 +220,24 @@ def result_fields(field):
     # The saved-run driver adds elapsed times, host paths and checkpoint identity.
     return without(vars(field), 'result_id') | dict(metadata=without(
         field.metadata, 'provenance', 'timings_s', 'recovery', 'continuation'))
+
+
+def check_extensions(original, loaded, names):
+    """Compare the new HDF5 trees before sequence normalization, then compare the JSON copy."""
+    for name in names:
+        if name not in original and name not in loaded:
+            continue
+        before, after = original[name], loaded[name]
+        problem = difference(before, after, name)
+        if problem:
+            raise AssertionError(problem)
+        record_value = module('run_control.diagnostics').record_value
+        wire = record_value(before)
+        encoded = json.dumps(wire, ensure_ascii=False, allow_nan=False)
+        decoded = json.loads(encoded)
+        problem = difference(wire, record_value(decoded), f'JSON.{name}')
+        if problem:
+            raise AssertionError(problem)
 
 
 def pause_resume(case, control, folder, uninterrupted):
@@ -253,10 +326,21 @@ def run(args):
             report = module('postprocess.api').evaluate(field)
             physical = dict(field=result_fields(field), performance=evaluation(field, report))
             output.update(prepared=vars(case) | dict(metadata=without(case.metadata, 'provenance')), **physical)
-            if name in spec['handoff']:
+            if 'diagnostic_records' in case.metadata:
+                case_io = module('file_io.case_io')
+                saved = case_io.save_case(case, args.output / f'{name}.case.h5')
+                check_extensions(case.metadata, case_io.load_case(saved).metadata, ('diagnostic_records',))
+            extensions = ('diagnostic_records', 'effective_settings')
+            if name in spec['handoff'] or any(key in field.metadata for key in extensions):
                 io = module('file_io.result_io')
                 path = io.save_result(field, args.output / f'{name}.h5')
-                output['decoded_difference'] = difference(exact(field), exact(io.load_result(path)), 'HDF5')
+                loaded = io.load_result(path)
+                check_extensions(field.metadata, loaded.metadata, extensions)
+                problem = difference(exact(field), exact(loaded), 'HDF5')
+                if name in spec['handoff']:
+                    output['decoded_difference'] = problem
+                elif problem:
+                    raise AssertionError(problem)
         if name in spec['pause_resume']:
             with record_case(cases, times, f'resume-{name}') as output:
                 output.update(pause_resume(case, case_control, args.output / f'recovery-{name}', exact(physical)))
@@ -268,7 +352,7 @@ def run(args):
         try:
             module('preprocess.api').prepare_case(cfg, case_id='rejected')
         except ValueError as exc:
-            output.update(status='rejected', type=type(exc).__name__, reason=str(exc))
+            output.update(status='rejected', type=type(exc).__name__, reason=str(exc), diagnostic=exc.diagnostic)
         else:
             output['status'] = 'accepted'
     with record_case(cases, times, 'bo') as output:
@@ -325,9 +409,14 @@ def main():
     check = commands.add_parser('compare')
     check.add_argument('reference', type=Path)
     check.add_argument('current', type=Path)
+    check.add_argument('--legacy', action='store_true', help='Compare all original fields with a previous format.')
+    check.add_argument('--require', nargs='+', choices=EXTENSIONS, default=[],
+                       help='Require these additions on each applicable case in a legacy comparison.')
     args = parser.parse_args()
     if args.action == 'compare':
-        return compare(args.reference, args.current)
+        if args.require and not args.legacy:
+            parser.error('--require needs --legacy')
+        return compare(args.reference, args.current, legacy=args.legacy, required=args.require)
     if args.action == 'handoff':
         handoff(args)
         return 0
