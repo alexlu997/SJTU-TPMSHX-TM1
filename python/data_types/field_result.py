@@ -8,6 +8,42 @@ from tm1.data_types.model_refs import ModelRef, freeze_mapping
 from tm1.data_types.case_data import SCHEMA_VERSION
 
 
+FIELD_RESULT_MAPPINGS: tuple[str, ...] = (
+    "grid",
+    "fields",
+    "boundary_fluxes",
+    "pressure_evidence",
+    "run_status",
+    "metadata",
+    "field_metadata",
+)
+
+
+def validate_field_result_invariants(
+    record: Any,
+    *,
+    freeze: bool = False,
+    preserved_types: tuple[type, ...] = (),
+) -> tuple[dict[str, Mapping[str, Any]], tuple[ModelRef, ...]]:
+    """Validate FieldResult identity, schema, mapping containers, and model references."""
+    if not record.result_id or not record.case_id or not record.backend_id:
+        raise ValueError("FieldResult requires result_id, case_id and backend_id")
+    if record.schema_version != SCHEMA_VERSION:
+        raise ValueError(f"unsupported FieldResult schema_version: {record.schema_version}")
+    mappings = {
+        name: freeze_mapping(
+            getattr(record, name),
+            freeze=freeze,
+            preserved_types=preserved_types,
+        )
+        for name in FIELD_RESULT_MAPPINGS
+    }
+    if any(not isinstance(ref, ModelRef) for ref in record.model_refs):
+        raise TypeError("FieldResult.model_refs must contain ModelRef values")
+    refs = tuple(record.model_refs) if freeze else ()
+    return mappings, refs
+
+
 @dataclass(frozen=True)
 class FieldResult:
     """Native fields, boundary evidence and run verdict for one completed or explicitly rejected run."""
@@ -27,15 +63,10 @@ class FieldResult:
     model_refs: Sequence[ModelRef] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
-        if not self.result_id or not self.case_id or not self.backend_id:
-            raise ValueError("FieldResult requires result_id, case_id and backend_id")
-        if self.schema_version != SCHEMA_VERSION:
-            raise ValueError(f"unsupported FieldResult schema_version: {self.schema_version}")
-        for name in ("grid", "fields", "boundary_fluxes", "pressure_evidence", "run_status", "metadata", "field_metadata"):
-            object.__setattr__(self, name, freeze_mapping(getattr(self, name)))
-        if any(not isinstance(ref, ModelRef) for ref in self.model_refs):
-            raise TypeError("FieldResult.model_refs must contain ModelRef values")
-        object.__setattr__(self, "model_refs", tuple(self.model_refs))
+        mappings, refs = validate_field_result_invariants(self, freeze=True)
+        for name, value in mappings.items():
+            object.__setattr__(self, name, value)
+        object.__setattr__(self, "model_refs", refs)
 
 
 def execution_record(backend, backend_version, metadata, *, version, dimension, roles, sides, thermal, evidence):

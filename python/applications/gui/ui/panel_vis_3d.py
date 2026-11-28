@@ -340,6 +340,11 @@ class ThreeDVisPanel(QWidget):
         """Return loaded PANEL_FIELD_SPECS keys in canonical display order."""
         return self._available_fields
 
+    def _show_field_load_error(self, exc: Exception) -> None:
+        self.status.setText(f"场读取失败：{exc}")
+        self.status.show()
+        self._layout_overlays()
+
     def select_field(self, field_key: str) -> bool:
         """Select an available field key and update the 3D scene and colorbar."""
         if self._grid is None:
@@ -352,9 +357,7 @@ class ThreeDVisPanel(QWidget):
             try:
                 self._ensure_field_for_display(field_key)
             except (OSError, ValueError, KeyError) as exc:
-                self.status.setText(f"场读取失败：{exc}")
-                self.status.show()
-                self._layout_overlays()
+                self._show_field_load_error(exc)
                 return False
         elif field_key not in self._arrays:
             return False
@@ -415,6 +418,8 @@ class ThreeDVisPanel(QWidget):
         shared_pressure: Optional[bool] = None,
     ) -> None:
         """Update 3D temperature/pressure shared-scale settings and refresh if loaded."""
+        prev_sync_temp = self._sync_temp_scale
+        prev_shared_pressure = self._shared_pressure_scale
         changed = False
         if sync_temp is not None and bool(sync_temp) != self._sync_temp_scale:
             self._sync_temp_scale = bool(sync_temp)
@@ -424,7 +429,13 @@ class ThreeDVisPanel(QWidget):
             changed = True
         if changed and (self._arrays or self._field_loader is not None):
             if self._field_loader is not None and self._field is not None:
-                self._ensure_field_for_display(self._field)
+                try:
+                    self._ensure_field_for_display(self._field)
+                except (OSError, ValueError, KeyError) as exc:
+                    self._sync_temp_scale = prev_sync_temp
+                    self._shared_pressure_scale = prev_shared_pressure
+                    self._show_field_load_error(exc)
+                    return
             if self._arrays:
                 self._global_clim = self._build_global_clim()
             if self._grid is not None:

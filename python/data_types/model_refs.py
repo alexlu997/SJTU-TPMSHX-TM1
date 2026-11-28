@@ -8,8 +8,24 @@ from typing import Any, Mapping
 import numpy as np
 
 
-def freeze_value(value: Any) -> Any:
-    """Detach portable data; reject runtime objects at every nesting level.
+def _freeze_array(value: np.ndarray) -> np.ndarray:
+    if type(value) is np.ndarray and value.flags.c_contiguous:
+        owner: object = value
+        while type(owner) is np.ndarray:
+            owner = owner.base
+        # Do not retain a large parent buffer for a small sliced field.
+        if type(owner) is bytes and len(owner) == value.nbytes:
+            return value.view()
+    return np.frombuffer(value.tobytes(), dtype=value.dtype).reshape(value.shape)
+
+
+def freeze_value(
+    value: Any,
+    *,
+    freeze: bool = True,
+    preserved_types: tuple[type, ...] = (),
+) -> Any:
+    """Validate and optionally detach portable data at every nesting level.
 
     Arrays use an immutable bytes buffer, so consumers cannot re-enable
     writes. Complete frozen buffers can be shared with independent array
@@ -17,32 +33,46 @@ def freeze_value(value: Any) -> Any:
     """
     if value is None or isinstance(value, (bool, int, float, str, bytes)):
         return value
+    if preserved_types and isinstance(value, preserved_types):
+        return value
     if isinstance(value, np.generic):
-        return freeze_value(value.item())
+        return freeze_value(value.item(), freeze=freeze, preserved_types=preserved_types)
     if isinstance(value, Mapping):
         if any(not isinstance(key, str) for key in value):
             raise TypeError("contract mapping keys must be strings")
-        return MappingProxyType({key: freeze_value(item) for key, item in value.items()})
+        if freeze:
+            return MappingProxyType({
+                key: freeze_value(item, freeze=True, preserved_types=preserved_types)
+                for key, item in value.items()
+            })
+        for item in value.values():
+            freeze_value(item, freeze=False, preserved_types=preserved_types)
+        return value
     if isinstance(value, (list, tuple)):
-        return tuple(freeze_value(item) for item in value)
+        if freeze:
+            return tuple(
+                freeze_value(item, freeze=True, preserved_types=preserved_types)
+                for item in value
+            )
+        for item in value:
+            freeze_value(item, freeze=False, preserved_types=preserved_types)
+        return value
     if isinstance(value, np.ndarray):
         if value.dtype.kind not in "biuf":
             raise TypeError("contract arrays must contain real numbers or booleans, not objects")
-        if type(value) is np.ndarray and value.flags.c_contiguous:
-            owner: object = value
-            while type(owner) is np.ndarray:
-                owner = owner.base
-            # Do not retain a large parent buffer for a small sliced field.
-            if type(owner) is bytes and len(owner) == value.nbytes:
-                return value.view()
-        return np.frombuffer(value.tobytes(), dtype=value.dtype).reshape(value.shape)
+        return _freeze_array(value) if freeze else value
     raise TypeError("contract data cannot contain callables or runtime objects")
 
 
-def freeze_mapping(value: Mapping[str, Any]) -> Mapping[str, Any]:
+def freeze_mapping(
+    value: Mapping[str, Any],
+    *,
+    freeze: bool = True,
+    preserved_types: tuple[type, ...] = (),
+) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise TypeError("contract field must be a mapping")
-    return freeze_value(value)
+    return freeze_value(value, freeze=freeze, preserved_types=preserved_types)
 
 
 @dataclass(frozen=True)
