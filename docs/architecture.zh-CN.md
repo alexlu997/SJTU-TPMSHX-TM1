@@ -95,11 +95,12 @@ Python 在 [python/](../python/) 下负责公共 API、配置、不可变 DTO、
 数值代码保持不依赖 Qt。在 GUI 之外，只有离屏 GUI 冒烟工具 `python/development/runs/_smoke_boot.py` 和 `python/development/runs/smokes/` 导入 Qt。
 GUI 代码位于 `python/applications/gui/ui/`（`Main_Menu` 位于 `main_window.py`）和 `python/applications/gui/controllers/`。根目录 [main.py](../main.py) 是唯一的应用启动入口：先调用 `freeze_support()`，再在任何路由导入 Qt、VTK、Matplotlib 或 Torch 之前分派 `gui`（默认）、CLI 阶段、`summary`、`design` 与 `optimize`。GUI 路由调用 `python/applications/gui/main.py`。
 主窗口组装 `SingleRun`、`OptimizationPage` 和 `QuickDesignPage`。每个任务所有者负责启动、取消和线程退出。`Workbench` 选择视图，`FieldResults` 发布结果，`ResultExport` 导出数据与图表，`CaseFiles` 读写算例、预设和工作区会话。优化输入和工况解码位于无 Qt 依赖的 `applications/optimization/optimization_job.py`。
+`preprocess/preflight.py` 根据已捕获的 `ComputeConfig` 返回网格与几何预检结果。`applications/design/sensitivity.py` 计算仅适用于空气的筛选估算中的一行。GUI 显示预检报告，每行结束后处理事件，并负责热图显示和单元格选择。
 
 | 分层 | 所有者路径 | 职责 |
 | --- | --- | --- |
-| 公共入口与应用 | [compute.py](../python/compute.py)、[applications/](../python/applications/) | 运行三个计算阶段；拥有 GUI、CLI、Quick Design 尺寸搜索、多工况 BO、`result_adapter` 与运行恢复。 |
-| 阶段 API | [preprocess/](../python/preprocess/)、[solvers/](../python/solvers/)、[postprocess/](../python/postprocess/) | 定义 `prepare_case`、`run_case` 与 `evaluate`，以及离线拟合、`physical_ledger`、`result_math`、`result_display` 与导出。 |
+| 公共入口与应用 | [compute.py](../python/compute.py)、[applications/](../python/applications/) | 运行三个计算阶段；拥有 GUI、CLI、Quick Design 尺寸搜索、灵敏度筛选、多工况 BO、`result_adapter` 与运行恢复。 |
+| 阶段 API | [preprocess/](../python/preprocess/)、[solvers/](../python/solvers/)、[postprocess/](../python/postprocess/) | 定义 `prepare_case`、`run_case` 与 `evaluate`，以及预检、离线拟合、`physical_ledger`、`result_math`、`result_display` 与导出。 |
 | 原生绑定 | [cpp_interface/](../python/cpp_interface/) | 按需加载四个原生库，将实数规范化为 `float64`、标签规范化为 `int32`，并发出固定 `RuntimeWarning` 诊断。 |
 | 模型与资源 | [physical_models/](../python/physical_models/)、[model_configs/](../python/model_configs/) | 拥有模型查询、`preparation_cache.py`、`zone_units.py` 与带版本 JSON／CSV 模型资源。 |
 | 数据、I/O 与控制 | [data_types/](../python/data_types/)、[file_io/](../python/file_io/)、[run_control/](../python/run_control/) | 拥有 `ComputeConfig`、`CaseData`、`FieldResult`、`PerformanceResult`、`metric_spec`、文件 I/O、取消与来源记录。 |
