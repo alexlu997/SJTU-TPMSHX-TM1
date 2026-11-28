@@ -40,8 +40,7 @@ def validate_field_result_invariants(
     }
     if any(not isinstance(ref, ModelRef) for ref in record.model_refs):
         raise TypeError("FieldResult.model_refs must contain ModelRef values")
-    refs = tuple(record.model_refs) if freeze else ()
-    return mappings, refs
+    return mappings, tuple(record.model_refs)
 
 
 @dataclass(frozen=True)

@@ -418,8 +418,6 @@ class ThreeDVisPanel(QWidget):
         shared_pressure: Optional[bool] = None,
     ) -> None:
         """Update 3D temperature/pressure shared-scale settings and refresh if loaded."""
-        prev_sync_temp = self._sync_temp_scale
-        prev_shared_pressure = self._shared_pressure_scale
         changed = False
         if sync_temp is not None and bool(sync_temp) != self._sync_temp_scale:
             self._sync_temp_scale = bool(sync_temp)
@@ -432,8 +430,6 @@ class ThreeDVisPanel(QWidget):
                 try:
                     self._ensure_field_for_display(self._field)
                 except (OSError, ValueError, KeyError) as exc:
-                    self._sync_temp_scale = prev_sync_temp
-                    self._shared_pressure_scale = prev_shared_pressure
                     self._show_field_load_error(exc)
                     return
             if self._arrays:

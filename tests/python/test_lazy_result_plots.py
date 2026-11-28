@@ -442,7 +442,7 @@ def test_panel_set_scale_sharing_surfaces_reader_error_in_status(initial_field, 
         assert shown['visible'] is True
         assert '场读取失败' in shown['text']
         assert 'source_result_id mismatch' in shown['text']
-        assert panel._sync_temp_scale is False
-        assert panel._shared_pressure_scale is False
+        assert panel._sync_temp_scale is toggle_kwargs.get('sync_temp', False)
+        assert panel._shared_pressure_scale is toggle_kwargs.get('shared_pressure', False)
     finally:
         panel.colorbar.deleteLater()
