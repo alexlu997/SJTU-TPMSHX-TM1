@@ -9,26 +9,6 @@ namespace {
 void check(bool accepted) {
     if (!accepted) throw std::runtime_error("spatial cache contract failed");
 }
-struct Cache {
-    tpmshx_preparation_sigmoid_lut_view_v6 lut{};
-    std::size_t inlet_reads{},inlet_writes{},lut_reads{};
-    bool nominal{},spatial{};
-};
-int TPMSHX_PREPARATION_CALL inlet(void* context,std::uint32_t action,
-    const tpmshx_preparation_inlet_key_v9* key,tpmshx_preparation_inlet_cache_v3* value,std::uint32_t* hit) {
-    auto& cache=*static_cast<Cache*>(context);
-    if (key->geometry.topology!=1 || key->fluid || key->velocity_m_s<=0.) return 1;
-    cache.nominal|=key->have_sco2_nu==1;cache.spatial|=key->have_sco2_nu==0;
-    if (action) {++cache.inlet_writes;if (!(value->properties.rho>0.) || !value->evidence.range_count) return 1;}
-    else {++cache.inlet_reads;*hit=0;}
-    return 0;
-}
-int TPMSHX_PREPARATION_CALL lut(void* context,std::uint32_t action,std::uint32_t topology,
-    std::size_t resolution,tpmshx_preparation_sigmoid_lut_view_v6* value,std::uint32_t* hit) {
-    auto& cache=*static_cast<Cache*>(context);
-    if (action || topology!=1 || resolution!=256 || value->cell_mm.size!=41 || value->wall_mm.size!=31) return 1;
-    ++cache.lut_reads;*value=cache.lut;*hit=1;return 0;
-}
 void configure(tpmshx_preparation_case_input_2d_v1& value) {
     value.length_m=.182;value.height_m=.042;value.requested_nx=12;value.requested_ny=16;
     value.have_physical_depth=1;value.physical_depth_m=.042;
@@ -57,10 +37,6 @@ template<class CaseView> void check_prepared(const CaseView& state) {
 int main() {
     try {
         using namespace tpmshx::stages;
-        Cache cache;
-        PreparationCallbacks callbacks;
-        callbacks.context=&cache;
-        callbacks.inlet_cache_at=inlet;callbacks.sigmoid_lut_cache=lut;
         PreparationOptions options;options.allow_extrapolation=1;
         std::array<double,2> zone_targets{},sigmoid_targets{};
         auto zones=[&] {
@@ -68,14 +44,14 @@ int main() {
             input.model.solid_conductivity_W_mK=input.input.solid_conductivity_W_mK;
             std::array<tpmshx_preparation_zone_region_v5,2> regions{{region(0.,.4,7.),region(.4,1.,6.)}};
             input.regions=regions.data();input.region_count=regions.size();
-            auto capacity=prepare_inlet_mass_capacities(input,options,&callbacks);
+            auto capacity=prepare_inlet_mass_capacities(input,options);
             check(capacity.view().owner!=nullptr);
             input.input=capacity.view().flow.input;
             input.regions=capacity.view().regions;input.region_count=capacity.view().region_count;
             input.have_explicit_targets=1;
             for (std::size_t i=0;i<2;++i)
                 input.explicit_targets_kg_s[i]=zone_targets[i]=capacity.view().flow.capacities[i]*(i?6.:8.);
-            return resolve_inlet_flow(input,options,&callbacks);
+            return resolve_inlet_flow(input,options);
         }();
         ZonedFlowInput2D zone_input;
         zone_input.input=zones.view().flow.input;
@@ -83,34 +59,35 @@ int main() {
         zone_input.regions=zones.view().regions;zone_input.region_count=zones.view().region_count;
         zone_input.model=zones.view().model;zone_input.have_explicit_targets=1;
         std::copy(zone_targets.begin(),zone_targets.end(),zone_input.explicit_targets_kg_s);
-        auto zone_result=prepare_case(zone_input,options,&callbacks);
+        auto zone_result=prepare_case(zone_input,options);
         check_prepared(zone_result.view());
-        check(cache.nominal && cache.spatial);
-        check(cache.inlet_reads && cache.inlet_writes);
+        tpmshx_preparation_cache_info_v1 info{};
+        char error[256]{};
+        check(!tpmshx_preparation_read_cache_info_v1(TPMSHX_PREPARATION_CACHE_INLET,&info,error,sizeof(error)));
+        check(info.currsize && info.misses);
 
         auto sigmoid=[&] {
             SigmoidFlowInput2D input;configure(input.input);
             input.model.solid_conductivity_W_mK=input.input.solid_conductivity_W_mK;
-            input.model.load_default_lut=1;
+            input.model.load_default_lut=0;
             auto bounds=region(0.,1.,7.);
             input.regions=&bounds;input.region_count=1;
             std::array<double,36> controls{};
             for (std::size_t i=0;i<18;++i) {controls[2*i]=7.;controls[2*i+1]=.4;}
             input.controls.decision_mm={controls.data(),controls.size()};
             auto table=build_sigmoid_lut(1,2,2,16);
-            cache.lut={table.view().cell_mm,table.view().wall_mm,table.view().porosity,
+            input.lut={table.view().cell_mm,table.view().wall_mm,table.view().porosity,
                 table.view().area_density_per_m,table.view().porosity_fast,table.view().area_fast};
-            auto capacity=prepare_inlet_mass_capacities(input,options,&callbacks);
+            auto capacity=prepare_inlet_mass_capacities(input,options);
             input.input=capacity.view().flow.input;
             input.regions=capacity.view().regions;input.region_count=capacity.view().region_count;
             input.controls=capacity.view().controls;input.lut=capacity.view().lut;
             input.have_explicit_targets=1;
             for (std::size_t i=0;i<2;++i)
                 input.explicit_targets_kg_s[i]=sigmoid_targets[i]=capacity.view().flow.capacities[i]*(i?6.:8.);
-            return resolve_inlet_flow(input,options,&callbacks);
+            return resolve_inlet_flow(input,options);
         }();
-        cache.lut={};
-        check(cache.lut_reads==2 && sigmoid.view().lut.porosity.size==4);
+        check(sigmoid.view().lut.porosity.size==4);
         SigmoidFlowInput2D sigmoid_input;
         sigmoid_input.input=sigmoid.view().flow.input;
         sigmoid_input.kind=sigmoid.view().kind;sigmoid_input.axis=sigmoid.view().axis;
@@ -119,9 +96,9 @@ int main() {
         sigmoid_input.model=sigmoid.view().model;sigmoid_input.model.load_default_lut=0;
         sigmoid_input.have_explicit_targets=1;
         std::copy(sigmoid_targets.begin(),sigmoid_targets.end(),sigmoid_input.explicit_targets_kg_s);
-        auto sigmoid_result=prepare_case(sigmoid_input,options,&callbacks);
+        auto sigmoid_result=prepare_case(sigmoid_input,options);
         check_prepared(sigmoid_result.view());
-        std::cout<<"Prepared flat spatial cases with "<<cache.inlet_reads<<" inlet reads and "<<cache.lut_reads<<" LUT reads\n";
+        std::cout<<"Prepared spatial cases with "<<info.currsize<<" cached inlets\n";
         return 0;
     } catch (const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
 }

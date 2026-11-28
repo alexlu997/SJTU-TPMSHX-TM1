@@ -265,7 +265,8 @@ def test_fixed_flow_preserves_spatial_2d_geometry_and_input(monkeypatch, tmp_pat
     if design_mode == 'sigmoid':
         from tm1.physical_models import sigmoid_field
         lut = sigmoid_field.GeometryLUT('Gyroid', n_L=3, n_t=3, N=16, cache_dir=str(tmp_path))
-        monkeypatch.setitem(sigmoid_field._lut_cache, ('Gyroid',), lut)
+        from tests.python.native_preparation_abi import supply_sigmoid_table
+        supply_sigmoid_table(monkeypatch, lut)
         config.zones.pareto_x_decision = [value for cell in np.linspace(6., 7., 18)
                                         for value in (float(cell), .4)]
     snapshot = asdict(config)

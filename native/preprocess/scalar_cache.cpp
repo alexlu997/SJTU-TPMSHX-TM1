@@ -28,20 +28,19 @@ class LruCache {
     std::size_t hits_ = 0, misses_ = 0;
 
 public:
-    template<class Compute>
-    Value get(const Key& key, Compute compute) {
-        {
-            const std::lock_guard<std::mutex> lock(mutex_);
-            const auto found = index_.find(key);
-            if (found != index_.end()) {
-                ++hits_;
-                entries_.splice(entries_.begin(), entries_, found->second);
-                return found->second->second;
-            }
-            ++misses_;
+    std::optional<Value> find(const Key& key) {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        const auto found = index_.find(key);
+        if (found != index_.end()) {
+            ++hits_;
+            entries_.splice(entries_.begin(), entries_, found->second);
+            return found->second->second;
         }
+        ++misses_;
+        return {};
+    }
 
-        auto value = compute();
+    Value publish(const Key& key, Value value) {
         const std::lock_guard<std::mutex> lock(mutex_);
         const auto found = index_.find(key);
         if (found != index_.end()) return found->second->second;
@@ -57,6 +56,12 @@ public:
             entries_.pop_back();
         }
         return entries_.front().second;
+    }
+
+    template<class Compute>
+    Value get(const Key& key, Compute compute) {
+        if (auto found = find(key)) return *found;
+        return publish(key, compute());
     }
 
     tpmshx_preparation_cache_info_v1 info() {
@@ -78,12 +83,32 @@ LruCache<std::tuple<Topology, Bits, Bits, std::size_t>, geometry::Geometry, 3276
 LruCache<std::pair<Bits, Bits>, std::array<double, 5>, 4096> co2;
 LruCache<std::tuple<std::string, Bits, Bits>, double, 4096> sco2;
 
+auto nu_key(const Sco2NuSelection& selection) {
+    std::array<std::optional<Bits>, 2> alpha;
+    for (std::size_t i = 0; i < alpha.size(); ++i)
+        if (selection.alpha[i]) alpha[i] = bits(*selection.alpha[i]);
+    return std::make_tuple(selection.mode, alpha, selection.parameter_version, selection.source, selection.applicability);
+}
+
+auto inlet_key(const PreparationInletKey& key) {
+    std::optional<decltype(nu_key(Sco2NuSelection{}))> selection;
+    if (key.sco2_nu) selection = nu_key(*key.sco2_nu);
+    return std::make_tuple(key.geometry.topology, bits(key.geometry.cell_length_mm), bits(key.geometry.wall_thickness_mm),
+        key.fluid, bits(key.velocity_m_s), bits(key.temperature_K), bits(key.pressure_Pa), selection, key.co2_geometry);
+}
+
+using TableKey = std::tuple<Topology, std::size_t, std::vector<double>, std::vector<double>, std::array<bool,2>>;
+LruCache<decltype(inlet_key(PreparationInletKey{})), InletValue, 4096> inlets;
+LruCache<TableKey, TableValue, 32> tables;
+
 template<class Function>
 auto with_cache(std::uint32_t id, Function function) {
     switch (id) {
     case TPMSHX_PREPARATION_CACHE_GEOMETRY: return function(geometries);
     case TPMSHX_PREPARATION_CACHE_CO2: return function(co2);
     case TPMSHX_PREPARATION_CACHE_SCO2: return function(sco2);
+    case TPMSHX_PREPARATION_CACHE_INLET: return function(inlets);
+    case TPMSHX_PREPARATION_CACHE_SIGMOID: return function(tables);
     default: throw std::invalid_argument("unknown preparation cache ID");
     }
 }
@@ -132,6 +157,21 @@ double cached_sco2(const std::string& key, double temperature, double pressure) 
         validate_sco2({&temperature, 1}, {&pressure, 1});
         return sco2_pt(0, {key}, {&temperature, 1}, {&pressure, 1}).at(0);
     });
+}
+
+InletValue find_inlet(const PreparationInletKey& key) {
+    return inlets.find(inlet_key(key)).value_or(nullptr);
+}
+InletValue publish_inlet(const PreparationInletKey& key, PreparationInletCache value) {
+    return inlets.publish(inlet_key(key), std::make_shared<const PreparationInletCache>(std::move(value)));
+}
+TableValue find_table(Topology topology, std::size_t resolution, const SigmoidLUT2D& axes, std::array<bool,2> descending) {
+    return tables.find({topology, resolution, axes.cell_mm, axes.wall_mm, descending}).value_or(nullptr);
+}
+TableValue publish_table(Topology topology, std::size_t resolution, SigmoidLUT2D value,
+                         std::array<bool,2> descending, TableFileFields file_fields) {
+    const TableKey key{topology, resolution, value.cell_mm, value.wall_mm, descending};
+    return tables.publish(key, std::make_shared<const CachedTable>(CachedTable{std::move(value),std::move(file_fields)}));
 }
 
 tpmshx_preparation_cache_info_v1 scalar_cache_info(std::uint32_t id) {

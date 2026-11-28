@@ -141,15 +141,15 @@ _STAGE_DTO_MODULES = {
 }
 _STAGE_DTO_TYPES = {"CaseData", "FieldResult", "MetricSpec", "MetricValue", "PerformanceResult", "ModelRef"}
 _OTHER_STAGE_MODULES = {"full_2d_stage", "full_3d_stage", "run_state", "native_preparation", "preparation_host",
-                        "inlet_properties", "quick_design", "_native_preparation_3d", "quick_preparation"}
-_FULL_2D_FORBIDDEN_SIBLINGS = {"full_3d_stage", "quick_design", "native_preparation", "inlet_properties",
+                        "inlet_properties", "_native_lut", "quick_design", "_native_preparation_3d", "quick_preparation"}
+_FULL_2D_FORBIDDEN_SIBLINGS = {"full_3d_stage", "quick_design", "native_preparation", "inlet_properties", "_native_lut",
                                "result_evaluation", "_native_preparation_3d", "quick_preparation", "*"}
-_FULL_3D_FORBIDDEN_SIBLINGS = {"full_2d_stage", "quick_design", "native_preparation", "inlet_properties",
+_FULL_3D_FORBIDDEN_SIBLINGS = {"full_2d_stage", "quick_design", "native_preparation", "inlet_properties", "_native_lut",
                                "result_evaluation", "_native_preparation_3d", "quick_preparation", "*"}
 _QUICK_PREPARATION_IMPORTS = {"tm1.cpp_interface.quick_preparation"}
 # Shared ABI layouts use wire types from _native_df and _native_result.
 _FULL_PREPARATION_WIRE_MODULES = {
-    "native_preparation", "preparation_host", "inlet_properties", "stage_libraries",
+    "native_preparation", "preparation_host", "inlet_properties", "_native_lut", "stage_libraries",
     "_native_preparation_case", "_native_preparation_3d", "_native_values", "_native_properties",
     "_native_df", "_native_result", "_native_diagnostics",
 }
@@ -444,7 +444,7 @@ def _stage_boundary_violations(path, tree, package):
     if path == PKG / "solvers/api.py":
         label, binding, operations = "solver API", "solver_api", set()
     elif (preparation_api or path == PKG / "preprocess/two_d/preparation.py" or path.parent == PKG / "cpp_interface"
-            and path.stem in {"native_preparation", "preparation_host", "inlet_properties",
+            and path.stem in {"native_preparation", "preparation_host", "inlet_properties", "_native_lut",
                               "_native_preparation_3d", "_native_preparation_case"}):
         label, binding = "full preparation", "native_preparation"
         operations = set() if preparation_api else {"", "pack_input", "run_preparation"}

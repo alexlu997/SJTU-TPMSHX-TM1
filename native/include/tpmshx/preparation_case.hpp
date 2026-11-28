@@ -124,6 +124,7 @@ struct PreparationDragEvidence {
 };
 struct PreparedSide2D {
     InletInput2D inlet;
+    geometry::Geometry property_geometry{};
     UniformInletProperties properties;
     double seed_permeability_m2=0.,seed_forchheimer_per_m=0.;
     std::vector<double> cross_widths,stream_widths,row_permeability,row_forchheimer;
@@ -151,8 +152,6 @@ struct PreparationEvent {
     std::string logger,message;
     std::uint32_t floating_event=0;
 };
-struct PreparationInletCache;
-struct SigmoidLUT2D;
 struct PreparationGeometryKey {
     Topology topology;
     double cell_length_mm,wall_thickness_mm;
@@ -170,16 +169,11 @@ struct PreparationCallbacks {
     void* context=nullptr;
     // This optional hook checks host objects, never physical values.
     void (*validate_host_input)(void*,std::uint32_t,std::uint32_t)=nullptr;
-    // Cache hooks transport completed values. A miss uses the native calculation.
-    bool (*inlet_cache)(void*,bool,std::uint32_t,const InletInput2D&,PreparationInletCache&)=nullptr;
     // Observe at the source. Cached records do not repeat standalone notices.
     void (*observe_range)(void*,const PreparationRange&,bool,std::optional<double>)=nullptr;
     // Notice 0 is inlet Re, 1 is a Nu reason, and 2 is a geometry reason.
     void (*observe_notice)(void*,std::uint32_t,std::uint32_t,double,const std::string&)=nullptr;
     void (*validate_grid)(void*)=nullptr;
-    // Spatial and 3D stages identify each actual scalar cache access.
-    bool (*inlet_cache_at)(void*,bool,const PreparationInletKey&,PreparationInletCache&)=nullptr;
-    bool (*sigmoid_lut_cache)(void*,bool,Topology,std::size_t,SigmoidLUT2D&)=nullptr;
 };
 struct PreparationModelRef {
     std::string name,version,side;
@@ -212,6 +206,7 @@ struct InletPropertyQuery {
 using InletQueryResult=std::array<double,12>;
 InletQueryResult query_inlet_properties(const InletPropertyQuery&,
     const PreparationCallbacks& = {});
+PreparationInletCache query_cached_inlet(const PreparationInletKey&, const PreparationCallbacks& = {});
 struct PreparedCase2D {
     CaseInput2D input;
     PreparationOptions options;
@@ -363,9 +358,6 @@ PreparedCase2D prepare_case_2d(const CaseInput2D&,const PreparationOptions& = {}
 PreparedZonedCase2D prepare_zoned_case_2d(const ZonedInput2D&,
     const PreparationOptions& = {},const PreparationCallbacks& = {});
 
-// The caller retains this resource across preparations. Disk caches stay in the host.
-SigmoidLUT2D build_sigmoid_lut_2d(Topology,std::size_t cell_nodes=41,
-    std::size_t wall_nodes=31,std::size_t resolution=256);
 // The 3D stage owns physical (x,y,z) fields and unswapped physical port masks.
 PreparedCase3D prepare_case_3d(const CaseInput3D&,const PreparationOptions& = {},
                               const PreparationCallbacks& = {},CaseScope3D = CaseScope3D::symmetric_v3);

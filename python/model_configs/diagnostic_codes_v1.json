@@ -248,6 +248,8 @@
         "tpmshx_preparation_clear_cache_v1",
         "tpmshx_preparation_co2_pt_v2",
         "tpmshx_preparation_read_cache_info_v1",
+        "tpmshx_preparation_sigmoid_table_v1",
+        "tpmshx_preparation_sigmoid_sample_v1",
         "tpmshx_preparation_co2_validate_pt_v1",
         "tpmshx_preparation_empirical_v1",
         "tpmshx_preparation_inlet_re_pr_v1",
@@ -274,7 +276,8 @@
       "image": "preparation",
       "stage": "inlet",
       "operations": [
-        "tpmshx_query_inlet_properties_v2"
+        "tpmshx_query_inlet_properties_v2",
+        "tpmshx_preparation_cached_inlet_v1"
       ],
       "status": {"1": "stage.invalid_input", "2": "native.allocation", "3": "internal.error", "10": "fluid.water_state", "11": "fluid.co2_state", "12": "fluid.sco2_state"},
       "cause_status": [1,2,3,10,11,12],

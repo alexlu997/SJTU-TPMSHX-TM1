@@ -229,52 +229,21 @@ def test_owned_3d_views_cannot_be_diagnostic_outputs(mode, alias):
         bindings.releases[kind](ct.byref(result))
 
 
-@pytest.mark.parametrize('alias', ['error', 'failure'])
-def test_cached_3d_evidence_cannot_alias_diagnostics(alias):
-    from tm1.cpp_interface import _native_preparation_3d as binding
-    from tm1.cpp_interface import _native_preparation_case as native
-    from tm1.cpp_interface import preparation_host
-    from tm1.cpp_interface.stage_libraries import preparation_library
-    config = _configuration('uniform', pair=('air', 'air')).validate()
-    source, errors = binding.pack_input(config, None, lambda fluid: fluid.u_mps, 2_000_000)
-    assert not errors
-    result = binding._SpatialCase(1, ct.sizeof(binding._SpatialCase))
-    options = native._Options(1, ct.sizeof(native._Options), 0, 1, 0.)
-    failure, error = native._Failure(2, ct.sizeof(native._Failure)), ct.create_string_buffer(b'unchanged', 4096)
-    calls = []
-
-    def inlet(action, key, value):
-        calls.append(action)
-        pointer = error if alias == 'error' else ct.byref(failure)
-        value.evidence.warnings = ct.cast(pointer, ct.POINTER(native._Text))
-        value.evidence.warning_count = 1
-        return False
-
-    callbacks, errors = preparation_host._callback_bridge(lambda *args: None,
-        inlet_cache_at=inlet)
-    before = bytes(result), bytes(failure), bytes(error)
-    bindings = preparation_host._volume_bindings(preparation_library.get().path)
-    status = bindings.operations[binding._SpatialInput, 'prepare_flow_case'].call(ct.byref(source), ct.byref(options),
-        ct.byref(callbacks), ct.byref(result), ct.byref(failure), error, len(error))
-    assert status == 1 and calls == [0] and not errors
-    assert (bytes(result), bytes(failure), bytes(error)) == before
-
-
 @pytest.mark.parametrize('mode', ['xy', 'xyz', 'grid'])
 @pytest.mark.parametrize('targets', [None, (.001, .001)])
 def test_air_field_observations_stay_bounded(monkeypatch, mode, targets):
-    from tm1.preprocess.preparation import PreparationCache
+    from tm1.preprocess.preparation import PreparationObservers
     config = _configuration(mode, pair=('air', 'air'))
     config.solver.Nx, config.solver.Ny, config.solver.Nz = 30, 20, 10
     actual_calls = []
-    original_observe = PreparationCache.observe_range
+    original_observe = PreparationObservers.observe_range
 
     def observe(self, key, record, cached, scalar):
         if key[-1][2] == 'scalar-zoned-call' and key[:2] == ('nu', 'air'):
             actual_calls.append((key[-1][0], scalar))
         return original_observe(self, key, record, cached, scalar)
 
-    monkeypatch.setattr(PreparationCache, 'observe_range', observe)
+    monkeypatch.setattr(PreparationObservers, 'observe_range', observe)
     _capture(monkeypatch, api, 'full', config, targets)
     assert 2 <= len(actual_calls) <= 16
 
@@ -589,11 +558,11 @@ def test_all_3d_operations_release_owned_result_once(monkeypatch, mode, operatio
         'detach', 'geometry_scalars', 'fixed_record', 'drag_evidence', 'model_text', 'model_evidence',
         'observe_range', 'host_stage_13',
     )
-] + [('uniform', 'cache_inlet')])
+])
 def test_injected_read_and_callback_failures_keep_exception_and_release_once(monkeypatch, mode, exc_cls, fault):
     from contextlib import contextmanager
     from tm1.cpp_interface import _native_preparation_3d as binding, preparation_host
-    from tm1.preprocess.preparation import PreparationCache
+    from tm1.preprocess.preparation import PreparationObservers
     from tm1.preprocess.three_d import preparation
     from tm1.run_control.run_warnings import current_warnings, warning_scope
 
@@ -620,11 +589,10 @@ def test_injected_read_and_callback_failures_keep_exception_and_release_once(mon
         raise marker
 
     monkeypatch.setattr(preparation_host, '_volume_bindings', bindings)
-    callback_faults = {'cache_inlet', 'observe_range', 'host_stage_13'}
+    callback_faults = {'observe_range', 'host_stage_13'}
     if fault == 'detach':
         monkeypatch.setattr(binding, '_detach_array', fail)
     elif fault == 'geometry_scalars':
-        # Fault only the post-yield _copy_case read, not the cache publish callback.
         original_op = preparation_host.volume_operation
 
         @contextmanager
@@ -643,10 +611,8 @@ def test_injected_read_and_callback_failures_keep_exception_and_release_once(mon
         monkeypatch.setattr(binding, 'read_text', fail)
     elif fault == 'model_evidence':
         monkeypatch.setattr(preparation_host, 'model_evidence', fail)
-    elif fault == 'cache_inlet':
-        monkeypatch.setattr(PreparationCache, 'inlet', fail)
     elif fault == 'observe_range':
-        monkeypatch.setattr(PreparationCache, 'observe_range', fail)
+        monkeypatch.setattr(PreparationObservers, 'observe_range', fail)
     else:
         monkeypatch.setattr(preparation, 'capture_environment', fail)
 

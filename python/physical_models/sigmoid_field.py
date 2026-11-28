@@ -10,6 +10,11 @@ evaluation of epsilon(L,t) and A_0(L,t).
 """
 
 import os
+from pathlib import Path
+from tempfile import NamedTemporaryFile
+from threading import Lock
+from weakref import WeakValueDictionary
+
 import numpy as np
 from tm1.cpp_interface import _native_lut
 
@@ -80,116 +85,152 @@ def sigmoid_field_2d(XF, YF,
 
 # ── Geometry Lookup Table ────────────────────────────────────
 
-class GeometryLUT:
-    """Precomputed lookup table for epsilon(L,t) and A_0(L,t).
+def _path(topology, resolution, axes, directory=None):
+    if directory is None:
+        directory = Path(os.environ.get('XDG_CACHE_HOME') or Path.home() / '.cache') / 'tm1' / 'geometry'
+    return Path(directory) / f'lut_{topology}_{len(axes[0])}x{len(axes[1])}_N{resolution}.npz'
 
-    Uses bilinear interpolation on a regular (L, t) grid.
-    Cached to disk as .npz file for fast loading.
-    """
+
+def _read_table(path, topology, resolution, axes):
+    try:
+        with np.load(path, allow_pickle=False) as data:
+            if (str(data['tpms_type'][0]) != topology or int(data['N'][0]) != resolution
+                    or not np.array_equal(data['L_vals'], axes[0])
+                    or not np.array_equal(data['t_vals'], axes[1])):
+                return None
+            tables = (data['eps_table'], data['A0_table'])
+            shape = tuple(len(axis) for axis in axes)
+            if all(t.shape == shape and np.isrealobj(t) and np.isfinite(t).all() for t in tables):
+                return tables
+    except Exception:
+        # A missing, stale or corrupt NPZ can be replaced by a complete native table.
+        return None
+    return None
+
+
+def _write_table(path, topology, resolution, axes, tables):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with NamedTemporaryFile(dir=path.parent, suffix='.npz', delete=False) as stream:
+        temporary = Path(stream.name)
+        try:
+            np.savez_compressed(stream, L_vals=axes[0], t_vals=axes[1], eps_table=tables[0],
+                                A0_table=tables[1], tpms_type=[topology], N=[resolution])
+            stream.close()
+            if _read_table(temporary, topology, resolution, axes) is None:
+                raise ValueError('invalid geometry table in temporary NPZ')
+            os.replace(temporary, path)
+        finally:
+            stream.close()
+            temporary.unlink(missing_ok=True)
+
+
+def _file_table(topology, resolution, axes, path, *, image, private, direct=False):
+    _, descending = _native_lut._normalized_axes(axes)
+    tables = _read_table(path, topology, resolution, axes)
+    if tables is not None:
+        table = _native_lut.table_value(topology, resolution, axes, tables=tables, private=private, image=image)
+        if direct and not private:
+            published = table.file_arrays(descending)
+            file_flags = tuple(_native_lut._fast(_native_lut._normalized_values(t, descending)) for t in tables)
+            if ((table.view.porosity_fast, table.view.area_fast) != file_flags or
+                    any(a.dtype != b.dtype or a.tobytes() != b.tobytes() for a, b in zip(tables, published))):
+                table.close()
+                table = _native_lut.table_value(topology, resolution, axes, tables=tables, private=True, image=image)
+        return table
+    table = _native_lut.table_value(topology, resolution, axes, image=image)
+    try:
+        tables = table.file_arrays(descending)
+        _write_table(path, topology, resolution, axes, tables)
+        return table
+    except BaseException:
+        table.close()
+        raise
+
+
+def load_default_table(topology, resolution, lengths, walls, image):
+    """Load the default NPZ after preparation reaches its first table miss."""
+    axes = lengths, walls
+    return _file_table(topology, resolution, axes, _path(topology, resolution, axes), image=image, private=False)
+
+
+class GeometryLUT:
+    """Interpolate porosity and area density on the selected cell and wall axes."""
 
     def __init__(self, tpms_type, L_range=TRAIN_L, t_range=TRAIN_T,
                  n_L=41, n_t=31, N=256, cache_dir=None):
-        self.L_vals = np.linspace(L_range[0], L_range[1], n_L)
-        self.t_vals = np.linspace(t_range[0], t_range[1], n_t)
-        self._initialize_cache(tpms_type, N, cache_dir)
-        if not self._load():
-            self._precompute()
-            self._save()
-        self.bind_tables()
+        self._open(tpms_type, L_range, t_range, n_L, n_t, N, cache_dir, prefer_memory=False, image=_native_lut.selected_image())
+
+    def _open(self, tpms_type, L_range=TRAIN_L, t_range=TRAIN_T, n_L=41, n_t=31, N=256,
+              cache_dir=None, *, prefer_memory, image):
+        self.tpms_type, self.N = tpms_type, N
+        axes = np.linspace(*L_range, n_L), np.linspace(*t_range, n_t)
+        self._cache_path = _path(tpms_type, N, axes, cache_dir)
+        table = _native_lut.table_value(tpms_type, N, axes, find_only=True, image=image) if prefer_memory and cache_dir is None else None
+        self._native_lut = table or _file_table(tpms_type, N, axes, self._cache_path,
+                                               image=image, private=cache_dir is not None, direct=True)
+        self._descending = tuple(i for i, axis in enumerate(axes) if axis.size > 1 and axis[0] > axis[-1])
+        self._array_lock = Lock()
+
+    _public_arrays = ('L_vals', 't_vals', 'eps_table', 'A0_table')
+
+    def _detach(self):
+        if 'eps_table' in self.__dict__:
+            return
+        with self._array_lock:
+            if 'eps_table' in self.__dict__:
+                return
+            held = self._native_lut
+            axes = [held.axis(i, i in self._descending) for i in range(2)]
+            arrays = (*axes, *held.file_arrays(self._descending))
+            private = _native_lut.LUT(held.binding, *arrays)
+            self.__dict__.update(zip(self._public_arrays, arrays), _native_lut=private)
+
+    def __getattr__(self, name):
+        if name in self._public_arrays:
+            self._detach()
+            return self.__dict__[name]
+        raise AttributeError(name)
+
+    def __setattr__(self, name, value):
+        if name in self._public_arrays:
+            self._detach()
+        object.__setattr__(self, name, value)
 
     def bind_tables(self):
-        """Capture the active table axes and interpolation values."""
-        self._native_lut = _native_lut.LUT(self.L_vals, self.t_vals, self.eps_table, self.A0_table)
+        """Capture the current private axes and values for interpolation."""
+        if 'eps_table' not in self.__dict__:
+            self._detach()
+            return
+        self._native_lut = _native_lut.LUT(self._native_lut.binding, self.L_vals, self.t_vals, self.eps_table, self.A0_table)
 
     def preparation_arrays(self):
-        """Return the current table arrays and interpolation flags."""
-        table = self._native_lut
-        shape = tuple(axis.size for axis in table.axes)
-        if table.epsilon.shape != shape or table.area.shape != shape:
-            raise ValueError('LUT table shape no longer matches its captured axes')
-        return (*table.axes, table.epsilon, table.area), (_native_lut._fast(table.epsilon), _native_lut._fast(table.area))
-
-    def _initialize_cache(self, tpms_type, N, cache_dir=None):
-        """Set cache identity without calculating or loading table values."""
-        self.tpms_type, self.N = tpms_type, N
-        if cache_dir is None:
-            cache_dir = os.path.join(
-                os.environ.get('XDG_CACHE_HOME') or os.path.expanduser('~/.cache'),
-                'tm1', 'geometry')
-        os.makedirs(cache_dir, exist_ok=True)
-        self._cache_path = os.path.join(
-            cache_dir, f'lut_{tpms_type}_{len(self.L_vals)}x{len(self.t_vals)}_N{N}.npz')
-
-    def _precompute(self):
-        """Compute epsilon and A_0 over the full (L, t) grid."""
-        cells, walls = np.meshgrid(self.L_vals, self.t_vals, indexing='ij')
-        fields = _native_geometry.raw_fields(self.tpms_type, cells, walls, N=self.N)
-        self.eps_table = fields['epsilon']
-        self.A0_table = fields['A_0']
-
-    def _save(self):
-        np.savez_compressed(self._cache_path,
-                            L_vals=self.L_vals, t_vals=self.t_vals,
-                            eps_table=self.eps_table, A0_table=self.A0_table,
-                            tpms_type=np.array([self.tpms_type]),
-                            N=np.array([self.N]))
-
-    def _load(self):
-        if not os.path.exists(self._cache_path):
-            return False
-        try:
-            with np.load(self._cache_path, allow_pickle=False) as data:
-                if str(data['tpms_type'][0]) != self.tpms_type:
-                    return False
-                if 'N' not in data or int(data['N'][0]) != int(self.N):
-                    return False
-                if not np.array_equal(data['L_vals'], self.L_vals):
-                    return False
-                if not np.array_equal(data['t_vals'], self.t_vals):
-                    return False
-                eps_table, A0_table = data['eps_table'], data['A0_table']
-                shape = (len(self.L_vals), len(self.t_vals))
-                for table in (eps_table, A0_table):
-                    if (table.shape != shape or not np.isrealobj(table)
-                            or not np.isfinite(table).all()):
-                        return False
-            self.eps_table, self.A0_table = eps_table, A0_table
-            return True
-        except Exception:
-            # Deliberate (except-audit 2026-07-03): a corrupt/stale cache
-            # file must fall back to recompute (which rewrites the cache),
-            # never crash the LUT build.
-            return False
+        self._detach()
+        return self._native_lut.preparation_arrays()
 
     def query(self, L_arr, t_arr):
-        """Bilinear interpolation on the LUT. Supports 2D array inputs.
-
-        Returns (eps_arr, A0_arr) with same shape as input.
-        """
+        """Return the porosity and area density with the shape of the cell lengths."""
         shape = L_arr.shape
-        eps, A0 = self._native_lut.query(L_arr.ravel(), t_arr.ravel())
-        return eps.reshape(shape), A0.reshape(shape)
+        epsilon, area = self._native_lut.query(L_arr.ravel(), t_arr.ravel())
+        return epsilon.reshape(shape), area.reshape(shape)
 
 
-# Singleton LUT cache
-_lut_cache = {}
+_facades = WeakValueDictionary()
+_facade_lock = Lock()
 
 
 def get_geometry_lut(tpms_type, **kwargs):
-    """Get or create a cached GeometryLUT instance.
-
-    W7 (2026-07-07): the cache key includes the kwargs. The old
-    tpms_type-only key ignored N / L_range / t_range on a hit — after any
-    default-args call, a later ``get_geometry_lut('Diamond', N=512)``
-    silently returned the N=256 LUT (the 2026-06-28 fix keyed the DISK
-    cache correctly but left this in-memory half with the same defect).
-    """
-    key = (tpms_type,) + tuple(
-        (k, tuple(v) if isinstance(v, (list, tuple)) else v)
-        for k, v in sorted(kwargs.items()))
-    if key not in _lut_cache:
-        _lut_cache[key] = GeometryLUT(tpms_type, **kwargs)
-    return _lut_cache[key]
+    """Reuse a live facade for the same image, directory and arguments."""
+    image = _native_lut.selected_image()
+    key = (image.path, os.environ.get('XDG_CACHE_HOME'), tpms_type, tuple(
+        (k, tuple(v) if isinstance(v, (list, tuple)) else v) for k, v in sorted(kwargs.items())))
+    with _facade_lock:
+        current = _facades.get(key)
+    if current is not None:
+        return current
+    created = GeometryLUT.__new__(GeometryLUT)
+    created._open(tpms_type, **kwargs, prefer_memory=True, image=image)
+    with _facade_lock:
+        return _facades.setdefault(key, created)
 
 
 # ── Main entry point ─────────────────────────────────────────

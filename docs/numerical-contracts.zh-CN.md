@@ -14,7 +14,7 @@ Python 在 [python](../python/) 下负责公共 API、配置、不可变 DTO、�
 导入分层检查将源码路径映射到各自依赖所有者并强制上述边界。
 
 - **公共计算入口**：`compute`（[python/compute.py](../python/compute.py)）编排 `prepare_case`、`run_case` 与 `evaluate`，管理进度、取消、阶段耗时与警告。`applications/result_adapter.compute_result` 与 `to_compute_result` 为 GUI、CLI 和验证工具映射 `FieldResult` 与 `PerformanceResult`。
-- **输入规范化与缓存**：`python/cpp_interface/` 按需加载四个原生库，将实数输入规范化为 `float64`、标签规范化为 `int32`，并发出固定的 `RuntimeWarning` 诊断。准备库拥有 32,768 项标量几何缓存，CO₂ 和 sCO₂ 物性缓存各有 4,096 项。`python/physical_models/preparation_cache.py` 管理 4,096 项入口缓存。每次调用按当前材料导热率和 chi 计算。
+- **输入规范化与缓存**：`python/cpp_interface/` 按需加载四个原生库，将实数输入规范化为 `float64`、标签规范化为 `int32`，并发出固定的 `RuntimeWarning` 诊断。准备库拥有 32,768 项标量几何缓存，CO₂ 和 sCO₂ 物性缓存各有 4,096 项。准备库也管理 4,096 项入口缓存及 sigmoid 表。每次调用按当前材料导热率和 chi 计算。
 - **配置、I/O 与模型资源**：`python/data_types/` 拥有 `ComputeConfig`、`CaseData`、`FieldResult`、`PerformanceResult` 与 `metric_spec`。`python/file_io/` 拥有 YAML、HDF5、JSON、VTK 与检查点读写。`python/physical_models/` 与 `python/model_configs/` 拥有模型查询、`zone_units.py` 与带版本资源。
 - **后处理与账本辅助**：`python/postprocess/result_math.py` 保留原始压降查询与公共 `compute_phase2a` 守恒证书。`python/solvers/physical_ledger.py` 保留注入账本的 `ports_complete` 检查。
 - **应用与研究工具**：`python/applications/` 拥有 GUI、CLI、Quick Design 尺寸搜索、多工况 BO 及运行恢复。`python/preprocess/offline/` 与 `python/development/` 拥有显式离线拟合、验证与诊断工具。
@@ -55,7 +55,7 @@ Python 在 [python](../python/) 下负责公共 API、配置、不可变 DTO、�
 ### 前处理与入口查询
 
 `native/preprocess/preparation_case.cpp` 负责二维／三维工况准备（`tpmshx_preparation_2d_*_v1`、`tpmshx_preparation_3d_*_v1`）与标量入口查询（`tpmshx_query_inlet_properties_v2`）。
-`python/cpp_interface/preparation_host.py` 在二维与三维间共享统一的 `tpmshx_preparation_callbacks_v2` 缓存传输、范围记录解码与 D-F 应用解码。
+`python/cpp_interface/preparation_host.py` 在二维与三维间共享统一的 `tpmshx_preparation_callbacks_v3` 观测回调、范围记录解码与 D-F 应用解码。
 `tpmshx_preparation_df_experiment_scope_v1` 在二维／三维准备与静态 Python 预检间共享实验 D-F 布局与 HX 实验域检查。
 详见[原生准备核心](cpp-migration.zh-CN.md#native-preparation-core)和[入口物性查询](native-stages.zh-CN.md#入口物性查询)。
 

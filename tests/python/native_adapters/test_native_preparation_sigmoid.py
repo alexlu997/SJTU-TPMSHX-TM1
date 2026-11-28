@@ -153,3 +153,36 @@ def test_standalone_lut_owned_views_reject_error_aliases(native, topology, inval
         assert all(ct.string_at(address, len(saved)) == saved for address, saved in before)
     finally:
         _release(native, result)
+
+
+def test_read_only_float64_table_keeps_its_file_dtype():
+    from tm1.cpp_interface._native_lut import table_value
+
+    axes = np.array([4., 8.]), np.array([.3, .6])
+    porosity = np.array([[.65, .7], [.75, .8]])
+    area = np.array([[900., 1000.], [1100., 1200.]])
+    porosity.flags.writeable = False
+    held = table_value('Gyroid', 16, axes, tables=(porosity, area), private=True)
+    try:
+        assert (held.view.porosity_fast, held.view.area_fast) == (0, 1)
+        for result, source in zip(held.file_arrays(()), (porosity, area)):
+            np.testing.assert_array_equal(result, source, strict=True)
+    finally:
+        held.close()
+
+
+def test_imported_lut_keeps_its_file_fields_when_error_storage_overlaps():
+    from tm1.cpp_interface._native_lut import table_value
+
+    axes = np.array([4., 8.]), np.array([.3, .6])
+    tables = np.full((2, 2), .7, dtype='f4'), np.full((2, 2), 1000, dtype='u8')
+    held = table_value('Gyroid', 16, axes, tables=tables, private=True)
+    try:
+        def call(_failure, error, capacity):
+            return held.binding.table(0, 1, 16, ct.byref(abi._LUTView()), None, ct.byref(held.view), error, capacity)
+        names = _check_owned_aliases(call, held.view, 'error')
+        for index in range(2):
+            assert f'result.file_fields[{index}].data' in names
+            assert f'result.file_fields[{index}].dtype' in names
+    finally:
+        held.close()

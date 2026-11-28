@@ -123,9 +123,7 @@ def _check_status(operation, status, error, failure, water_error, chi_error=None
     raise problem
 
 
-def _callback_bridge(validate_host_input, inlet_cache=None,
-                     observe_range=None, observe_notice=None, observe_event=None, *,
-                     inlet_cache_at=None, sigmoid_lut_cache=None,
+def _callback_bridge(validate_host_input, observe_range=None, observe_notice=None, observe_event=None, *,
                      validate_grid_stage=False):
     """Own callbacks and preserve their first exception across the C boundary."""
     callback_errors = []
@@ -152,9 +150,6 @@ def _callback_bridge(validate_host_input, inlet_cache=None,
                 return 1
         return signature(dispatch)
 
-    def inlet(action, side, source, value, hit):
-        hit[0] = inlet_cache(action, side, source.contents, value.contents)
-
     def observe(cached, value, bounds_list, have_scalar, scalar):
         if observe_range is not None:
             observe_range(*_range_record(value.contents, bool(bounds_list)), bool(cached), scalar if have_scalar else None)
@@ -163,28 +158,18 @@ def _callback_bridge(validate_host_input, inlet_cache=None,
         if observe_notice is not None:
             observe_notice(kind, side, value, read_text(message))
 
-    def inlet_at(action, key, value, hit):
-        hit[0] = inlet_cache_at(action, key.contents, value.contents)
-
-    def lut_cache(action, topology, resolution, value, hit):
-        hit[0] = sigmoid_lut_cache(action, topology, resolution, value.contents)
-
     callbacks = abi._Callbacks(
-        2, ct.sizeof(abi._Callbacks), None, int(bool(validate_grid_stage)),
+        3, ct.sizeof(abi._Callbacks), None, int(bool(validate_grid_stage)),
         abi._EventFunction(event),
         callback(abi._HostFunction, validate_host_input) if validate_host_input is not None else abi._HostFunction(),
-        callback(abi._InletCacheFunction, inlet) if inlet_cache is not None else abi._InletCacheFunction(),
         callback(abi._RangeFunction, observe) if observe_range is not None else abi._RangeFunction(),
         callback(abi._NoticeFunction, notice) if observe_notice is not None else abi._NoticeFunction(),
-        callback(abi._InletAtFunction, inlet_at) if inlet_cache_at is not None else abi._InletAtFunction(),
-        callback(abi._LUTCacheFunction, lut_cache) if sigmoid_lut_cache is not None else abi._LUTCacheFunction(),
     )
     return callbacks, callback_errors
 
 
-def operation(name, source, options, validate_host_input, water_error, inlet_cache=None,
-              observe_range=None, observe_notice=None, observe_event=None, *,
-              inlet_cache_at=None, sigmoid_lut_cache=None, chi_error=None):
+def operation(name, source, options, validate_host_input, water_error, observe_range=None, observe_notice=None,
+              observe_event=None, *, chi_error=None, load_table=None):
     kind = type(source)
     if kind is abi._UniformInput:
         family = 'uniform'
@@ -198,10 +183,31 @@ def operation(name, source, options, validate_host_input, water_error, inlet_cac
         raise TypeError(f'unsupported 2D preparation input type {kind.__name__}')
     bindings = _bindings(preparation_library.path())
     key = (family, name)
-    bridge = _callback_bridge(validate_host_input, inlet_cache, observe_range, observe_notice,
-        observe_event, inlet_cache_at=inlet_cache_at,
-        sigmoid_lut_cache=sigmoid_lut_cache, validate_grid_stage=validate_host_input is not None)
+    bridge = _callback_bridge(validate_host_input, observe_range, observe_notice,
+        observe_event, validate_grid_stage=validate_host_input is not None)
+    if kind is abi._SigmoidInput and load_table is not None:
+        source.defer_default_lut = True
+        return _sigmoid_result(bindings, key, source, options, bridge, water_error, chi_error, load_table)
     return _owned_result(bindings, key, (source,), options, bridge, water_error, chi_error)
+
+
+@contextmanager
+def _sigmoid_result(bindings, key, source, options, bridge, water_error, chi_error, load_table):
+    with _owned_result(bindings, key, (source,), options, bridge, water_error, chi_error) as initial:
+        if not initial.prefix:
+            yield initial
+            return
+        from ._native_values import copy_array
+        table = load_table(TOPOLOGIES[source.input.topology], initial.lut_resolution,
+                           copy_array(initial.lut.cell_mm), copy_array(initial.lut.wall_mm), bindings.owner)
+        try:
+            resumed = type(source)(source.abi_version, ct.sizeof(source))
+            resumed.input.abi_version, resumed.input.struct_size = source.input.abi_version, ct.sizeof(source.input)
+            resumed.prefix, resumed.table = initial.prefix, ct.pointer(table.view)
+            with _owned_result(bindings, key, (resumed,), None, bridge, water_error, chi_error) as result:
+                yield result
+        finally:
+            table.close()
 
 
 @lru_cache(maxsize=1)
@@ -210,11 +216,9 @@ def _volume_bindings(path):
 
 
 def volume_operation(name, source, options, validate_host_input, policy, water_error):
-    cache = PreparationCacheBridge(policy)
     bindings = _volume_bindings(preparation_library.path())
     bridge = _callback_bridge(validate_host_input, observe_range=policy.observe_range, observe_notice=policy.observe_notice,
-                              observe_event=policy.observe_event,
-                              inlet_cache_at=cache.inlet_at)
+                              observe_event=policy.observe_event)
     return _owned_result(bindings, (type(source), name), (source,), options, bridge, water_error, policy.chi_error)
 
 
@@ -226,7 +230,7 @@ def _owned_result(bindings, key, inputs, options, bridge, water_error, chi_error
     failure, error = abi._Failure(2, ct.sizeof(abi._Failure)), ct.create_string_buffer(4096)
     callbacks, callback_errors = bridge
     try:
-        status = call(*map(ct.byref, inputs), ct.byref(options), ct.byref(callbacks),
+        status = call(*map(ct.byref, inputs), ct.byref(options) if options is not None else None, ct.byref(callbacks),
                       ct.byref(result), ct.byref(failure), error, len(error))
         if callback_errors:
             raise callback_errors[0]
@@ -396,45 +400,6 @@ def pack_saved_resources(case, models, nu, saved, settings, keepalive):
     pack_nu(nu, settings, keepalive)
 
 
-def _cache_record_view(records):
-    """Keep copied cache evidence alive until the native stage returns."""
-    buffers, ranges, bounds_list, warnings = [], [], [], []
-
-    def text(value):
-        return borrow_text(value, buffers)
-
-    def sample(value, shape):
-        finite = value['minimum'] is not None
-        def index(name):
-            return int(np.ravel_multi_index(value[name][1], shape)) if shape else 0
-        return abi._Sample(finite, value['minimum'][0] if finite else 0.,
-            value['maximum'][0] if finite else 0., index('minimum') if finite else 0,
-            index('maximum') if finite else 0, *(value[name] for name in ('low', 'high', 'size', 'nonfinite')))
-
-    for key, record in records.items():
-        if not isinstance(record, RangeRecord):
-            warnings.append(text(record))
-            continue
-        shape = key[-1]
-        sources = (abi._Text * (len(key)-1))(*[text(item) for item in key[:-1]])
-        sizes = (abi._S * len(shape))(*shape)
-        buffers.extend((sources, sizes))
-        values = {name: getattr(record, name) for name in ('minimum', 'maximum', 'low', 'high', 'size', 'nonfinite')}
-        ranges.append(abi._Range(sources, len(sources), text('unbound'), text('unbound'), text('source'),
-            text(record.label), text(record.quantity), text(record.unit), (abi._D * 2)(*record.bounds),
-            sizes, len(shape), sample(values, shape), sample(record.last or values, shape)))
-        bounds_list.append(isinstance(record.bounds, list))
-    ranges = (abi._Range * len(ranges))(*ranges)
-    bounds = (abi._U * len(bounds_list))(*bounds_list)
-    warnings = (abi._Text * len(warnings))(*warnings)
-    buffers.extend((ranges, bounds, warnings))
-    return abi._Evidence(ranges, len(ranges), bounds, warnings, len(warnings), None, 0), buffers
-
-
-def _geometry_key(value):
-    return (TOPOLOGIES[value.topology], value.cell_length_mm, value.wall_thickness_mm)
-
-
 _GEOMETRY_FIELDS = tuple(name for name, _ in abi._GeometryCache._fields_)
 _INLET_FIELDS = ('rho', 'mu', 'k_f', 're', 'nu', 'permeability_m2', 'forchheimer_per_m',
                  'pressure_gradient_Pa_m', 'surface_transfer_W_m2K', 'fluid_conductivity_W_mK')
@@ -450,45 +415,6 @@ def geometry_scalars(value):
 
 def property_scalars(value):
     return (*_read_fields(value, _INLET_FIELDS), value.solid_conductivity_W_mK)
-
-
-def _write_fields(value, names, read):
-    for index, name in enumerate(names):
-        setattr(value, name, read(index))
-
-
-class PreparationCacheBridge:
-    """Keep borrowed cache buffers alive until a native preparation operation returns."""
-
-    def __init__(self, policy):
-        self.policy = policy
-        self.buffers = []
-
-    def inlet_at(self, action, key, value):
-        settings = fixed_record(key.sco2_nu) if key.have_sco2_nu else None
-        cache_key = self.policy.inlet_key(_geometry_key(key.geometry), key.velocity_m_s, key.temperature_K,
-                                          key.pressure_Pa, abi._FLUIDS[key.fluid], settings, bool(key.co2_geometry))
-        return self.inlet(action, cache_key, value)
-
-    def inlet(self, action, key, value):
-        def read():
-            evidence = value.evidence
-            ranges = [_range_record(evidence.ranges[i], evidence.range_bounds_list[i])
-                      for i in range(evidence.range_count)]
-            messages = [read_text(item) for item in evidence.warnings[:evidence.warning_count]]
-            return (geometry_scalars(value.geometry), _read_fields(value.properties, _INLET_FIELDS),
-                    value.properties.cp, value.properties.pr, ranges, messages)
-
-        def write(read_geometry, read_properties, read_scalar, records):
-            _write_fields(value.geometry, _GEOMETRY_FIELDS, read_geometry)
-            _write_fields(value.properties, _INLET_FIELDS, read_properties)
-            value.properties.cp = read_scalar('cp')
-            value.properties.pr = read_scalar('pr')
-            value.evidence, buffers = _cache_record_view(records)
-            self.buffers.extend(buffers)
-            return geometry_scalars(value.geometry)
-
-        return self.policy.inlet(action, key, read, write)
 
 
 def fixed_record(value):

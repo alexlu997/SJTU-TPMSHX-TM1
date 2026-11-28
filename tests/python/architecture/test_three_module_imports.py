@@ -289,6 +289,8 @@ def test_layer_discovery_ignores_cache_and_data_only_directories(tmp_path, monke
      'Quick preparation boundary -> tm1.physical_models', 1),
     ('cpp_interface/native_preparation.py', 'def cache():\n    from ..physical_models import sigmoid_field',
      'full preparation boundary -> tm1.physical_models', 1),
+    ('cpp_interface/_native_lut.py', 'from ..physical_models import sigmoid_field',
+     'full preparation boundary -> tm1.physical_models', 1),
     ('cpp_interface/inlet_properties.py', 'from ..preprocess import preparation',
      'full preparation boundary -> tm1.preprocess', 1),
     ('cpp_interface/inlet_properties.py', 'from ..physical_models import tpms_calc',

@@ -48,36 +48,7 @@ def _spatial_rows(config):
 
 
 
-def _lut_cache():
-    from tm1.physical_models import sigmoid_field
-    pending = {}
-
-    def cache(action, name, resolution, axes, tables):
-        key = (name,)
-        if action:
-            lut = pending.pop(key)
-            shape = len(lut.L_vals), len(lut.t_vals)
-            lut.eps_table, lut.A0_table = tables(shape)
-            lut._save()
-            lut.bind_tables()
-            sigmoid_field._lut_cache[key] = lut
-            return None
-        lut = sigmoid_field._lut_cache.get(key)
-        if lut is None:
-            lut = object.__new__(sigmoid_field.GeometryLUT)
-            lut.L_vals, lut.t_vals = axes()
-            lut._initialize_cache(name, resolution)
-            if not lut._load():
-                pending[key] = lut
-                return None
-            lut.bind_tables()
-            sigmoid_field._lut_cache[key] = lut
-        return lut.preparation_arrays()
-
-    return cache
-
-
-def _case(result, copy_metadata, config, case_id, side_geometry=None, extrap_reasons=()):
+def _case(result, copy_metadata, config, case_id, extrap_reasons=()):
     from tm1.data_types.case_data import CaseData
     from tm1.data_types.model_refs import ModelRef
     from tm1.physical_models.zone_units import _zone_data_si
@@ -182,7 +153,7 @@ def _case(result, copy_metadata, config, case_id, side_geometry=None, extrap_rea
         params['boundary_openings'][side] = {key: getattr(inlet, name) for name, key in (
             ('inlet_geometry', 'in_geom_frac'), ('outlet_geometry', 'out_geom_frac'),
             ('inlet_profile', 'in_profile_frac'), ('outlet_profile', 'out_profile_frac'))}
-        properties = dict(uniform) if side_geometry is None else dict(side_geometry[index])
+        properties = shared.geometry_values(value.property_geometry[index], value.co2_active)
         properties.update(zip((*shared.PROPERTIES, 'K_ss'), inlet.properties, strict=True))
         params['static_properties'][side] = properties
     params['static_properties']['geometry'] = uniform
@@ -212,7 +183,6 @@ def _execute(config, operation, *, targets=None, case_id=None, start_observation
     from functools import partial
     from tm1.physical_models.fluid_props import validate_fluid_type, WaterStateError
     from tm1.run_control.run_environment import _resolve_chi_s
-    # Preserve the original physical guard before object-key checks.
     for side in 'AB':
         validate_fluid_type(getattr(config, 'fluid_' + side).type, side)
     source, zone_error = native_preparation.pack_input(config, targets, partial(_inlet_speed, operation, targets), _spatial_rows)
@@ -222,36 +192,12 @@ def _execute(config, operation, *, targets=None, case_id=None, start_observation
     except ValueError as problem:
         chi, chi_error = None, problem
     allow = config.extrap.allow or os.environ.get('TPMSHX_ALLOW_EXTRAP', '').lower() in ('1', 'true', 'yes')
-    cache = shared.PreparationCache(chi_error, _nominal_grid_warning)
-    cache_keys, side_geometry = {}, {}
-    co2 = 'co2' in (config.fluid_A.type, config.fluid_B.type)
-    geometry_key = (config.geometry.tpms, config.geometry.L_cell_mm, config.geometry.t_wall_mm)
-
-    def inlet_cache(action, side, velocity, transfer):
-        if not action:
-            fluid = getattr(config, 'fluid_' + 'AB'[side])
-            speed = velocity if targets is not None or fluid.mass_flow_kg_s is not None else fluid.u_mps
-            cache_keys[side] = (*geometry_key, speed, fluid.T_in_K, fluid.P_in_Pa,
-                                fluid.type, config.sco2_nu, co2)
-        key = cache_keys[side]
-        hit = transfer(key)
-        if action or hit:
-            side_geometry[side] = cache.inlet_geometry[key]
-        return hit
+    observers = shared.PreparationObservers(chi_error, _nominal_grid_warning)
 
     def host_input(stage, side):
         if stage == 0:
             if start_observations is not None:
                 start_observations()
-        elif stage == 1:
-            if not co2:
-                hash((config.geometry.tpms, config.geometry.L_cell_mm, config.geometry.t_wall_mm, 128))
-        elif stage == 2:
-            fluid = getattr(config, 'fluid_' + 'AB'[side])
-            speed = 0. if targets is not None or fluid.mass_flow_kg_s is not None else fluid.u_mps
-            hash((config.geometry.tpms, config.geometry.L_cell_mm, config.geometry.t_wall_mm,
-                  speed, fluid.T_in_K, fluid.P_in_Pa, config.sco2_nu,
-                  'co2' in (config.fluid_A.type, config.fluid_B.type)))
         elif stage == 3:
             pass
         elif stage == 4:
@@ -269,18 +215,14 @@ def _execute(config, operation, *, targets=None, case_id=None, start_observation
         if operation == 'resolve_inlet_flow':
             return resolved
         resolved = ComputeConfig.from_dict(asdict(resolved), _native_preparation=True)
-        if spatial:
-            for index, side in enumerate('AB'):
-                fluid = getattr(resolved, 'fluid_' + side)
-                key = (resolved.geometry.tpms, resolved.geometry.L_cell_mm, resolved.geometry.t_wall_mm,
-                       fluid.u_mps, fluid.T_in_K, fluid.P_in_Pa, fluid.type, resolved.sco2_nu, False)
-                side_geometry[index] = cache.inlet_geometry[key]
-        return _case(copy_case(), copy_metadata, resolved, case_id, side_geometry, cache.extrap_reasons)
+        return _case(copy_case(), copy_metadata, resolved, case_id, observers.extrap_reasons)
 
-    spatial = config.zones.enabled and config.zones.axis != 'continuous'
+    def load_table(topology, resolution, lengths, walls, image):
+        from tm1.physical_models.sigmoid_field import load_default_table
+        return load_default_table(topology, resolution, lengths, walls, image)
+
     return native_preparation.run_preparation(operation, source, chi=chi, allow=allow, validate=host_input,
-        policy=cache, inlet_cache=inlet_cache, lut=_lut_cache() if spatial else None,
-        water_error=WaterStateError, finish=finish)
+        policy=observers, load_table=load_table, water_error=WaterStateError, finish=finish)
 
 
 def prepare_case(config, *, case_id):

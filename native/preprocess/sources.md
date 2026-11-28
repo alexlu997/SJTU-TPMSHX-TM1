@@ -23,8 +23,9 @@ Complete preparation keeps its existing physical guards.
 
 `query_inlet_properties` accepts supplied geometry scalars and creates no mesh or solver state.
 `native/preprocess/preparation_case_c_api.cpp` exposes `tpmshx_query_inlet_properties_v2` with `float64` inline values and no owner.
-Optional `tpmshx_preparation_callbacks_v2` callbacks keep synchronous observations and host-object checks; all cache hooks must be NULL and `validate_grid_stage` must be 0.
-`python/physical_models/tpms_calc.py` keeps public calls, shared caches, geometry selection and the per-call material query.
+Optional `tpmshx_preparation_callbacks_v3` callbacks deliver synchronous observations and host validation. Direct inlet queries require `validate_grid_stage = 0`.
+Standalone `tpms_calc.compute` calls `tpmshx_preparation_cached_inlet_v1`. The preparation image owns the shared inlet and geometry caches.
+`python/physical_models/tpms_calc.py` selects the registered fluid and query route, calculates `K_ss` for each call, and handles warnings.
 `python/cpp_interface/inlet_properties.py` packs the inlet query. It uses `python/cpp_interface/preparation_host.py` for range observations and callbacks.
 The pure empirical fluid-property formulas in `tests/python/property_reference.py` and Nusselt correlation formulas in `tests/python/nu_reference.py` supply independent numerical expectations.
 No physical model, coefficient source or external numerical dependency is added.
@@ -32,32 +33,22 @@ No physical model, coefficient source or external numerical dependency is added.
 ## Spatial flow stages
 
 `native/preprocess/preparation_case.cpp` owns raw spatial capacity, resolution and complete fixed-flow preparation.
-`prepare_spatial_inlet_geometry` uses the existing zone/sigmoid geometry and port cores before any speed-dependent closure.
+`spatial_inlet_prefix` and `finish_spatial_inlet` use the existing zone/sigmoid geometry and port cores before any speed-dependent closure.
 `prepare_capacities` and `resolve_speeds` reuse `native/preprocess/preparation_flow.cpp` for capacity and target arithmetic.
 Final preparation keeps the physical grid, spatial geometry and per-call cache, with the original requested-grid observations.
 Discrete design smoothing, sigmoid LUT geometry, thermal geometry and row D-F keep their separate owners and operation order.
 `native/preprocess/preparation_case_c_api.cpp` exposes the v10 inputs and owned views. The v8 and v9 input layouts stay nested in them.
 The [external spatial cache caller](../../examples/cpp/prepare_spatial_cache_2d.cpp) uses installed headers and only the preparation library.
 
-## Spatial host cache transport
+## Preparation caches
 
-V9 adds `float64` geometry and inlet probes without changing v1-v8 layouts.
-Preparation ABI 4 owns scalar geometry for standalone, full, and Quick queries.
-It also owns the CO₂ bundle and sCO₂ single-property caches.
-The raw grid and geometry SDK entries use the geometry library.
-Its spatial model carries the conductivity value in `float64`.
-Spatial material uses the accepted spatial value; nominal calculations keep their own value.
-The inlet probes carry L/t, fluid state and the optional Nu selection.
-`python/preprocess/preparation.py` selects and updates entries in the host inlet cache.
-`python/cpp_interface/preparation_host.py` copies the cache values and range evidence.
-`ZonedCache` uses those hooks when supplied; native code calculates each miss.
-The original per-call cache remains available for independent native callers.
-The LUT hook exchanges tables at each path's original geometry checkpoint.
-Python owns disk/memory I/O. `build_sigmoid_lut_2d` owns missing-table construction.
-The [external cache caller](../../examples/cpp/prepare_spatial_cache_2d.cpp)
-uses the inlet and LUT hooks and keeps the copied LUT alive.
-Public zone/sigmoid combination queries retain standalone consumers.
-Their later migration must preserve supplied properties and custom controls.
+Preparation ABI 5 shares standard geometry, CO₂/sCO₂ scalar properties, full inlets and sigmoid tables.
+The inlet key preserves the fluid and geometry choices, resolved velocity and optional Nu settings.
+Each caller applies its own material and binds the saved source records to its warning scope.
+The preparation image owns sigmoid tables and both interpolation flags.
+Each table key contains the topology, both axes and the voxel resolution.
+At a default-table miss, Python can load an NPZ and resume the retained preparation prefix.
+The SDK can supply both grids directly. [Spatial preparation example](../../examples/cpp/prepare_spatial_cache_2d.cpp)
 
 ## Existing offset geometry
 
@@ -80,7 +71,7 @@ side evidence records the CO2 or experimental application factors.
 The sequence keeps A then B inlet properties, air-only bulk Nu observations,
 then DF application evidence. Existing state and calibration limits remain.
 The raw C interface owns returned buffers and accepts v1 event callbacks.
-The Python host path adds typed cache callbacks without changing raw v1-v4 layouts.
+The host receives ordered observations from the preparation image.
 The separate 3D flow v2 uses the same static geometry and speed-dependent finish steps.
 It reuses `inlet_capacity_3d` and `inlet_speed` from `preparation_flow.cpp`.
 Capacity queries omit speed-dependent work. Complete preparation preserves one geometry and the original evidence order.
@@ -99,9 +90,9 @@ The v1/v2/v3 C layouts and their original scope remain unchanged.
 These raw interfaces add no 3D solve or capture.
 Python 3D preparation uses host v5 through the existing v3/v4 inputs and owned results.
 The v9 descriptor transported typed geometry and inlet cache values and evidence.
-The current descriptor shares the inlet cache and range evidence with the host.
+The current image replays inlet range evidence in the active host scope.
 Native code owns grid, geometry, flow resolution and final preparation.
-Python keeps configuration conversion, cache policy, warnings, environment parsing and immutable CaseData assembly.
+Python keeps configuration conversion, warnings, environment parsing and immutable CaseData assembly.
 The replaced 3D Python bodies and exclusive `shared/models/grid_3d.py` and `asym_split.py` helpers are removed.
 The full-pipeline 3D Python reference is retired. Pure formula references and physical invariant checks remain in `tests/python/`.
 
