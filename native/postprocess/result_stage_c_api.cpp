@@ -536,7 +536,8 @@ template<class Run> int boundary(const tpmshx_result_evidence_v1* value, tpmshx_
         failure_diagnostics.python_cause = failure.cause;
         failure_diagnostics.error_number = failure.error_number;
         if (const auto* host_error = dynamic_cast<const HostError*>(&failure)) failure_token = host_error->token;
-        save_message(failure.what(), "native result numerical failure");
+        const auto* missing = dynamic_cast<const Missing*>(&failure);
+        save_message(extension && missing ? missing->key.c_str() : failure.what(), "native result numerical failure");
     }
     catch (const std::invalid_argument& failure) {status = TPMSHX_RESULT_INVALID; save_message(failure.what(), "invalid native result input");}
     catch (const std::bad_alloc&) {status = TPMSHX_RESULT_ALLOCATION; message = "native result allocation failed";}

@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from tm1.run_control.run_warnings import (
-    current_warnings, warning_scope, range_context, warning_messages, merge_warnings,
+    current_warnings, warning_scope, range_context, range_diagnostics, warning_messages, merge_warnings,
 )
 from tm1.physical_models import fluid_props, nu_correlations as nu, tpms_props
 from tm1.data_types.field_result import FieldResult
@@ -393,6 +393,19 @@ def test_cache_facts_bind_to_each_run_context(prewarm, standalone_registries):
     assert a and a == b
     assert len(records) == len(a) + len(b)
     assert len(list(warning_messages(records))) == 2
+    diagnostics = range_diagnostics(records, 'quick')
+    warnings_only = [row for row in diagnostics if row['details']['severity'] == 'warning']
+    assert [row['message'] for row in warnings_only] == warning_messages(records)
+    assert [row['details']['side'] for row in warnings_only] == ['A', 'B']
+    for key, row in zip(records, diagnostics, strict=True):
+        details, sample = row['details'], records[key]
+        assert details['source'] == key[:-2]
+        assert (details['stage'], details['layout'], details['shape']) == ('inlet', 'mean', key[-2])
+        suffix = '_K' if sample.quantity == 'T' else ''
+        assert details['minimum' + suffix] == sample.minimum[0]
+        assert details['maximum_index'] == sample.maximum[1]
+        assert details['bounds' + suffix] == tuple(sample.bounds)
+        assert details['unit'] == ('K' if suffix else '1')
 
 
 def test_worker_merge_keeps_single_snapshot_counts_and_does_not_mutate_source():

@@ -228,6 +228,7 @@ Use an empty installation prefix for this exact set. CMake keeps files from prev
 
 | Interface | Headers |
 | --- | --- |
+| Diagnostic identifiers | `diagnostic_codes.hpp` |
 | Stage calls and run state | `stages.hpp`, `stage_run_c_api.h`, `stage_run_3d_c_api.h`, `quick_design_stage_c_api.h`, `run_state_c_api.h` |
 | Geometry and grids | `geometry_c_api.h`, `grid_c_api.h`, `zones_c_api.h`, `field_continuous_c_api.h`, `field_lut_c_api.h`, `field_sigmoid_c_api.h` |
 | Preparation and properties | `preparation_c_api.h`, `preparation_case_c_api.h`, `preparation_case_3d_c_api.h`, `preparation_df_c_api.h`, `preparation_flow_c_api.h`, `property_c_api.h` |

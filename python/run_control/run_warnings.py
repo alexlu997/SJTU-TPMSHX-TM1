@@ -7,6 +7,8 @@ import warnings
 
 import numpy as np
 
+from .diagnostics import diagnostic_record
+
 
 _current = ContextVar('run_warnings', default=None)
 _cache_records = ContextVar('cached_warnings', default=None)
@@ -105,6 +107,52 @@ def range_observations(records, *, last=False):
     return rows
 
 
+def _range_message(key, value):
+    shape, (side, stage, layout) = key[-2:]
+    sample = 'scalar' if not shape else f'array{shape}'
+    return (
+        f'{value.label}: {value.quantity} source range {value.bounds} {value.unit}; '
+        f'view={key[0]}, side={side}, stage={stage}, layout={layout}, sample={sample}; '
+        f'finite extrema across observations: min={value.minimum}, max={value.maximum} '
+        '(value, index); '
+        f'worst single snapshot: low={value.low}, high={value.high}, '
+        f'outside={value.low + value.high}/{value.size} '
+        f'({(value.low + value.high) / value.size:.2%} of sampled values); '
+        f'peak nonfinite in one snapshot={value.nonfinite}/{value.size} '
+        '(not classified inside range).'
+    )
+
+
+def range_diagnostics(records, route):
+    """Copy bound source samples before the native error or result is released."""
+    rows = []
+    for key, value in records.items():
+        if not isinstance(value, RangeRecord):
+            continue
+        code = {'T': 'property.temperature_range', 'Re': 'nu.re_range', 'Pr': 'nu.pr_range'}[value.quantity]
+        suffix = '_K' if value.quantity == 'T' else ''
+        shape, (side, stage, layout) = key[-2:]
+
+        def sample(data):
+            result = {name: data[name] for name in ('low', 'high', 'size', 'nonfinite')}
+            for name in ('minimum', 'maximum'):
+                extreme = data[name]
+                result[name + suffix] = None if extreme is None else extreme[0]
+                result[name + '_index'] = None if extreme is None else extreme[1]
+            result['finite_status'] = 'available' if data['minimum'] is not None else 'no_finite_samples'
+            return result
+
+        outside = bool(value.low or value.high or value.nonfinite)
+        details = dict(route=route, stage=stage, side=side, layout=layout, source=key[:-2], shape=shape,
+                       severity='warning' if outside else 'observation', quantity=value.quantity,
+                       unit='K' if suffix else '1', last=sample(value.last) if value.last is not None else None,
+                       last_status='available' if value.last is not None else 'not_recorded',
+                       **sample(vars(value)))
+        details['bounds' + suffix] = value.bounds
+        rows.append(diagnostic_record(code, _range_message(key, value) if outside else '', details))
+    return tuple(rows)
+
+
 def warning_messages(records):
     """Return the warning texts as a list of strings (the ComputeResult/UI/export contract).
 
@@ -117,19 +165,7 @@ def warning_messages(records):
             continue
         if not (value.low or value.high or value.nonfinite):
             continue
-        shape, (side, stage, layout) = key[-2:]
-        sample = 'scalar' if not shape else f'array{shape}'
-        messages.append(
-            f'{value.label}: {value.quantity} source range {value.bounds} {value.unit}; '
-            f'view={key[0]}, side={side}, stage={stage}, layout={layout}, sample={sample}; '
-            f'finite extrema across observations: min={value.minimum}, max={value.maximum} '
-            '(value, index); '
-            f'worst single snapshot: low={value.low}, high={value.high}, '
-            f'outside={value.low + value.high}/{value.size} '
-            f'({(value.low + value.high) / value.size:.2%} of sampled values); '
-            f'peak nonfinite in one snapshot={value.nonfinite}/{value.size} '
-            '(not classified inside range).'
-        )
+        messages.append(_range_message(key, value))
     return messages
 
 

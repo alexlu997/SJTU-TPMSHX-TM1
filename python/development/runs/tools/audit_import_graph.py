@@ -151,7 +151,7 @@ _QUICK_PREPARATION_IMPORTS = {"tm1.cpp_interface.quick_preparation"}
 _FULL_PREPARATION_WIRE_MODULES = {
     "native_preparation", "preparation_host", "inlet_properties", "stage_libraries",
     "_native_preparation_case", "_native_preparation_3d", "_native_values", "_native_properties",
-    "_native_df", "_native_result",
+    "_native_df", "_native_result", "_native_diagnostics",
 }
 _TYPE_GUARDS = {"typing.TYPE_CHECKING", "typing_extensions.TYPE_CHECKING"}
 _BINDING_NAMESPACES = {"tm1", "tm1.cpp_interface", *_DTO_PACKAGES,

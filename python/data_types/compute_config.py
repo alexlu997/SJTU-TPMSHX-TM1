@@ -927,7 +927,10 @@ def _validate_static_settings(values, is_3d, *, _native_preparation=False, port_
         if not SCO2_T_RANGE_K[0] <= fl.T_in_K <= SCO2_T_RANGE_K[1]:
             raise ValueError(f'sCO2 fluid {side} temperature must be {SCO2_T_RANGE_K[0]:g}..{SCO2_T_RANGE_K[1]:g} K')
         if not SCO2_P_RANGE_PA[0] <= fl.P_in_Pa <= SCO2_P_RANGE_PA[1]:
-            raise ValueError(f'sCO2 fluid {side} pressure must be {SCO2_P_RANGE_PA[0]/1e6:g}..{SCO2_P_RANGE_PA[1]/1e6:g} MPa')
+            from tm1.run_control.diagnostics import diagnosed
+            problem = ValueError(f'sCO2 fluid {side} pressure must be {SCO2_P_RANGE_PA[0]/1e6:g}..{SCO2_P_RANGE_PA[1]/1e6:g} MPa')
+            raise diagnosed(problem, 'input.invalid', field=f'fluid_{side}.P_in_Pa', side=side,
+                            P_abs_Pa=fl.P_in_Pa, bounds_Pa=SCO2_P_RANGE_PA)
     for fluid, label in (('sco2', 'sCO2 V2'), ('co2', 'CO2')):
         if fluid not in fluids:
             continue

@@ -61,8 +61,8 @@ def _call(function, *arguments):
     status = function(*arguments, error, len(error))
     if status:
         message = error.value.decode('utf-8', errors='replace') or f'native field failed with code {status}'
-        exception = {1: ValueError, 2: MemoryError, 3: RuntimeError}.get(status, RuntimeError)
-        raise exception(message)
+        from ._native_diagnostics import native_error
+        raise native_error('geometry', function.__name__, status, message)
 
 
 def _array(values):

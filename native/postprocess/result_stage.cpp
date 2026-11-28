@@ -18,16 +18,15 @@ using Object = Report::Object;
 using List = Report::List;
 const std::array<std::string, 6> face_names{{"x-", "x+", "y-", "y+", "z-", "z+"}};
 const std::array<std::string, 3> phase_names{{"A", "B", "solid"}};
-class Missing : public NumericError {public: explicit Missing(std::string message):NumericError(key_error, std::move(message)) {}};
 class Unsupported : public NumericError {public: explicit Unsupported(std::string message):NumericError(not_implemented, std::move(message)) {}};
 
 template<class T> const T& need(const Recorded<T>& value, std::string_view key) {
-    if (!value) throw Missing("'" + std::string(key) + "'");
+    if (!value) throw Missing(std::string(key));
     return *value;
 }
 template<class T> const T& entry(const std::map<std::string, T>& values, std::string_view key) {
     const auto found = values.find(std::string(key));
-    if (found == values.end()) throw Missing("'" + std::string(key) + "'");
+    if (found == values.end()) throw Missing(std::string(key));
     return found->second;
 }
 const Tensor& entry(const Arrays& values, std::string_view key) {
@@ -36,7 +35,7 @@ const Tensor& entry(const Arrays& values, std::string_view key) {
 }
 void record(const ResultEvidence& result, const std::string& path) {
     if (std::find(result.absent_records.begin(), result.absent_records.end(), path) != result.absent_records.end())
-        throw Missing("'" + path.substr(path.rfind('.') + 1) + "'");
+        throw Missing(path.substr(path.rfind('.') + 1));
 }
 thread_local const HostControl* active_host{};
 class HostScope {
@@ -300,7 +299,7 @@ double conservative_duty(const ResultEvidence& result, const TrueHEvidence& ledg
         throw std::invalid_argument("unsupported conservative energy algorithm version");
     if (need(ledger.boundary_power_units, "boundary_power_units") != (dimension == 2 ? "W/m" : "W"))
         throw std::invalid_argument("conservative boundary power units disagree with physical dimension");
-    if (!ledger.physical_boundary_complete_recorded) throw Missing("'physical_boundary_complete'");
+    if (!ledger.physical_boundary_complete_recorded) throw Missing("physical_boundary_complete");
     if (!ledger.physical_boundary_complete_is_bool || ledger.physical_boundary_complete != true)
         throw std::invalid_argument("incomplete physical boundary prevents conservative heat duty");
     record(result, "boundary_fluxes.true_h.boundary_power");
@@ -311,7 +310,7 @@ double enthalpy_duty(const TrueHEvidence& ledger, std::size_t side, int dimensio
                      const GridEvidence& grid, Diagnostics& diag) {
     const auto& h = need(ledger.enthalpy[side], "h_" + side_name(side));
     const auto& mass = ledger.mass[side];
-    if (mass.empty()) throw Missing("'mass_flux_" + side_name(side) + "'");
+    if (mass.empty()) throw Missing("mass_flux_" + side_name(side));
     const auto shape = boundary_shape(mass, 3, grid);
     if (shape != h.shape || (dimension == 2 && shape[2] != 1))
         throw std::invalid_argument(dimension == 2 ? "2D true-h evidence requires matching singleton-z cells and mass faces" : "native enthalpy cells disagree with mass faces");
@@ -460,8 +459,8 @@ std::array<double, 2> pressures(const ResultEvidence& result, std::size_t side, 
 }
 std::array<double, 2> mass_flow(const ResultEvidence& result, std::size_t side, Diagnostics& diag) {
     const auto& mass = result.thermal.mass[side];
-    if (!result.thermal.mass_recorded[side] && mass.empty()) throw Missing("'mass_" + side_name(side) + "'");
-    if (result.thermal.mass_none[side]) throw Missing("'native boundary faces'");
+    if (!result.thermal.mass_recorded[side] && mass.empty()) throw Missing("mass_" + side_name(side));
+    if (result.thermal.mass_none[side]) throw Missing("native boundary faces");
     const auto planes = boundary_planes(mass, result.dimension, result.grid);
     const auto p = arrays(planes);
     return host_call(diag, [&] {return result.dimension == 2 ? metrics::boundary_mass_2d({p[0], p[1], p[2], p[3]}, diag)
@@ -474,14 +473,14 @@ double outlet_temperature(const ResultEvidence& result, std::size_t side, Diagno
         record(result, "boundary_fluxes.report." + side_name(side));
         direction = need(result.thermal.report_direction[side], "direction");
         if (!result.thermal.mass_recorded[side] && result.thermal.mass[side].empty())
-            throw Missing("'mass_" + side_name(side) + "'");
+            throw Missing("mass_" + side_name(side));
     }
     const auto& temperature = entry(result.fields, side ? "Tb" : "Ta");
     const auto& mass = result.thermal.mass[side];
-    if (!result.thermal.mass_recorded[side] && mass.empty()) throw Missing("'mass_" + side_name(side) + "'");
+    if (!result.thermal.mass_recorded[side] && mass.empty()) throw Missing("mass_" + side_name(side));
     if (result.thermal.mass_none[side]) {
         if (result.dimension == 2) throw NumericError(TPMSHX_RESULT_TYPE_ERROR, "'NoneType' object is not iterable");
-        throw Missing("'native boundary faces'");
+        throw Missing("native boundary faces");
     }
     if (boundary_shape(mass, result.dimension, result.grid) != temperature.shape)
         throw std::invalid_argument("outlet temperature cells disagree with native mass faces");
@@ -503,7 +502,7 @@ void quick_access(const ResultEvidence& result, std::size_t side, Recorded<int> 
     const auto& quick = result.quick[side];
     if (quick.access_recorded) {
         const auto name = path.substr(path.rfind('.') + 1);
-        if (!need(quick.*access, name)) throw Missing(name);
+        if (!need(quick.*access, name)) throw Missing(name, false);
     } else {
         record(result, path);
     }
@@ -581,7 +580,7 @@ public:
             if (mode == "true_h") throw Unsupported("true enthalpy has no Richardson thermal solve");
             record(result, "metadata.diagnostics");
             record(result, "metadata.diagnostics.richardson_info");
-            if (!result.richardson_extrapolated) throw Missing("'extrapolated'");
+            if (!result.richardson_extrapolated) throw Missing("extrapolated");
             if (*result.richardson_extrapolated == false) throw Unsupported("Richardson extrapolation was not accepted");
             const auto fine = duty(side, true);
             return metrics::richardson_duty(fine, duty(side, false));
@@ -829,8 +828,8 @@ Gates energy_gates(const ResultEvidence& result) {
     if (mode != "model_h") throw Unsupported("thermal route has no common energy certificate");
     if (need(result.metadata_dimension, "dimension") == 2) {
         record(result, "metadata.diagnostics");
-        if (result.model_certificate_error) throw Missing(*result.model_certificate_error);
-        if (result.model_certificates.empty() && !result.model_certificates_recorded) throw Missing("'model_h_balance'");
+        if (result.model_certificate_error) throw Missing(*result.model_certificate_error, false);
+        if (result.model_certificates.empty() && !result.model_certificates_recorded) throw Missing("model_h_balance");
         Gates gates;
         auto levels = result.model_certificate_order;
         if (levels.empty()) for (const auto& row : result.model_certificates) levels.push_back(row.first);

@@ -1,4 +1,5 @@
 #include <tpmshx/result_stage_c_api.h>
+#include <tpmshx/diagnostic_codes.hpp>
 #include <tpmshx/result_checks_c_api.h>
 #include <cstring>
 

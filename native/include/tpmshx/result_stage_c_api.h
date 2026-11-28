@@ -237,6 +237,8 @@ TPMSHX_RESULT_API int TPMSHX_RESULT_CALL tpmshx_result_stage_qualification_v1(
  * A host may omit report-only gate values and restore them after this call.
  * Gate truth declarations and deferred comparisons still control native policy.
  * Diagnostic and cause storage is independent of the success-only output.
+ * For status 4, cause 6 and token 0, error contains the raw UTF-8 key.
+ * A zero-length key sets the first byte to zero. A host token identifies the original exception.
  * All input storage must be disjoint from writable output, diagnostic, token,
  * and error storage.
  */

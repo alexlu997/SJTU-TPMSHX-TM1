@@ -9,7 +9,8 @@ from typing import NamedTuple
 import numpy as np
 
 from tm1.data_types.compute_config import Sco2NuConfig
-from tm1.run_control.run_warnings import RangeRecord
+from tm1.run_control.run_warnings import RangeRecord, current_warnings, range_diagnostics
+from ._native_diagnostics import native_error
 from . import _native_preparation_case as abi, _native_properties, _native_result
 from ._native_values import TOPOLOGIES, borrow_text, read_text
 from .stage_libraries import preparation_library
@@ -98,17 +99,26 @@ def _range_record(value, bounds_list):
     return (*source, shape, context), record
 
 
-def _check_status(status, error, failure, water_error):
+def _check_status(operation, status, error, failure, water_error):
     if not status:
         return
-    classes = {1: ValueError, 2: water_error, 3: RuntimeError, 4: NotImplementedError}
-    exception = MemoryError if status == 2 else classes.get(failure.kind, RuntimeError)
-    problem = exception(error.value.decode('utf-8', errors='replace'))
-    current = problem
+    side = 'AB'[failure.side] if failure.kind and failure.side < 2 else None
+    route = next((f'full_{dimension}' for dimension in ('2d', '3d')
+                  if operation.startswith(f'tpmshx_preparation_{dimension}_')), 'inlet')
+    causes = []
     for item in failure.causes[:failure.cause_count]:
-        cause = classes.get(item.kind, RuntimeError)(item.message.decode('utf-8', errors='replace'))
-        current.__cause__ = cause
-        current = cause
+        message = item.message.decode('utf-8', errors='replace')
+        cause = native_error('preparation', operation, status, message, kind=item.kind, side=side,
+                             problem=water_error(message) if item.kind == 2 else None)
+        causes.append(cause)
+    text = error.value.decode('utf-8', errors='replace')
+    problem = native_error('preparation', operation, status, text, kind=failure.kind, side=side, route=route,
+                           side_status='available' if side is not None else 'not_recorded',
+                           observations=range_diagnostics(current_warnings() or {}, route),
+                           causes=[item.diagnostic for item in causes],
+                           problem=water_error(text) if failure.kind == 2 and status != 2 else None)
+    for outer, inner in zip([problem, *causes], causes):
+        outer.__cause__ = inner
     raise problem
 
 
@@ -227,7 +237,7 @@ def _owned_result(bindings, key, inputs, options, bridge, water_error):
                       ct.byref(result), ct.byref(failure), error, len(error))
         if callback_errors:
             raise callback_errors[0]
-        _check_status(status, error, failure, water_error)
+        _check_status(call.__name__, status, error, failure, water_error)
         yield result
     finally:
         bindings.releases[result_type](ct.byref(result))
