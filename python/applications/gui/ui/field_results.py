@@ -29,7 +29,7 @@ class FieldResults:
             window.setUpdatesEnabled(True)
         return out
 
-    def publish(self, result, *, result_file=None, available_fields=()):
+    def publish(self, result, *, result_file=None, source_result_id=None, available_fields=()):
         """Publish one ComputeResult for rendering, diagnostics and export."""
         window = self.window
         if not getattr(result, 'converged', True):
@@ -60,12 +60,13 @@ class FieldResults:
                 'convergence_detail': dict(
                 result.diagnostics.get('convergence_detail') or {})},
         )
-        if result_file is not None or available_fields:
-            window.cache.set_result(
-                mode, published, result_file=result_file, available_fields=available_fields
-            )
-        else:
-            window.cache.set_result(mode, published)
+        window.cache.set_result(
+            mode,
+            published,
+            result_file=result_file,
+            source_result_id=source_result_id,
+            available_fields=available_fields,
+        )
         from tm1.applications.gui.ui.builders_sidebar import clear_sample_points
         clear_sample_points(window)
 
@@ -83,11 +84,16 @@ class FieldResults:
             return False
         result_path = Path(path).resolve()
         try:
-            mode, result, available = build_saved_compute_result(result_path)
+            mode, result, source_result_id, available = build_saved_compute_result(result_path)
         except (OSError, ValueError, KeyError, TypeError) as error:
             QMessageBox.warning(window, '无法打开结果', str(error))
             return False
-        self.publish(result, result_file=result_path, available_fields=available)
+        self.publish(
+            result,
+            result_file=result_path,
+            source_result_id=source_result_id,
+            available_fields=available,
+        )
         success = self.render(mode)
         self.refresh_summary()
         window.workbench.update_tab_visibility()

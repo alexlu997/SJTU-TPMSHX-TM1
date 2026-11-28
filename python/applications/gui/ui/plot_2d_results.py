@@ -19,10 +19,7 @@ def _field_2d(window, r, key):
     value = r.get(key)
     if value is not None:
         return value
-    cache = getattr(window, 'cache', None)
-    if cache is not None and hasattr(cache, 'read_field'):
-        return cache.read_field(key, '2d')
-    return None
+    return window.cache.read_field(key, '2d')
 
 
 def _style_workbench_axes(ax, cb, theme, title, subtitle, *, show_xlabel=True):

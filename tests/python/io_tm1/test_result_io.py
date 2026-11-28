@@ -10,6 +10,7 @@ from tm1.data_types.metric_spec import MetricSpec
 from tm1.data_types.performance_result import MetricValue, PerformanceResult
 from tm1.file_io.metrics_io import load_metrics, save_metrics
 from tm1.file_io.result_io import (
+    ArrayDescriptor,
     load_result,
     load_result_design_field,
     load_result_field,
@@ -104,18 +105,18 @@ def test_selected_field_matches_full_reader_across_field_kinds_and_nonfinite(tmp
         'eps_arr': np.full(shape, 0.72, dtype=np.float64),
     }
     expected_units = {
-        'Ta': ('K', 'K', 'main'),
-        'Tb': ('K', 'K', 'main'),
-        'Ta_display': ('K', 'K', 'display'),
-        'P_report_A': ('Pa', 'kPa', 'final SIMPLE flow'),
-        'ucA': ('m/s', 'm/s', 'final flow/report'),
-        'h_vA': ('W/(m3 K)', 'W/(m3 K)', 'last thermal solve'),
-        'K_ss': ('W/(m K)', 'W/(m K)', 'last thermal solve'),
-        'eps_arr': ('1', '1', 'design'),
+        'Ta': ('K', 'main'),
+        'Tb': ('K', 'main'),
+        'Ta_display': ('K', 'display'),
+        'P_report_A': ('Pa', 'final SIMPLE flow'),
+        'ucA': ('m/s', 'final flow/report'),
+        'h_vA': ('W/(m3 K)', 'last thermal solve'),
+        'K_ss': ('W/(m K)', 'last thermal solve'),
+        'eps_arr': ('1', 'design'),
     }
     field_metadata = {
-        name: {'unit': raw_unit, 'axes': axes, 'location': 'cell', 'state': state}
-        for name, (raw_unit, _disp, state) in expected_units.items()
+        name: {'unit': unit, 'axes': axes, 'location': 'cell', 'state': state}
+        for name, (unit, state) in expected_units.items()
     }
     design_fields = {
         'L_field_m': np.full(shape, 0.007, dtype=np.float64),
@@ -125,7 +126,11 @@ def test_selected_field_matches_full_reader_across_field_kinds_and_nonfinite(tmp
         base,
         fields=fields,
         field_metadata=field_metadata,
-        metadata={**base.metadata, 'design_fields': design_fields},
+        metadata={
+            **base.metadata,
+            'design_fields': design_fields,
+            'tuple_with_array': ('before', np.zeros((2,), dtype=np.float32), 'after'),
+        },
     )
     path = tmp_path / f'selected-{dimension}d.h5'
     save_result(archived, path)
@@ -135,19 +140,26 @@ def test_selected_field_matches_full_reader_across_field_kinds_and_nonfinite(tmp
     assert header.result_id == full.result_id
     assert header.available_fields == tuple(full.fields)
     assert set(header.available_design_fields) == {'L_field_m', 't_field_m'}
+    assert header.metadata['design_fields']['L_field_m'] == ArrayDescriptor(
+        shape=shape, dtype=np.dtype(np.float64)
+    )
+    assert header.metadata['tuple_with_array'] == (
+        'before',
+        ArrayDescriptor(shape=(2,), dtype=np.dtype(np.float32)),
+        'after',
+    )
     for key, arr in full.grid.items():
         if isinstance(arr, np.ndarray):
             np.testing.assert_array_equal(header.grid[key], arr)
         else:
             assert header.grid[key] == arr
 
-    for name, (raw_unit, display_unit, state) in expected_units.items():
+    for name, (unit, state) in expected_units.items():
         selected = load_result_field(path, name)
         expected = full.fields[name]
         assert selected.source_result_id == full.result_id
         assert selected.name == name
-        assert selected.raw_unit == raw_unit
-        assert selected.display_unit == display_unit
+        assert selected.unit == unit
         assert selected.axes == axes
         assert selected.association == 'cell'
         assert selected.shape == expected.shape
@@ -167,8 +179,7 @@ def test_selected_field_matches_full_reader_across_field_kinds_and_nonfinite(tmp
         selected_design = load_result_design_field(path, design_name)
         expected_design = full.metadata['design_fields'][design_name]
         assert selected_design.source_result_id == full.result_id
-        assert selected_design.raw_unit == 'm'
-        assert selected_design.display_unit == 'mm'
+        assert selected_design.unit == 'm'
         assert selected_design.axes == axes
         assert selected_design.association == 'cell'
         assert selected_design.shape == expected_design.shape

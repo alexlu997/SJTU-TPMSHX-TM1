@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from types import SimpleNamespace
+from types import MappingProxyType, SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -12,7 +12,6 @@ from tm1.data_types.case_data import SCHEMA_VERSION
 from tm1.data_types.field_result import FieldResult
 from tm1.data_types.model_refs import ModelRef, freeze_mapping, freeze_value
 from tm1.data_types.persistence_validation import validate_result
-from tm1.postprocess.result_display import RESULT_FIELD_SPECS
 from .hdf5_data import ArrayDescriptor, read_record, read_record_selection, write_record
 
 _RESULT_MAPPINGS = (
@@ -20,23 +19,10 @@ _RESULT_MAPPINGS = (
     'run_status', 'metadata', 'field_metadata',
 )
 
+# Cell-shaped TPMS geometry design fields documented in docs/contracts/three_module_v1/.
 _DESIGN_FIELD_UNITS: dict[str, str] = {
     'L_field_m': 'm',
     't_field_m': 'm',
-    'r_h_arr': 'm',
-    'eps_arr': '1',
-    'eps_A': '1',
-    'eps_B': '1',
-    'zone_id': '1',
-    'K_m2': 'm2',
-    'cF_per_m': '1/m',
-    'K_ss': 'W/(m K)',
-    'K_ss_arr': 'W/(m K)',
-    'K_ffA_arr': 'W/(m K)',
-    'K_ffB_arr': 'W/(m K)',
-    'h_vA_arr': 'W/(m3 K)',
-    'h_vB_arr': 'W/(m3 K)',
-    'A_0_arr': '1/m',
 }
 
 
@@ -47,8 +33,7 @@ class SelectedResultField:
     source_result_id: str
     name: str
     values: np.ndarray
-    raw_unit: str
-    display_unit: str
+    unit: str
     grid: Mapping[str, Any]
     axes: tuple[str, ...]
     association: str
@@ -97,18 +82,17 @@ def _check_portable_tree(value: Any) -> None:
     raise TypeError('contract data cannot contain callables or runtime objects')
 
 
-def _strip_unloaded_arrays(value: Any) -> Any:
+def _freeze_header_value(value: Any) -> Any:
+    """Freeze header metadata while keeping unloaded arrays as ArrayDescriptor entries."""
+    if isinstance(value, ArrayDescriptor):
+        return value
     if isinstance(value, Mapping):
-        return {
-            key: _strip_unloaded_arrays(item)
-            for key, item in value.items()
-            if not isinstance(item, ArrayDescriptor)
-        }
-    if isinstance(value, tuple):
-        return tuple(_strip_unloaded_arrays(item) for item in value if not isinstance(item, ArrayDescriptor))
-    if isinstance(value, list):
-        return [_strip_unloaded_arrays(item) for item in value if not isinstance(item, ArrayDescriptor)]
-    return value
+        if any(not isinstance(key, str) for key in value):
+            raise TypeError('contract mapping keys must be strings')
+        return MappingProxyType({key: _freeze_header_value(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_header_value(item) for item in value)
+    return freeze_value(value)
 
 
 def _validate_selected_result_data(data: dict[str, Any]) -> tuple[int, ...]:
@@ -126,19 +110,6 @@ def _validate_selected_result_data(data: dict[str, Any]) -> tuple[int, ...]:
     validate_result(SimpleNamespace(**data))
     grid = data['grid']
     return tuple(len(grid['d' + axis]) for axis in grid['axis_order'])
-
-
-def _display_unit_for(name: str, raw_unit: str) -> str:
-    spec = RESULT_FIELD_SPECS.get(name)
-    if spec is not None and spec.stored_unit == raw_unit:
-        return spec.display_unit
-    if raw_unit == 'Pa':
-        return RESULT_FIELD_SPECS['P_fA'].display_unit
-    if name == 'L_field_m' and raw_unit == 'm':
-        return RESULT_FIELD_SPECS['L_mm'].display_unit
-    if name == 't_field_m' and raw_unit == 'm':
-        return RESULT_FIELD_SPECS['t_mm'].display_unit
-    return raw_unit
 
 
 def save_result(result, path):
@@ -169,13 +140,11 @@ def load_result_field(path, field_name: str) -> SelectedResultField:
     values = freeze_value(raw)
     grid = freeze_mapping(data['grid'])
     meta = data['field_metadata'][field_name]
-    raw_unit = str(meta['unit'])
     return SelectedResultField(
         source_result_id=str(data['result_id']),
         name=field_name,
         values=values,
-        raw_unit=raw_unit,
-        display_unit=_display_unit_for(field_name, raw_unit),
+        unit=str(meta['unit']),
         grid=grid,
         axes=tuple(meta['axes']),
         association=str(meta['location']),
@@ -208,13 +177,11 @@ def load_result_design_field(path, field_name: str) -> SelectedResultField:
         raise KeyError(field_name)
     values = freeze_value(raw)
     grid = freeze_mapping(data['grid'])
-    raw_unit = _DESIGN_FIELD_UNITS[field_name]
     return SelectedResultField(
         source_result_id=str(data['result_id']),
         name=field_name,
         values=values,
-        raw_unit=raw_unit,
-        display_unit=_display_unit_for(field_name, raw_unit),
+        unit=_DESIGN_FIELD_UNITS[field_name],
         grid=grid,
         axes=tuple(grid['axis_order']),
         association='cell',
@@ -253,7 +220,7 @@ def load_result_header(path) -> ResultHeader:
         available_fields=tuple(data['fields']),
         available_design_fields=available_design,
         field_metadata=freeze_mapping(data['field_metadata']),
-        run_status=freeze_mapping(_strip_unloaded_arrays(data['run_status'])),
-        metadata=freeze_mapping(_strip_unloaded_arrays(data['metadata'])),
+        run_status=_freeze_header_value(data['run_status']),
+        metadata=_freeze_header_value(data['metadata']),
         model_refs=tuple(data['model_refs']),
     )

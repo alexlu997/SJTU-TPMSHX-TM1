@@ -23,12 +23,12 @@ class ResultCache(QObject):
 
     MODES = ('2d', '3d')
 
-
     def __init__(self, parent: Optional[QObject] = None):
         super().__init__(parent)
         self._result: ComputeResult | None = None
         self._mode: str | None = None
         self._result_file: Path | None = None
+        self._source_result_id: str | None = None
         self._available_fields: frozenset[str] = frozenset()
         # Which tabs have been drawn for the current result snapshot.
         # Cleared when a new payload arrives so the canvas repaints.
@@ -47,6 +47,7 @@ class ResultCache(QObject):
         payload: ComputeResult | None,
         *,
         result_file: str | Path | None = None,
+        source_result_id: str | None = None,
         available_fields: Iterable[str] = (),
     ) -> None:
         """Store a fresh result for `mode`. Pass None to clear.
@@ -57,8 +58,18 @@ class ResultCache(QObject):
         if payload is not None or mode == self._mode:
             self._result = payload
             self._mode = mode if payload is not None else None
-            self._result_file = Path(result_file) if payload is not None and result_file is not None else None
-            self._available_fields = frozenset(available_fields) if payload is not None else frozenset()
+            if payload is not None and result_file is not None:
+                self._result_file = Path(result_file)
+                self._source_result_id = (
+                    source_result_id
+                    if source_result_id is not None
+                    else payload.metadata.get('source_result_id')
+                )
+                self._available_fields = frozenset(available_fields)
+            else:
+                self._result_file = None
+                self._source_result_id = None
+                self._available_fields = frozenset()
             self._drawn_tabs.clear()
 
     def get_result(self, mode: str | None = None) -> ComputeResult | None:
@@ -71,6 +82,12 @@ class ResultCache(QObject):
         if self.get_result(mode) is None:
             return None
         return self._result_file
+
+    def source_result_id(self, mode: str | None = None) -> str | None:
+        """Return the source result ID recorded for the backing HDF5 file, if any."""
+        if self.get_result(mode) is None:
+            return None
+        return self._source_result_id
 
     def has_field(self, key: str, mode: str | None = None) -> bool:
         """Return True if `key` is present in memory or in the backing result file."""
@@ -100,7 +117,12 @@ class ResultCache(QObject):
         if value is not None:
             return value
         if self._result_file is not None and self._mode is not None and key in self._available_fields:
-            return read_saved_display_field(self._result_file, key, mode=self._mode)
+            return read_saved_display_field(
+                self._result_file,
+                key,
+                mode=self._mode,
+                expected_result_id=self._source_result_id,
+            )
         return None
 
     def load_all_fields(self, mode: str | None = None) -> dict[str, Any]:
@@ -111,7 +133,13 @@ class ResultCache(QObject):
         if self._result_file is None or self._mode is None:
             return dict(result.fields)
         merged = dict(result.fields)
-        merged.update(load_all_saved_display_fields(self._result_file, mode=self._mode))
+        merged.update(
+            load_all_saved_display_fields(
+                self._result_file,
+                mode=self._mode,
+                expected_result_id=self._source_result_id,
+            )
+        )
         return merged
 
     def clear(self, mode: Optional[str] = None) -> None:
@@ -120,6 +148,7 @@ class ResultCache(QObject):
             self._result = None
             self._mode = None
             self._result_file = None
+            self._source_result_id = None
             self._available_fields = frozenset()
             self._drawn_tabs.clear()
         else:

@@ -68,14 +68,14 @@ _FIELD_TABLE = [
 ]
 
 
-def _resolve_fields(window, x_mm, y_mm):
+def _resolve_fields(window, x_mm, y_mm, *, fields=None):
     """Return list of (label, value_str, unit) at the (x_mm, y_mm) point.
 
     Reads fields from the accepted 2D/3D ComputeResult. If results haven't
     been computed yet, returns an empty list (caller displays "— no
     compute yet —" in that case).
     """
-    r = _display_fields(window)
+    r = _display_fields(window) if fields is None else fields
     if r is None:
         return []
     N_x = int(r.get('N_x', 0)); N_y = int(r.get('N_y', 0))
@@ -156,10 +156,10 @@ def _display_fields(window):
         if inspector is not None:
             inspector._full_fields_cache = None
         return None
-    result_file = window.cache.result_file(mode) if hasattr(window.cache, 'result_file') else None
+    result_file = window.cache.result_file(mode)
     if result_file is not None:
-        cache_key = (id(result), result_file)
-        cached = getattr(inspector, '_full_fields_cache', None) if inspector is not None else None
+        cache_key = (window.cache.source_result_id(mode), result_file)
+        cached = inspector._full_fields_cache if inspector is not None else None
         if cached is not None and cached[0] == cache_key:
             f = cached[1]
         else:

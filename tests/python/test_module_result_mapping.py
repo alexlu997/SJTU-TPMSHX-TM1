@@ -121,7 +121,7 @@ def test_synthetic_3d_mapping_preserves_full_geometry_and_report_pressure():
     from tm1.applications.gui.ui.plot_3d_results import finalize_plots_3d
     shown = {}
     window = SimpleNamespace(
-        cache=SimpleNamespace(get_result=lambda mode: result),
+        cache=SimpleNamespace(get_result=lambda mode: result, result_file=lambda mode=None: None),
         chk_sync_colorbar_T=SimpleNamespace(isChecked=lambda: True),
         chk_shared_pressure_scale=SimpleNamespace(isChecked=lambda: True),
         canvas_3d=SimpleNamespace(set_scale_sharing=lambda **kw: None,

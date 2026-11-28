@@ -34,7 +34,8 @@ class ResultExport:
         # object selected at click time even if another result is published.
         result = res_3d if res_3d is not None else res_2d
         mode = '3d' if res_3d is not None else '2d'
-        result_file = window.cache.result_file(mode) if hasattr(window.cache, 'result_file') else None
+        result_file = window.cache.result_file(mode)
+        source_result_id = window.cache.source_result_id(mode)
         path, _ = QFileDialog.getSaveFileName(
             window, "导出计算结果", "results.csv",
             "CSV 文件 (*.csv);;所有文件 (*)")
@@ -44,7 +45,12 @@ class ResultExport:
             rows = []
             if result_file is not None:
                 from tm1.applications.gui.controllers.result_field_loader import load_all_saved_display_fields
-                _rf = {**result.fields, **load_all_saved_display_fields(result_file, mode=mode)}
+                _rf = {
+                    **result.fields,
+                    **load_all_saved_display_fields(
+                        result_file, mode=mode, expected_result_id=source_result_id
+                    ),
+                }
             else:
                 _rf = result.fields
             diag = result.diagnostics or {}

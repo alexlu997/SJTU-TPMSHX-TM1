@@ -348,10 +348,13 @@ class ThreeDVisPanel(QWidget):
             return False
         if field_key == self._field and self._volume_actor is not None:
             return True
-        if getattr(self, "_field_loader", None) is not None:
+        if self._field_loader is not None:
             try:
-                ThreeDVisPanel._ensure_field_for_display(self, field_key)
-            except Exception:
+                self._ensure_field_for_display(field_key)
+            except (OSError, ValueError, KeyError) as exc:
+                self.status.setText(f"场读取失败：{exc}")
+                self.status.show()
+                self._layout_overlays()
                 return False
         elif field_key not in self._arrays:
             return False
@@ -419,9 +422,9 @@ class ThreeDVisPanel(QWidget):
         if shared_pressure is not None and bool(shared_pressure) != self._shared_pressure_scale:
             self._shared_pressure_scale = bool(shared_pressure)
             changed = True
-        if changed and (self._arrays or getattr(self, "_field_loader", None) is not None):
-            if getattr(self, "_field_loader", None) is not None and self._field is not None:
-                ThreeDVisPanel._ensure_field_for_display(self, self._field)
+        if changed and (self._arrays or self._field_loader is not None):
+            if self._field_loader is not None and self._field is not None:
+                self._ensure_field_for_display(self._field)
             if self._arrays:
                 self._global_clim = self._build_global_clim()
             if self._grid is not None:
@@ -437,10 +440,9 @@ class ThreeDVisPanel(QWidget):
     def _ensure_field(self, field_key: str) -> np.ndarray:
         if field_key in self._arrays:
             return self._arrays[field_key]
-        loader = getattr(self, "_field_loader", None)
-        if loader is None or field_key not in self._available_fields:
+        if self._field_loader is None or field_key not in self._available_fields:
             raise KeyError(field_key)
-        arr = np.ascontiguousarray(loader(field_key), dtype=np.float64)
+        arr = np.ascontiguousarray(self._field_loader(field_key), dtype=np.float64)
         if self._widths_m is None:
             raise RuntimeError("set_field_source: grid is not initialized")
         expected = tuple(axis.size for axis in self._widths_m)
@@ -450,9 +452,8 @@ class ThreeDVisPanel(QWidget):
         return arr
 
     def _ensure_field_for_display(self, field_key: str) -> None:
-        group = ThreeDVisPanel._shared_group_for(self, field_key)
-        for key in group:
-            ThreeDVisPanel._ensure_field(self, key)
+        for key in self._shared_group_for(field_key):
+            self._ensure_field(key)
         self._global_clim = self._build_global_clim()
 
     def _configure_grid_and_show(
@@ -509,8 +510,8 @@ class ThreeDVisPanel(QWidget):
         elif self._field not in available_fields:
             self._field = available_fields[0]
 
-        if getattr(self, "_field_loader", None) is not None:
-            ThreeDVisPanel._ensure_field_for_display(self, self._field)
+        if self._field_loader is not None:
+            self._ensure_field_for_display(self._field)
         else:
             self._global_clim = self._build_global_clim()
 
@@ -568,8 +569,7 @@ class ThreeDVisPanel(QWidget):
         self._arrays = {}
         self._global_clim = {}
         self._field_loader = field_loader
-        ThreeDVisPanel._configure_grid_and_show(
-            self,
+        self._configure_grid_and_show(
             dx=dx,
             dy=dy,
             dz=dz,
@@ -644,8 +644,7 @@ class ThreeDVisPanel(QWidget):
                 f"set_fields: field shape {field_shape} != grid ({dx_m.size}, {dy_m.size}, {dz_m.size})"
             )
         ordered = tuple(key for key in FIELD_ORDER if key in self._arrays)
-        ThreeDVisPanel._configure_grid_and_show(
-            self,
+        self._configure_grid_and_show(
             dx=dx_m,
             dy=dy_m,
             dz=dz_m,
@@ -661,19 +660,16 @@ class ThreeDVisPanel(QWidget):
         topology: str,
         delta_levelset: float,
         result_id: str,
-        *,
-        design_mode: Optional[str] = None,
     ) -> None:
         """Enable ``晶格`` for the loaded fields with the recorded topology and level-set offset.
 
         Graded L keeps ``晶格`` disabled with its reason, because its phase rule is not defined.
         """
-        if design_mode != "uniform":
-            cell_field = ThreeDVisPanel._ensure_field(self, "L_mm")
-            _cell, reason = lattice_cell_size(cell_field)
-            if reason:
-                self._reset_lattice(_GRADED_L_REASON)
-                return
+        cell_field = self._ensure_field("L_mm")
+        _cell, reason = lattice_cell_size(cell_field)
+        if reason:
+            self._reset_lattice(_GRADED_L_REASON)
+            return
         self._lattice_source = (topology, float(delta_levelset), result_id)
         self.toolbar.set_lattice_enabled(True)
 
@@ -1487,8 +1483,7 @@ class ThreeDVisPanel(QWidget):
 
         if self._flow_dir is not None:
             _add_pair(self._flow_dir, "A", t["inlet_a"])
-        known_fields = getattr(self, "_available_fields", ()) or self._arrays
-        if self._flow_dir_B and any(f in known_fields for f in ("Tb", "vmag_B", "P_B_kPa")):
+        if self._flow_dir_B and any(f in self._available_fields for f in ("Tb", "vmag_B", "P_B_kPa")):
             _add_pair(self._flow_dir_B, "B", t["inlet_b"])
 
     def _project_world_to_viewport(self, point_xyz: np.ndarray) -> Optional[tuple[float, float]]:
@@ -1748,9 +1743,9 @@ class ThreeDVisPanel(QWidget):
             dx=dx,
             dy=dy,
             dz=dz,
-            field=ThreeDVisPanel._ensure_field(self, self._field),
-            L_mm=ThreeDVisPanel._ensure_field(self, "L_mm"),
-            t_mm=ThreeDVisPanel._ensure_field(self, "t_mm"),
+            field=self._ensure_field(self._field),
+            L_mm=self._ensure_field("L_mm"),
+            t_mm=self._ensure_field("t_mm"),
             delta=delta,
             detail=detail,
         )

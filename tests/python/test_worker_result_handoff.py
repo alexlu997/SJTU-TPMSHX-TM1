@@ -299,7 +299,7 @@ def test_worker_publishes_payload_on_gui_thread_without_reentry(win, monkeypatch
         writes.append((threading.get_ident(), payload, win.single_run.compute.is_running()))
         original_write(payload)
 
-    def cache_write(*args):
+    def cache_write(*args, **_kwargs):
         cache_writes.append((threading.get_ident(), args[0], args[1] is None))
         original_cache(*args)
 

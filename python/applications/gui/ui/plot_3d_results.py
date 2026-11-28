@@ -34,20 +34,14 @@ _FLUID_B_PANEL_KEYS = frozenset({'Tb', 'vmag_B', 'P_B_kPa'})
 
 
 def _has_field_3d(window, f, key) -> bool:
-    if f.get(key) is not None:
-        return True
-    cache = getattr(window, 'cache', None)
-    return bool(cache is not None and hasattr(cache, 'has_field') and cache.has_field(key, '3d'))
+    return f.get(key) is not None or window.cache.has_field(key, '3d')
 
 
 def _field_3d(window, f, key):
     value = f.get(key)
     if value is not None:
         return value
-    cache = getattr(window, 'cache', None)
-    if cache is not None and hasattr(cache, 'read_field'):
-        return cache.read_field(key, '3d')
-    return None
+    return window.cache.read_field(key, '3d')
 
 
 def finalize_plots_3d(window) -> bool:
@@ -105,8 +99,12 @@ def finalize_plots_3d(window) -> bool:
                 sync_temp=window.chk_sync_colorbar_T.isChecked(),
                 shared_pressure=window.chk_shared_pressure_scale.isChecked(),
             )
-            result_file = window.cache.result_file('3d') if hasattr(window.cache, 'result_file') else None
-            if result_file is not None and hasattr(panel, 'set_field_source'):
+            result_file = window.cache.result_file('3d')
+            if result_file is not None:
+                from tm1.applications.gui.controllers.result_field_loader import read_saved_display_field
+
+                bound_file = result_file
+                bound_result_id = window.cache.source_result_id('3d')
                 available_canonical = window.cache.available_fields('3d')
                 available_panel = tuple(
                     panel_key
@@ -115,14 +113,20 @@ def finalize_plots_3d(window) -> bool:
                     and (_has_B or panel_key not in _FLUID_B_PANEL_KEYS)
                 )
 
-                def _load_panel_field(panel_key: str) -> np.ndarray:
-                    canonical = _PANEL_TO_CANONICAL_3D[panel_key]
-                    arr = window.cache.read_field(canonical, '3d')
-                    if arr is None:
-                        raise KeyError(panel_key)
-                    if panel_key in ('P_kPa', 'P_B_kPa'):
-                        return np.ascontiguousarray(arr * p_scale)
-                    return np.ascontiguousarray(arr)
+                def _load_panel_field(
+                    panel_key: str,
+                    *,
+                    _file=bound_file,
+                    _expected_id=bound_result_id,
+                ) -> np.ndarray:
+                    return np.ascontiguousarray(
+                        read_saved_display_field(
+                            _file,
+                            panel_key,
+                            mode='3d',
+                            expected_result_id=_expected_id,
+                        )
+                    )
 
                 panel.set_field_source(
                     available_fields=available_panel,
@@ -136,7 +140,6 @@ def finalize_plots_3d(window) -> bool:
                     res.metadata['tpms'],
                     res.metadata['delta_levelset'],
                     res.metadata['source_result_id'],
-                    design_mode=res.metadata.get('design_mode'),
                 )
             else:
                 P_B_kPa = None

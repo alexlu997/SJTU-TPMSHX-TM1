@@ -22,10 +22,7 @@ def _read_2d_field(window, fields, key):
     value = fields.get(key)
     if value is not None:
         return value
-    cache = getattr(window, "cache", None)
-    if cache is not None and hasattr(cache, "read_field"):
-        return cache.read_field(key, "2d")
-    return None
+    return window.cache.read_field(key, "2d")
 
 
 def _render_2d_thumbnail_axes(window, fig) -> bool:
