@@ -6,8 +6,8 @@ import pytest
 
 from tests.python import float64_oracle as oracle
 from tests.python import property_reference as reference
-from sjtu_tpmshx.cpp_interface import _native_properties
-from sjtu_tpmshx.physical_models import design_fluids
+from tm1.cpp_interface import _native_properties
+from tm1.physical_models import design_fluids
 
 
 def observe(function, *, is_reference=False):

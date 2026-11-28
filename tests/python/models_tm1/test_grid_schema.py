@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.physical_models.grid_schema import GRID_ARRAY_KEYS, validate_grid_arrays
+from tm1.physical_models.grid_schema import GRID_ARRAY_KEYS, validate_grid_arrays
 
 
 def _valid_dict(Nx=4, Ny=3):

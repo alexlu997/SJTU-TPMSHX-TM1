@@ -6,9 +6,9 @@ import re
 
 import numpy as np
 
-from sjtu_tpmshx.data_types.persistence_validation import validate_result
-from sjtu_tpmshx.data_types.portable_data import mutable_data
-from sjtu_tpmshx.file_io.text_file import write_text
+from tm1.data_types.persistence_validation import validate_result
+from tm1.data_types.portable_data import mutable_data
+from tm1.file_io.text_file import write_text
 
 
 def export_vtk(result, path):

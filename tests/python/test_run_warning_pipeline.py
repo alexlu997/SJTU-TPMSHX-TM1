@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 
 import importlib
-from sjtu_tpmshx.applications.result_adapter import compute_result
-from sjtu_tpmshx.physical_models.tpms_calc import compute
+from tm1.applications.result_adapter import compute_result
+from tm1.physical_models.tpms_calc import compute
 from tests.python.execution_tm1.test_pipeline_2d_smoke import _shanghai_like_cfg
 from tests.python.cases_3d import small_air_config
 from tests.python.gui_worker_support import win as win
@@ -16,7 +16,7 @@ from tests.python.gui_worker_support import win as win
 @pytest.mark.slow
 @pytest.mark.parametrize('dimension', ['2d', '3d'])
 def test_real_pipeline_warning_ownership_and_numerical_transparency(monkeypatch, dimension, win):
-    from sjtu_tpmshx.cpp_interface.solver_library import stage_capture as owner
+    from tm1.cpp_interface.solver_library import stage_capture as owner
     if dimension == '2d':
         main_stage = 'main-hv'
         cfg = _shanghai_like_cfg()
@@ -66,7 +66,7 @@ def test_real_pipeline_warning_ownership_and_numerical_transparency(monkeypatch,
     observation_count = len(observations)
     # The comparison still runs all numerical calls with collection disabled.
     with monkeypatch.context() as patch:
-        patch.setattr(importlib.import_module('sjtu_tpmshx.compute'), 'warning_scope', lambda records: nullcontext(records))
+        patch.setattr(importlib.import_module('tm1.compute'), 'warning_scope', lambda records: nullcontext(records))
         patch.setattr(owner, 'stage_closures', lambda records: ([], {}, []))
         without_capture = compute_result(cfg)
     assert len(observations) == observation_count

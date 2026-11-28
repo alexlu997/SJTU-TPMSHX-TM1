@@ -6,8 +6,8 @@ import math
 from types import MappingProxyType
 from typing import Mapping
 
-from sjtu_tpmshx.data_types.model_refs import freeze_mapping
-from sjtu_tpmshx.data_types.metric_spec import METRIC_KINDS, MetricSpec
+from tm1.data_types.model_refs import freeze_mapping
+from tm1.data_types.metric_spec import METRIC_KINDS, MetricSpec
 
 
 @dataclass(frozen=True)

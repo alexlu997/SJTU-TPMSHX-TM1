@@ -21,29 +21,29 @@ class ZonePanelMixin:
     """Zone-editor UI handlers (delegate to ``ui.zone_table``)."""
 
     def _zone_mode_changed(self, idx):
-        from sjtu_tpmshx.applications.gui.ui.zone_table import zone_mode_changed
+        from tm1.applications.gui.ui.zone_table import zone_mode_changed
         return zone_mode_changed(self, idx)
 
     def _zone_init_1d(self, n):
-        from sjtu_tpmshx.applications.gui.ui.zone_table import zone_init_1d
+        from tm1.applications.gui.ui.zone_table import zone_init_1d
         return zone_init_1d(self, n)
 
     def _zone_add_row(self):
-        from sjtu_tpmshx.applications.gui.ui.zone_table import zone_add_row
+        from tm1.applications.gui.ui.zone_table import zone_add_row
         return zone_add_row(self)
 
     def _zone_remove_row(self):
-        from sjtu_tpmshx.applications.gui.ui.zone_table import zone_remove_row
+        from tm1.applications.gui.ui.zone_table import zone_remove_row
         return zone_remove_row(self)
 
     def _zone_add_col(self):
-        from sjtu_tpmshx.applications.gui.ui.zone_table import zone_add_col
+        from tm1.applications.gui.ui.zone_table import zone_add_col
         return zone_add_col(self)
 
     def _zone_remove_col(self):
-        from sjtu_tpmshx.applications.gui.ui.zone_table import zone_remove_col
+        from tm1.applications.gui.ui.zone_table import zone_remove_col
         return zone_remove_col(self)
 
     def _zone_axis(self):
-        from sjtu_tpmshx.applications.gui.ui.zone_table import zone_axis
+        from tm1.applications.gui.ui.zone_table import zone_axis
         return zone_axis(self)

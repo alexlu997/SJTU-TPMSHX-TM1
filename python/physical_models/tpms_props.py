@@ -8,24 +8,24 @@ imports on the solvers side). New direction, module-load level:
 
     tpms_geometry  ←  tpms_props  ←  df_surrogate  ←  tpms_calc / simple_solver
 
-Current imports use ``sjtu_tpmshx.physical_models.tpms_props``. The calculator
+Current imports use ``tm1.physical_models.tpms_props``. The calculator
 re-exports selected primitives for its existing consumers. Dependencies remain
 Qt-free; Re/Nu conventions are documented in ``models.tpms_calc``.
 """
 from __future__ import annotations
 
-from sjtu_tpmshx.run_control.run_environment import _resolve_chi_s
+from tm1.run_control.run_environment import _resolve_chi_s
 import warnings
 
 import numpy as np
 
 from .tpms_geometry import compute_geometry as _tpms_geom
 from .tpms_geometry import compute_geometry_fields as _tpms_geom_fields
-from sjtu_tpmshx.cpp_interface import _native_geometry
-from sjtu_tpmshx.cpp_interface import _native_properties
-from sjtu_tpmshx.cpp_interface._native_result_checks import record_range
-from sjtu_tpmshx.model_configs.model_parameters import load_model_parameters
-from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
+from tm1.cpp_interface import _native_geometry
+from tm1.cpp_interface import _native_properties
+from tm1.cpp_interface._native_result_checks import record_range
+from tm1.model_configs.model_parameters import load_model_parameters
+from tm1.model_configs.units import CELSIUS_ZERO_K
 
 _MODEL_PARAMETERS = load_model_parameters()
 

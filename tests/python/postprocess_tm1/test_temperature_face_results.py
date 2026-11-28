@@ -4,9 +4,9 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.portable_data import mutable_data
-from sjtu_tpmshx.file_io.result_io import load_result, save_result
-from sjtu_tpmshx.postprocess.api import evaluate
+from tm1.data_types.portable_data import mutable_data
+from tm1.file_io.result_io import load_result, save_result
+from tm1.postprocess.api import evaluate
 from tests.python.postprocess_tm1.test_conservative_energy_results import result_fixture
 
 
@@ -49,7 +49,7 @@ def test_signed_advective_duty_survives_replay_without_fourier_or_velocity_recon
 
 @pytest.mark.parametrize('dimension', [2, 3])
 def test_full_cc_h_driver_does_not_grant_model_h_optimization_qualification(dimension):
-    from sjtu_tpmshx.applications.optimization.multi_condition import _full_result_metadata
+    from tm1.applications.optimization.multi_condition import _full_result_metadata
     result = temperature_fixture(dimension)
     metadata = mutable_data(result.metadata)
     metadata['native'] = dict(algorithm='model_h_tface_sou_fou_strict_v1' if dimension == 2

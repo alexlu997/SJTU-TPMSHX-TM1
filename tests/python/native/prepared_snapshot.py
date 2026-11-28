@@ -1,7 +1,7 @@
 """Read native fields at a complete saved-stage boundary for preparation checks."""
-from sjtu_tpmshx.solvers import full_2d, full_3d
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.run_control.module_ports import resolve_control
+from tm1.solvers import full_2d, full_3d
+from tm1.run_control.module_ports import RunControl
+from tm1.run_control.module_ports import resolve_control
 
 
 def native_prepared_state(case, *, phase=None):

@@ -7,8 +7,8 @@ import pytest
 
 from tests.python import float64_oracle as oracle
 from tests.python import nu_reference, property_reference
-from sjtu_tpmshx.cpp_interface import _native_properties as native
-from sjtu_tpmshx.cpp_interface.stage_libraries import preparation_library
+from tm1.cpp_interface import _native_properties as native
+from tm1.cpp_interface.stage_libraries import preparation_library
 
 
 def observation(function, mode, *, is_reference=False):

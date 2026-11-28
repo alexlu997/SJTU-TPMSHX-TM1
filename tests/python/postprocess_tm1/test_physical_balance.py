@@ -7,10 +7,10 @@ import sys
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.field_result import FieldResult
-from sjtu_tpmshx.data_types.portable_data import mutable_data
-from sjtu_tpmshx.file_io.result_io import save_result
-from sjtu_tpmshx.postprocess.api import evaluate_physical_balance
+from tm1.data_types.field_result import FieldResult
+from tm1.data_types.portable_data import mutable_data
+from tm1.file_io.result_io import save_result
+from tm1.postprocess.api import evaluate_physical_balance
 
 
 FACES = ('x-', 'x+', 'y-', 'y+', 'z-', 'z+')
@@ -79,10 +79,10 @@ def test_new_process_reads_balances_without_solver_or_eos(tmp_path, dimension):
     save_result(result, path)
     child = subprocess.run([sys.executable, '-c', r"""
 import json, sys
-from sjtu_tpmshx.file_io.result_io import load_result
-from sjtu_tpmshx.postprocess.api import evaluate_physical_balance
+from tm1.file_io.result_io import load_result
+from tm1.postprocess.api import evaluate_physical_balance
 print(json.dumps(evaluate_physical_balance(load_result(sys.argv[1])), allow_nan=False))
-for prefix in ('sjtu_tpmshx.solvers', 'sjtu_tpmshx.preprocess', 'numba', 'CoolProp', 'PySide6'):
+for prefix in ('tm1.solvers', 'tm1.preprocess', 'numba', 'CoolProp', 'PySide6'):
     assert not any(name == prefix or name.startswith(prefix + '.') for name in sys.modules), prefix
 """, str(path)], capture_output=True, text=True, timeout=30)
     assert child.returncode == 0, child.stderr

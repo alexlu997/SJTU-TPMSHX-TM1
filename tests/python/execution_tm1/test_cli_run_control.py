@@ -3,10 +3,10 @@ import argparse
 
 import pytest
 
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.applications.cli.cli_options import add_run_control_arguments, run_control_from_args
-from sjtu_tpmshx.applications.cli import stages as cli
+from tm1.run_control.cancellation import CancelledError
+from tm1.run_control.module_ports import RunControl
+from tm1.applications.cli.cli_options import add_run_control_arguments, run_control_from_args
+from tm1.applications.cli import stages as cli
 
 
 def test_default_and_relative_native_cli_paths(tmp_path, monkeypatch):
@@ -55,7 +55,7 @@ def test_retired_python_backend_is_rejected():
 ])
 def test_source_cli_resolves_local_delivery_and_preserves_explicit_paths(
         tmp_path, monkeypatch, platform, relative):
-    from sjtu_tpmshx.run_control import module_ports
+    from tm1.run_control import module_ports
     monkeypatch.setattr(module_ports, 'SOURCE_ROOT', tmp_path)
     monkeypatch.setattr(module_ports, 'PUBLISHED_LIBRARY_DIR', tmp_path / 'sjtu_tpmshx/solvers/native/lib')
     monkeypatch.setattr(module_ports.sys, 'platform', platform)
@@ -77,7 +77,7 @@ def test_source_cli_resolves_local_delivery_and_preserves_explicit_paths(
 
 
 def test_other_source_platform_requires_explicit_library(tmp_path, monkeypatch):
-    from sjtu_tpmshx.run_control import module_ports
+    from tm1.run_control import module_ports
     monkeypatch.setattr(module_ports.sys, 'platform', 'linux')
     monkeypatch.setattr(module_ports.sys, 'frozen', False, raising=False)
     parser = argparse.ArgumentParser()
@@ -94,10 +94,10 @@ def test_other_source_platform_requires_explicit_library(tmp_path, monkeypatch):
 @pytest.mark.parametrize('backend', ['cpp'])
 def test_workflow_control_reaches_execution_and_cancellation_keeps_output(
         stage, backend, tmp_path, monkeypatch):
-    from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-    from sjtu_tpmshx.file_io.case_io import save_case
+    from tm1.data_types.compute_config import ComputeConfig
+    from tm1.file_io.case_io import save_case
     from tests.python.io_tm1.io_support import sample_case
-    from sjtu_tpmshx.solvers import api
+    from tm1.solvers import api
     import importlib
 
     source = tmp_path / ('case.h5' if stage == 'solve' else 'config.json')
@@ -120,7 +120,7 @@ def test_workflow_control_reaches_execution_and_cancellation_keeps_output(
     if stage == 'solve':
         monkeypatch.setattr(api, 'run_case', cancel)
     else:
-        monkeypatch.setattr(importlib.import_module('sjtu_tpmshx.compute'),
+        monkeypatch.setattr(importlib.import_module('tm1.compute'),
                             'compute', cancel)
     library, tables = tmp_path / 'solver.so', tmp_path / 'tables'
     arguments = [stage, str(source), str(output), '--backend', backend]
@@ -154,10 +154,10 @@ def test_recoverable_cli_uses_saved_run_and_restores_sigint(stage, outcome, code
                                                          tmp_path, monkeypatch, capsys):
     import signal
     from types import SimpleNamespace
-    from sjtu_tpmshx.applications.cli import main as entry
-    from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-    from sjtu_tpmshx.run_control.paused_run import PausedRun
-    from sjtu_tpmshx.applications.execution import recovery
+    from tm1.applications.cli import main as entry
+    from tm1.data_types.compute_config import ComputeConfig
+    from tm1.run_control.paused_run import PausedRun
+    from tm1.applications.execution import recovery
 
     source = tmp_path / ('config.json' if stage == 'run' else 'checkpoint.h5')
     if stage == 'run':
@@ -199,7 +199,7 @@ def test_recoverable_cli_uses_saved_run_and_restores_sigint(stage, outcome, code
 
 def test_recoverable_cli_restores_sigint_after_failure(tmp_path, monkeypatch):
     import signal
-    from sjtu_tpmshx.applications.execution import recovery
+    from tm1.applications.execution import recovery
     previous = signal.getsignal(signal.SIGINT)
     failure = OSError('saved state could not be read')
 
@@ -229,7 +229,7 @@ def test_thread_limit_requires_a_positive_integer(count):
 
 
 def test_native_thread_limit_uses_available_cpus(monkeypatch):
-    from sjtu_tpmshx.run_control import module_ports
+    from tm1.run_control import module_ports
     monkeypatch.setattr(module_ports.os, 'cpu_count', lambda: 3)
     assert RunControl().native_cpu_threads() == 3
     assert RunControl(cpu_threads=1).native_cpu_threads() == 1

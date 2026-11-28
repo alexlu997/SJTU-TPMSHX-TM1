@@ -6,7 +6,7 @@ import sys
 
 import pytest
 
-from sjtu_tpmshx.model_configs import model_parameters as resources
+from tm1.model_configs import model_parameters as resources
 
 
 def test_model_parameters_have_independent_ownership():
@@ -28,7 +28,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Barrier
 import sys
-from sjtu_tpmshx.model_configs import model_parameters as resources
+from tm1.model_configs import model_parameters as resources
 
 expected = dict.fromkeys(('model_parameters_v1.json', 'preparation_df_v1.json', 'co2_segment2_v1.json'), 1)
 reads = Counter()
@@ -121,8 +121,8 @@ def test_quick_design_resource_rejects_invalid_defaults(tmp_path, monkeypatch, p
 
 
 def test_quick_design_catalog_checks_versions_and_returns_owned_defaults():
-    from sjtu_tpmshx.data_types.model_refs import ModelRef
-    from sjtu_tpmshx.physical_models.catalog import resolve_model
+    from tm1.data_types.model_refs import ModelRef
+    from tm1.physical_models.catalog import resolve_model
 
     version = resources.MODEL_VERSIONS['quick_design']
     model = ModelRef('quick_design', version, {})
@@ -162,14 +162,14 @@ assert 'inline constexpr std::size_t quick_design_counter_maxit{20000};' in text
 assert 'inline constexpr std::optional<double> quick_design_counter_qtol{std::nullopt};' in text
 assert 'inline constexpr std::optional<std::size_t> quick_design_counter_chunk{std::nullopt};' in text
 df = df_header()
-from sjtu_tpmshx.model_configs.model_parameters import MODEL_VERSIONS
+from tm1.model_configs.model_parameters import MODEL_VERSIONS
 for name, version in MODEL_VERSIONS.items():
     assert f'inline constexpr char {name}_version[] = \"{version}\";' in text
 assert 'namespace tpmshx::preparation::df_data' in df
 assert 'cfd_full_core_3cell_fixed_v2' in df
 assert 'inline constexpr double df_values[2][5][4][2]' in df
-assert not any(name.startswith(('numpy', 'scipy', 'CoolProp', 'sjtu_tpmshx.physical_models',
-                                'sjtu_tpmshx.solvers')) for name in sys.modules)
+assert not any(name.startswith(('numpy', 'scipy', 'CoolProp', 'tm1.physical_models',
+                                'tm1.solvers')) for name in sys.modules)
 '''], cwd=root, capture_output=True, text=True, timeout=60)
     assert probe.returncode == 0, probe.stdout + probe.stderr
 
@@ -220,7 +220,7 @@ def test_co2_resource_checks_authoritative_re_bounds(tmp_path, bounds):
 @pytest.mark.parametrize('theta', [[None, 0., 0., 0., 0.], [[0.]] * 5,
                                   [float('nan'), 0., 0., 0., 0.]])
 def test_co2_selected_path_keeps_invalid_theta_error(tmp_path, monkeypatch, theta):
-    from sjtu_tpmshx.physical_models import co2_correlations
+    from tm1.physical_models import co2_correlations
 
     data = resources.load_co2_coefficients()
     data['topologies']['Diamond']['Nu']['parameters']['theta'] = theta

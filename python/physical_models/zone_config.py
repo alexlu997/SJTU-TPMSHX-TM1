@@ -24,13 +24,13 @@ Usage:
 """
 
 import numpy as np
-from sjtu_tpmshx.run_control.logutil import format_zone_report as format_zone_report
+from tm1.run_control.logutil import format_zone_report as format_zone_report
 from dataclasses import dataclass, field
 from typing import List
-from sjtu_tpmshx.physical_models import tpms_calc
-from sjtu_tpmshx.cpp_interface import _native_geometry, _native_zones
+from tm1.physical_models import tpms_calc
+from tm1.cpp_interface import _native_geometry, _native_zones
 
-from sjtu_tpmshx.run_control.logutil import get_logger
+from tm1.run_control.logutil import get_logger
 
 _log = get_logger(__name__)
 
@@ -140,7 +140,7 @@ class ZoneConfig:
             raise RuntimeError("Call compute_properties() before building arrays.")
 
         arrays = self.build_structured_geometry(Nx, Ny, H, axis, dx_arr=dx_arr, dy_arr=dy_arr)
-        from sjtu_tpmshx.cpp_interface._native_properties import volumetric_transfer
+        from tm1.cpp_interface._native_properties import volumetric_transfer
         zone_id = arrays['zone_id']
         for side in ('A', 'B'):
             properties = [getattr(zone, 'props_' + side) for zone in self.zones]
@@ -209,7 +209,7 @@ class ZoneConfig:
 
         arrays = ZoneConfig.build_grid_geometry(
             Nx, Ny, grid_cells, tpms_type, k_s, dx_arr, dy_arr)
-        from sjtu_tpmshx.cpp_interface._native_properties import volumetric_transfer
+        from tm1.cpp_interface._native_properties import volumetric_transfer
         zone_id = arrays['zone_id']
         for side, index in (('A', 0), ('B', 1)):
             properties = [props_cache[(cell['L'], cell['t'])][index] for cell in grid_cells]
@@ -278,7 +278,7 @@ def compute_zone_statistics(Ta, Tb, Ts, zone_id, zones,
     -------
     list of dicts, one per zone.
     """
-    from sjtu_tpmshx.cpp_interface import _native_result_balance as native
+    from tm1.cpp_interface import _native_result_balance as native
     Ta_flat = np.ravel(Ta)
     Tb_flat = np.ravel(Tb)
     Ts_flat = np.ravel(Ts)

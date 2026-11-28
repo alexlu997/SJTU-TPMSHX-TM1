@@ -31,7 +31,7 @@ def _loop_reference(model, L_arr, t_arr, e_arr):
 ])
 def test_batched_matches_loop_bit_exact(gyroid_model, shape):
     """Batched implementation must agree with per-cell loop to within rtol=1e-12."""
-    from sjtu_tpmshx.physical_models.df_surrogate.predict import predict_K_cF_vec
+    from tm1.physical_models.df_surrogate.predict import predict_K_cF_vec
     rng = np.random.default_rng(seed=42)
     L = rng.uniform(4.5, 7.5, size=shape)
     t = rng.uniform(0.3, 0.5, size=shape)
@@ -52,7 +52,7 @@ def test_batched_matches_loop_bit_exact(gyroid_model, shape):
 
 def test_scalar_broadcast_to_array():
     """Mixed scalar/array inputs broadcast (existing API contract)."""
-    from sjtu_tpmshx.physical_models.df_surrogate.predict import predict_K_cF_vec
+    from tm1.physical_models.df_surrogate.predict import predict_K_cF_vec
     K, cF = predict_K_cF_vec('Gyroid',
                               L_mm=np.array([5.0, 6.0, 7.0]),
                               t_mm=0.4,
@@ -65,7 +65,7 @@ def test_scalar_broadcast_to_array():
 
 def test_diamond_path_also_works():
     """Confirm both TPMS types still go through the batched path."""
-    from sjtu_tpmshx.physical_models.df_surrogate.predict import predict_K_cF_vec
+    from tm1.physical_models.df_surrogate.predict import predict_K_cF_vec
     K, cF = predict_K_cF_vec('Diamond',
                               np.array([5.0, 6.0]),
                               np.array([0.3, 0.4]),
@@ -78,9 +78,9 @@ def test_diamond_path_also_works():
 
 @pytest.mark.parametrize('topology', ['Diamond', 'Gyroid'])
 def test_batch_preserves_nodes_and_asymmetric_tolerance(topology):
-    from sjtu_tpmshx.model_configs.df_domain import TRAIN_L_NODES, TRAIN_T_NODES
+    from tm1.model_configs.df_domain import TRAIN_L_NODES, TRAIN_T_NODES
     from tests.python.df_reference import FullCore3CellFixedDFV2, METHOD
-    from sjtu_tpmshx.physical_models.df_surrogate.predict import predict_K_cF_vec
+    from tm1.physical_models.df_surrogate.predict import predict_K_cF_vec
 
     pairs = [(L, t) for L in TRAIN_L_NODES for t in TRAIN_T_NODES]
     for axis, nodes in enumerate((TRAIN_L_NODES, TRAIN_T_NODES)):
@@ -103,7 +103,7 @@ def test_batch_preserves_nodes_and_asymmetric_tolerance(topology):
 def test_batch_preserves_existing_nonfinite_behavior(topology):
     """Compatibility only: nonfinite inputs do not gain physical validity."""
     from tests.python.df_reference import FullCore3CellFixedDFV2, METHOD
-    from sjtu_tpmshx.physical_models.df_surrogate.predict import predict_K_cF_vec
+    from tm1.physical_models.df_surrogate.predict import predict_K_cF_vec
 
     L = np.array([np.nan, np.inf, -np.inf, 6., 6., 6., 6.])
     t = np.array([.4, .4, .4, np.nan, np.inf, -np.inf, .4])
@@ -128,7 +128,7 @@ def test_batch_preserves_existing_nonfinite_behavior(topology):
 ])
 def test_batch_shapes_and_independent_writable_outputs(topology, L, t, eps):
     from tests.python.df_reference import FullCore3CellFixedDFV2, METHOD
-    from sjtu_tpmshx.physical_models.df_surrogate.predict import predict_K_cF_vec
+    from tm1.physical_models.df_surrogate.predict import predict_K_cF_vec
 
     inputs = [value for value in (L, t, eps) if isinstance(value, np.ndarray)]
     originals = [value.copy() for value in inputs]
@@ -158,7 +158,7 @@ def test_batch_shapes_and_independent_writable_outputs(topology, L, t, eps):
 ])
 def test_batch_outside_tolerance_preserves_scalar_error(topology, L, t):
     from tests.python.df_reference import FullCore3CellFixedDFV2, METHOD
-    from sjtu_tpmshx.physical_models.df_surrogate.predict import predict_K_cF_vec
+    from tm1.physical_models.df_surrogate.predict import predict_K_cF_vec
 
     lengths, thicknesses = np.array([6., L]), np.array([.4, t])
     with pytest.raises(ValueError) as scalar_error:
@@ -175,7 +175,7 @@ def test_batch_outside_tolerance_preserves_scalar_error(topology, L, t):
     ('Gyroid', ['invalid'], .4, 'retired', 'could not convert string to float'),
 ])
 def test_batch_errors_preserve_validation_order(topology, L, t, method, message):
-    from sjtu_tpmshx.physical_models.df_surrogate.predict import predict_K_cF_vec
+    from tm1.physical_models.df_surrogate.predict import predict_K_cF_vec
 
     with pytest.raises(ValueError, match=message):
         predict_K_cF_vec(topology, L, t, .35, method=method)

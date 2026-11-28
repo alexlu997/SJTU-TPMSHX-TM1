@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 from shiboken6 import isValid
 from pyvista.plotting.plotter import BasePlotter
 
-from sjtu_tpmshx.applications.gui.ui.panel_vis_3d import ThreeDVisPanel
+from tm1.applications.gui.ui.panel_vis_3d import ThreeDVisPanel
 
 
 _POSES = {
@@ -218,7 +218,7 @@ def test_hidden_initialization_suppresses_real_plotter_render_until_show(monkeyp
         plotter.render_timer.start(200)
         return plotter
 
-    monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.panel_vis_3d.QtInteractor', make_plotter)
+    monkeypatch.setattr('tm1.applications.gui.ui.panel_vis_3d.QtInteractor', make_plotter)
     monkeypatch.setattr(ThreeDVisPanel, '_init_timers', lambda self: None)
     monkeypatch.setattr(ThreeDVisPanel, '_setup_observers', lambda self: None)
     monkeypatch.setattr(ThreeDVisPanel, '_render_placeholder', lambda self: self.plotter.render())
@@ -315,7 +315,7 @@ def test_hidden_fit_waits_for_show_and_resize_preserves_manual_view(camera_panel
 
 
 def test_fit_toolbar_uses_current_orientation():
-    from sjtu_tpmshx.applications.gui.ui.builders_canvas import canvas_zoom_reset
+    from tm1.applications.gui.ui.builders_canvas import canvas_zoom_reset
     panel = SimpleNamespace(fit_view=Mock(), set_view=Mock())
     canvas_zoom_reset(SimpleNamespace(workbench=SimpleNamespace(active_tab='3d'), canvas_3d=panel))
     panel.fit_view.assert_called_once_with()

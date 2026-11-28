@@ -4,7 +4,7 @@ import json
 
 import numpy as np
 
-from sjtu_tpmshx.cpp_interface import _native_result
+from tm1.cpp_interface import _native_result
 from tests.python import result_stage_fixture as report
 from tests.python.native_preparation_abi import (
     _configuration_3d, _configuration_continuous, _configuration_continuous_3d, _configuration_fluids,

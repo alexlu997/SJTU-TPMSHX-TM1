@@ -19,7 +19,7 @@ may include differences beyond geometry. The outer κ caller enforces identity
 at r≈1. One offset cell gives both channels (A large r>1, B small r<1).
 
 Output: python/development/runs/_out/asym_cfd/asym_cfd_design_matrix.xlsx
-Usage:  python -m sjtu_tpmshx.development.runs.tools.asym_build_cfd_design_xlsx
+Usage:  python -m tm1.development.runs.tools.asym_build_cfd_design_xlsx
 """
 from pathlib import Path
 
@@ -27,8 +27,8 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side as XLSide
 from openpyxl.utils import get_column_letter
 
-from sjtu_tpmshx.physical_models.tpms_geometry import _phi_grid, _C_from_tL
-from sjtu_tpmshx.development.runs.tools.asym_cfd_geometry import split_geometry
+from tm1.physical_models.tpms_geometry import _phi_grid, _C_from_tL
+from tm1.development.runs.tools.asym_cfd_geometry import split_geometry
 
 # ── finalized design parameters ──────────────────────────────────
 N = 128
@@ -129,7 +129,7 @@ def build():
         ("  1. geom_cases → nTop 建偏移-TPMS 周期胞元 (验 ε 匹配) → 导出流体域给 Fluent。", None),
         ("  2. cfd_runs: 每 (case, side, Re) 一行, Um 已给 → Fluent 跑 → 填黄色 dP_Pa 列。", None),
         ("  3. 每 (tpms, split, side) 对其 Re 的 (u, dP) 拟 DF → 得 (K_cfd, c_F_cfd)。", None),
-        ("  4. 填 results_template 黄色 K_cfd/cF_cfd 列 → 另存 CSV → python -m sjtu_tpmshx.development.runs.cfd_asym.ingest_cfd_kappa <csv>。", None),
+        ("  4. 填 results_template 黄色 K_cfd/cF_cfd 列 → 另存 CSV → python -m tm1.development.runs.cfd_asym.ingest_cfd_kappa <csv>。", None),
         ("     results_template 首行为标准 7 列表头，保留列名；对称 r=1 行的 K_cfd/cF_cfd 应与 baseline 比较以验证 CFD setup。", None),
         ("  5. ingest 仅当前进程注册；研究代码可显式调用 kappa_KcF(..., enabled=True) 求值，尚未接入正式求解准备。", None),
         ("  后续接入验收: 固定代码版本、输入及网格，配对比较 κ 关闭/开启时 δ=0 的结果，保留差异及原验收门槛。", None),

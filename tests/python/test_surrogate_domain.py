@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from sjtu_tpmshx.development.validation.surrogate_domain import (
+from tm1.development.validation.surrogate_domain import (
     check_surrogate_domain_at_point,
     _SURROGATE_L_MM, _SURROGATE_T_MM,
 )
@@ -30,7 +30,7 @@ def test_in_window_returns_empty():
 
 
 def test_co2_preflight_uses_the_registered_geometry_and_pr_range():
-    from sjtu_tpmshx.run_control.run_warnings import warning_scope
+    from tm1.run_control.run_warnings import warning_scope
 
     def observations(fluid):
         with warning_scope({}) as records, pytest.warns(UserWarning, match='outside CO2 Nu window'):

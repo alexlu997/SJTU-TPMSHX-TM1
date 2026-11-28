@@ -14,10 +14,10 @@ from engineering.scripts.build_native_dependencies import stage_native_notices
 with TemporaryDirectory(prefix='tm1-desktop-python-') as package_tree:
     build_package(root, package_tree)
     sys.path.insert(0, package_tree)
-    from sjtu_tpmshx._version import __version__
+    from tm1._version import __version__
 
-    excluded = ('sjtu_tpmshx.development',)
-    hidden = collect_submodules('sjtu_tpmshx', filter=lambda name: not name.startswith(excluded))
+    excluded = ('tm1.development',)
+    hidden = collect_submodules('tm1', filter=lambda name: not name.startswith(excluded))
     # PyVista loads VTK modules through importlib, so Analysis does not find them:
     # the modules in its class-to-module table (pyvista/_vtk.py), and the modules that
     # pyvista/plotting/_rendering_imports.py and pyvista/_vtk.py name directly.
@@ -26,7 +26,7 @@ with TemporaryDirectory(prefix='tm1-desktop-python-') as package_tree:
     hidden += [f'vtkmodules.{name}' for name in sorted({
         *pyvista_vtk._CORE_MODULES, *pyvista_vtk._PLOTTING_MODULES, *pyvista_vtk._OPENGL_MODULES,
         'vtkRenderingContextOpenGL2', 'vtkRenderingMatplotlib', 'vtkPythonContext2D'})]
-    data = collect_data_files('sjtu_tpmshx', includes=[
+    data = collect_data_files('tm1', includes=[
         'model_configs/*.json',
         'physical_models/df_surrogate/_prebuilt/*.csv',
         'applications/gui/ui/assets/icons/*.svg',

@@ -15,8 +15,8 @@ import numpy as np
 import pytest
 from scipy.interpolate import RectBivariateSpline, make_interp_spline
 
-from sjtu_tpmshx.cpp_interface import _native_continuous as native
-from sjtu_tpmshx.cpp_interface import _native_geometry
+from tm1.cpp_interface import _native_continuous as native
+from tm1.cpp_interface import _native_geometry
 
 
 _D = ct.POINTER(ct.c_double)

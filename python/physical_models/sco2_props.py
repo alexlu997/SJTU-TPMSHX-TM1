@@ -12,9 +12,9 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from sjtu_tpmshx.model_configs.model_parameters import load_model_parameters
-from sjtu_tpmshx.data_types.compute_config import SCO2_P_RANGE_PA as P_RANGE_PA  # noqa: F401 - public range constant
-from sjtu_tpmshx.cpp_interface import _native_properties
+from tm1.model_configs.model_parameters import load_model_parameters
+from tm1.data_types.compute_config import SCO2_P_RANGE_PA as P_RANGE_PA  # noqa: F401 - public range constant
+from tm1.cpp_interface import _native_properties
 from .preparation_cache import scalar_cache
 T_RANGE_K = tuple(load_model_parameters()['sco2']['temperature_range_K'])
 

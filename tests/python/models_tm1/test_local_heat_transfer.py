@@ -21,7 +21,7 @@ def test_speed_is_axis_independent_and_has_the_2d_limit():
 
 
 def test_local_nusselt_clamps_both_bounds_without_mutating_inputs():
-    from sjtu_tpmshx.physical_models.nu_correlations import NU_LAM_FLOOR
+    from tm1.physical_models.nu_correlations import NU_LAM_FLOOR
     reynolds = np.array([[0., .5, 1., 2.]], dtype=np.float32)
     original = reynolds.copy()
     raw_nu = np.array([[0., 4., 5., 8.]], dtype=np.float32)
@@ -41,9 +41,9 @@ def test_local_nusselt_clamps_both_bounds_without_mutating_inputs():
 
 @pytest.mark.parametrize('fluid,Pr', [('air', None), ('water', 7.)])
 def test_local_nusselt_matches_real_scalar_model_calls(fluid, Pr):
-    from sjtu_tpmshx.physical_models.fluid_props import get
+    from tm1.physical_models.fluid_props import get
     from tests.python.property_reference import fluid_model
-    from sjtu_tpmshx.physical_models.nu_correlations import NU_LAM_FLOOR
+    from tm1.physical_models.nu_correlations import NU_LAM_FLOOR
     model = get(fluid)
     reynolds = np.array([[0., .9, 1.], [1.1, 100., 1000.]])
     expected = local_nusselt(fluid_model(fluid), 'Gyroid', reynolds, .4, 7., 2., Pr)

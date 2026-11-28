@@ -4,8 +4,8 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.physical_models.tpms_props import model_h_coefficients
-from sjtu_tpmshx.development.validation.cases import audit_3d_conservation as audit
+from tm1.physical_models.tpms_props import model_h_coefficients
+from tm1.development.validation.cases import audit_3d_conservation as audit
 
 
 def test_polynomial_entropy_matches_independent_cp_over_temperature_quadrature():

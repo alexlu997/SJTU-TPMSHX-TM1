@@ -2,9 +2,9 @@
 from dataclasses import replace
 import numpy as np
 import pytest
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.run_control.module_ports import resolve_control
+from tm1.preprocess.api import prepare_case
+from tm1.run_control.module_ports import RunControl
+from tm1.run_control.module_ports import resolve_control
 from tests.python.cases_3d import small_air_config
 from tests.python.native.stage_interception import run_stage
 
@@ -24,7 +24,7 @@ def test_prepared_geometry_and_roughness_are_consumed(monkeypatch, mode):
     cfg = replace(cfg, geometry=replace(cfg.geometry, delta_levelset=.05 if mode == 'asymmetric' else 0.),
                   df_mode='experimental' if mode == 'experimental' else 'cfd_smooth')
     if mode == 'experimental':
-        from sjtu_tpmshx.data_types.compute_config import PartialBCConfig
+        from tm1.data_types.compute_config import PartialBCConfig
         cfg = replace(cfg, geometry=replace(cfg.geometry, L_dom_m=.182, H_dom_m=.042, Lz_m=.042),
                       fluid_A=replace(cfg.fluid_A, u_mps=4., P_in_Pa=2e5),
                       fluid_B=replace(cfg.fluid_B, u_mps=4., P_in_Pa=2e5),
@@ -33,8 +33,8 @@ def test_prepared_geometry_and_roughness_are_consumed(monkeypatch, mode):
     prepared = case.parameters['prepared']
     def forbidden(*args, **kwargs):
         raise AssertionError('execution queried fixed geometry or receiver roughness')
-    from sjtu_tpmshx.physical_models import tpms_props, tpms_geometry
-    from sjtu_tpmshx.cpp_interface import _native_geometry
+    from tm1.physical_models import tpms_props, tpms_geometry
+    from tm1.cpp_interface import _native_geometry
     geometry_call = _native_geometry._call
     def prepared_call(function, *args):
         # Port validation shares the status helper, not fixed TPMS geometry.
@@ -46,7 +46,7 @@ def test_prepared_geometry_and_roughness_are_consumed(monkeypatch, mode):
         _native_geometry.threshold('Gyroid', .1)
     monkeypatch.setattr(tpms_props, 'geometry', forbidden)
     monkeypatch.setattr(tpms_geometry, '_phi_grid', forbidden)
-    from sjtu_tpmshx.physical_models.df_surrogate import experimental_correction
+    from tm1.physical_models.df_surrogate import experimental_correction
     monkeypatch.setattr(experimental_correction, 'correction_scale', forbidden)
     # The audit option detaches the returned solver-axis flow fields.
     audited = replace(case, parameters={**case.parameters, '_emit_audit': True})
@@ -65,13 +65,13 @@ def test_prepared_geometry_and_roughness_are_consumed(monkeypatch, mode):
         np.testing.assert_array_equal(changed_state[key], state[key]*2.)
     bad_geometry = {**case.parameters['thermal_geometry'], 'split_A': 1.1}
     bad = replace(case, parameters={**case.parameters, 'thermal_geometry':bad_geometry})
-    from sjtu_tpmshx.solvers.full_3d import validate_saved_case
+    from tm1.solvers.full_3d import validate_saved_case
     with pytest.raises(ValueError, match='side split'):
         validate_saved_case(bad)
 
 
 def test_archived_bulk_hv_loads_but_does_not_set_local_heat_transfer(tmp_path, monkeypatch):
-    from sjtu_tpmshx.file_io.case_io import save_case, load_case
+    from tm1.file_io.case_io import save_case, load_case
 
     case = prepare_case(small_air_config(), case_id='archived-bulk-hv')
     assert 'air_bulk_hv' not in case.parameters['thermal_geometry']
@@ -97,9 +97,9 @@ def test_archived_bulk_hv_loads_but_does_not_set_local_heat_transfer(tmp_path, m
 @pytest.mark.parametrize('side', ['A', 'B'])
 @pytest.mark.parametrize('end', ['inlet', 'outlet'])
 def test_prepared_openings_match_actual_solver_geometry_before_solving(side, end, tmp_path, monkeypatch):
-    from sjtu_tpmshx.data_types.portable_data import mutable_data
-    from sjtu_tpmshx.file_io.case_io import save_case, load_case
-    from sjtu_tpmshx.solvers.api import run_case
+    from tm1.data_types.portable_data import mutable_data
+    from tm1.file_io.case_io import save_case, load_case
+    from tm1.solvers.api import run_case
 
     config = small_air_config()
     config.solver = replace(config.solver, Nx=4, Ny=4, Nz=4, max_outer_ltne=2, max_iter_simple=500)

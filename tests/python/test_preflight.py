@@ -2,7 +2,7 @@
 
 import pytest
 
-from sjtu_tpmshx.applications.gui.ui.preflight import FluidCfg, compute_preflight
+from tm1.applications.gui.ui.preflight import FluidCfg, compute_preflight
 
 
 def _shanghai_A():
@@ -221,7 +221,7 @@ if __name__ == '__main__':
 @pytest.mark.parametrize('second_axis', [False, True])
 @pytest.mark.parametrize('failure', ['outside', 'empty', 'narrow'])
 def test_each_port_span_is_checked(direction, end, second_axis, failure):
-    from sjtu_tpmshx.data_types.validator import cross_axes_for_dir
+    from tm1.data_types.validator import cross_axes_for_dir
     axes = [axis.lower() for axis in cross_axes_for_dir(direction)]
     cfg = FluidCfg(direction, .021, .02, .021, .02,
                    z_in_ctr=.021, z_in_w=.02, z_out_ctr=.021, z_out_w=.02)
@@ -311,7 +311,7 @@ def test_insufficient_aligned_grid_has_no_effective_grid_or_coverage():
 
 def test_2d_refinement_rejection_preserves_preparation_fallback():
     import numpy as np
-    from sjtu_tpmshx.physical_models.grid import build_grid_2d
+    from tm1.physical_models.grid import build_grid_2d
 
     dx, dy, x_breaks, y_breaks, error = build_grid_2d(.004, .004, 8, 6, ())
     np.testing.assert_array_equal(dx, np.full(8, .004 / 8))

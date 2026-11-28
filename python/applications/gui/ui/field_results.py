@@ -6,8 +6,8 @@ from dataclasses import replace
 import math
 from time import perf_counter
 
-from sjtu_tpmshx.applications.gui.ui.fmt import qualification_reasons, recorded_elapsed_s
-from sjtu_tpmshx.applications.gui.ui.ui_constants import TOAST_MS_SHORT
+from tm1.applications.gui.ui.fmt import qualification_reasons, recorded_elapsed_s
+from tm1.applications.gui.ui.ui_constants import TOAST_MS_SHORT
 
 
 class FieldResults:
@@ -17,7 +17,7 @@ class FieldResults:
     def finalize_plots(self):
         """Show the initial temperature plot; other fields render on demand."""
         window = self.window
-        from sjtu_tpmshx.applications.gui.ui.plot_2d_results import finalize_plots, ensure_result_plot
+        from tm1.applications.gui.ui.plot_2d_results import finalize_plots, ensure_result_plot
         window.setUpdatesEnabled(False)
         try:
             out = finalize_plots(window)
@@ -59,7 +59,7 @@ class FieldResults:
                 'convergence_detail': dict(
                 result.diagnostics.get('convergence_detail') or {})},
         ))
-        from sjtu_tpmshx.applications.gui.ui.builders_sidebar import clear_sample_points
+        from tm1.applications.gui.ui.builders_sidebar import clear_sample_points
         clear_sample_points(window)
 
     def summary(self):
@@ -102,7 +102,7 @@ class FieldResults:
     def refresh_summary(self):
         """Refresh the visible footer from the published result."""
         window = self.window
-        from sjtu_tpmshx.applications.gui.ui.builders_sidebar import (
+        from tm1.applications.gui.ui.builders_sidebar import (
             refresh_result_sidebar, update_result_sidebar_visibility,
         )
         refresh_result_sidebar(window)
@@ -175,7 +175,7 @@ class FieldResults:
             return
         from PySide6.QtWidgets import (QDialog, QVBoxLayout, QPlainTextEdit,
                                        QPushButton, QHBoxLayout)
-        from sjtu_tpmshx.applications.gui.ui.theme import get_theme as _gt
+        from tm1.applications.gui.ui.theme import get_theme as _gt
         _t = _gt()
         dlg = QDialog(window)
         dlg.setWindowTitle("诊断详情")
@@ -205,7 +205,7 @@ class FieldResults:
         """Render the published result and report presentation success."""
         window = self.window
         if mode == '3d':
-            from sjtu_tpmshx.applications.gui.ui.plot_2d_results import ensure_result_plot
+            from tm1.applications.gui.ui.plot_2d_results import ensure_result_plot
             field = window.workbench.resolve_2d_view_card()
             success = ensure_result_plot(window, field)
             window.workbench.rendered_slices = success
@@ -245,7 +245,7 @@ class FieldResults:
         window.workbench.update_tab_visibility()
         window.workbench.switch_tab('temp', foreground=False)
         if _finalize_ok:
-            from sjtu_tpmshx.applications.gui.ui.layout_drawer import refresh_last_2d_thumbnail
+            from tm1.applications.gui.ui.layout_drawer import refresh_last_2d_thumbnail
             refresh_last_2d_thumbnail(window)
         return _finalize_ok
 

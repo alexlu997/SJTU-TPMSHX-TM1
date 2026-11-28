@@ -6,13 +6,13 @@ import numpy as np
 import pytest
 from PySide6.QtWidgets import QFileDialog
 
-from sjtu_tpmshx.applications.gui.ui.plot_2d_results import finalize_plots as _real_finalize_plots
-from sjtu_tpmshx.applications.gui.ui.plot_3d_results import (
+from tm1.applications.gui.ui.plot_2d_results import finalize_plots as _real_finalize_plots
+from tm1.applications.gui.ui.plot_3d_results import (
     _render_2d_slices_from_3d as _real_render_2d_slices_from_3d,
     finalize_plots_3d as _real_finalize_plots_3d,
 )
-from sjtu_tpmshx.physical_models.tpms_calc import compute
-from sjtu_tpmshx.physical_models.nu_correlations import warn_sco2_nu_evidence
+from tm1.physical_models.tpms_calc import compute
+from tm1.physical_models.nu_correlations import warn_sco2_nu_evidence
 from tests.python.gui_worker_support import (
     _configure, _stub_stages, _wait_for, win as win,
 )
@@ -31,8 +31,8 @@ def test_closure_warning_worker_to_export(win, monkeypatch, tmp_path, mode, sour
         if source == 'Nu':
             compute(*args)  # Actual Nu source and cache replay.
         else:
-            from sjtu_tpmshx.physical_models.df_surrogate.experimental_correction import apply_correction
-            from sjtu_tpmshx.run_control.run_warnings import range_context
+            from tm1.physical_models.df_surrogate.experimental_correction import apply_correction
+            from tm1.run_control.run_warnings import range_context
             with range_context(side='B', stage='df-application'):
                 apply_correction('Diamond', 'water', 7., .6, 1e-8, 200., u_mps=.02)
         if mode == '3d' and source == 'Nu':
@@ -74,9 +74,9 @@ def test_closure_warning_worker_to_export(win, monkeypatch, tmp_path, mode, sour
 
 def test_converged_outside_range_result_keeps_design_rejection_in_gui_and_export(win, monkeypatch, tmp_path):
     from dataclasses import replace
-    from sjtu_tpmshx.applications.result_adapter import to_compute_result
-    from sjtu_tpmshx.data_types.portable_data import mutable_data
-    from sjtu_tpmshx.postprocess.api import evaluate_qualification
+    from tm1.applications.result_adapter import to_compute_result
+    from tm1.data_types.portable_data import mutable_data
+    from tm1.postprocess.api import evaluate_qualification
     from tests.python.test_module_result_mapping import _synthetic_results
     from tests.python.postprocess_tm1.test_applicability import result_with_evidence
     native, performance = _synthetic_results()
@@ -111,7 +111,7 @@ def test_converged_outside_range_result_keeps_design_rejection_in_gui_and_export
 
 @pytest.mark.parametrize('mode', ['2d', '3d'])
 def test_extrapolation_watermarks_name_recorded_model_without_constdf(win, mode):
-    from sjtu_tpmshx.postprocess.result_display import (
+    from tm1.postprocess.result_display import (
         extrapolation_model_label, extrapolation_watermark,
     )
     from types import SimpleNamespace

@@ -7,7 +7,7 @@ import warnings
 
 import numpy as np
 
-from sjtu_tpmshx.cpp_interface import _native_geometry
+from tm1.cpp_interface import _native_geometry
 from .tpms_geometry import _AREA_CORRECTION
 
 

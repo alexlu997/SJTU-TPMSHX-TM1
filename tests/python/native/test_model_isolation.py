@@ -10,7 +10,7 @@ import pytest
 from tests.python.native import model_isolation as isolation
 from tests.python.native.shared_library import library_path
 from tests.python.native.test_native_execution import _config
-from sjtu_tpmshx.cpp_interface.stage_libraries import preparation_library
+from tm1.cpp_interface.stage_libraries import preparation_library
 
 
 @pytest.fixture(scope='module')
@@ -41,10 +41,10 @@ def _run_child(python, directory, plan, environment):
 
 @pytest.mark.parametrize('oracle_position', ['none', 'before', 'after'])
 def test_cold_model_images_keep_serial_results_and_physical_gates(tmp_path, model_libraries, monkeypatch, oracle_position):
-    from sjtu_tpmshx.preprocess.api import prepare_case
-    from sjtu_tpmshx.file_io.case_io import save_case
-    from sjtu_tpmshx.file_io.hdf5_data import read_record
-    from sjtu_tpmshx.solvers.full_3d import capture_result
+    from tm1.preprocess.api import prepare_case
+    from tm1.file_io.case_io import save_case
+    from tm1.file_io.hdf5_data import read_record
+    from tm1.solvers.full_3d import capture_result
     from tests.python.native.full_result_audit import physical_gates
 
     python = isolation.configured_python()

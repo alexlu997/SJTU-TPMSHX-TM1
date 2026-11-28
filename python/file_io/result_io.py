@@ -1,7 +1,7 @@
 """Archive completed or explicitly rejected native results independently of solvers."""
-from sjtu_tpmshx.data_types.field_result import FieldResult
+from tm1.data_types.field_result import FieldResult
 from .hdf5_data import read_record, write_record
-from sjtu_tpmshx.data_types.persistence_validation import validate_result
+from tm1.data_types.persistence_validation import validate_result
 
 
 def save_result(result, path):

@@ -8,8 +8,8 @@ pytest.importorskip('PySide6')
 from PySide6.QtCore import QSize  # noqa: E402
 from PySide6.QtGui import QColor, QIcon  # noqa: E402
 
-from sjtu_tpmshx.applications.gui.ui.icons import icon, _source, _SvgIconEngine  # noqa: E402
-from sjtu_tpmshx.applications.gui.ui.theme import _THEMES  # noqa: E402
+from tm1.applications.gui.ui.icons import icon, _source, _SvgIconEngine  # noqa: E402
+from tm1.applications.gui.ui.theme import _THEMES  # noqa: E402
 
 
 def _opaque_pixels(image):

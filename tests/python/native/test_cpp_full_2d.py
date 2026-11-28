@@ -9,11 +9,11 @@ import sys
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.cpp_interface import full_2d_stage
-from sjtu_tpmshx.solvers import full_2d
-from sjtu_tpmshx.data_types.portable_data import mutable_data
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.preprocess.api import prepare_case
+from tm1.cpp_interface import full_2d_stage
+from tm1.solvers import full_2d
+from tm1.data_types.portable_data import mutable_data
+from tm1.run_control.cancellation import CancelledError
+from tm1.preprocess.api import prepare_case
 from tests.python.native import test_full_2d as typed
 from tests.python.native.shared_library import library_path
 from tests.python.native.stage_interception import run_stage, stage_control
@@ -245,9 +245,9 @@ def test_independent_concurrent_results(prepared_zero_duty):
 
 @pytest.mark.parametrize('converged', [False, True])
 def test_saved_full_case_replay_evaluation_and_storage_without_python_kernels(tmp_path, converged):
-    from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-    from sjtu_tpmshx.file_io.case_io import save_case
-    from sjtu_tpmshx.file_io.result_io import load_result
+    from tm1.data_types.compute_config import ComputeConfig
+    from tm1.file_io.case_io import save_case
+    from tm1.file_io.result_io import load_result
     config = (ComputeConfig.from_json(str(ROOT/'examples/three_module/air_2d.json'))
               if converged else typed.configuration(mode='true_h', outer=2))
     case = prepare_case(config, case_id='full2d-cpp-replay')
@@ -255,10 +255,10 @@ def test_saved_full_case_replay_evaluation_and_storage_without_python_kernels(tm
     save_case(case, case_path)
     code = '''
 import sys
-from sjtu_tpmshx.file_io.result_io import load_result
-from sjtu_tpmshx.file_io.metrics_io import load_metrics
-from sjtu_tpmshx.postprocess.api import evaluate
-from sjtu_tpmshx.applications.cli.stages import main
+from tm1.file_io.result_io import load_result
+from tm1.file_io.metrics_io import load_metrics
+from tm1.postprocess.api import evaluate
+from tm1.applications.cli.stages import main
 converged = sys.argv[5] == 'True'
 exit_code = main(['solve', sys.argv[1], sys.argv[2], '--backend', 'cpp',
     '--native-library', sys.argv[3], '--native-table-directory', sys.argv[4]])
@@ -269,9 +269,9 @@ assert evaluate(result).metrics['Q'].status == 'available'
 assert main(['postprocess', sys.argv[2], sys.argv[2]+'.json']) == 0
 assert load_metrics(sys.argv[2]+'.json').metrics == evaluate(result).metrics
 assert sys.argv[3] not in str(result.metadata) and sys.argv[4] not in str(result.metadata)
-forbidden = ('numba', 'sjtu_tpmshx.solvers.ltne_', 'sjtu_tpmshx.solvers.simple_',
-    'sjtu_tpmshx.solvers._kernels', 'sjtu_tpmshx.solvers.backends.python.two_d.runtime',
-    'sjtu_tpmshx.solvers.backends.python.two_d.coupling')
+forbidden = ('numba', 'tm1.solvers.ltne_', 'tm1.solvers.simple_',
+    'tm1.solvers._kernels', 'tm1.solvers.backends.python.two_d.runtime',
+    'tm1.solvers.backends.python.two_d.coupling')
 assert not [name for name in sys.modules if name.startswith(forbidden)]
 '''
     process = subprocess.run([sys.executable, '-c', code, str(case_path), str(result_path),
@@ -285,8 +285,8 @@ assert not [name for name in sys.modules if name.startswith(forbidden)]
 
 
 def test_model_h_budget_reaches_main_refined_and_saved_result(tmp_path):
-    from sjtu_tpmshx.file_io.case_io import load_case, save_case
-    from sjtu_tpmshx.file_io.result_io import load_result, save_result
+    from tm1.file_io.case_io import load_case, save_case
+    from tm1.file_io.result_io import load_result, save_result
     cfg = typed.configuration(outer=2)
     cfg = replace(cfg, fluid_A=replace(cfg.fluid_A, type='water', T_in_K=300.),
                   solver=replace(cfg.solver, T_s_init_K=300., model_h_max_iterations=17,
@@ -346,8 +346,8 @@ def test_persisted_velocity_relaxation_matches_direct_native_control(native, pre
 
 @pytest.mark.parametrize('relaxation', [None, .35])
 def test_full2d_velocity_relaxation_record_survives_storage(tmp_path, relaxation):
-    from sjtu_tpmshx.file_io.result_io import load_result, save_result
-    from sjtu_tpmshx.solvers.api import run_case
+    from tm1.file_io.result_io import load_result, save_result
+    from tm1.solvers.api import run_case
     cfg = typed.configuration(mode='model_h', outer=2)
     cfg = replace(cfg, solver=replace(cfg.solver, simple_velocity_relaxation=relaxation))
     prepared = prepare_case(cfg, case_id='full2d-velocity-control')

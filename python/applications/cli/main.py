@@ -1,4 +1,4 @@
-"""Qt-free command line entry: ``python -m sjtu_tpmshx.cli ...``.
+"""Qt-free command line entry: ``python -m tm1.cli ...``.
 
 ``prepare``, ``solve``, ``postprocess``, ``run`` and ``resume`` dispatch to the public
 file-based workflow. A direct ComputeConfig JSON argument retains the summary
@@ -32,7 +32,7 @@ def _json_values(value):
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] in ('prepare', 'solve', 'postprocess', 'run', 'resume'):
-        from sjtu_tpmshx.applications.cli.stages import main as module_main
+        from tm1.applications.cli.stages import main as module_main
         return module_main(argv)
     ap = argparse.ArgumentParser(
         prog='tpmshx-run',
@@ -48,7 +48,7 @@ def main(argv=None) -> int:
                '  run           configuration -> all four files\n'
                '  resume        checkpoint.h5 -> a new run directory\n\n'
                'From a source checkout:\n'
-               '  python -m sjtu_tpmshx.cli run INPUT OUTPUT_DIR --case-id ID\n'
+               '  python -m tm1.cli run INPUT OUTPUT_DIR --case-id ID\n'
                'The direct config argument retains the summary interface;\n'
                'GUI saved sessions are not CLI configuration files.')
     ap.add_argument('config', help='ComputeConfig JSON file '
@@ -57,13 +57,13 @@ def main(argv=None) -> int:
                     help='parse, validate and report the dimension without a solve')
     ap.add_argument('--json', action='store_true', dest='as_json',
                     help='machine-readable one-line JSON summary')
-    from sjtu_tpmshx.applications.cli.cli_options import add_run_control_arguments, run_control_from_args
+    from tm1.applications.cli.cli_options import add_run_control_arguments, run_control_from_args
     add_run_control_arguments(ap)
     args = ap.parse_args(argv)
     control = run_control_from_args(args)
 
-    from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-    from sjtu_tpmshx.applications.result_adapter import compute_result
+    from tm1.data_types.compute_config import ComputeConfig
+    from tm1.applications.result_adapter import compute_result
 
     with redirect_stdout(sys.stderr) if args.as_json else nullcontext():
         cc = ComputeConfig.from_json(args.config)

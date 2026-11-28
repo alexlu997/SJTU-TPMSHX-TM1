@@ -6,10 +6,10 @@ from types import SimpleNamespace
 import pytest
 from PySide6.QtWidgets import QComboBox, QPushButton, QVBoxLayout, QWidget
 
-from sjtu_tpmshx.applications.gui.controllers.session_manager import SessionManager
-from sjtu_tpmshx.applications.gui.controllers.user_storage import save_appearance_setting
-from sjtu_tpmshx.development.runs.smokes import smoke_ui_offscreen as navigation
-from sjtu_tpmshx.development.runs.smokes import smoke_ui_screenshots as screenshots
+from tm1.applications.gui.controllers.session_manager import SessionManager
+from tm1.applications.gui.controllers.user_storage import save_appearance_setting
+from tm1.development.runs.smokes import smoke_ui_offscreen as navigation
+from tm1.development.runs.smokes import smoke_ui_screenshots as screenshots
 
 
 class SmokeWindow(QWidget):
@@ -54,8 +54,8 @@ def install(monkeypatch, tmp_path):
     user_dir.mkdir()
     (user_dir / '.last_session.json').write_text('user session')
     (user_dir / '.theme').write_text('dark')
-    monkeypatch.setattr('sjtu_tpmshx.applications.gui.controllers.session_manager.user_data_dir', lambda: user_dir)
-    monkeypatch.setattr('sjtu_tpmshx.applications.gui.controllers.user_storage._appearance_dir', lambda: user_dir)
+    monkeypatch.setattr('tm1.applications.gui.controllers.session_manager.user_data_dir', lambda: user_dir)
+    monkeypatch.setattr('tm1.applications.gui.controllers.user_storage._appearance_dir', lambda: user_dir)
     created_dirs = []
 
     def install(fault=lambda window: None):
@@ -64,7 +64,7 @@ def install(monkeypatch, tmp_path):
             created_dirs.append(window.store.base_dir)
             fault(window)
             return window
-        monkeypatch.setitem(sys.modules, 'sjtu_tpmshx.applications.gui.ui.main_window', SimpleNamespace(Main_Menu=create))
+        monkeypatch.setitem(sys.modules, 'tm1.applications.gui.ui.main_window', SimpleNamespace(Main_Menu=create))
 
     install()
     yield install

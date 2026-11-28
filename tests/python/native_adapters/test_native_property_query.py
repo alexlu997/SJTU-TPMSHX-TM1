@@ -9,13 +9,13 @@ import numpy as np
 import pytest
 
 from tests.python import df_reference, float64_oracle as oracle, property_reference as reference
-from sjtu_tpmshx.data_types.compute_config import Sco2NuConfig
-from sjtu_tpmshx.run_control.run_warnings import range_context, warning_scope
-from sjtu_tpmshx.physical_models import (
+from tm1.data_types.compute_config import Sco2NuConfig
+from tm1.run_control.run_warnings import range_context, warning_scope
+from tm1.physical_models import (
     co2_correlations, fluid_props, nu_correlations, tpms_calc, tpms_props,
 )
-from sjtu_tpmshx.physical_models.tpms_geometry import compute_geometry
-from sjtu_tpmshx.cpp_interface import _native_preparation_case as abi
+from tm1.physical_models.tpms_geometry import compute_geometry
+from tm1.cpp_interface import _native_preparation_case as abi
 from tests.python import native_preparation_abi
 
 
@@ -142,7 +142,7 @@ def test_co2_geometry_and_drag_follow_the_registered_fluid(monkeypatch, co2_geom
 
 
 def test_inlet_adapter_uses_registered_co2_drag_for_supplied_geometry():
-    from sjtu_tpmshx.physical_models.tpms_calc import inlet_query
+    from tm1.physical_models.tpms_calc import inlet_query
 
     args = ('Gyroid', 7., .6, 2., 350., 800000.)
     geometry = compute_geometry('Gyroid', 7., .6)
@@ -153,7 +153,7 @@ def test_inlet_adapter_uses_registered_co2_drag_for_supplied_geometry():
 
 @pytest.mark.parametrize('text', ['property', 'unbound', 'K'])
 def test_inlet_range_text_failures_keep_their_original_exception(text, monkeypatch):
-    from sjtu_tpmshx.cpp_interface import preparation_host
+    from tm1.cpp_interface import preparation_host
 
     marker = StopIteration(text)
     read = preparation_host.read_text

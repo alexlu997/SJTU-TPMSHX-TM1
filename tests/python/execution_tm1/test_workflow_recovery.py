@@ -6,19 +6,19 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-from sjtu_tpmshx.data_types.field_result import FieldResult
-from sjtu_tpmshx.data_types.metric_spec import MetricSpec
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.run_control.paused_run import PausedRun
-from sjtu_tpmshx.data_types.performance_result import MetricValue, PerformanceResult
-from sjtu_tpmshx.file_io.case_io import load_case
-from sjtu_tpmshx.file_io.metrics_io import load_metrics
-from sjtu_tpmshx.file_io.result_io import load_result
-from sjtu_tpmshx.file_io.solver_checkpoint_io import load_solver_checkpoint
+from tm1.run_control.cancellation import CancelledError
+from tm1.data_types.compute_config import ComputeConfig
+from tm1.data_types.field_result import FieldResult
+from tm1.data_types.metric_spec import MetricSpec
+from tm1.run_control.module_ports import RunControl
+from tm1.run_control.paused_run import PausedRun
+from tm1.data_types.performance_result import MetricValue, PerformanceResult
+from tm1.file_io.case_io import load_case
+from tm1.file_io.metrics_io import load_metrics
+from tm1.file_io.result_io import load_result
+from tm1.file_io.solver_checkpoint_io import load_solver_checkpoint
 from tests.python.io_tm1.io_support import sample_case
-from sjtu_tpmshx.applications.execution import recovery
+from tm1.applications.execution import recovery
 
 
 @pytest.fixture
@@ -37,7 +37,7 @@ def stages(tmp_path, monkeypatch):
     library.write_bytes(b'non-executable test data')
     control = RunControl(backend='cpp', native_library=str(library))
     monkeypatch.setattr(recovery, 'prepare_case', lambda cfg, case_id: case)
-    monkeypatch.setattr('sjtu_tpmshx.postprocess.api.evaluate', lambda field: metrics)
+    monkeypatch.setattr('tm1.postprocess.api.evaluate', lambda field: metrics)
     state = {'build': 'test-build', 'state.phase': np.array([1], dtype=np.uint64),
              'position': np.array([1], dtype=np.uint64)}
     def solve(case, control, *, checkpoint, checkpoint_due, resume_state):
@@ -71,7 +71,7 @@ def test_complete_run_keeps_input_runtime_and_metric_identity(tmp_path, stages):
 
 
 def test_pause_stops_before_postprocessing_and_result_publication(tmp_path, stages, monkeypatch):
-    monkeypatch.setattr('sjtu_tpmshx.postprocess.api.evaluate',
+    monkeypatch.setattr('tm1.postprocess.api.evaluate',
                         lambda result: pytest.fail('paused state reached postprocessing'))
     directory = tmp_path / 'paused'
     with pytest.raises(PausedRun) as error:

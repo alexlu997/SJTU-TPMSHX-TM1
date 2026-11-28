@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 from CoolProp.CoolProp import PropsSI
 
-from sjtu_tpmshx.preprocess.offline import load_sco2_cfd as loader
+from tm1.preprocess.offline import load_sco2_cfd as loader
 
 
 @pytest.mark.parametrize('load', [loader.load_core, loader.load_segments])

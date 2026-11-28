@@ -3,10 +3,10 @@ from dataclasses import replace
 
 import pytest
 
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-from sjtu_tpmshx.data_types.portable_data import mutable_data
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.api import run_case
+from tm1.data_types.compute_config import ComputeConfig
+from tm1.data_types.portable_data import mutable_data
+from tm1.preprocess.api import prepare_case
+from tm1.solvers.api import run_case
 from tests.python.native.stage_interception import stage_control
 
 

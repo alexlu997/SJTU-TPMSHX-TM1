@@ -38,7 +38,7 @@ from typing import Dict, Tuple
 
 import pandas as pd
 
-from sjtu_tpmshx.file_io.file_set import staged_files
+from tm1.file_io.file_set import staged_files
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]

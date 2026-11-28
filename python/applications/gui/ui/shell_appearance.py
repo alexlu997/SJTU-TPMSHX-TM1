@@ -20,18 +20,18 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from sjtu_tpmshx.applications.gui.controllers.user_storage import (
+from tm1.applications.gui.controllers.user_storage import (
     load_appearance_settings,
     save_appearance_setting,
 )
-from sjtu_tpmshx.applications.gui.ui.colormap_popover import ToggleSwitch
-from sjtu_tpmshx.applications.gui.ui.microanim import (
+from tm1.applications.gui.ui.colormap_popover import ToggleSwitch
+from tm1.applications.gui.ui.microanim import (
     is_reduced_motion,
     reveal,
     set_reduced_motion as set_global_reduced_motion,
 )
-from sjtu_tpmshx.applications.gui.ui.nav_rail import EXPANDED_RAIL_WIDTH
-from sjtu_tpmshx.applications.gui.ui.theme import (
+from tm1.applications.gui.ui.nav_rail import EXPANDED_RAIL_WIDTH
+from tm1.applications.gui.ui.theme import (
     RADIUS_BTN,
     get_density,
     get_theme,
@@ -455,7 +455,7 @@ class ShellAppearance:
 
     def restart(self) -> None:
         """Never replace a process with live work or unsaved input fields."""
-        from sjtu_tpmshx.applications.gui.ui.background_tasks import has_active_tasks
+        from tm1.applications.gui.ui.background_tasks import has_active_tasks
 
         if has_active_tasks(self.window):
             QMessageBox.information(
@@ -477,7 +477,7 @@ class ShellAppearance:
             return
         command = [sys.executable]
         if not getattr(sys, "frozen", False):
-            command.extend(["-m", "sjtu_tpmshx.main"])
+            command.extend(["-m", "tm1.main"])
         command.extend(sys.argv[1:])
         try:
             os.execv(sys.executable, command)
@@ -643,7 +643,7 @@ class ShellAppearance:
 
     def toggle_focus(self) -> None:
         """Give the current canvas maximum room without changing saved preferences."""
-        from sjtu_tpmshx.applications.gui.ui.builders_sidebar import update_result_sidebar_visibility
+        from tm1.applications.gui.ui.builders_sidebar import update_result_sidebar_visibility
 
         window = self.window
         focused = not self._focused

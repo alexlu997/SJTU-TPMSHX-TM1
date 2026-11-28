@@ -10,11 +10,11 @@ def main():
     for package in ('numba', 'PySide6'):
         if importlib.util.find_spec(package) is not None:
             raise RuntimeError(f'minimal offline acceptance must not install {package}')
-    from sjtu_tpmshx.file_io.case_io import load_case  # noqa: F401
-    from sjtu_tpmshx.file_io.result_io import load_result  # noqa: F401
-    from sjtu_tpmshx.file_io.metrics_io import save_metrics  # noqa: F401
-    from sjtu_tpmshx.postprocess.api import evaluate  # noqa: F401
-    for prefix in ('sjtu_tpmshx.solvers', 'sjtu_tpmshx.preprocess', 'sjtu_tpmshx.pipelines', 'numba', 'PySide6'):
+    from tm1.file_io.case_io import load_case  # noqa: F401
+    from tm1.file_io.result_io import load_result  # noqa: F401
+    from tm1.file_io.metrics_io import save_metrics  # noqa: F401
+    from tm1.postprocess.api import evaluate  # noqa: F401
+    for prefix in ('tm1.solvers', 'tm1.preprocess', 'tm1.pipelines', 'numba', 'PySide6'):
         if any(name == prefix or name.startswith(prefix + '.') for name in sys.modules):
             raise RuntimeError(f'offline import crossed module boundary: {prefix}')
     print('minimal offline dependencies and public imports passed; no numerical result is implied')

@@ -15,12 +15,12 @@ direction-dependent — exactly the regression this guards.
 """
 
 
-from sjtu_tpmshx.data_types.compute_config import (
+from tm1.data_types.compute_config import (
     ComputeConfig, FluidConfig, GeometryConfig, SolverConfig,
     PartialBCConfig, ExtrapPolicy,
 )
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.api import run_case
+from tm1.preprocess.api import prepare_case
+from tm1.solvers.api import run_case
 
 # cube domain + cube grid + uniform geometry → x/y/z streams are the same
 # physical problem in a rotated frame.

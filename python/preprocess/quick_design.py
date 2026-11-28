@@ -7,13 +7,13 @@ import warnings
 
 import numpy as np
 
-from sjtu_tpmshx.cpp_interface.quick_preparation import run_preparation
-from sjtu_tpmshx.data_types.model_refs import ModelRef
-from sjtu_tpmshx.model_configs.model_parameters import MODEL_VERSIONS, fixed_geometry_error, load_quick_design_parameters
-from sjtu_tpmshx.physical_models import co2_props, fluid_props as registry, sco2_props, tpms_geometry
-from sjtu_tpmshx.physical_models.df_surrogate.backend import resolve_method
-from sjtu_tpmshx.run_control.run_environment import _resolve_chi_s, capture_environment
-from sjtu_tpmshx.run_control.run_warnings import range_context, record_range
+from tm1.cpp_interface.quick_preparation import run_preparation
+from tm1.data_types.model_refs import ModelRef
+from tm1.model_configs.model_parameters import MODEL_VERSIONS, fixed_geometry_error, load_quick_design_parameters
+from tm1.physical_models import co2_props, fluid_props as registry, sco2_props, tpms_geometry
+from tm1.physical_models.df_surrogate.backend import resolve_method
+from tm1.run_control.run_environment import _resolve_chi_s, capture_environment
+from tm1.run_control.run_warnings import range_context, record_range
 
 
 _Parameters = load_quick_design_parameters()
@@ -24,7 +24,7 @@ _EOS_KEYS = ('D', 'V', 'L', 'C')
 
 
 def _bind_pressure_options(compressible, options):
-    from sjtu_tpmshx.physical_models.df_surrogate import predict as df
+    from tm1.physical_models.df_surrogate import predict as df
 
     function = df.predict_dP_compressible if compressible else df.predict_dP
     try:
@@ -82,7 +82,7 @@ def _check_model_error(state, status, message):
 
 
 def _record_ranges(ranges, collect, warn):
-    from sjtu_tpmshx.physical_models.tpms_props import _range_notice
+    from tm1.physical_models.tpms_props import _range_notice
 
     for label, side, bounds, temperature in ranges:
         name = label.decode('utf-8')
@@ -99,7 +99,7 @@ def _record_inlet(state, fluid, pressure, replay_events):
     events, limited, outlet_squared = pressure
     replay_events(events)
     if fluid == 'air' and limited:
-        from sjtu_tpmshx.physical_models.df_surrogate.predict import _record_pressure_limit
+        from tm1.physical_models.df_surrogate.predict import _record_pressure_limit
         _record_pressure_limit(state.topo, state.l, state.t, outlet_squared, state.strict)
 
 
@@ -189,7 +189,7 @@ def pressure_fractions(case, topo, l, t, s, Lx, arrangement='cross', height=None
 def prepare_quick_design(case, topo, l, t, s, Lx, arrangement='cross', *,
                          case_id, init=None, k_s=K_STEEL, prop_model='const',
                          tol=LTNE_TOL, height=None):
-    from sjtu_tpmshx.data_types.case_data import CaseData
+    from tm1.data_types.case_data import CaseData
     state, grid, fields, controls, fractions = prepare_values(
         case, topo, l, t, s, Lx, arrangement, init=init, k_s=k_s,
         prop_model=prop_model, tol=tol, height=height)

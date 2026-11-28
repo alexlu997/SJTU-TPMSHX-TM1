@@ -4,7 +4,7 @@ These geometry bounds do not extend any fluid's Nu applicability window.
 """
 from __future__ import annotations
 
-from sjtu_tpmshx.model_configs.model_parameters import df_geometry_limits, load_preparation_df_parameters
+from tm1.model_configs.model_parameters import df_geometry_limits, load_preparation_df_parameters
 
 _DATA = load_preparation_df_parameters()['domain']
 TRAIN_L_NODES = tuple(_DATA['L_nodes_mm'])

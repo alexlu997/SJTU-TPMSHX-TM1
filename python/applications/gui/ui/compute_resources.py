@@ -4,7 +4,7 @@ import os
 
 from PySide6.QtCore import QSignalBlocker
 
-from sjtu_tpmshx.applications.gui.ui.background_tasks import has_active_tasks
+from tm1.applications.gui.ui.background_tasks import has_active_tasks
 
 
 def refresh_resource_availability(window):

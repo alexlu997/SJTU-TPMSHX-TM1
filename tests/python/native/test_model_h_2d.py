@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from tests.python.native import model_h_audit_2d as energy
-from sjtu_tpmshx.physical_models.tpms_props import model_h_coefficients
+from tm1.physical_models.tpms_props import model_h_coefficients
 from tests.python.native.model_h_history import (
     compare_shadow, driver_function, heat_in_driver_order, n4_solved_case,
     read_progress, read_trace, stable_chunks,

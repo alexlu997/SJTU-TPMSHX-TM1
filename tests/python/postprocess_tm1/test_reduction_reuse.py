@@ -6,10 +6,10 @@ import warnings
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.field_result import FieldResult
-from sjtu_tpmshx.data_types.metric_spec import MetricSpec
-from sjtu_tpmshx.data_types.portable_data import mutable_data
-from sjtu_tpmshx.postprocess import api
+from tm1.data_types.field_result import FieldResult
+from tm1.data_types.metric_spec import MetricSpec
+from tm1.data_types.portable_data import mutable_data
+from tm1.postprocess import api
 from tests.python.native.result_reference import api as reference
 
 

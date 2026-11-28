@@ -5,10 +5,10 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.compute_config import (
+from tm1.data_types.compute_config import (
     ComputeConfig, FluidConfig, GeometryConfig, SolverConfig, ZoneInputConfig,
 )
-from sjtu_tpmshx.physical_models.continuous_field import (
+from tm1.physical_models.continuous_field import (
     decision_bounds, decision_dim, decode_decision_vector, encode_decision_vector,
     from_decision_vector,
 )

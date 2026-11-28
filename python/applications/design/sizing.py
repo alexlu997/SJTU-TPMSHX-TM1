@@ -7,21 +7,21 @@ import math
 from dataclasses import dataclass, field
 
 from scipy.optimize import brentq
-from sjtu_tpmshx.run_control.run_warnings import warning_scope, warning_messages
-from sjtu_tpmshx.run_control.module_ports import RunControl
+from tm1.run_control.run_warnings import warning_scope, warning_messages
+from tm1.run_control.module_ports import RunControl
 
-from sjtu_tpmshx.physical_models.tpms_calc import geometry as tpms_geometry
-from sjtu_tpmshx.physical_models.design_fluids import fluid_props, nu_re_window
-from sjtu_tpmshx.physical_models.fluid_props import QuickDesignWaterFieldError
+from tm1.physical_models.tpms_calc import geometry as tpms_geometry
+from tm1.physical_models.design_fluids import fluid_props, nu_re_window
+from tm1.physical_models.fluid_props import QuickDesignWaterFieldError
 from .forward import forward
-from sjtu_tpmshx.model_configs.model_parameters import load_quick_design_parameters
-from sjtu_tpmshx.preprocess.quick_design import pressure_fractions as dP_fracs
+from tm1.model_configs.model_parameters import load_quick_design_parameters
+from tm1.preprocess.quick_design import pressure_fractions as dP_fracs
 
 _QUICK_PARAMETERS = load_quick_design_parameters()
 K_STEEL = _QUICK_PARAMETERS['k_s']
 GEOM_N = _QUICK_PARAMETERS['geometry_resolution']
 LTNE_TOL = _QUICK_PARAMETERS['tol']
-from sjtu_tpmshx.cpp_interface import _native_flow
+from tm1.cpp_interface import _native_flow
 
 DP_DEGEN_FRAC = 0.30      # 单侧归一化压损 > 此 = 压降近进口压 → 退化 (超音速/迎风缩崩)
 

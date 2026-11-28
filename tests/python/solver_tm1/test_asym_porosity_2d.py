@@ -1,5 +1,5 @@
 """Asymmetric porosity reaches the public native 2D calculation."""
-from sjtu_tpmshx.applications.result_adapter import compute_result
+from tm1.applications.result_adapter import compute_result
 
 import numpy as np
 
@@ -21,7 +21,7 @@ import numpy as np
 
 def _air_air_delta_cfg(delta):
     """Fixed 2D air-air regression case with geometry offset δ."""
-    from sjtu_tpmshx.data_types.compute_config import (
+    from tm1.data_types.compute_config import (
         ComputeConfig, FluidConfig, GeometryConfig, SolverConfig,
         PartialBCConfig, ExtrapPolicy, FeatureFlags,
     )
@@ -44,8 +44,8 @@ def _air_air_delta_cfg(delta):
 def test_delta_pos_pipeline_runs_and_conserves():
     """A δ≠0 config runs end-to-end through the 2D workflow, returns finite headline
     scalars, and the A↔B energy balance still closes (split conserves)."""
-    from sjtu_tpmshx.preprocess.api import prepare_case
-    from sjtu_tpmshx.solvers.api import run_case
+    from tm1.preprocess.api import prepare_case
+    from tm1.solvers.api import run_case
     raw0 = run_case(prepare_case(_air_air_delta_cfg(0.0), case_id='symmetric')).metadata['diagnostics']
     rawd = run_case(prepare_case(_air_air_delta_cfg(0.6), case_id='asymmetric')).metadata['diagnostics']
 

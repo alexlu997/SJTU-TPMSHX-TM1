@@ -1,7 +1,7 @@
 import openpyxl
 import pytest
 from types import SimpleNamespace
-from sjtu_tpmshx.applications.design.cli import run
+from tm1.applications.design.cli import run
 
 def _spec(path):
     wb = openpyxl.Workbook(); ws = wb.active
@@ -13,7 +13,7 @@ def _spec(path):
 
 @pytest.mark.parametrize('alias', [False, True])
 def test_output_cannot_replace_input_workbook(tmp_path, monkeypatch, capsys, alias):
-    from sjtu_tpmshx.applications.design import cli
+    from tm1.applications.design import cli
 
     source = tmp_path / 'spec.xlsx'
     _spec(source)
@@ -33,7 +33,7 @@ def test_output_cannot_replace_input_workbook(tmp_path, monkeypatch, capsys, ali
     assert source.read_bytes() == previous
 
 def test_no_feasible_summary_preserves_actual_failure_reasons(monkeypatch, capsys):
-    from sjtu_tpmshx.applications.design import cli, report, select
+    from tm1.applications.design import cli, report, select
 
     designs = [SimpleNamespace(reason=reason) for reason in
                ['not-converged@final', 'Q<target@final', 'not-converged@final']]
@@ -49,7 +49,7 @@ def test_no_feasible_summary_preserves_actual_failure_reasons(monkeypatch, capsy
 
 @pytest.mark.parametrize('stage', ['enumeration', 'refinement', 'first_candidate'])
 def test_cli_failure_keeps_completed_report_and_original_error(monkeypatch, tmp_path, stage):
-    from sjtu_tpmshx.applications.design import select, optimize, sizing
+    from tm1.applications.design import select, optimize, sizing
     failure = RuntimeError('injected design failure')
     calls = []
     def candidate(cases, topo, l, t, *args, **kwargs):
@@ -88,7 +88,7 @@ def test_cli_failure_keeps_completed_report_and_original_error(monkeypatch, tmp_
 
 
 def test_partial_report_error_does_not_hide_computation_error(monkeypatch, tmp_path, capsys):
-    from sjtu_tpmshx.applications.design import select, sizing, report
+    from tm1.applications.design import select, sizing, report
     failure = ValueError('original computation failure')
     def candidate(cases, topo, l, t, *args, **kwargs):
         if l == 6:
@@ -111,8 +111,8 @@ def test_partial_report_error_does_not_hide_computation_error(monkeypatch, tmp_p
 @pytest.mark.parametrize('explicit_backend', [False, True])
 def test_cli_control_reaches_fixed_enumeration_and_refinement(
         mode, explicit_backend, monkeypatch, tmp_path):
-    from sjtu_tpmshx.applications.design import cli, optimize, select, sizing
-    from sjtu_tpmshx.run_control.module_ports import RunControl
+    from tm1.applications.design import cli, optimize, select, sizing
+    from tm1.run_control.module_ports import RunControl
 
     source, output = tmp_path / 'spec.xlsx', tmp_path / 'design.xlsx'
     _spec(source)

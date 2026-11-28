@@ -10,9 +10,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from sjtu_tpmshx.cpp_interface import full_2d_stage, full_3d_stage
-from sjtu_tpmshx.solvers import full_2d, full_3d
-from sjtu_tpmshx.run_control.module_ports import RunControl
+from tm1.cpp_interface import full_2d_stage, full_3d_stage
+from tm1.solvers import full_2d, full_3d
+from tm1.run_control.module_ports import RunControl
 from tests.python.native.shared_library import library_path
 
 ROOT = Path(__file__).resolve().parents[3]

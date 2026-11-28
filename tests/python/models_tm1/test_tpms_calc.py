@@ -18,7 +18,7 @@ import numpy as np
 import pytest
 from tests.python.water_nu_reference import nu_water_gyroid_yan6
 
-from sjtu_tpmshx.physical_models.tpms_calc import (
+from tm1.physical_models.tpms_calc import (
     air_density, air_viscosity, air_cp,
     water_density, water_viscosity, water_cp, water_conductivity,
     geometry, adaptive_grid, compute,
@@ -233,7 +233,7 @@ def test_validate_fluid_type_unknown_raises():
 
 
 def test_reynolds_notice_rejects_unknown_fluid():
-    from sjtu_tpmshx.physical_models.tpms_calc import _reynolds_notice
+    from tm1.physical_models.tpms_calc import _reynolds_notice
 
     with pytest.raises(ValueError, match='helium'):
         _reynolds_notice('Gyroid', 1000., 'helium')
@@ -242,7 +242,7 @@ def test_reynolds_notice_rejects_unknown_fluid():
 @pytest.mark.parametrize('label,canonical', [('AIR', 'air'), (' Water ', 'water')])
 @pytest.mark.parametrize('collect', [False, True])
 def test_compute_accepts_registered_spelling_with_empty_cache(label, canonical, collect):
-    from sjtu_tpmshx.run_control.run_warnings import warning_scope
+    from tm1.run_control.run_warnings import warning_scope
 
     def cold_call(fluid):
         compute.cache_clear()
@@ -258,7 +258,7 @@ def test_compute_accepts_registered_spelling_with_empty_cache(label, canonical, 
 
 @pytest.mark.parametrize('collect', [False, True])
 def test_compute_rejects_unknown_fluid_with_empty_cache(collect):
-    from sjtu_tpmshx.run_control.run_warnings import warning_scope
+    from tm1.run_control.run_warnings import warning_scope
 
     compute.cache_clear()
     with warning_scope({} if collect else None), pytest.raises(ValueError, match='helium'):

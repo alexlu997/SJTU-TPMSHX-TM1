@@ -6,7 +6,7 @@ import pytest
 
 from tests.python import df_reference as old
 from tests.python import float64_oracle as oracle
-from sjtu_tpmshx.physical_models.df_surrogate import predict
+from tm1.physical_models.df_surrogate import predict
 
 
 # The native boundary converts each operand to float64. Python floats and one

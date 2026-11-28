@@ -19,9 +19,9 @@ def _render_panel(destination):
 
     platform = 'cocoa' if sys.platform == 'darwin' else 'windows'
     app = QApplication(['render-check', '-platform', platform])
-    from sjtu_tpmshx.applications.gui.controllers import main_thread_gc
+    from tm1.applications.gui.controllers import main_thread_gc
     main_thread_gc.install(app)
-    from sjtu_tpmshx.applications.gui.ui.panel_vis_3d import ThreeDVisPanel
+    from tm1.applications.gui.ui.panel_vis_3d import ThreeDVisPanel
 
     assert app.platformName() == platform
     print('Qt application ready', flush=True)
@@ -87,8 +87,8 @@ def _render_panel(destination):
         # through the formal ResultExport.export_figure() path.
         from types import SimpleNamespace
         from unittest.mock import Mock
-        from sjtu_tpmshx.applications.gui.ui import result_export
-        from sjtu_tpmshx.applications.gui.ui.theme import set_cmap
+        from tm1.applications.gui.ui import result_export
+        from tm1.applications.gui.ui.theme import set_cmap
 
         captured = panel.capture_image()
         export = output / 'application-export.png'

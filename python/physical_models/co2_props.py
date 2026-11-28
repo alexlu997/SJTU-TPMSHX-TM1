@@ -7,7 +7,7 @@ point; exceptions are propagated with their T/p context. Not a solid-CO2 model.
 from __future__ import annotations
 from .preparation_cache import scalar_cache
 import numpy as np
-from sjtu_tpmshx.cpp_interface import _native_properties
+from tm1.cpp_interface import _native_properties
 
 _KEYS = ('D','V','L','C','H')
 

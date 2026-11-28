@@ -1,15 +1,15 @@
-from sjtu_tpmshx.applications.result_adapter import compute_result
+from tm1.applications.result_adapter import compute_result
 
 import numpy as np
 import pytest
 from pathlib import Path
 
-from sjtu_tpmshx.physical_models.df_surrogate.experimental_correction import (
+from tm1.physical_models.df_surrogate.experimental_correction import (
     apply_correction, correction_scale, hx_velocity_bounds)
-from sjtu_tpmshx.physical_models.df_surrogate.predict import predict_K_cF
-from sjtu_tpmshx.data_types.compute_config import (
+from tm1.physical_models.df_surrogate.predict import predict_K_cF
+from tm1.data_types.compute_config import (
     ComputeConfig, FluidConfig, GeometryConfig, PartialBCConfig, SolverConfig)
-from sjtu_tpmshx.physical_models.tpms_calc import geometry
+from tm1.physical_models.tpms_calc import geometry
 
 
 def _base(tpms, L, t):
@@ -32,8 +32,8 @@ def _air_cfg(**kwargs):
 
 @pytest.mark.parametrize('registered', [False, True])
 def test_experiment_scope_rejects_unsupported_topology(monkeypatch, registered):
-    from sjtu_tpmshx.cpp_interface import _native_df
-    from sjtu_tpmshx.cpp_interface._native_values import TOPOLOGY_CODES
+    from tm1.cpp_interface import _native_df
+    from tm1.cpp_interface._native_values import TOPOLOGY_CODES
 
     if registered:
         monkeypatch.setitem(TOPOLOGY_CODES, 'Primitive', 2)
@@ -51,8 +51,8 @@ def test_default_cfd_mode_keeps_production_predictor_values():
 
 
 def test_original_hx_calibration_overrides_broader_application_history():
-    from sjtu_tpmshx.physical_models.range_policy import assess_range
-    from sjtu_tpmshx.run_control.run_warnings import (
+    from tm1.physical_models.range_policy import assess_range
+    from tm1.run_control.run_warnings import (
         range_context, range_observations, warning_scope,
     )
     with warning_scope({}) as records, range_context(side='A', stage='prepared-df', layout='scalar'):
@@ -140,7 +140,7 @@ def test_sco2_hx_velocity_window_is_explicit(topology, lower, upper):
     ("sco2", "Gyroid", 0.3814083098626136, 2.470456518760552),
 ])
 def test_hx_application_window_retains_calibration_and_warns(fluid, topology, lo, hi):
-    from sjtu_tpmshx.run_control.run_warnings import (
+    from tm1.run_control.run_warnings import (
         range_context, warning_scope, warning_messages,
         cache_warning_records, merge_warnings)
 
@@ -170,7 +170,7 @@ def test_hx_application_window_retains_calibration_and_warns(fluid, topology, lo
 
 
 def test_gyroid_air_straight_calibration_runtime_endpoints_and_provenance():
-    from sjtu_tpmshx.run_control.run_warnings import warning_scope, warning_messages
+    from tm1.run_control.run_warnings import warning_scope, warning_messages
 
     endpoints = np.array([8.027855328062564, 22.446874107951544])
     with warning_scope({}) as warnings:
@@ -384,7 +384,7 @@ _AIR_HX_BOOKS = (
                         _RAW / 'experiments/sco2/sco2_DG7-t0p6_hx_experiment_summary.xlsx')),
                     reason="private calibration data unavailable")
 def test_reviewed_experiment_pressure_error_gates(monkeypatch):
-    from sjtu_tpmshx.development.validation.df_refit import fit_experimental_effective as evaluator
+    from tm1.development.validation.df_refit import fit_experimental_effective as evaluator
     air, _ = evaluator.fit_air()
     monkeypatch.setattr(evaluator, "_fit_sf", lambda *args: pytest.fail(
         "sCO2 acceptance must evaluate frozen sF, not refit it"))
@@ -405,7 +405,7 @@ def test_reviewed_experiment_pressure_error_gates(monkeypatch):
 @pytest.mark.skipif(not (_RAW / 'experiments/water_air/water-air_DG7-t0p6_hx_water-dp_with-air-temperature.xlsx').exists(),
                     reason="private water+air HX data unavailable")
 def test_water_hx_quality_flags_and_frozen_candidates():
-    from sjtu_tpmshx.development.validation.df_refit.fit_experimental_effective import (
+    from tm1.development.validation.df_refit.fit_experimental_effective import (
         fit_water_hx)
 
     summary, quality = fit_water_hx()
@@ -443,7 +443,7 @@ def test_water_hx_quality_flags_and_frozen_candidates():
                         _RAW / 'experiments/water_air/water-air_DG7-t0p6_hx_water-dp_with-air-temperature.xlsx', *_AIR_HX_BOOKS)),
                     reason="private water+air HX data unavailable")
 def test_matching_hx_air_and_water_pair_use_separate_frozen_scales():
-    from sjtu_tpmshx.development.validation.df_refit.fit_experimental_effective import (
+    from tm1.development.validation.df_refit.fit_experimental_effective import (
         fit_air_hx)
 
     air, quality = fit_air_hx()
@@ -477,10 +477,10 @@ def test_matching_hx_air_and_water_pair_use_separate_frozen_scales():
 @pytest.mark.parametrize('fluid_A', ['water', 'sco2'])
 @pytest.mark.parametrize('tpms', ['Diamond', 'Gyroid'])
 def test_application_coefficients_precede_real_seed_and_solver_setup(dim, fluid_A, tpms):
-    from sjtu_tpmshx.preprocess.api import prepare_case
+    from tm1.preprocess.api import prepare_case
     from tests.python.native.prepared_snapshot import native_prepared_state
-    from sjtu_tpmshx.physical_models import fluid_props
-    from sjtu_tpmshx.run_control.run_warnings import warning_scope, warning_messages
+    from tm1.physical_models import fluid_props
+    from tm1.run_control.run_warnings import warning_scope, warning_messages
 
     cfg = ComputeConfig(
         fluid_A=FluidConfig(type=fluid_A, u_mps=.02 if fluid_A == 'water' else .45,

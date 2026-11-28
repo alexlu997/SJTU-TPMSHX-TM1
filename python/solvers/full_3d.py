@@ -3,21 +3,21 @@ from uuid import uuid4
 
 import numpy as np
 
-from sjtu_tpmshx.cpp_interface import full_3d_stage
-from sjtu_tpmshx.data_types.case_data import resolved_input_record
-from sjtu_tpmshx.data_types.compute_config import (
+from tm1.cpp_interface import full_3d_stage
+from tm1.data_types.case_data import resolved_input_record
+from tm1.data_types.compute_config import (
     Sco2NuConfig, reject_retired_research_options, validate_simple_velocity_relaxation,
 )
-from sjtu_tpmshx.data_types.field_result import FieldResult, execution_record
-from sjtu_tpmshx.data_types.model_refs import freeze_value
-from sjtu_tpmshx.data_types.persistence_validation import (
+from tm1.data_types.field_result import FieldResult, execution_record
+from tm1.data_types.model_refs import freeze_value
+from tm1.data_types.persistence_validation import (
     grid_axes, validate_axis_permutation, validate_grid, validate_thermal_geometry,
 )
-from sjtu_tpmshx.physical_models.df_surrogate import CFD_CAMPAIGN, CFD_SCOPE
-from sjtu_tpmshx.physical_models.fluid_props import WaterStateError
-from sjtu_tpmshx.physical_models.nu_correlations import sco2_nu_parameters
-from sjtu_tpmshx.run_control.run_environment import require_f2_mode, run_environment
-from sjtu_tpmshx.run_control.run_warnings import current_warnings, merge_warnings, replay_sco2_notices
+from tm1.physical_models.df_surrogate import CFD_CAMPAIGN, CFD_SCOPE
+from tm1.physical_models.fluid_props import WaterStateError
+from tm1.physical_models.nu_correlations import sco2_nu_parameters
+from tm1.run_control.run_environment import require_f2_mode, run_environment
+from tm1.run_control.run_warnings import current_warnings, merge_warnings, replay_sco2_notices
 from .stage_execution import link_execution
 
 _DOMAIN_ERRORS = {1: ValueError, 2: WaterStateError, 3: FloatingPointError}

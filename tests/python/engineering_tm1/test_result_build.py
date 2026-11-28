@@ -48,7 +48,7 @@ def test_result_build_has_no_source_or_model_generation_step(result_build):
     host, root, cache, python, lock, cmake, commands, records = result_build
     native.build(cache, host, python, lock, 'result')
     assert commands[:2] == [(str(python), '-m',
-        'sjtu_tpmshx.development.runs.tools.check_locked_environment', str(lock)),
+        'tm1.development.runs.tools.check_locked_environment', str(lock)),
         (str(python), '-m', 'pip', 'check')]
     configure, = (command for command in commands if '-S' in command)
     assert configure[0] == str(cmake)

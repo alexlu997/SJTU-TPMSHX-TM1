@@ -4,10 +4,10 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.field_result import FieldResult
-from sjtu_tpmshx.file_io.hdf5_data import write_record
-from sjtu_tpmshx.file_io.result_io import load_result, save_result
-from sjtu_tpmshx.postprocess.api import evaluate
+from tm1.data_types.field_result import FieldResult
+from tm1.file_io.hdf5_data import write_record
+from tm1.file_io.result_io import load_result, save_result
+from tm1.postprocess.api import evaluate
 from tests.python.postprocess_tm1.test_reduction_reuse import native_result
 
 

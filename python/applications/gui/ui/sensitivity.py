@@ -42,7 +42,7 @@ _SCOPE_NOTE = (
 
 def _eval_surrogate(tpms, L_cell_mm, t_mm, u, T_in_K, P_in_Pa):
     """One air-only surrogate evaluation; not a two-stream heat-duty solve."""
-    from sjtu_tpmshx.physical_models.tpms_calc import compute as _tpms_compute
+    from tm1.physical_models.tpms_calc import compute as _tpms_compute
     # k_s only affects the unused K_ss output; solid conduction is not ranked.
     r = _tpms_compute(tpms, L_cell_mm, t_mm, u, T_in_K, P_in_Pa, 16.0)
     h_v = r.get('h_v') or (

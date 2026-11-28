@@ -1,7 +1,7 @@
 """Independent physical port-pressure and bounded pressure-step checks."""
 import numpy as np
 
-from sjtu_tpmshx.physical_models.envelope import PRESSURE_FLOOR_PA
+from tm1.physical_models.envelope import PRESSURE_FLOOR_PA
 from tests.python.native.result_reference.shared_math import pressure_face_values
 
 INLET_PRESSURE_REL_TOL = 1e-4

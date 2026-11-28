@@ -25,10 +25,10 @@ def local_nusselt(model, tpms_type, Re, eps_f, L_mm, D_h_mm, Pr):
 
 def real_fluid_hv_local_field(T_field, P_Pa, u_abs, A_0, D_h_m, tpms_type,
                               L_cell_mm, *, fluid='sco2', sco2_nu=None, observation=None):
-    from sjtu_tpmshx.physical_models.nu_correlations import (
+    from tm1.physical_models.nu_correlations import (
         record_raw_nu_range, _warn_sco2_nu,
     )
-    from sjtu_tpmshx.physical_models.co2_correlations import _observe, RE_RANGE
+    from tm1.physical_models.co2_correlations import _observe, RE_RANGE
 
     T = np.asarray(T_field, dtype=np.float64)
     model = fluid_model(fluid, sco2_nu=sco2_nu)

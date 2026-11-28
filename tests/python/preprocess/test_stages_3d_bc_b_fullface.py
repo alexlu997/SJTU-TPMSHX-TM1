@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import pytest
 
-from sjtu_tpmshx.data_types.compute_config import (
+from tm1.data_types.compute_config import (
     ComputeConfig, FluidConfig, GeometryConfig, SolverConfig, PartialBCConfig)
-from sjtu_tpmshx.preprocess.api import prepare_case
+from tm1.preprocess.api import prepare_case
 
 
 def _cfg(dir_B):

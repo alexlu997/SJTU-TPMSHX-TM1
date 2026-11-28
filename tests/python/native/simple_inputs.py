@@ -3,8 +3,8 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from sjtu_tpmshx.physical_models.grid import _port_fractions_1d, _port_overlap_1d
-from sjtu_tpmshx.physical_models.tpms_calc import air_viscosity
+from tm1.physical_models.grid import _port_fractions_1d, _port_overlap_1d
+from tm1.physical_models.tpms_calc import air_viscosity
 
 
 def make_2d(*, shape=(6, 10), fluid="incompressible", partial=False,

@@ -3,7 +3,7 @@ from math import isfinite
 
 import numpy as np
 
-from sjtu_tpmshx.cpp_interface import _native_flow
+from tm1.cpp_interface import _native_flow
 
 
 def _inlet_mass_capacity(design_fields, prepared, side):

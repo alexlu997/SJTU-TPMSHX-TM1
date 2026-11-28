@@ -8,13 +8,13 @@ import json
 from pathlib import Path
 import numpy as np
 
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig, ZoneInputConfig
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.api import run_case
-from sjtu_tpmshx.postprocess.api import evaluate
-from sjtu_tpmshx.file_io.case_io import save_case
-from sjtu_tpmshx.file_io.result_io import save_result
-from sjtu_tpmshx.file_io.metrics_io import save_metrics
+from tm1.data_types.compute_config import ComputeConfig, ZoneInputConfig
+from tm1.preprocess.api import prepare_case
+from tm1.solvers.api import run_case
+from tm1.postprocess.api import evaluate
+from tm1.file_io.case_io import save_case
+from tm1.file_io.result_io import save_result
+from tm1.file_io.metrics_io import save_metrics
 
 
 def main():

@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from sjtu_tpmshx.applications.gui.ui.theme import RADIUS_BTN, get_theme
+from tm1.applications.gui.ui.theme import RADIUS_BTN, get_theme
 
 POPOVER_WIDTH = 298
 CURATED_COLORMAPS: tuple[str, ...] = ("coolwarm", "turbo", "viridis", "cividis")

@@ -8,12 +8,12 @@ from itertools import chain
 from math import isfinite
 from typing import Literal, Optional, get_args
 
-from sjtu_tpmshx.data_types.compute_config import (
+from tm1.data_types.compute_config import (
     ComputeConfig, ExtrapPolicy, FeatureFlags, FluidConfig, FluidType,
     GeometryConfig, OptimizerConfig, PartialBCConfig, Sco2NuConfig, SolverConfig, TPMSType,
     ZoneAxis, ZoneInputConfig,
 )
-from sjtu_tpmshx.data_types.validator import parse_unit_decimal, parse_unit_value
+from tm1.data_types.validator import parse_unit_decimal, parse_unit_value
 
 DOMAIN_SHAPE_NOTICE = (
     "当前仅支持矩形二维／长方体三维计算。\n"
@@ -396,7 +396,7 @@ def _read_zone_input(window, geometry: GeometryConfig) -> ZoneInputConfig:
 
     config, grid = None, None
     if enabled:
-        from sjtu_tpmshx.applications.gui.ui.zone_table import build_zone_config
+        from tm1.applications.gui.ui.zone_table import build_zone_config
         table = _bound_input(window, 'zones.grid' if axis == 'grid' else 'zones.config')
         config, grid = build_zone_config(table, axis, geometry.tpms, geometry.k_s_W_mK)
     return ZoneInputConfig(

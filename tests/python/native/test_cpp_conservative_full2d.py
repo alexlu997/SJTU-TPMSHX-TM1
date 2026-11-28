@@ -12,17 +12,17 @@ import sys
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.data_types.compute_config import (
+from tm1.run_control.cancellation import CancelledError
+from tm1.data_types.compute_config import (
     ComputeConfig, ExtrapPolicy, FluidConfig, GeometryConfig, PartialBCConfig, SolverConfig,
 )
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.file_io.case_io import save_case, load_case
-from sjtu_tpmshx.file_io.result_io import save_result, load_result
-from sjtu_tpmshx.postprocess.api import evaluate, evaluate_physical_balance
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.api import run_case
-from sjtu_tpmshx.cpp_interface import full_2d_stage
+from tm1.run_control.module_ports import RunControl
+from tm1.file_io.case_io import save_case, load_case
+from tm1.file_io.result_io import save_result, load_result
+from tm1.postprocess.api import evaluate, evaluate_physical_balance
+from tm1.preprocess.api import prepare_case
+from tm1.solvers.api import run_case
+from tm1.cpp_interface import full_2d_stage
 from tests.python.native.shared_library import library_path
 from tests.python.native.stage_interception import TABLES, run_stage, stage_control
 
@@ -164,10 +164,10 @@ def test_saved_case_result_new_process_replay(capped, tmp_path):
     assert evaluate(load_result(result_path)).metrics == evaluate(result).metrics
     code = '''
 import sys
-from sjtu_tpmshx.file_io.case_io import load_case
-from sjtu_tpmshx.file_io.result_io import load_result
-from sjtu_tpmshx.postprocess.api import evaluate, evaluate_physical_balance
-from sjtu_tpmshx.applications.cli.stages import main
+from tm1.file_io.case_io import load_case
+from tm1.file_io.result_io import load_result
+from tm1.postprocess.api import evaluate, evaluate_physical_balance
+from tm1.applications.cli.stages import main
 old = load_result(sys.argv[2])
 assert main(['solve',sys.argv[1],sys.argv[3],'--backend','cpp','--native-library',sys.argv[4],
              '--native-table-directory',sys.argv[5]]) == 2
@@ -178,9 +178,9 @@ assert after['energy_algorithm'] == before['energy_algorithm']
 assert after['energy_algorithm_version'] == before['energy_algorithm_version'] == \
     {'temperature_fou': 1, 'temperature_sou': 2}[after['energy_algorithm']]
 assert evaluate(new).metrics == evaluate(old).metrics
-assert not any(name.startswith(('numba','sjtu_tpmshx.solvers.ltne_',
-    'sjtu_tpmshx.solvers.simple_', 'sjtu_tpmshx.solvers.backends.python.two_d.runtime',
-    'sjtu_tpmshx.solvers.backends.python.two_d.coupling')) for name in sys.modules)
+assert not any(name.startswith(('numba','tm1.solvers.ltne_',
+    'tm1.solvers.simple_', 'tm1.solvers.backends.python.two_d.runtime',
+    'tm1.solvers.backends.python.two_d.coupling')) for name in sys.modules)
 '''
     # The same SOU solve took 134 s in-process on Windows qualification runners.
     completed = subprocess.run([sys.executable, '-c', code, str(case_path), str(result_path),
@@ -261,8 +261,8 @@ def test_missing_execution_view_fails_before_flow(monkeypatch):
 
 @pytest.mark.parametrize('executed,version', [(1, 1), (2, 1), (2, 2)])
 def test_energy_decoder_records_executed_algorithm(executed, version):
-    from sjtu_tpmshx.cpp_interface.solver_library._stage_capture_abi import _energy_result_info
-    from sjtu_tpmshx.cpp_interface.solver_library._thermal_abi import _EnergyResult, _energy_options
+    from tm1.cpp_interface.solver_library._stage_capture_abi import _energy_result_info
+    from tm1.cpp_interface.solver_library._thermal_abi import _EnergyResult, _energy_options
 
     requested = _energy_options('temperature_sou' if executed == 1 else 'temperature_fou', 1e-8)
     assert requested.algorithm != executed
@@ -279,8 +279,8 @@ def test_energy_decoder_records_executed_algorithm(executed, version):
 
 @pytest.mark.parametrize('executed,version', [(1, 2), (2, 0), (2, 3), (2, True), (2, 1.)])
 def test_energy_decoder_rejects_unsupported_native_version(executed, version):
-    from sjtu_tpmshx.cpp_interface.solver_library._stage_capture_abi import _energy_result_info
-    from sjtu_tpmshx.cpp_interface.solver_library._thermal_abi import _EnergyResult
+    from tm1.cpp_interface.solver_library._stage_capture_abi import _energy_result_info
+    from tm1.cpp_interface.solver_library._thermal_abi import _EnergyResult
 
     info = dict(effective_settings=dict(omega=.2))
     actual = _EnergyResult(executed, 1, 1e-9, 1. if executed == 1 else .6)

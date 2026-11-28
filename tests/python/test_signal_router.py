@@ -11,7 +11,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 from PySide6.QtCore import QCoreApplication, QObject, Signal
 
-from sjtu_tpmshx.applications.gui.controllers.signal_router import SignalRouter
+from tm1.applications.gui.controllers.signal_router import SignalRouter
 
 
 def _app():

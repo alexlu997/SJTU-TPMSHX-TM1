@@ -4,15 +4,15 @@ from dataclasses import asdict, replace
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.compute_config import (
+from tm1.data_types.compute_config import (
     ComputeConfig, ExtrapPolicy, FeatureFlags, FluidConfig, GeometryConfig,
     PartialBCConfig, SolverConfig, ZoneInputConfig,
 )
-from sjtu_tpmshx.data_types.portable_data import mutable_data
-from sjtu_tpmshx.file_io.case_io import load_case, save_case
-from sjtu_tpmshx.physical_models.tpms_props import geometry
-from sjtu_tpmshx.physical_models.df_surrogate.predict import predict_K_cF
-from sjtu_tpmshx.preprocess.api import prepare_case
+from tm1.data_types.portable_data import mutable_data
+from tm1.file_io.case_io import load_case, save_case
+from tm1.physical_models.tpms_props import geometry
+from tm1.physical_models.df_surrogate.predict import predict_K_cF
+from tm1.preprocess.api import prepare_case
 from tests.python.native.prepared_snapshot import native_prepared_state
 
 
@@ -87,7 +87,7 @@ def test_nonuniform_3d_preparation_samples_exact_polynomial_and_replays_case(tmp
         np.testing.assert_array_equal(loaded.design_fields[name], values)
     for name in ('epsilon', 'A_0', 'D_h'):
         np.testing.assert_array_equal(loaded.parameters['thermal_geometry']['fields'][name], thermal[name])
-    from sjtu_tpmshx.solvers.full_3d import validate_saved_case
+    from tm1.solvers.full_3d import validate_saved_case
     replay = replace(loaded, config_snapshot={})
     validate_saved_case(replay)
     for name, values in case.design_fields.items():
@@ -96,11 +96,11 @@ def test_nonuniform_3d_preparation_samples_exact_polynomial_and_replays_case(tmp
 
 @pytest.mark.parametrize('volume', [False, True])
 def test_continuous_inlet_evidence_matches_scalar_correlation_calls(volume):
-    from sjtu_tpmshx.run_control.run_warnings import (
+    from tm1.run_control.run_warnings import (
         range_context, range_observations, warning_messages, warning_scope,
     )
-    from sjtu_tpmshx.physical_models.fluid_props import get
-    from sjtu_tpmshx.physical_models.nu_correlations import record_raw_nu_range
+    from tm1.physical_models.fluid_props import get
+    from tm1.physical_models.nu_correlations import record_raw_nu_range
 
     cfg = _config(volume)
     case = prepare_case(cfg, case_id='scalar-inlet-evidence')
@@ -153,8 +153,8 @@ def test_uniform_controls_match_uniform_prepared_geometry(tpms, monkeypatch, vol
 @pytest.mark.parametrize('tpms', ['Gyroid', 'Diamond'])
 @pytest.mark.parametrize('volume', [False, True])
 def test_nonuniform_local_hv_matches_independent_cell_formula(tpms, monkeypatch, volume):
-    from sjtu_tpmshx.physical_models.fluid_props import get
-    from sjtu_tpmshx.physical_models.nu_correlations import (
+    from tm1.physical_models.fluid_props import get
+    from tm1.physical_models.nu_correlations import (
         NU_COEFFS, NU_LAM_FLOOR, NU_ROUGHNESS_FACTOR, Pr_AIR, WATER_NU_COEFFS,
     )
 
@@ -266,7 +266,7 @@ def test_continuous_fields_preserve_spatial_applicability_guards(mode):
 @pytest.mark.parametrize('fluid', ['co2', 'sco2'])
 @pytest.mark.parametrize('dimension', [2, 3])
 def test_real_fluid_continuous_geometry_replays_without_model_substitution(tmp_path, fluid, dimension):
-    from sjtu_tpmshx.physical_models.co2_correlations import geometry as co2_geometry
+    from tm1.physical_models.co2_correlations import geometry as co2_geometry
     cfg = _config(dimension == 3)
     cfg.solver.Nz = 3 if dimension == 3 else 1
     cfg.solver.Nx = 12
@@ -335,7 +335,7 @@ def test_2d_explicitly_rejects_three_dimensional_continuous_controls():
 
 @pytest.mark.parametrize('volume', [False, True])
 def test_execution_preserves_declared_continuous_dimension(volume):
-    from sjtu_tpmshx.solvers.api import run_case
+    from tm1.solvers.api import run_case
     from tests.python.native.stage_interception import stage_control
     case = prepare_case(_config(volume), case_id='declared-continuous-dimension')
     metadata = mutable_data(case.metadata)

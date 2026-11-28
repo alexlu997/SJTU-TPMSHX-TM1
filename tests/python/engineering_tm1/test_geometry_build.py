@@ -44,7 +44,7 @@ def test_geometry_build_uses_role_lock_and_standalone_source(geometry_build):
     host, root, cache, python, lock, cmake, commands = geometry_build
     native.build(cache, host, python, lock, 'geometry')
     assert commands[:2] == [
-        (str(python), '-m', 'sjtu_tpmshx.development.runs.tools.check_locked_environment', str(lock)),
+        (str(python), '-m', 'tm1.development.runs.tools.check_locked_environment', str(lock)),
         (str(python), '-m', 'pip', 'check'),
     ]
     generated = cache / 'generated/tpmshx/model_coefficients.hpp'
@@ -99,7 +99,7 @@ def test_geometry_verify_cli_checks_the_selected_lock_first(geometry_build, monk
                                     '--cache', str(cache), '--python-lock', str(lock)])
     native.main()
     assert commands[:2] == [
-        (str(python), '-m', 'sjtu_tpmshx.development.runs.tools.check_locked_environment', str(lock)),
+        (str(python), '-m', 'tm1.development.runs.tools.check_locked_environment', str(lock)),
         (str(python), '-m', 'pip', 'check'),
     ]
     assert commands[2][1:] == ('--version',)

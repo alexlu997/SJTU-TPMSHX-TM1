@@ -28,8 +28,8 @@ import CoolProp.CoolProp as CP
 from tests.python.property_reference import fluid_props,fluid_nu,fluid_model
 from tests.python.eos_reference import check_water_state
 from tests.python.nu_reference import nu_from_Re,nu_water_topo,nu_sco2_selected,nu_extra_factor
-from sjtu_tpmshx.data_types.compute_config import Sco2NuConfig
-from sjtu_tpmshx.run_control.run_warnings import warning_scope,warning_messages
+from tm1.data_types.compute_config import Sco2NuConfig
+from tm1.run_control.run_warnings import warning_scope,warning_messages
 payload=json.load(sys.stdin)
 if payload.get('mode')=='boundaries':
     state=CP.AbstractState('HEOS','Water')
@@ -219,8 +219,8 @@ def test_qd_nu_keeps_fixed_representative_pr_and_no_local_floor(native_propertie
 
 
 def test_fit_extrapolation_warns_in_python_and_remains_computable(native_properties,python_properties):
-    from sjtu_tpmshx.run_control.run_warnings import warning_scope, warning_messages
-    from sjtu_tpmshx.physical_models.design_fluids import fluid_props, fluid_nu
+    from tm1.run_control.run_warnings import warning_scope, warning_messages
+    from tm1.physical_models.design_fluids import fluid_props, fluid_nu
 
     rows=[props('low-air','air',190.),props('high-air','air',1200.),
           props('warm-water','water',400.,3e6),nu('low-nu','air','Diamond',0.),

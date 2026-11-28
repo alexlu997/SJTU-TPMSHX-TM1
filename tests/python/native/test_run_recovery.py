@@ -8,24 +8,24 @@ import threading
 
 import pytest
 
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-from sjtu_tpmshx.run_control.paused_run import PausedRun
-from sjtu_tpmshx.data_types.portable_data import mutable_data
-from sjtu_tpmshx.file_io.metrics_io import load_metrics
-from sjtu_tpmshx.file_io.result_io import load_result
-from sjtu_tpmshx.file_io.solver_checkpoint_io import load_solver_checkpoint
+from tm1.data_types.compute_config import ComputeConfig
+from tm1.run_control.paused_run import PausedRun
+from tm1.data_types.portable_data import mutable_data
+from tm1.file_io.metrics_io import load_metrics
+from tm1.file_io.result_io import load_result
+from tm1.file_io.solver_checkpoint_io import load_solver_checkpoint
 from tests.python.native import test_cpp_full_3d as spatial
 from tests.python.native.test_cpp_full_2d_run import inner_case
 from tests.python.native.test_cpp_full_3d import _exact_resume_values as exact
-from sjtu_tpmshx.compute import compute
-from sjtu_tpmshx.applications.execution.recovery import compute_run, resume_run
+from tm1.compute import compute
+from tm1.applications.execution.recovery import compute_run, resume_run
 
 native_path = spatial.native_path
 
 
 @pytest.mark.parametrize('enabled', [False, True])
 def test_saved_grid_recovery_accepts_the_historical_constructor_flag(native_path, tmp_path, enabled):
-    from sjtu_tpmshx.file_io.case_io import load_case, save_case
+    from tm1.file_io.case_io import load_case, save_case
     config = configuration('3d-air-air')
     control = spatial.control(native_path)
     _, expected, expected_metrics = compute(config, case_id='old-grid-record', control=control)
@@ -109,8 +109,8 @@ def test_cli_process_exit_and_relocated_resume_keep_public_result(
     config.to_json(config_path)
     script = '''
 import os, signal, sys
-from sjtu_tpmshx import cli
-from sjtu_tpmshx.applications.execution import recovery
+from tm1 import cli
+from tm1.applications.execution import recovery
 save = recovery.save_solver_checkpoint
 def interrupt_after_publication(*args):
     save(*args)
@@ -140,7 +140,7 @@ raise SystemExit(status)
     args = ['resume', str(moved / 'checkpoint.h5'), str(target), '--checkpoint-interval', '3600',
             '--native-library', str(moved / record['native_file']),
             '--native-table-directory', control.native_table_directory, '--cpu-threads', '3']
-    process = subprocess.run([sys.executable, '-m', 'sjtu_tpmshx.cli', *args],
+    process = subprocess.run([sys.executable, '-m', 'tm1.cli', *args],
                              capture_output=True, text=True, timeout=120)
     qualified = expected.run_status['converged'] and all(
         expected_metrics.metrics[name].status == 'available'

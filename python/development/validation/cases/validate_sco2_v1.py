@@ -7,12 +7,12 @@ import sys
 import numpy as np
 
 
-from sjtu_tpmshx.applications.result_adapter import compute_result
-from sjtu_tpmshx.physical_models.df_surrogate.full_core_3cell_fixed_v2 import (
+from tm1.applications.result_adapter import compute_result
+from tm1.physical_models.df_surrogate.full_core_3cell_fixed_v2 import (
     FullCore3CellFixedDFV2,
 )
-from sjtu_tpmshx.preprocess.offline.load_sco2_cfd import load_core
-from sjtu_tpmshx.data_types.compute_config import (
+from tm1.preprocess.offline.load_sco2_cfd import load_core
+from tm1.data_types.compute_config import (
     ComputeConfig,
     FluidConfig,
     GeometryConfig,

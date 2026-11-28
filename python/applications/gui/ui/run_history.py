@@ -13,18 +13,18 @@ from pprint import pformat
 from PySide6.QtCore import QPoint
 from PySide6.QtWidgets import QApplication, QInputDialog, QMenu, QMessageBox
 
-from sjtu_tpmshx.applications.gui.ui.fmt import duration as fmt_duration
-from sjtu_tpmshx.applications.gui.ui.fmt import preset_display
-from sjtu_tpmshx.applications.gui.ui.nav_rail import RecentRunItem
-from sjtu_tpmshx.applications.gui.ui.run_info_popover import RunInfoData, RunInfoRow
-from sjtu_tpmshx.applications.gui.ui.theme import (
+from tm1.applications.gui.ui.fmt import duration as fmt_duration
+from tm1.applications.gui.ui.fmt import preset_display
+from tm1.applications.gui.ui.nav_rail import RecentRunItem
+from tm1.applications.gui.ui.run_info_popover import RunInfoData, RunInfoRow
+from tm1.applications.gui.ui.theme import (
     RADIUS_CARD,
     RADIUS_INPUT,
     _btn_styles,
     get_theme,
 )
-from sjtu_tpmshx.applications.gui.ui.ui_constants import TOAST_MS_SHORT
-from sjtu_tpmshx.run_control.provenance import SOURCE_ROOT, repository_revision
+from tm1.applications.gui.ui.ui_constants import TOAST_MS_SHORT
+from tm1.run_control.provenance import SOURCE_ROOT, repository_revision
 
 
 def _menu_stylesheet() -> str:
@@ -107,7 +107,7 @@ class RunHistory:
         if provenance is None:
             return
 
-        from sjtu_tpmshx.applications.gui.ui.builders_sidebar import result_metric_texts
+        from tm1.applications.gui.ui.builders_sidebar import result_metric_texts
 
         values = result_metric_texts(window)
         summary = window.results.summary()
@@ -536,7 +536,7 @@ class RunHistory:
 
     def stamp_result_provenance(self, total_elapsed: float | None = None) -> None:
         """Describe the completed run's inputs and returned grid on result tooltips."""
-        from sjtu_tpmshx.applications.gui.ui.fmt import recorded_elapsed_s
+        from tm1.applications.gui.ui.fmt import recorded_elapsed_s
 
         result = self.window.cache.get_result()
         provenance = result.metadata.get("run_provenance") if result is not None else None
@@ -582,7 +582,7 @@ class RunHistory:
 
     def build_run_info_data(self, *, folder_path) -> RunInfoData:
         """Assemble metadata strictly from the accepted result and its recorded provenance."""
-        from sjtu_tpmshx.applications.gui.ui.builders_sidebar import evaluate_result_status
+        from tm1.applications.gui.ui.builders_sidebar import evaluate_result_status
 
         window = self.window
         result = window.cache.get_result()
@@ -675,7 +675,7 @@ class RunHistory:
                 completed_at = str(provenance.get("completed_at") or "").strip()
                 if completed_at:
                     info_rows.append(RunInfoRow("完成时间", completed_at.replace("T", " ")))
-            from sjtu_tpmshx.applications.gui.ui.fmt import recorded_elapsed_s
+            from tm1.applications.gui.ui.fmt import recorded_elapsed_s
 
             elapsed = recorded_elapsed_s(result)
             if isinstance(elapsed, (int, float)):

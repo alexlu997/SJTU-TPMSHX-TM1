@@ -6,13 +6,13 @@ from itertools import product
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.cpp_interface import _native_preparation_case as native, preparation_host
-from sjtu_tpmshx.cpp_interface import native_preparation as binding
-from sjtu_tpmshx.preprocess.two_d import preparation
-from sjtu_tpmshx.physical_models.fluid_props import WaterStateError
-from sjtu_tpmshx.physical_models.tpms_calc import compute
-from sjtu_tpmshx.physical_models.tpms_geometry import compute_geometry
-from sjtu_tpmshx.preprocess import api
+from tm1.cpp_interface import _native_preparation_case as native, preparation_host
+from tm1.cpp_interface import native_preparation as binding
+from tm1.preprocess.two_d import preparation
+from tm1.physical_models.fluid_props import WaterStateError
+from tm1.physical_models.tpms_calc import compute
+from tm1.physical_models.tpms_geometry import compute_geometry
+from tm1.preprocess import api
 from tests.python import native_preparation_abi
 from tests.python.native_adapters.test_native_prepare_adapter import _capture, _same
 from tests.python.native_adapters.test_native_prepare_spatial_adapter import configuration

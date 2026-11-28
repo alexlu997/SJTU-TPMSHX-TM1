@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from sjtu_tpmshx.postprocess.result_display import PANEL_FIELD_SPECS
+from tm1.postprocess.result_display import PANEL_FIELD_SPECS
 
 from .builders_base import MenuToolButton
 from .builders_sidebar import update_result_sidebar_visibility

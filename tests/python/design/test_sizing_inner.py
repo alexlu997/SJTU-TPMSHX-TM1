@@ -3,8 +3,8 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.applications.design.cases import DesignCase
-from sjtu_tpmshx.applications.design.sizing import t_target, solve_Lx
+from tm1.applications.design.cases import DesignCase
+from tm1.applications.design.sizing import t_target, solve_Lx
 
 def _case():
     return DesignCase(1,"air",688.23,1_088_700.0,0.2855,
@@ -27,9 +27,9 @@ def test_solve_Lx_hits_target():
 
 @pytest.mark.parametrize('prop_model', ['const', 'mean'])
 def test_duty_search_meets_actual_heat_duty_after_cold_start(prop_model):
-    from sjtu_tpmshx.applications.design.forward import forward
-    from sjtu_tpmshx.applications.design.sizing import LX_MAX
-    from sjtu_tpmshx.physical_models.fluid_props import QuickDesignWaterFieldError
+    from tm1.applications.design.forward import forward
+    from tm1.applications.design.sizing import LX_MAX
+    from tm1.physical_models.fluid_props import QuickDesignWaterFieldError
     case = replace(_case(), Q=70000.)
     # The original longest-first algorithm aborts here, although a shorter
     # design meets the same duty and keeps every water cell liquid.
@@ -51,8 +51,8 @@ def test_duty_search_meets_actual_heat_duty_after_cold_start(prop_model):
 ])
 def test_length_search_respects_duty_temperature_and_explicit_target(
         monkeypatch, dT, target, expected):
-    from sjtu_tpmshx.applications.design import sizing
-    from sjtu_tpmshx.applications.design.forward import ForwardResult
+    from tm1.applications.design import sizing
+    from tm1.applications.design.forward import ForwardResult
     case = DesignCase(1, 'air', 400., 2e5, .01, 'air', 300., 2e5, .01,
                       150., .05, .05, dT=dT)
 
@@ -84,7 +84,7 @@ def test_length_search_respects_duty_temperature_and_explicit_target(
 ])
 def test_pressure_search_intersects_all_case_limits(
         monkeypatch, arrangement, floor, cold_boundary, expected):
-    from sjtu_tpmshx.applications.design import sizing
+    from tm1.applications.design import sizing
     cases = [_case(), replace(_case(), case=2)]
 
     def pressure(case, topo, l, t, s, length, arrangement, height=None):
@@ -111,8 +111,8 @@ def test_pressure_search_intersects_all_case_limits(
 
 @pytest.mark.parametrize('height', [None, .06])
 def test_pressure_search_finds_real_df_narrow_interval(height):
-    from sjtu_tpmshx.applications.design.sizing import _min_Lx_for_dP
-    from sjtu_tpmshx.preprocess.quick_design import pressure_fractions as dP_fracs
+    from tm1.applications.design.sizing import _min_Lx_for_dP
+    from tm1.preprocess.quick_design import pressure_fractions as dP_fracs
     case = _case()
     # Use actual geometry, fluid properties and D-F; only the limits are chosen.
     hot_limit = dP_fracs(case, 'Diamond', 7., .5, .084, .016, height=height)[0]
@@ -128,9 +128,9 @@ def test_pressure_search_finds_real_df_narrow_interval(height):
 
 def _controlled_forward(monkeypatch, mode):
     """Keep preparation, forward and brentq; control the backend response."""
-    from sjtu_tpmshx.physical_models.design_fluids import Props
-    from sjtu_tpmshx.solvers.quick_design import field_result
-    execution = importlib.import_module('sjtu_tpmshx.solvers.quick_design')
+    from tm1.physical_models.design_fluids import Props
+    from tm1.solvers.quick_design import field_result
+    execution = importlib.import_module('tm1.solvers.quick_design')
     events = []
     property_error = ValueError('injected actual forward property failure')
 
@@ -187,7 +187,7 @@ def test_brentq_propagates_forward_value_error(monkeypatch, mode):
 
 @pytest.mark.parametrize('mode', ['normal', 'drift'])
 def test_brentq_finite_response_preserves_seed_chain_and_fallback(monkeypatch, mode):
-    from sjtu_tpmshx.applications.design.sizing import LX_MAX, SIZING_TOL, LTNE_TOL, TOL
+    from tm1.applications.design.sizing import LX_MAX, SIZING_TOL, LTNE_TOL, TOL
     case, events, _ = _controlled_forward(monkeypatch, mode)
     length, result = solve_Lx(case, 'Diamond', 7., .5, .084, 'cross', target=500.)
     # Pick the cooling side of the existing length resolution, then tighten.
@@ -212,9 +212,9 @@ def test_brentq_finite_response_preserves_seed_chain_and_fallback(monkeypatch, m
     ('upper', .15), ('both-ends', .15), ('hole', .17), ('tight', .18), ('warm', .15),
 ])
 def test_water_failure_search_keeps_valid_interior(monkeypatch, failure, lower):
-    from sjtu_tpmshx.applications.design import sizing
-    from sjtu_tpmshx.applications.design.forward import ForwardResult
-    from sjtu_tpmshx.physical_models.fluid_props import QuickDesignWaterFieldError
+    from tm1.applications.design import sizing
+    from tm1.applications.design.forward import ForwardResult
+    from tm1.physical_models.fluid_props import QuickDesignWaterFieldError
     case = replace(_case(), Q=150.)
     calls, failures = [], []
     def thermal(case, topo, l, t, s, length, arrangement, **kwargs):
@@ -243,8 +243,8 @@ def test_water_failure_search_keeps_valid_interior(monkeypatch, failure, lower):
 
 
 def test_water_search_exhaustion_is_bounded_and_not_cooling_unreachable(monkeypatch):
-    from sjtu_tpmshx.applications.design import sizing
-    from sjtu_tpmshx.physical_models.fluid_props import QuickDesignWaterFieldError
+    from tm1.applications.design import sizing
+    from tm1.physical_models.fluid_props import QuickDesignWaterFieldError
     calls = []
     def invalid(*args, **kwargs):
         calls.append(args[5])
@@ -258,8 +258,8 @@ def test_water_search_exhaustion_is_bounded_and_not_cooling_unreachable(monkeypa
 
 
 def test_water_input_property_error_is_not_a_search_point(monkeypatch):
-    from sjtu_tpmshx.applications.design import sizing
-    from sjtu_tpmshx.physical_models.fluid_props import WaterStateError
+    from tm1.applications.design import sizing
+    from tm1.physical_models.fluid_props import WaterStateError
     calls = []
     error = WaterStateError('invalid inlet water state')
     def invalid(*args, **kwargs):
@@ -273,10 +273,10 @@ def test_water_input_property_error_is_not_a_search_point(monkeypatch):
 
 
 def test_water_interval_search_still_cancels(monkeypatch):
-    from sjtu_tpmshx.applications.design import sizing
-    from sjtu_tpmshx.run_control.cancellation import CancelledError
-    from sjtu_tpmshx.run_control.module_ports import RunControl
-    from sjtu_tpmshx.physical_models.fluid_props import QuickDesignWaterFieldError
+    from tm1.applications.design import sizing
+    from tm1.run_control.cancellation import CancelledError
+    from tm1.run_control.module_ports import RunControl
+    from tm1.physical_models.fluid_props import QuickDesignWaterFieldError
     calls = []
     def invalid(*args, **kwargs):
         calls.append(args[5])

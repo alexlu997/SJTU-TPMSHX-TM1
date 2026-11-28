@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.solvers.physical_ledger import ports_complete
+from tm1.solvers.physical_ledger import ports_complete
 
 
 @pytest.mark.parametrize('dimension,direction', [(d, direction) for d in (2, 3) for direction in range(2*d)])

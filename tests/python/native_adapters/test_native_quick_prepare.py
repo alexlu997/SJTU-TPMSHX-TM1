@@ -11,13 +11,13 @@ import warnings
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.applications.design.cases import DesignCase
-from sjtu_tpmshx.cpp_interface import quick_preparation as wire
-from sjtu_tpmshx.preprocess import quick_design as production
-from sjtu_tpmshx.physical_models import co2_props, fluid_props, sco2_props
-from sjtu_tpmshx.physical_models.tpms_geometry import compute_geometry
-from sjtu_tpmshx.preprocess.api import prepare_quick_design
-from sjtu_tpmshx.run_control.run_warnings import range_observations, warning_scope
+from tm1.applications.design.cases import DesignCase
+from tm1.cpp_interface import quick_preparation as wire
+from tm1.preprocess import quick_design as production
+from tm1.physical_models import co2_props, fluid_props, sco2_props
+from tm1.physical_models.tpms_geometry import compute_geometry
+from tm1.preprocess.api import prepare_quick_design
+from tm1.run_control.run_warnings import range_observations, warning_scope
 from tests.python import df_reference, preparation_flow_reference as flow_ref, property_reference as prop_ref
 
 
@@ -303,7 +303,7 @@ def test_axis_copy_stop_iteration_preserves_exception_and_releases_owner(monkeyp
 
 @pytest.mark.parametrize('cache', ['geometry', 'sco2'])
 def test_cache_callback_failure_preserves_the_exception_and_release_count(monkeypatch, cache):
-    from sjtu_tpmshx.physical_models import tpms_geometry
+    from tm1.physical_models import tpms_geometry
 
     arguments = _args(case=_case(hot_fluid='sco2'))
     bindings = wire._bindings(wire.preparation_library.path())
@@ -334,8 +334,8 @@ def test_cache_callback_failure_preserves_the_exception_and_release_count(monkey
 @pytest.mark.parametrize('pressure', [False, True], ids=['full', 'sizing'])
 @pytest.mark.parametrize('source', ['geometry lookup', 'cache key', 'overflow warning'])
 def test_stop_iteration_from_preparation_preserves_cause_and_release(monkeypatch, pressure, source):
-    from sjtu_tpmshx.applications.design.sizing import dP_fracs
-    from sjtu_tpmshx.physical_models import tpms_geometry
+    from tm1.applications.design.sizing import dP_fracs
+    from tm1.physical_models import tpms_geometry
 
     bindings = wire._bindings(wire.preparation_library.path())
     release = bindings.release
@@ -386,9 +386,9 @@ def _host_site(function, statement):
 @pytest.mark.parametrize('kind', ['range', 'pressure-limit'])
 @pytest.mark.parametrize('pressure_first', [False, True])
 def test_direct_warning_sites_and_repeat_counts(monkeypatch, kind, pressure_first):
-    from sjtu_tpmshx.applications.design.sizing import dP_fracs
-    from sjtu_tpmshx.physical_models import tpms_props
-    from sjtu_tpmshx.physical_models.df_surrogate import predict
+    from tm1.applications.design.sizing import dP_fracs
+    from tm1.physical_models import tpms_props
+    from tm1.physical_models.df_surrogate import predict
 
     monkeypatch.setattr(tpms_props, '_range_warnings_emitted', set())
     monkeypatch.setattr(predict, '_CHOKE_WARNED', set())
@@ -433,8 +433,8 @@ _PRESSURE_LIMIT = ('[D-F approximation] 1D isothermal air pressure model has no 
 
 @pytest.mark.parametrize('mode', ['ignore', 'warn', 'raise', 'print'])
 def test_floating_point_events_keep_modes_order_and_metadata(monkeypatch, capsys, mode):
-    from sjtu_tpmshx.applications.design.sizing import dP_fracs
-    from sjtu_tpmshx.physical_models.df_surrogate import predict
+    from tm1.applications.design.sizing import dP_fracs
+    from tm1.physical_models.df_surrogate import predict
 
     args = _args(case=_case(mdot_h=1e180, mdot_c=1e-185))
     overflow, underflow = 'overflow encountered in power', 'underflow encountered in power'
@@ -472,9 +472,9 @@ def test_floating_point_events_keep_modes_order_and_metadata(monkeypatch, capsys
     (False, [1, 2, 2, 2]), (True, [1, 2, 3, 4]),
 ], ids=['stable-registry', 'rearmed-registry'])
 def test_public_and_pressure_floating_warnings_keep_their_repeat_counts(monkeypatch, rearm, expected_counts):
-    from sjtu_tpmshx.applications.design.sizing import dP_fracs
-    from sjtu_tpmshx.physical_models.df_surrogate import predict
-    from sjtu_tpmshx.preprocess import _metadata
+    from tm1.applications.design.sizing import dP_fracs
+    from tm1.physical_models.df_surrogate import predict
+    from tm1.preprocess import _metadata
 
     # A Git subprocess can reset Python's warning filters during provenance collection.
     monkeypatch.setattr(_metadata, 'source_context', lambda: {})
@@ -510,9 +510,9 @@ def capture(event, args):
     if event == 'ctypes.dlopen' and args[0] and 'tpmshx_' in Path(args[0]).name.lower():
         images.append(Path(args[0]).resolve())
 sys.addaudithook(capture)
-from sjtu_tpmshx.applications.design.sizing import dP_fracs
-from sjtu_tpmshx.preprocess.api import prepare_quick_design
-from sjtu_tpmshx.run_control.run_warnings import range_observations, warning_scope
+from tm1.applications.design.sizing import dP_fracs
+from tm1.preprocess.api import prepare_quick_design
+from tm1.run_control.run_warnings import range_observations, warning_scope
 from tests.python.native_adapters.test_native_quick_prepare import _args, _case
 for fluid in (_case(T_in_h=1200.), _case(hot_fluid='sco2', T_in_c=1200.)):
     args = _args(case=fluid)

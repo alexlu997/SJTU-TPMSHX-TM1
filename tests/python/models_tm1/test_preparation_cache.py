@@ -7,7 +7,7 @@ from threading import Event
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.physical_models.preparation_cache import scalar_cache
+from tm1.physical_models.preparation_cache import scalar_cache
 
 
 class _String(str):

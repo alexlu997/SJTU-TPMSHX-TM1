@@ -5,16 +5,16 @@ from decimal import Decimal
 
 import pytest
 
-from sjtu_tpmshx.applications.gui.ui.window_config import (
+from tm1.applications.gui.ui.window_config import (
     LINE_EDITS,
     COUNT_TOKEN_WHITELIST,
     parse_field_value,
 )
-from sjtu_tpmshx.data_types.validator import convert_temp_decimal, format_unit_value
+from tm1.data_types.validator import convert_temp_decimal, format_unit_value
 
 
 def test_portable_validator_keeps_widget_names_in_the_gui():
-    from sjtu_tpmshx.data_types import validator
+    from tm1.data_types import validator
 
     widget_names = {'LINE_EDITS', 'COUNT_TOKEN_WHITELIST', 'parse_field_value'}
     assert widget_names.isdisjoint(vars(validator))

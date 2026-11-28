@@ -5,8 +5,8 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.field_result import FieldResult
-from sjtu_tpmshx.postprocess.export import export_vtk
+from tm1.data_types.field_result import FieldResult
+from tm1.postprocess.export import export_vtk
 from tests.python.io_tm1.io_support import sample_case
 
 

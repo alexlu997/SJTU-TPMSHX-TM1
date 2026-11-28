@@ -8,14 +8,9 @@ import re
 
 from PySide6.QtCore import QIODevice, QSaveFile, QStandardPaths
 
-from sjtu_tpmshx.postprocess.result_display import COLORMAP_CHOICES, COLORMAP_QUANTITIES
+from tm1.postprocess.result_display import COLORMAP_CHOICES, COLORMAP_QUANTITIES
 
 _APP_DIRECTORY = 'SJTU-TPMSHX-TM1'
-_LEGACY_PACKAGE_DIR = Path(__file__).resolve().parents[4] / 'sjtu_tpmshx'
-_DATA_FILES = (
-    '.last_session.json', '.last_session_B.json', '.last_session_C.json',
-    '.user_presets.json', '.workspace', '.session_timeline.jsonl', '.first_run_done',
-)
 _CMAP_SETTINGS = tuple(f'cmap_{quantity}' for quantity in COLORMAP_QUANTITIES)
 _APPEARANCE_SETTINGS = ('theme', 'density', 'accent', 'reduced_motion', 'inspector', *_CMAP_SETTINGS)
 _LOG = logging.getLogger(__name__)
@@ -39,24 +34,9 @@ def _write(path: Path, data: bytes) -> None:
         raise OSError(target.errorString())
 
 
-def _copy_missing(source: Path, destination: Path) -> None:
-    if not destination.exists() and source.is_file():
-        try:
-            _write(destination, source.read_bytes())
-        except OSError as exc:
-            _LOG.warning('Could not import user file %s: %s', source, exc)
-
-
 def user_data_dir() -> Path:
-    """Return the stable user data directory; preserve existing legacy inputs.
-
-    Copy only the known old files that are absent at the destination. The
-    originals remain intact, and an existing user file always takes priority.
-    """
-    path = _directory(QStandardPaths.StandardLocation.GenericDataLocation)
-    for name in _DATA_FILES:
-        _copy_missing(_LEGACY_PACKAGE_DIR / name, path / name)
-    return path
+    """Return the writable user data directory."""
+    return _directory(QStandardPaths.StandardLocation.GenericDataLocation)
 
 
 def _valid_appearance(name: str, value: str) -> bool:

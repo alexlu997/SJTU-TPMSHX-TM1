@@ -9,12 +9,12 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.compute_config import (
+from tm1.data_types.compute_config import (
     ComputeConfig, ExtrapPolicy, FluidConfig, GeometryConfig, PartialBCConfig, SolverConfig, ZoneInputConfig,
 )
-from sjtu_tpmshx.physical_models.grid import _port_overlap_1d, _port_fractions_1d
-from sjtu_tpmshx.physical_models.tpms_props import model_h_coefficients
-from sjtu_tpmshx.preprocess.api import prepare_case
+from tm1.physical_models.grid import _port_overlap_1d, _port_fractions_1d
+from tm1.physical_models.tpms_props import model_h_coefficients
+from tm1.preprocess.api import prepare_case
 from tests.python.native.result_reference.shared_math import pressure_face_values
 from tests.python.native.pressure_audit import inlet_pressure_state
 from tests.python.native.simple_inputs import f2_settings

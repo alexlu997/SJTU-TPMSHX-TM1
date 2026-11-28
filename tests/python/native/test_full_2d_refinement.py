@@ -2,10 +2,10 @@
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-from sjtu_tpmshx.physical_models import fluid_props
+from tm1.data_types.compute_config import ComputeConfig
+from tm1.physical_models import fluid_props
 from tests.python.grid_reference import split_cells
-from sjtu_tpmshx.preprocess.api import prepare_case
+from tm1.preprocess.api import prepare_case
 from tests.python.native import test_full_2d as coarse
 from tests.python.native.test_refinement_2d import interpolate, _prolong_mass_faces_2d
 

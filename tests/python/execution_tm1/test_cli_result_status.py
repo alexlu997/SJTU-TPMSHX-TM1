@@ -3,9 +3,9 @@ import json
 
 import pytest
 
-from sjtu_tpmshx.applications.cli.main import main
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-from sjtu_tpmshx.data_types.compute_result import ComputeResult
+from tm1.applications.cli.main import main
+from tm1.data_types.compute_config import ComputeConfig
+from tm1.data_types.compute_result import ComputeResult
 
 
 @pytest.mark.parametrize('as_json', [False, True])
@@ -16,7 +16,7 @@ from sjtu_tpmshx.data_types.compute_result import ComputeResult
 ])
 def test_cli_result_status(tmp_path, monkeypatch, capsys, as_json,
                            converged, envelope, outer, messages, exit_code):
-    import sjtu_tpmshx.applications.result_adapter as adapter
+    import tm1.applications.result_adapter as adapter
 
     config = tmp_path / 'config.json'
     ComputeConfig().to_json(config)
@@ -41,7 +41,7 @@ def test_cli_result_status(tmp_path, monkeypatch, capsys, as_json,
 
 
 def test_dry_run_does_not_claim_computed_status(tmp_path, monkeypatch, capsys):
-    import sjtu_tpmshx.applications.result_adapter as adapter
+    import tm1.applications.result_adapter as adapter
 
     config = tmp_path / 'config.json'
     ComputeConfig().to_json(config)
@@ -52,7 +52,7 @@ def test_dry_run_does_not_claim_computed_status(tmp_path, monkeypatch, capsys):
 
 def test_machine_output_separates_logs_and_preserves_unavailable_status(tmp_path, monkeypatch, capsys):
     import sys
-    import sjtu_tpmshx.applications.result_adapter as adapter
+    import tm1.applications.result_adapter as adapter
 
     config = tmp_path / 'config.json'
     ComputeConfig().to_json(config)
@@ -85,7 +85,7 @@ def test_machine_output_separates_logs_and_preserves_unavailable_status(tmp_path
 
 
 def test_direct_cli_preserves_host_backend_selection(tmp_path, monkeypatch, capsys):
-    from sjtu_tpmshx.applications import result_adapter as module_adapter
+    from tm1.applications import result_adapter as module_adapter
     config = tmp_path / 'config.json'
     ComputeConfig().to_json(config)
     seen = []
@@ -103,7 +103,7 @@ def test_direct_cli_preserves_host_backend_selection(tmp_path, monkeypatch, caps
 
 
 def test_cli_stage_success_does_not_imply_design_eligibility(tmp_path, monkeypatch, capsys):
-    from sjtu_tpmshx.applications import result_adapter as module_adapter
+    from tm1.applications import result_adapter as module_adapter
     path = tmp_path / 'config.json'
     ComputeConfig().to_json(path)
     quality = {'definition': 'result_qualification_v1',

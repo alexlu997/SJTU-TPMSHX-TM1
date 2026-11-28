@@ -18,7 +18,7 @@ class ViewImports(QThread):
 
     def run(self):
         try:
-            import_module('sjtu_tpmshx.applications.gui.ui.panel_vis_3d')
+            import_module('tm1.applications.gui.ui.panel_vis_3d')
         except Exception as exc:
             self.error = f'{type(exc).__name__}: {exc}'
 

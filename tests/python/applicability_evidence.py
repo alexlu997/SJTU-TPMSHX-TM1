@@ -4,7 +4,7 @@ The saved native stages make this selection. Tests use this function as an
 independent reference for the native record.
 """
 
-from sjtu_tpmshx.run_control.run_warnings import captured_scope_notes
+from tm1.run_control.run_warnings import captured_scope_notes
 
 _INLET_STAGES = {'inlet', 'inlet-preflight', 'prepared-df', 'df-application',
                  'asym-ratio', 'main-inlet', 'richardson-inlet', 'fallback-inlet'}

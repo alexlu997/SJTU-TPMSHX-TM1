@@ -5,7 +5,7 @@ from .text_file import read_json, write_json as write_json
 
 
 def load_config(path):
-    from sjtu_tpmshx.data_types.compute_config import ComputeConfig
+    from tm1.data_types.compute_config import ComputeConfig
 
     path = Path(path)
     if path.suffix.lower() == '.json':

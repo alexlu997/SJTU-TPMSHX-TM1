@@ -7,17 +7,17 @@ import pyvista as pv
 import pytest
 from PySide6.QtCore import QRect, QSize
 
-from sjtu_tpmshx.applications.gui.ui.microanim import is_reduced_motion, set_reduced_motion
-from sjtu_tpmshx.applications.gui.ui.panel_vis_3d import ThreeDVisPanel
-from sjtu_tpmshx.applications.gui.ui.theme import resolve_cmap, set_cmap
-from sjtu_tpmshx.applications.gui.ui.volume_overlays import (
+from tm1.applications.gui.ui.microanim import is_reduced_motion, set_reduced_motion
+from tm1.applications.gui.ui.panel_vis_3d import ThreeDVisPanel
+from tm1.applications.gui.ui.theme import resolve_cmap, set_cmap
+from tm1.applications.gui.ui.volume_overlays import (
     PortAnchor,
     PortChipOverlay,
     StudioColorbarCard,
     place_port_chip,
 )
-from sjtu_tpmshx.applications.gui.ui.volume_toolbar import DISPLAY_MODES, VolumeToolbar
-from sjtu_tpmshx.postprocess.result_display import PANEL_FIELD_SPECS
+from tm1.applications.gui.ui.volume_toolbar import DISPLAY_MODES, VolumeToolbar
+from tm1.postprocess.result_display import PANEL_FIELD_SPECS
 
 
 @pytest.mark.parametrize('direction, expected_in, expected_out', [
@@ -591,9 +591,9 @@ def test_camera_preset_uses_shared_reduced_motion_preference():
 
 def test_shared_header_colormap_refresh_updates_main_and_optimization_3d_panels(monkeypatch):
     """Colormap popover propagation refreshes both canvas_3d and optimization.volume_panel."""
-    import sjtu_tpmshx.applications.gui.ui.layout_drawer as layout_drawer
-    import sjtu_tpmshx.applications.gui.ui.plot_2d_results as plot_2d_results
-    from sjtu_tpmshx.applications.gui.ui.builders_canvas import _apply_colormap_refresh
+    import tm1.applications.gui.ui.layout_drawer as layout_drawer
+    import tm1.applications.gui.ui.plot_2d_results as plot_2d_results
+    from tm1.applications.gui.ui.builders_canvas import _apply_colormap_refresh
 
     monkeypatch.setattr(plot_2d_results, 'redraw_result_fields', Mock())
     monkeypatch.setattr(layout_drawer, 'refresh_last_2d_thumbnail', Mock())
@@ -610,7 +610,7 @@ def test_shared_header_colormap_refresh_updates_main_and_optimization_3d_panels(
     opt_3d.refresh_colormaps.assert_called_once_with()
 
     # Single-fluid phase checks reject missing Fluid B without falling back to A.
-    from sjtu_tpmshx.applications.gui.ui.builders_canvas import _resolve_3d_panel_field
+    from tm1.applications.gui.ui.builders_canvas import _resolve_3d_panel_field
 
     assert _resolve_3d_panel_field({'Ta'}, 'temperature', 'B', exact_phase=True) is None
     assert _resolve_3d_panel_field({'Ta'}, 'temperature', 'B', exact_phase=False) == 'Ta'

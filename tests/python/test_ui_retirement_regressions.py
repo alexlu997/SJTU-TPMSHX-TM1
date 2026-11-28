@@ -11,7 +11,7 @@ from matplotlib.figure import Figure
 
 @pytest.fixture
 def win(tmp_path, monkeypatch):
-    from sjtu_tpmshx.applications.gui.controllers import user_storage
+    from tm1.applications.gui.controllers import user_storage
 
     def directory(location, *parts):
         path = tmp_path.joinpath(location.name, *parts)
@@ -19,7 +19,7 @@ def win(tmp_path, monkeypatch):
         return path
 
     monkeypatch.setattr(user_storage, '_directory', directory)
-    from sjtu_tpmshx.applications.gui.ui.main_window import Main_Menu
+    from tm1.applications.gui.ui.main_window import Main_Menu
     window = Main_Menu()
     yield window
     # Input rejection tests intentionally leave invalid drafts. Keep the real
@@ -33,7 +33,7 @@ def win(tmp_path, monkeypatch):
 
 
 def test_real_fluid_builder_enables_each_supported_fluid(win):
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.applications.gui.ui.window_config import config_from_window
     for side in ('A', 'B'):
         combo = getattr(win, 'combo_fluid' + side)
         assert [combo.itemText(i) for i in range(combo.count())] == ['Air', 'Water', 'sCO₂', 'CO₂']
@@ -45,7 +45,7 @@ def test_real_fluid_builder_enables_each_supported_fluid(win):
 
 @pytest.mark.parametrize('bad', ['', 'invalid', 'nan'])
 def test_normal_compute_ignores_2d_drafts_and_checks_them_in_3d(win, monkeypatch, bad):
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.applications.gui.ui.window_config import config_from_window
     win.combo_dim.setCurrentIndex(0)
     names = ['le_Lz', 'le_Nz'] + [name for name in win.case_files.SESSION_LINE_EDITS if '_z_' in name]
     for name in names:
@@ -71,7 +71,7 @@ def test_normal_compute_ignores_2d_drafts_and_checks_them_in_3d(win, monkeypatch
 def test_compute_shortcut_commits_focused_inlet(win, monkeypatch, side, unit, zero):
     from PySide6.QtGui import QKeySequence
     from PySide6.QtTest import QTest
-    from sjtu_tpmshx.applications.gui.ui.ui_builders import reveal_parameter
+    from tm1.applications.gui.ui.ui_builders import reveal_parameter
 
     at_grid = []
     def record_grid(config):
@@ -115,8 +115,8 @@ def test_compute_shortcut_commits_focused_inlet(win, monkeypatch, side, unit, ze
     ('sco2', 2, 2., 350., 12e6),
 ])
 def test_autofill_dp_uses_selected_df_model(win, side, fluid, index, u, T, P):
-    from sjtu_tpmshx.physical_models.tpms_calc import compute
-    from sjtu_tpmshx.physical_models.df_surrogate.experimental_correction import apply_correction
+    from tm1.physical_models.tpms_calc import compute
+    from tm1.physical_models.df_surrogate.experimental_correction import apply_correction
     getattr(win, 'combo_fluid' + side).setCurrentIndex(index)
     getattr(win, 'combo_inlet_mode' + side).setCurrentIndex(0)
     win.combo_tpms.setCurrentText('Gyroid')
@@ -136,7 +136,7 @@ def test_autofill_dp_uses_selected_df_model(win, side, fluid, index, u, T, P):
 
 
 def test_zone_drag_matches_domain_size_and_neighbour_clamp():
-    from sjtu_tpmshx.applications.gui.ui.zone_editor import ZoneHandleManager
+    from tm1.applications.gui.ui.zone_editor import ZoneHandleManager
     table = QTableWidget(3, 4)
     for row, bounds in enumerate(((0., 50.), (50., 75.), (75., 100.))):
         for col, value in enumerate(bounds):
@@ -184,8 +184,8 @@ def test_zone_cell_validation_follows_actual_column_roles(win, columns):
 @pytest.mark.parametrize('direction', range(6))
 def test_3d_layout_rectangles_follow_both_port_axes(direction, monkeypatch):
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-    from sjtu_tpmshx.applications.gui.ui.port_preview_3d import draw_layout_rect_3d
-    from sjtu_tpmshx.data_types.validator import cross_axes_for_dir
+    from tm1.applications.gui.ui.port_preview_3d import draw_layout_rect_3d
+    from tm1.data_types.validator import cross_axes_for_dir
     fig = Figure()
     fig.canvas.wheelEvent = lambda event: None
     ax = fig.add_subplot(projection='3d')
@@ -231,7 +231,7 @@ def test_experimental_autofill_rejects_unsupported_inlet_without_stale_preview(w
 @pytest.mark.parametrize('partial_end', ['in', 'out'])
 @pytest.mark.parametrize('hidden', [False, True])
 def test_real_port_reader_preserves_each_end_and_matches_preview(win, side, partial_end, hidden):
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.applications.gui.ui.window_config import config_from_window
     win.combo_dim.setCurrentIndex(1)
     win.le_Nz.setText('20')
     for end in ('in', 'out'):
@@ -254,7 +254,7 @@ def test_real_port_reader_preserves_each_end_and_matches_preview(win, side, part
 @pytest.mark.parametrize('end', ['in', 'out'])
 @pytest.mark.parametrize('missing', ['ctr', 'w'])
 def test_real_port_reader_rejects_half_pair_and_ignores_2d_draft(win, side, end, missing):
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.applications.gui.ui.window_config import config_from_window
     win.combo_dim.setCurrentIndex(1)
     win.le_Nz.setText('20')
     for field, value in (('ctr', '.021'), ('w', '.008')):
@@ -274,7 +274,7 @@ def test_real_port_reader_rejects_half_pair_and_ignores_2d_draft(win, side, end,
 
 @pytest.mark.parametrize(('invalid', 'valid'), [('A', 'B'), ('B', 'A')])
 def test_2d_layout_draws_only_the_valid_side_ports(win, invalid, valid):
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.applications.gui.ui.window_config import config_from_window
 
     win.combo_dim.setCurrentIndex(0)
     win.chk_zones.setChecked(False)
@@ -297,7 +297,7 @@ def test_2d_layout_draws_only_the_valid_side_ports(win, invalid, valid):
 @pytest.mark.parametrize('side', ['A', 'B'])
 def test_3d_layout_omits_invalid_port_instead_of_drawing_full_face(win, side):
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-    from sjtu_tpmshx.applications.gui.ui.port_preview_3d import draw_layout_rect_3d
+    from tm1.applications.gui.ui.port_preview_3d import draw_layout_rect_3d
     win.combo_dim.setCurrentIndex(1)
     getattr(win, f'le_pipe{side}_out_z_ctr').setText('.021')
     getattr(win, f'le_pipe{side}_out_z_w').clear()
@@ -379,7 +379,7 @@ def test_invalid_second_span_stops_real_compute_dispatch(blank_spans, bad, messa
 
 @pytest.mark.parametrize('mode', ['velocity', 'mass_flow'])
 def test_badges_count_only_active_required_fields(blank_spans, mode):
-    from sjtu_tpmshx.applications.gui.ui.ui_builders import refresh_group_badges
+    from tm1.applications.gui.ui.ui_builders import refresh_group_badges
     win, _, _ = blank_spans
     for side in ('A', 'B'):
         combo = getattr(win, 'combo_inlet_mode' + side)
@@ -425,8 +425,8 @@ def test_inlet_mode_changes_refresh_badges(blank_spans, side):
 
 
 def test_blank_second_spans_recover_and_round_trip(blank_spans, monkeypatch):
-    from sjtu_tpmshx.applications.gui.ui.ui_builders import refresh_group_badges
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.applications.gui.ui.ui_builders import refresh_group_badges
+    from tm1.applications.gui.ui.window_config import config_from_window
     win, dialogs, starts = blank_spans
     win.le_pipeA_in_z_w.setText('invalid')
     win.le_pipeA_in_z_w.editingFinished.emit()

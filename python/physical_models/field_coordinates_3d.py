@@ -1,5 +1,5 @@
 """Adapt physical 3D port data for the native geometry core."""
-from sjtu_tpmshx.cpp_interface import _native_grid
+from tm1.cpp_interface import _native_grid
 
 
 def _port_rectangles(fluid_cfg, cross2_length):

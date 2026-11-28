@@ -7,8 +7,8 @@ from pathlib import Path
 from . import sizing
 from .cases import load_cases
 from .workflow import DEFAULT_ARRANGEMENT, DEFAULT_PROP_MODEL, run_design
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.applications.cli.cli_options import add_run_control_arguments, run_control_from_args
+from tm1.run_control.cancellation import CancelledError
+from tm1.applications.cli.cli_options import add_run_control_arguments, run_control_from_args
 
 def _parse_cell(s):           # "Diamond,7,0.5"
     topo, l, t = s.split(","); return topo, float(l), float(t)

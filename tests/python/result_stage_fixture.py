@@ -3,7 +3,7 @@ import ctypes as ct
 import json
 from dataclasses import asdict
 
-from sjtu_tpmshx.cpp_interface import _native_result as core
+from tm1.cpp_interface import _native_result as core
 
 P = ct.POINTER
 S, I, Z, D = ct.c_char_p, ct.c_int, ct.c_size_t, ct.c_double

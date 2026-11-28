@@ -1,6 +1,6 @@
 """Supported fluid identifiers and independent material-property checks."""
-from sjtu_tpmshx.physical_models.tpms_calc import validate_fluid_type
-from sjtu_tpmshx.cpp_interface._native_preparation_case import _FLUIDS
+from tm1.physical_models.tpms_calc import validate_fluid_type
+from tm1.cpp_interface._native_preparation_case import _FLUIDS
 
 
 
@@ -36,7 +36,7 @@ def test_supported_full_compute_fluids():
 
 def test_water_compute_returns_water_density():
     """compute(fluid_type='water') uses water properties, not air."""
-    from sjtu_tpmshx.physical_models.tpms_calc import compute
+    from tm1.physical_models.tpms_calc import compute
     # u_air=10 m/s & u_water=1 m/s lands both Re in the air-fit window
     # [600, 30000] at the same Gyroid 7×0.4 geometry, 320 K, 200 kPa.
     r_air = compute('Gyroid', 7.0, 0.4, 10.0, 320.0, 200000.0, 16.0,
@@ -54,7 +54,7 @@ def test_water_compute_returns_water_density():
 
 def test_fluid_specific_nu_closures_are_positive():
     """Air and water use their own fitted closures in this in-domain example."""
-    from sjtu_tpmshx.physical_models.tpms_calc import compute
+    from tm1.physical_models.tpms_calc import compute
     r_air = compute('Gyroid', 7.0, 0.4, 10.0, 320.0, 200000.0, 16.0,
                     fluid_type='air')
     r_w   = compute('Gyroid', 7.0, 0.4, 1.0,  320.0, 200000.0, 16.0,

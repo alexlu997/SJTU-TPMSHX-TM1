@@ -7,8 +7,8 @@ def test_prepare_refined_and_partial_cases_in_clean_process():
     code = '''
 import sys
 import numpy as np
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig, PartialBCConfig
-from sjtu_tpmshx.preprocess.two_d.preparation import prepare_case
+from tm1.data_types.compute_config import ComputeConfig, PartialBCConfig
+from tm1.preprocess.two_d.preparation import prepare_case
 config = ComputeConfig()
 config.solver.Nx, config.solver.Ny = 20, 40
 case = prepare_case(config, case_id="full-port")
@@ -31,7 +31,7 @@ except ValueError:
     pass
 else:
     raise AssertionError("prepared grid can be mutated")
-for prefix in ("sjtu_tpmshx.solvers", "sjtu_tpmshx.pipelines", "numba", "PySide6"):
+for prefix in ("tm1.solvers", "tm1.pipelines", "numba", "PySide6"):
     assert not any(name == prefix or name.startswith(prefix + ".") for name in sys.modules), prefix
 '''
     result = subprocess.run([sys.executable, '-c', code], capture_output=True,
@@ -42,9 +42,9 @@ for prefix in ("sjtu_tpmshx.solvers", "sjtu_tpmshx.pipelines", "numba", "PySide6
 def test_zoned_preparation_keeps_si_design_and_detaches_input():
     from dataclasses import asdict
     import numpy as np
-    from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-    from sjtu_tpmshx.physical_models.zone_config import ZoneConfig
-    from sjtu_tpmshx.preprocess.two_d.preparation import prepare_case
+    from tm1.data_types.compute_config import ComputeConfig
+    from tm1.physical_models.zone_config import ZoneConfig
+    from tm1.preprocess.two_d.preparation import prepare_case
     config = ComputeConfig()
     config.solver.Nx = config.solver.Ny = 10
     config.zones.enabled = True
@@ -59,8 +59,8 @@ def test_zoned_preparation_keeps_si_design_and_detaches_input():
 
 
 def test_prepared_inlet_warning_keeps_side_and_stage():
-    from sjtu_tpmshx.data_types.compute_config import ComputeConfig, FluidConfig
-    from sjtu_tpmshx.preprocess.api import prepare_case
+    from tm1.data_types.compute_config import ComputeConfig, FluidConfig
+    from tm1.preprocess.api import prepare_case
     config = ComputeConfig(fluid_B=FluidConfig(type='water', u_mps=.001,
                                                T_in_K=300., P_in_Pa=101325.))
     config.solver.Nx = config.solver.Ny = 10

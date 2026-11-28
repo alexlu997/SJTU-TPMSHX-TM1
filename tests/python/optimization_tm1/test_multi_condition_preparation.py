@@ -4,16 +4,16 @@ from dataclasses import asdict, replace
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.compute_config import (
+from tm1.data_types.compute_config import (
     ComputeConfig, FluidConfig, GeometryConfig, PartialBCConfig,
     SolverConfig, ZoneInputConfig, ExtrapPolicy, FeatureFlags,
 )
-from sjtu_tpmshx.applications.optimization.multi_condition import prepare_fixed_mass_flow_case
-from sjtu_tpmshx.preprocess.three_d import preparation
-from sjtu_tpmshx.preprocess.api import prepare_case, prepare_inlet_mass_capacities, resolve_fixed_mass_flow_config
-from sjtu_tpmshx.preprocess.inlet_flow import total_inlet_mass_capacity
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.run_control.module_ports import resolve_control
+from tm1.applications.optimization.multi_condition import prepare_fixed_mass_flow_case
+from tm1.preprocess.three_d import preparation
+from tm1.preprocess.api import prepare_case, prepare_inlet_mass_capacities, resolve_fixed_mass_flow_config
+from tm1.preprocess.inlet_flow import total_inlet_mass_capacity
+from tm1.run_control.module_ports import RunControl
+from tm1.run_control.module_ports import resolve_control
 
 
 @pytest.mark.parametrize('direction', range(6))
@@ -212,8 +212,8 @@ def test_fixed_flow_uses_only_resolved_velocities(monkeypatch, dimension, design
                   fluid_B=replace(config.fluid_B, u_mps=.00001))
     snapshot = asdict(old)
     from unittest.mock import patch
-    from sjtu_tpmshx.preprocess.two_d import preparation as prep2d
-    from sjtu_tpmshx.cpp_interface import preparation_host as native
+    from tm1.preprocess.two_d import preparation as prep2d
+    from tm1.cpp_interface import preparation_host as native
     with patch.object(native, 'volume_operation', wraps=native.volume_operation) as geometry, \
          patch.object(prep2d, 'prepare_case', side_effect=AssertionError('fixed flow prepared twice')) as full, \
          patch.object(native, 'operation', wraps=native.operation) as stage:
@@ -244,7 +244,7 @@ def test_fixed_flow_uses_only_resolved_velocities(monkeypatch, dimension, design
 
 @pytest.mark.parametrize('design_mode', ['x', 'y', 'grid', 'sigmoid'])
 def test_fixed_flow_preserves_spatial_2d_geometry_and_input(monkeypatch, tmp_path, design_mode):
-    from sjtu_tpmshx.physical_models.zone_config import Zone, ZoneConfig
+    from tm1.physical_models.zone_config import Zone, ZoneConfig
 
     config = ComputeConfig(
         geometry=GeometryConfig(L_dom_m=.04, H_dom_m=.05, Lz_m=.02),
@@ -263,7 +263,7 @@ def test_fixed_flow_preserves_spatial_2d_geometry_and_input(monkeypatch, tmp_pat
             dict(x0=.5, x1=1., y0=0., y1=1., L=7., t=.5)],
             'tpms_type': 'Gyroid', 'k_s': 16.}
     if design_mode == 'sigmoid':
-        from sjtu_tpmshx.physical_models import sigmoid_field
+        from tm1.physical_models import sigmoid_field
         lut = sigmoid_field.GeometryLUT('Gyroid', n_L=3, n_t=3, N=16, cache_dir=str(tmp_path))
         monkeypatch.setitem(sigmoid_field._lut_cache, ('Gyroid',), lut)
         config.zones.pareto_x_decision = [value for cell in np.linspace(6., 7., 18)
@@ -277,10 +277,10 @@ def test_fixed_flow_preserves_spatial_2d_geometry_and_input(monkeypatch, tmp_pat
                                           reference.grid, side) for side in ('A', 'B')}
     old = replace(config, fluid_A=replace(config.fluid_A, u_mps=.001))
     expected = prepare_case(resolve_fixed_mass_flow_config(old, **targets), case_id='legacy-fixed')
-    from sjtu_tpmshx.preprocess.two_d import preparation as prep2d
+    from tm1.preprocess.two_d import preparation as prep2d
     from tests.python.native.test_cpp_full_3d import compare
     from unittest.mock import patch
-    from sjtu_tpmshx.cpp_interface import preparation_host as native
+    from tm1.cpp_interface import preparation_host as native
     with patch.object(prep2d, 'prepare_case', side_effect=AssertionError('fixed flow prepared twice')) as full, \
          patch.object(native, 'operation', wraps=native.operation) as stage:
         actual = prepare_fixed_mass_flow_case(old, **targets, case_id='legacy-fixed')
@@ -299,7 +299,7 @@ def test_fixed_flow_preserves_spatial_2d_geometry_and_input(monkeypatch, tmp_pat
 
 
 def test_capacity_preparation_validates_static_inputs_before_building_fields(monkeypatch):
-    from sjtu_tpmshx.preprocess.two_d import preparation as preparation_2d
+    from tm1.preprocess.two_d import preparation as preparation_2d
 
     def forbidden(*args):
         raise AssertionError('invalid static input reached field construction')
@@ -326,9 +326,9 @@ def test_capacity_preparation_validates_static_inputs_before_building_fields(mon
 @pytest.mark.parametrize('entry', ['public', 'direct-2d'])
 def test_fixed_flow_releases_native_owner_after_copy(monkeypatch, continuous, entry):
     from contextlib import contextmanager
-    from sjtu_tpmshx.cpp_interface import preparation_host as native
-    from sjtu_tpmshx.preprocess.two_d.preparation import prepare_mass_flow_case
-    from sjtu_tpmshx.run_control.run_warnings import current_warnings, warning_scope
+    from tm1.cpp_interface import preparation_host as native
+    from tm1.preprocess.two_d.preparation import prepare_mass_flow_case
+    from tm1.run_control.run_warnings import current_warnings, warning_scope
 
     config = ComputeConfig(geometry=GeometryConfig(Lz_m=.042),
                            solver=SolverConfig(Nx=4, Ny=4), extrap=ExtrapPolicy(allow=True))

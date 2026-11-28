@@ -9,11 +9,11 @@ import pytest
 
 from tests.python import result_balance_reference as reference
 from tests.python.postprocess_tm1.test_physical_balance import sample_result
-from sjtu_tpmshx.postprocess import api as physical_balance
-from sjtu_tpmshx.data_types.field_result import FieldResult
-from sjtu_tpmshx.cpp_interface import _native_result as core
+from tm1.postprocess import api as physical_balance
+from tm1.data_types.field_result import FieldResult
+from tm1.cpp_interface import _native_result as core
 from tests.python import result_primitive_wire as native
-from sjtu_tpmshx.data_types.portable_data import mutable_data
+from tm1.data_types.portable_data import mutable_data
 
 
 def observe(function):

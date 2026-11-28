@@ -7,7 +7,7 @@ from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 import pytest
 
-from sjtu_tpmshx.development.runs.tools.check_locked_environment import (
+from tm1.development.runs.tools.check_locked_environment import (
     LockFileError,
     environment_issues,
     installed_versions,

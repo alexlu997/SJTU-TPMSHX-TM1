@@ -8,9 +8,9 @@ from .preparation_cache import geometry_cache
 
 import numpy as np
 
-from sjtu_tpmshx.model_configs.model_parameters import load_model_parameters
-from sjtu_tpmshx.cpp_interface import _native_geometry
-from sjtu_tpmshx.cpp_interface._native_values import TOPOLOGIES, real_array
+from tm1.model_configs.model_parameters import load_model_parameters
+from tm1.cpp_interface import _native_geometry
+from tm1.cpp_interface._native_values import TOPOLOGIES, real_array
 
 
 _GEOMETRY_KEYS = ('epsilon', 'epsilon_A', 'epsilon_B', 'A_0', 'D_h')

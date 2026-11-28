@@ -4,7 +4,7 @@ The shared worktree venv intentionally has no editable project install. Some
 tests start fresh Python processes from the package directory or a temporary
 script directory, where the repository root is not on ``sys.path``. Export the
 current checkout root through ``PYTHONPATH`` so those children import
-``sjtu_tpmshx`` from the same worktree as pytest.
+``tm1`` from the same worktree as pytest.
 
 2026-05-09 Phase Qt-headless fix: also forces ``QT_QPA_PLATFORM=offscreen``
 *before* any test module imports PySide6. Without this, full-suite runs
@@ -29,7 +29,7 @@ os.environ['PYTHONPATH'] = os.pathsep.join(
 # subsequent test_*.py import.
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
-import sjtu_tpmshx  # noqa: F401 — verify the current checkout is importable
+import tm1  # noqa: F401 — verify the current checkout is importable
 
 
 # 2026-05-09 — Eagerly instantiate a process-wide QApplication so that:
@@ -50,7 +50,7 @@ try:
 except Exception:
     _gc.enable()
 if _app is not None:
-    from sjtu_tpmshx.applications.gui.controllers import main_thread_gc as _main_thread_gc
+    from tm1.applications.gui.controllers import main_thread_gc as _main_thread_gc
     _main_thread_gc.install(_app)
 
 

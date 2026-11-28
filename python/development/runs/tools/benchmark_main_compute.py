@@ -20,7 +20,7 @@ from time import perf_counter
 import traceback
 from uuid import uuid4
 
-from sjtu_tpmshx.run_control.module_ports import RunControl
+from tm1.run_control.module_ports import RunControl
 
 
 def json_data(value):
@@ -39,7 +39,7 @@ def json_data(value):
 
 
 def write_json(path, value):
-    from sjtu_tpmshx.file_io.text_file import write_text
+    from tm1.file_io.text_file import write_text
     write_text(path, json.dumps(json_data(value), ensure_ascii=False, allow_nan=False, indent=2) + '\n')
 
 
@@ -78,16 +78,16 @@ def sample_rss(samples):
 
 
 def run_one(job, output, *, sample_kind, control=RunControl()):
-    from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-    from sjtu_tpmshx.preprocess.api import prepare_case
-    from sjtu_tpmshx.solvers.api import run_case
-    from sjtu_tpmshx.postprocess.api import evaluate
-    from sjtu_tpmshx.applications.result_adapter import to_compute_result
-    from sjtu_tpmshx.file_io.case_io import save_case, load_case
-    from sjtu_tpmshx.file_io.result_io import save_result, load_result
-    from sjtu_tpmshx.file_io.metrics_io import save_metrics, load_metrics
-    from sjtu_tpmshx.run_control.provenance import source_context
-    from sjtu_tpmshx.development.validation.cases.validate_sco2_exp_q import FLOW_REL_TOL
+    from tm1.data_types.compute_config import ComputeConfig
+    from tm1.preprocess.api import prepare_case
+    from tm1.solvers.api import run_case
+    from tm1.postprocess.api import evaluate
+    from tm1.applications.result_adapter import to_compute_result
+    from tm1.file_io.case_io import save_case, load_case
+    from tm1.file_io.result_io import save_result, load_result
+    from tm1.file_io.metrics_io import save_metrics, load_metrics
+    from tm1.run_control.provenance import source_context
+    from tm1.development.validation.cases.validate_sco2_exp_q import FLOW_REL_TOL
 
     run_id = job['id'] + '-' + uuid4().hex
     target = output / run_id
@@ -137,7 +137,7 @@ def run_one(job, output, *, sample_kind, control=RunControl()):
                 definition='native Q multiplied by physical depth for 2D; native W for 3D',
                 reference_Q_W=job.get('reference', {}).get('Q_W'))
             if job.get('family') == 'shanghai' and case.grid['dimension'] == 2:
-                from sjtu_tpmshx.physical_models.tpms_calc import air_cp
+                from tm1.physical_models.tpms_calc import air_cp
                 row['legacy_comparison'] = dict(Q_W=job['reference']['mdot_A_kg_s'] *
                     float(air_cp(cfg.fluid_A.T_in_K)) * (cfg.fluid_A.T_in_K - display.T_out_A_K),
                     definition='measured air mass flow * cp(T_in) * predicted temperature drop')
@@ -184,7 +184,7 @@ def run_one(job, output, *, sample_kind, control=RunControl()):
 
 
 def main(argv=None):
-    from sjtu_tpmshx.applications.cli.cli_options import add_run_control_arguments, run_control_from_args
+    from tm1.applications.cli.cli_options import add_run_control_arguments, run_control_from_args
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('manifest', type=Path)
     parser.add_argument('output', type=Path)

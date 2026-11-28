@@ -64,7 +64,7 @@ def detach_stage_fields(evidence, shape, *, prepared_fields=None):
 
 
 def closure_records(rows, count):
-    from sjtu_tpmshx.run_control.run_warnings import RangeRecord
+    from tm1.run_control.run_warnings import RangeRecord
     samples = []
     records: dict[tuple, RangeRecord] = {}
     for entry in rows[:count] if count else ():
@@ -100,7 +100,7 @@ def nu_observation(value, shape, summary):
 
 
 def stage_closures(records):
-    from sjtu_tpmshx.run_control.run_warnings import range_observations
+    from tm1.run_control.run_warnings import range_observations
     rows, warnings = closure_records(records.observations, records.observation_count)
     _, last = closure_records(records.last, records.last_count)
     return rows, warnings, range_observations(last)

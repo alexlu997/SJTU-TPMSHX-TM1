@@ -1,8 +1,8 @@
 """Resolve recorded model versions in the process that evaluates them."""
-from sjtu_tpmshx.data_types.compute_config import Sco2NuConfig
-from sjtu_tpmshx.data_types.model_refs import ModelRef
+from tm1.data_types.compute_config import Sco2NuConfig
+from tm1.data_types.model_refs import ModelRef
 
-from sjtu_tpmshx.model_configs.model_parameters import MODEL_VERSIONS
+from tm1.model_configs.model_parameters import MODEL_VERSIONS
 
 
 
@@ -19,7 +19,7 @@ def resolve_model(ref: ModelRef):
     if ref.name == 'quick_design':
         if parameters:
             raise ValueError('quick-design closure takes no fixed parameters')
-        from sjtu_tpmshx.model_configs.model_parameters import load_quick_design_parameters
+        from tm1.model_configs.model_parameters import load_quick_design_parameters
         return load_quick_design_parameters()
     if ref.name in ('fluid', 'co2_fluid'):
         from .fluid_props import get

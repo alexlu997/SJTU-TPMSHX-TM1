@@ -7,10 +7,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.compute import compute
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.data_types.portable_data import mutable_data
+from tm1.compute import compute
+from tm1.data_types.compute_config import ComputeConfig
+from tm1.run_control.module_ports import RunControl
+from tm1.data_types.portable_data import mutable_data
 from tests.python.native.shared_library import library_path
 
 
@@ -45,10 +45,10 @@ def test_independent_stage_fields_metrics_and_qualification():
                                     'cross-warm', 'counter-mean', 'water-air', 'sco2-sco2'])
 def test_independent_quick_design_stage(sample):
     from dataclasses import replace
-    from sjtu_tpmshx.applications.design.cases import DesignCase
-    from sjtu_tpmshx.preprocess.api import prepare_quick_design
-    from sjtu_tpmshx.postprocess.api import evaluate
-    from sjtu_tpmshx.solvers.api import run_case
+    from tm1.applications.design.cases import DesignCase
+    from tm1.preprocess.api import prepare_quick_design
+    from tm1.postprocess.api import evaluate
+    from tm1.solvers.api import run_case
 
     root = Path(__file__).resolve().parents[3]
     directory = Path(os.environ.get('TPMSHX_QUICK_STAGE_RESULT_DIR',

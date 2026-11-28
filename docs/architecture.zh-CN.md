@@ -40,11 +40,11 @@ Quick Design、保存态工况运行、离线评估和运行恢复分别从对�
 
 | 名称或路径 | 职责与使用方 |
 | --- | --- |
-| 源码目录 [python/](../python/) | 存放 Python 源码树；[pyproject.toml](../pyproject.toml) 中的 `[tool.setuptools.package-dir]` 将 `sjtu_tpmshx` 映射到 `python`。 |
-| 导入名 `sjtu_tpmshx` | 仓库内全部导入与 CLI 模块命令使用的公开包名。 |
-| 检出加载器 [sjtu_tpmshx.py](../sjtu_tpmshx.py) | 从仓库根目录执行命令时，将 `python/__init__.py` 作为 `sjtu_tpmshx` 加载。 |
-| 安装态 wheel 布局 `sjtu_tpmshx/` | 打包 Python 模块及 `pyproject.toml` 声明的 JSON、CSV 与图标资源，不含原生库。[check_types.py](../engineering/scripts/check_types.py) 通过 [python_source.py](../engineering/packaging/python_source.py) 构建相同目录树供 `mypy` 检查。 |
-| 别名解析器 [python/shared.py](../python/shared.py) | 在不复制代码的前提下将历史 `sjtu_tpmshx.shared.*` 与 `sjtu_tpmshx.solvers.backends.cpp.*` 路径解析至规范所有者。[python/solvers/backends/cpp.py](../python/solvers/backends/cpp.py) 导入其搜索路径；[packaging_support.py](../tests/python/packaging_support.py)、[test_three_module_imports.py](../tests/python/architecture/test_three_module_imports.py) 与 [test_distribution_contents.py](../tests/python/engineering_tm1/test_distribution_contents.py) 在源码检出与安装 wheel 中测试这些别名，本地 `.cache/` 脚本亦使用这些别名。 |
+| 源码目录 [python/](../python/) | 存放 Python 源码树；[pyproject.toml](../pyproject.toml) 中的 `[tool.setuptools.package-dir]` 将 `tm1` 映射到 `python`。 |
+| 导入名 `tm1` | 仓库内全部导入与 CLI 模块命令使用的公开包名。 |
+| 检出加载器 [tm1.py](../tm1.py) | 从仓库根目录执行命令时，将 `python/__init__.py` 作为 `tm1` 加载。 |
+| 安装态 wheel 布局 `tm1/` | 打包 Python 模块及 `pyproject.toml` 声明的 JSON、CSV 与图标资源，不含原生库。[check_types.py](../engineering/scripts/check_types.py) 通过 [python_source.py](../engineering/packaging/python_source.py) 构建相同目录树供 `mypy` 检查。 |
+| 别名解析器 [python/shared.py](../python/shared.py) | 在当前 `tm1` 包根下以零重复方式将 `tm1.shared.*` 与 `tm1.solvers.backends.cpp.*` 别名路径解析至规范所有者。[python/solvers/backends/cpp.py](../python/solvers/backends/cpp.py) 导入其搜索路径；[packaging_support.py](../tests/python/packaging_support.py)、[test_three_module_imports.py](../tests/python/architecture/test_three_module_imports.py) 与 [test_distribution_contents.py](../tests/python/engineering_tm1/test_distribution_contents.py) 在源码检出与安装 wheel 中测试这些别名。仍使用旧包根的本地 `.cache/` 脚本需更新导入或使用记录的原源码版本。 |
 | 现行原生库目录 `sjtu_tpmshx/solvers/native/lib/<host>/` | 被 Git 忽略的目录，由 [build_native_dependencies.py](../engineering/scripts/build_native_dependencies.py) 为源码运行发布四个原生库。`provenance.py` 定义 `PUBLISHED_LIBRARY_DIR`，`module_ports.py`、`stage_libraries.py`、`_native_geometry.py` 与 `launch-macos.command` 读取该目录；冻结桌面包从 `native/` 加载。使用 `.venv-path` 解释器运行 `build_native_dependencies.py verify-published` 执行[已发布原生库检查](verification.md#published-native-images)；该命令将已发布导出符号与几何、准备、求解和结果库的 `.exports` 清单比对，并输出各库构建记录（`build.json` 与 `*-build.json`）。 |
 
 <a id="directory-owners"></a>
@@ -78,7 +78,7 @@ Python 目录的职责见 [Python 分层所有者](#python-分层所有者)表�
 ## 绑定层导入限制
 
 `python/cpp_interface/` 中的绑定遵守以下导入限制。
-`python -m sjtu_tpmshx.development.runs.tools.audit_import_graph --fail-on-violations` 检查这些限制。
+`python -m tm1.development.runs.tools.audit_import_graph --fail-on-violations` 检查这些限制。
 该审计也拒绝 `ui` 归属和 `solvers` 归属内各模块之间的导入环。
 
 - 绑定可以导入 `run_control`、`model_configs` 和 `data_types` 模块，但不导入各阶段数据类型所在的模块。

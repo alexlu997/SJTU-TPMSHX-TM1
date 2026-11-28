@@ -4,7 +4,7 @@ import numpy as np
 
 def model_enthalpy(temperature, fluid):
     """Integrate the existing polynomial with NumPy for independent evidence checks."""
-    from sjtu_tpmshx.physical_models.tpms_props import model_h_coefficients
+    from tm1.physical_models.tpms_props import model_h_coefficients
     a, b, c, origin, reference = model_h_coefficients(fluid)
     integral = np.polynomial.Polynomial((a, b, c)).integ()
     return integral(np.asarray(temperature) - origin) - integral(reference - origin)

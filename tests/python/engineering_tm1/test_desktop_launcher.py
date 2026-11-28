@@ -4,7 +4,7 @@ import sys
 import pytest
 from PySide6.QtCore import QStandardPaths
 
-from sjtu_tpmshx import desktop
+from tm1 import desktop
 
 
 @pytest.mark.skipif(sys.platform != 'darwin', reason='The source-folder launcher uses macOS zsh.')
@@ -35,7 +35,7 @@ def test_macos_source_launcher_without_retired_cache(tmp_path, monkeypatch):
     caches = [project / '.cache' / name for name in ('matplotlib', 'xdg')]
     assert all(path.is_dir() for path in caches)
     assert run.stdout.splitlines() == [str(project), *(str(path) for path in caches),
-        '-m', 'sjtu_tpmshx.main', '--backend', 'cpp', '--native-library', str(library),
+        '-m', 'tm1.main', '--backend', 'cpp', '--native-library', str(library),
         '--native-table-directory', str(project / '.cache/native-deps/tables')]
 
 
@@ -51,7 +51,7 @@ def test_caches_respect_explicit_paths(tmp_path, monkeypatch):
 
 
 def test_bundled_cli_dispatch_preserves_status(monkeypatch):
-    from sjtu_tpmshx.applications.cli import main as cli
+    from tm1.applications.cli import main as cli
     calls = []
     monkeypatch.setattr(desktop.multiprocessing, 'freeze_support', lambda: calls.append('freeze'))
     monkeypatch.setattr(desktop, 'configure_cache', lambda: calls.append('cache'))
@@ -61,7 +61,7 @@ def test_bundled_cli_dispatch_preserves_status(monkeypatch):
 
 
 def test_desktop_gui_forwards_backend_and_qt_arguments(monkeypatch):
-    from sjtu_tpmshx.applications.gui import main as gui
+    from tm1.applications.gui import main as gui
     calls = []
     monkeypatch.setattr(desktop.multiprocessing, 'freeze_support', lambda: None)
     monkeypatch.setattr(desktop, 'configure_cache', lambda: None)
@@ -74,7 +74,7 @@ def test_desktop_gui_forwards_backend_and_qt_arguments(monkeypatch):
 def test_gui_app_disables_automatic_gc_with_main_thread_timer():
     import gc
     from PySide6.QtWidgets import QApplication
-    from sjtu_tpmshx.applications.gui.controllers import main_thread_gc
+    from tm1.applications.gui.controllers import main_thread_gc
 
     app = QApplication.instance()
     assert app is not None
@@ -90,7 +90,7 @@ def test_desktop_build_lock_covers_declared_builder():
     import tomllib
     from packaging.requirements import Requirement
     from packaging.utils import canonicalize_name
-    from sjtu_tpmshx.development.runs.tools.check_locked_environment import read_lock
+    from tm1.development.runs.tools.check_locked_environment import read_lock
     root = Path(__file__).resolve().parents[3]
     lock = read_lock(root / 'engineering/requirements/desktop.txt')
     project = tomllib.loads((root / 'pyproject.toml').read_text(encoding='utf-8'))['project']
@@ -200,7 +200,7 @@ def test_bundle_requires_and_collects_four_prebuilt_libraries(desktop_spec_prefi
         assert record in notices
     assert '(licenses/CoolProp.txt)' in notices
     assert (staged / 'licenses/CoolProp.txt').read_bytes() == (root / 'engineering/native_build/licenses/CoolProp.txt').read_bytes()
-    assert 'sjtu_tpmshx.development' in namespace['excluded']
+    assert 'tm1.development' in namespace['excluded']
     # PyVista and PyVistaQt import VTK modules through importlib, which Analysis does not see.
     # Read the module names from the installed packages, so that a new name upstream also fails.
     import re

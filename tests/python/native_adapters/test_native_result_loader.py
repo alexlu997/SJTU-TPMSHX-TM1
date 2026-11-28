@@ -10,8 +10,8 @@ import warnings
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.cpp_interface import _native_result as native
-from sjtu_tpmshx.cpp_interface import stage_libraries
+from tm1.cpp_interface import _native_result as native
+from tm1.cpp_interface import stage_libraries
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -23,8 +23,8 @@ class LibraryStub(SimpleNamespace):
 
 
 def test_cold_import_and_archived_result_read_do_not_load_native_code(tmp_path):
-    from sjtu_tpmshx.data_types.field_result import FieldResult
-    from sjtu_tpmshx.file_io.result_io import save_result
+    from tm1.data_types.field_result import FieldResult
+    from tm1.file_io.result_io import save_result
 
     grid = dict(dimension=2, length_unit='m', axis_order=('x', 'y'),
                 dx=np.array([.1]), dy=np.array([.2]),
@@ -47,15 +47,15 @@ def forbidden(*args, **kwargs):
 
 
 ctypes.CDLL = forbidden
-from sjtu_tpmshx.postprocess.api import evaluate
-from sjtu_tpmshx.cpp_interface import _native_result as native
-from sjtu_tpmshx.file_io.result_io import load_result
+from tm1.postprocess.api import evaluate
+from tm1.cpp_interface import _native_result as native
+from tm1.file_io.result_io import load_result
 result = load_result(sys.argv[1])
 assert result.result_id == 'archived-result'
 assert result.fields['Ta'][0, 0] == 310.
 assert result.run_status['converged'] is False
 assert native.result_library.load.cache_info().currsize == 0
-for prefix in ('sjtu_tpmshx.solvers', 'sjtu_tpmshx.preprocess',
+for prefix in ('tm1.solvers', 'tm1.preprocess',
                'CoolProp', 'PySide6', 'PyQt5', 'PyQt6'):
     assert not any(name == prefix or name.startswith(prefix + '.') for name in sys.modules), prefix
 ''', str(path)], cwd=ROOT, env=environment, capture_output=True, text=True, timeout=30)

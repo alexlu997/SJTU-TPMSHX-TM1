@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.physical_models import tpms_geometry, tpms_props
+from tm1.physical_models import tpms_geometry, tpms_props
 from tests.python import geometry_reference as reference
 
 

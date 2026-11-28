@@ -12,9 +12,9 @@ import math
 
 warnings.filterwarnings('ignore')
 
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.api import run_case
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig, FluidConfig, GeometryConfig, PartialBCConfig, SolverConfig, ExtrapPolicy
+from tm1.preprocess.api import prepare_case
+from tm1.solvers.api import run_case
+from tm1.data_types.compute_config import ComputeConfig, FluidConfig, GeometryConfig, PartialBCConfig, SolverConfig, ExtrapPolicy
 
 
 def build_cfg(tpms='Gyroid', Lcell=7.0, t_wall=0.6, k_s=16.0,

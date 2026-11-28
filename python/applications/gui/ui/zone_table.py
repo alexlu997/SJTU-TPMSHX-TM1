@@ -131,7 +131,7 @@ def zone_axis(window):
 
 def build_zone_config(table, axis, tpms_type, k_s):
     """Read the active table into a band configuration or a grid of cells."""
-    from sjtu_tpmshx.physical_models.zone_config import ZoneConfig, Zone
+    from tm1.physical_models.zone_config import ZoneConfig, Zone
     if table.rowCount() == 0:
         raise ValueError('At least one zone is required')
 

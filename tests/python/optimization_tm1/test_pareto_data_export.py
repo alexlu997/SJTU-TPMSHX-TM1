@@ -5,7 +5,7 @@ from copy import deepcopy
 from openpyxl import load_workbook
 import pytest
 
-from sjtu_tpmshx.applications.optimization.pareto_io import export_pareto_data
+from tm1.applications.optimization.pareto_io import export_pareto_data
 
 
 @pytest.fixture

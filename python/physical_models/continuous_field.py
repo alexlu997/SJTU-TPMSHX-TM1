@@ -25,7 +25,7 @@ import numpy as np
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
-from sjtu_tpmshx.cpp_interface import _native_continuous
+from tm1.cpp_interface import _native_continuous
 
 # ─── Default decision-vector layout ─────────────────────────────────
 
@@ -34,7 +34,7 @@ DEFAULT_N_CTRL_Y = 4
 DEFAULT_SYMMETRIC_Y = True
 
 # Geometry bounds [mm]; independent of per-fluid Nu applicability.
-from sjtu_tpmshx.model_configs.df_domain import TRAIN_L as DEFAULT_L_BOUNDS, TRAIN_T as DEFAULT_T_BOUNDS
+from tm1.model_configs.df_domain import TRAIN_L as DEFAULT_L_BOUNDS, TRAIN_T as DEFAULT_T_BOUNDS
 
 
 def decision_dim(n_ctrl_x: int = DEFAULT_N_CTRL_X,
@@ -147,13 +147,13 @@ def _cell_centres(count, length, widths):
     if isinstance(count, (bool, np.bool_)) or not isinstance(count, (int, np.integer)) or count < 1:
         raise ValueError('grid counts must be positive integers')
     if widths is None:
-        from sjtu_tpmshx.cpp_interface._native_grid import continuous_centres
+        from tm1.cpp_interface._native_grid import continuous_centres
         return continuous_centres(count, length, None)
     widths = np.asarray(widths, dtype=np.float64)
     if (widths.shape != (count,) or not np.all(np.isfinite(widths) & (widths > 0))
             or not np.isclose(widths.sum(), length, rtol=1e-12, atol=0.)):
         raise ValueError('cell widths must be finite, positive and cover the field domain')
-    from sjtu_tpmshx.cpp_interface._native_grid import continuous_centres
+    from tm1.cpp_interface._native_grid import continuous_centres
     return continuous_centres(count, length, widths)
 
 

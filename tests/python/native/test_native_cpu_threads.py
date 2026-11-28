@@ -5,7 +5,7 @@ import pytest
 
 from tests.python.native import test_cpp_full_3d as spatial
 from tests.python.native.test_run_recovery import configuration, same_result
-from sjtu_tpmshx.compute import compute
+from tm1.compute import compute
 
 native_path = spatial.native_path
 

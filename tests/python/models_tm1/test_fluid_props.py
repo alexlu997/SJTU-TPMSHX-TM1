@@ -6,9 +6,9 @@ adapter also stay unchanged.
 """
 import pytest
 
-from sjtu_tpmshx.physical_models import fluid_props as fp
-from sjtu_tpmshx.physical_models import tpms_calc as t
-from sjtu_tpmshx.physical_models.nu_correlations import (WATER_NU_COEFFS, WATER_NU_RE_RANGE,
+from tm1.physical_models import fluid_props as fp
+from tm1.physical_models import tpms_calc as t
+from tm1.physical_models.nu_correlations import (WATER_NU_COEFFS, WATER_NU_RE_RANGE,
                                                          nu_water_topo)
 
 _TEMPS = (300.0, 370.0, 422.0)
@@ -65,7 +65,7 @@ def test_unknown_fluid_raises():
 
 
 def test_design_nu_re_window_rejects_unknown_fluid():
-    from sjtu_tpmshx.physical_models.design_fluids import nu_re_window
+    from tm1.physical_models.design_fluids import nu_re_window
 
     with pytest.raises(ValueError, match='helium'):
         nu_re_window('helium')
@@ -101,7 +101,7 @@ def test_nu_water_topo_matches_retired_formula(topo, Re):
 
 
 def test_design_fluids_adapter_equivalence():
-    from sjtu_tpmshx.physical_models.design_fluids import fluid_props as design_props, fluid_nu, nu_re_window
+    from tm1.physical_models.design_fluids import fluid_props as design_props, fluid_nu, nu_re_window
     for f, temperatures in (('air', _TEMPS), ('water', (300.0, 370.0))):
         for T in temperatures:
             p = design_props(f, T, 192362.0)

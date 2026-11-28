@@ -6,7 +6,7 @@ import pytest
 
 from tests.python import float64_oracle as oracle
 from tests.python import property_reference as reference
-from sjtu_tpmshx.physical_models import tpms_props
+from tm1.physical_models import tpms_props
 
 
 GETTERS = ('air_viscosity', 'air_conductivity', 'air_density', 'air_cp',

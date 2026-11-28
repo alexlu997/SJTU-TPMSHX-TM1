@@ -10,8 +10,8 @@ import pytest
 from skimage import measure
 
 from tests.python import geometry_reference
-from sjtu_tpmshx.cpp_interface import _native_geometry
-from sjtu_tpmshx.physical_models import asym_geometry, tpms_geometry
+from tm1.cpp_interface import _native_geometry
+from tm1.physical_models import asym_geometry, tpms_geometry
 
 
 _SPACING_CASES = [pytest.param(1., 1., id='unit-dx'),

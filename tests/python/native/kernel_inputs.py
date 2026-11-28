@@ -3,8 +3,8 @@
 The functions only select inputs. The production stage validators and the
 bridge tests keep all checks.
 """
-from sjtu_tpmshx.solvers import full_2d, full_3d
-from sjtu_tpmshx.data_types.portable_data import mutable_data
+from tm1.solvers import full_2d, full_3d
+from tm1.data_types.portable_data import mutable_data
 
 
 def _no_experiment(*_):

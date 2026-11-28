@@ -4,9 +4,9 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.physical_models import design_fluids, fluid_props
-from sjtu_tpmshx.preprocess.api import prepare_quick_design
-from sjtu_tpmshx.solvers.api import run_case
+from tm1.physical_models import design_fluids, fluid_props
+from tm1.preprocess.api import prepare_quick_design
+from tm1.solvers.api import run_case
 from tests.python.design.test_forward import _case
 
 
@@ -29,7 +29,7 @@ def test_scalar_water_state_uses_pressure_before_liquid_properties():
 
 @pytest.mark.parametrize('side', ['hot', 'cold'])
 def test_public_preparation_rejects_nonliquid_water_before_drag(monkeypatch, side):
-    from sjtu_tpmshx.physical_models.df_surrogate import predict as df
+    from tm1.physical_models.df_surrogate import predict as df
     entered = []
     monkeypatch.setattr(df, '_record_pressure_limit', lambda *a, **kw: entered.append(a))
     suffix = 'h' if side == 'hot' else 'c'
@@ -42,7 +42,7 @@ def test_public_preparation_rejects_nonliquid_water_before_drag(monkeypatch, sid
 
 @pytest.mark.parametrize('side', ['hot', 'cold'])
 def test_invalid_external_water_field_never_reaches_thermal(side):
-    from sjtu_tpmshx.run_control.module_ports import RunControl
+    from tm1.run_control.module_ports import RunControl
     progress = []
     case = (_case() if side == 'cold' else
             replace(_case(), hot_fluid='water', T_in_h=360., P_in_h=200000.,
@@ -58,7 +58,7 @@ def test_invalid_external_water_field_never_reaches_thermal(side):
 
 
 def test_persisted_input_water_failure_is_not_a_candidate_field_failure():
-    from sjtu_tpmshx.run_control.module_ports import RunControl
+    from tm1.run_control.module_ports import RunControl
     progress = []
     prepared = prepare_quick_design(_case(), 'Diamond', 7., .5, .084, .05, case_id='persisted-water')
     op = {**prepared.parameters['operating_point'], 'P_in_c': 10000., 'T_in_c': 350.}
@@ -71,7 +71,7 @@ def test_persisted_input_water_failure_is_not_a_candidate_field_failure():
 
 @pytest.mark.parametrize('mdot,prop_model', [(.5, 'const'), (.2, 'const'), (.2, 'mean')])
 def test_real_water_hotspot_is_rejected_even_before_mean_property_pass(mdot, prop_model):
-    from sjtu_tpmshx.applications.design.forward import forward
+    from tm1.applications.design.forward import forward
     # Observed regression: at mdot=.5 the outlet mean was only 360.73 K,
     # while one local water cell reached 393.95 K at the inlet 0.2 MPa.
     case = replace(_case(), mdot_c=mdot)
@@ -81,7 +81,7 @@ def test_real_water_hotspot_is_rejected_even_before_mean_property_pass(mdot, pro
 
 
 def test_previously_feasible_real_sizing_dimensions_leave_liquid_water():
-    from sjtu_tpmshx.applications.design.forward import forward
+    from tm1.applications.design.forward import forward
     case = replace(_case(), mdot_c=.2, Q=70000., dPlim_h=.05)
     # This exact design previously passed convergence, duty, dP and Re checks.
     with pytest.raises(fluid_props.QuickDesignWaterFieldError,

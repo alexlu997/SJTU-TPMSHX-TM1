@@ -12,8 +12,8 @@ import pytest
 
 
 def _evaluate_archive(archive, *, require_converged=False):
-    from sjtu_tpmshx.file_io.result_io import load_result
-    from sjtu_tpmshx.postprocess.api import evaluate
+    from tm1.file_io.result_io import load_result
+    from tm1.postprocess.api import evaluate
     enabled = gc.isenabled()
     gc.disable()
     try:
@@ -38,8 +38,8 @@ def test_real_archives_in_minimal_environment():
 
 
 def _check_archives(directory):
-    from sjtu_tpmshx.development.runs.tools.check_three_module_environment import main
-    from sjtu_tpmshx.file_io.metrics_io import load_metrics
+    from tm1.development.runs.tools.check_three_module_environment import main
+    from tm1.file_io.metrics_io import load_metrics
     main()
     archives = list(Path(directory).glob('**/handoff/results.h5'))
     assert len(archives) == 2, 'require both real 2D and 3D producer archives'
@@ -72,8 +72,8 @@ def test_quick_archives_in_minimal_environment():
 
 
 def _check_quick_archives(directory):
-    from sjtu_tpmshx.development.runs.tools.check_three_module_environment import main
-    from sjtu_tpmshx.file_io.metrics_io import load_metrics
+    from tm1.development.runs.tools.check_three_module_environment import main
+    from tm1.file_io.metrics_io import load_metrics
     main()
     for case in ('cross-const', 'cross-mean', 'counter-const'):
         archive = Path(directory) / f'quick-design-{case}/results.h5'
@@ -105,8 +105,8 @@ import runpy
 import sys
 import os
 sys.path.insert(0, sys.argv[1])
-import sjtu_tpmshx
-assert Path(sjtu_tpmshx.__file__).resolve().is_relative_to(Path(sys.argv[1]).resolve())
+import tm1
+assert Path(tm1.__file__).resolve().is_relative_to(Path(sys.argv[1]).resolve())
 checks = runpy.run_path(sys.argv[2])
 checks['_check_archives'](sys.argv[3])
 if os.environ.get('TM1_QUICK_HANDOFF_DIR'):

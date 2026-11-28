@@ -14,7 +14,7 @@ Three audit findings fixed here:
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.physical_models.envelope import (
+from tm1.physical_models.envelope import (
     assess_solution_validity, mach_field_max, gate_solution, ChokedFlowError,
     PRESSURE_FLOOR_PA,
 )
@@ -66,7 +66,7 @@ def test_gate_solution_raises_on_ma_max_override():
 
 # ── envelope_mode reachable through ComputeConfig (audit: unreachable) ──────
 def test_envelope_mode_field_and_from_dict():
-    from sjtu_tpmshx.data_types.compute_config import ComputeConfig
+    from tm1.data_types.compute_config import ComputeConfig
     assert ComputeConfig().envelope_mode == 'raise'              # default
     assert ComputeConfig(envelope_mode='warn').envelope_mode == 'warn'
     # canonical-layout dict (the asdict round-trip path) carries it
@@ -76,8 +76,8 @@ def test_envelope_mode_field_and_from_dict():
 
 def test_envelope_mode_propagates_into_3d_cfg():
     from dataclasses import replace
-    from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-    from sjtu_tpmshx.preprocess.api import prepare_case
+    from tm1.data_types.compute_config import ComputeConfig
+    from tm1.preprocess.api import prepare_case
     base = ComputeConfig()
     cc = replace(base,
                  geometry=replace(base.geometry, t_wall_mm=0.5, Lz_m=0.042),

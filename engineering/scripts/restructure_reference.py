@@ -29,7 +29,7 @@ import h5py
 import numpy as np
 
 
-PACKAGE = 'sjtu_tpmshx'
+PACKAGE = 'tm1'
 ROOT = Path(__file__).resolve().parents[2]
 CASES = Path(__file__).with_name('restructure_cases.json')
 

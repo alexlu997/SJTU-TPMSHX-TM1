@@ -19,10 +19,10 @@ import pytest
         Dh_A_mm=3.505, Dh_B_mm=2.0363)),
 ])
 def test_real_geometry_keeps_values_and_skip_policy(monkeypatch, capsys, name, topology, expected):
-    from sjtu_tpmshx.development.runs.tools import asym_cfd_geometry
+    from tm1.development.runs.tools import asym_cfd_geometry
 
     # Values come from the separate generators at 51204406, before extraction.
-    generator = importlib.import_module(f'sjtu_tpmshx.development.runs.tools.{name}')
+    generator = importlib.import_module(f'tm1.development.runs.tools.{name}')
     monkeypatch.setattr(generator, 'N', 32)
     monkeypatch.setattr(generator, 'TPMS', [topology])
     monkeypatch.setattr(generator, 'SPLITS', [1., 2., 1e12])
@@ -53,9 +53,9 @@ def test_real_geometry_keeps_values_and_skip_policy(monkeypatch, capsys, name, t
 @pytest.mark.parametrize('name', ['asym_build_cfd_design_xlsx', 'asym_build_cfd_worklist_xlsx'])
 @pytest.mark.parametrize('encoding', ['utf-8', 'utf-8-sig'])
 def test_filled_template_csv_reaches_real_ingest(tmp_path, monkeypatch, name, encoding):
-    from sjtu_tpmshx.development.runs.cfd_asym import ingest_cfd_kappa, kappa_asym
+    from tm1.development.runs.cfd_asym import ingest_cfd_kappa, kappa_asym
 
-    generator = importlib.import_module(f'sjtu_tpmshx.development.runs.tools.{name}')
+    generator = importlib.import_module(f'tm1.development.runs.tools.{name}')
     book = tmp_path / 'template.xlsx'
     geometry = dict(tpms='Gyroid', L_mm=5., t_mm=.4, tL=.08, C=.3,
         delta=.1, phi_lo=-.2, phi_hi=.4, solid=.2, split_r=1.5,
@@ -71,7 +71,7 @@ def test_filled_template_csv_reaches_real_ingest(tmp_path, monkeypatch, name, en
     workbook = openpyxl.load_workbook(book)
     rows = list(workbook['results_template'].values)
     if name == 'asym_build_cfd_design_xlsx':
-        command = 'python -m sjtu_tpmshx.development.runs.cfd_asym.ingest_cfd_kappa <csv>'
+        command = 'python -m tm1.development.runs.cfd_asym.ingest_cfd_kappa <csv>'
         assert any(command in str(cell.value) for cell in workbook['README']['A'])
     workbook.close()
     expected = ('tpms', 'L_mm', 't_mm', 'eps_side', 'eps_sym', 'K_cfd', 'cF_cfd')

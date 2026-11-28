@@ -9,11 +9,11 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.cpp_interface import _native_geometry
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.api import run_case
+from tm1.cpp_interface import _native_geometry
+from tm1.preprocess.api import prepare_case
+from tm1.solvers.api import run_case
 from tests.python.cases_3d import air_air_config
-from sjtu_tpmshx.development.runs.cfd_asym import kappa_asym
+from tm1.development.runs.cfd_asym import kappa_asym
 
 
 # ── split + per-side void fraction ───────────────────────────────────────────
@@ -75,8 +75,8 @@ def test_delta0_explicit_matches_baseline_bit_identical():
 
 @pytest.mark.parametrize('conservative', [False, True])
 def test_asym_delta_runs_and_changes_result(conservative):
-    from sjtu_tpmshx.run_control.module_ports import RunControl
-    from sjtu_tpmshx.run_control.module_ports import resolve_control
+    from tm1.run_control.module_ports import RunControl
+    from tm1.run_control.module_ports import resolve_control
     from tests.python.native.stage_interception import run_stage
     control = resolve_control(RunControl())
     results = []

@@ -3,12 +3,12 @@
 Exercise the full public preparation, solve and GUI-result mapping path.
 Physical-consistency assertions complement the independent numerical goldens.
 """
-from sjtu_tpmshx.applications.result_adapter import compute_result
+from tm1.applications.result_adapter import compute_result
 import math
 
 import pytest
 
-from sjtu_tpmshx.data_types.compute_config import (ComputeConfig, ExtrapPolicy, FeatureFlags,
+from tm1.data_types.compute_config import (ComputeConfig, ExtrapPolicy, FeatureFlags,
                                    FluidConfig, GeometryConfig,
                                    PartialBCConfig, SolverConfig)
 from tests.python.cases_3d import small_air_config
@@ -17,7 +17,7 @@ from tests.python.cases_3d import small_air_config
 @pytest.mark.slow
 def test_pipeline3d_run_end_to_end():
 
-    from sjtu_tpmshx.data_types.compute_result import ComputeResult
+    from tm1.data_types.compute_result import ComputeResult
 
     cfg = small_air_config()
     assert cfg.is_3d

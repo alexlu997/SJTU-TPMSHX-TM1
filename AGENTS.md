@@ -46,7 +46,7 @@ Codex, Claude, and Antigravity use these rules. The [collaboration guide](docs/c
   primary checkout. Keep your status file there until closeout. Run one heavy job at a time on each machine.
 - Use the absolute interpreter on the first line of `.venv-path` for Python, pip, smoke, and pytest commands.
   Run project modules from the current repository root with `python -m`.
-- Before environment-dependent work, run `python -m sjtu_tpmshx.development.runs.tools.check_locked_environment`
+- Before environment-dependent work, run `python -m tm1.development.runs.tools.check_locked_environment`
   with the applicable lock. Then run `python -m pip check`.
 - If `.venv-path`, the interpreter, or a dependency is missing, or a check fails, stop dependent work. Do not
   bypass the check. The task authority includes [environment recovery](docs/collaboration.md#environment-recovery).
@@ -69,7 +69,7 @@ Codex, Claude, and Antigravity use these rules. The [collaboration guide](docs/c
   Before native release, copy or detach each output that stays in use after release.
 - Bindings obey the [binding import limits](docs/architecture.md#binding-import-limits). The only run-time
   import of a stage data type is `ModelRef` in `preparation_host.py`, for the check of a saved model reference.
-  After an import change, run `python -m sjtu_tpmshx.development.runs.tools.audit_import_graph --fail-on-violations`.
+  After an import change, run `python -m tm1.development.runs.tools.audit_import_graph --fail-on-violations`.
 - Before implementation, trace the consumers along the actual call chain. Update them in the same change.
   Write the [related-change record](docs/collaboration.md#related-change-record). For a replacement or a
   removal, remove the old code and its exclusive files in the same PR. Follow the

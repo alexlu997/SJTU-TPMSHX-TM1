@@ -20,7 +20,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.compute_config import (
+from tm1.data_types.compute_config import (
     ComputeConfig,
     FluidConfig,
     GeometryConfig,
@@ -30,7 +30,7 @@ from sjtu_tpmshx.data_types.compute_config import (
     ExtrapPolicy,
     FeatureFlags,
 )
-from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+from tm1.applications.gui.ui.window_config import config_from_window
 from tests.python.window_stubs import _StubLineEdit, _StubComboBox, _StubCheckBox, _StubWindow
 
 
@@ -275,7 +275,7 @@ def test_c4_new_dataclasses_have_safe_defaults():
 
 def test_read_feature_flags_use_current_gui_transport_policy():
     from types import SimpleNamespace
-    from sjtu_tpmshx.applications.gui.ui.window_config import _read_feature_flags
+    from tm1.applications.gui.ui.window_config import _read_feature_flags
 
     window = SimpleNamespace(combo_grid=SimpleNamespace(currentData=lambda: True))
     flags = _read_feature_flags(window)
@@ -522,7 +522,7 @@ def test_2d_max_outer_knob_turns():
     review 2026-07-13), whose deliberate rule is max_outer_ltne >= 2 (a
     single pass cannot even measure a dT change — the truth-table tests
     pin that rule)."""
-    from sjtu_tpmshx.applications.result_adapter import compute_result
+    from tm1.applications.result_adapter import compute_result
 
     Ta_def = compute_result(_small_2d_cfg()).fields['Ta']
     Ta_capped = compute_result(_small_2d_cfg(max_outer_ltne=2)).fields['Ta']
@@ -538,8 +538,8 @@ def test_2d_max_outer_knob_turns():
 def test_3d_knobs_turn():
     """max_outer_ltne must cap the 3D outer loop."""
     from tests.python.cases_3d import air_air_config
-    from sjtu_tpmshx.preprocess.api import prepare_case
-    from sjtu_tpmshx.solvers.api import run_case
+    from tm1.preprocess.api import prepare_case
+    from tm1.solvers.api import run_case
     base = air_air_config()
     base.solver = replace(base.solver, Nx=8, Ny=6, Nz=6)
     r_def = run_case(prepare_case(base, case_id='outer-default')).metadata['diagnostics']

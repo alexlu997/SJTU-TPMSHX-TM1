@@ -2,11 +2,11 @@
 
 import pytest
 
-from sjtu_tpmshx.development.validation.cases.audit_3d_conservation import (
+from tm1.development.validation.cases.audit_3d_conservation import (
     make_T1, make_T2, make_T3, make_T4, make_T6,
 )
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.api import run_case
+from tm1.preprocess.api import prepare_case
+from tm1.solvers.api import run_case
 
 _GATE = 0.01  # < 1 %
 

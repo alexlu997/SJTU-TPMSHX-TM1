@@ -4,11 +4,11 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.preprocess.api import prepare_quick_design
-from sjtu_tpmshx.solvers.api import run_case
-from sjtu_tpmshx.postprocess.api import evaluate
+from tm1.run_control.cancellation import CancelledError
+from tm1.run_control.module_ports import RunControl
+from tm1.preprocess.api import prepare_quick_design
+from tm1.solvers.api import run_case
+from tm1.postprocess.api import evaluate
 from tests.python.design.test_forward import _case
 
 
@@ -17,7 +17,7 @@ def test_quick_mode_controls_and_native_unconverged_status(monkeypatch):
     # range; convergence status is independent of the water-state rejection.
     op = replace(_case(), P_in_c=3e6)
     case = prepare_quick_design(op, 'Diamond', 7., .5, .084, .05, case_id='controls')
-    from sjtu_tpmshx.preprocess import quick_design
+    from tm1.preprocess import quick_design
     def forbidden(*args, **kwargs):
         raise AssertionError('execution attempted to rebuild fixed inlet pressure')
     monkeypatch.setattr(quick_design, 'pressure_fractions', forbidden)

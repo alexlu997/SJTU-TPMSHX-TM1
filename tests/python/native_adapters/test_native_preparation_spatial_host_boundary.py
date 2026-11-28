@@ -3,10 +3,10 @@ import ctypes as ct
 
 import pytest
 
-from sjtu_tpmshx.cpp_interface import _native_preparation_case as abi
-from sjtu_tpmshx.cpp_interface import native_preparation, preparation_host
-from sjtu_tpmshx.preprocess.two_d import preparation
-from sjtu_tpmshx.cpp_interface.stage_libraries import preparation_library
+from tm1.cpp_interface import _native_preparation_case as abi
+from tm1.cpp_interface import native_preparation, preparation_host
+from tm1.preprocess.two_d import preparation
+from tm1.cpp_interface.stage_libraries import preparation_library
 from tests.python import native_preparation_abi as support
 
 # Each active entry, its source and result layouts, and their ABI versions.

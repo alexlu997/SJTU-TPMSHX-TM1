@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.postprocess.result_display import describe_fields, display_fields_2d
+from tm1.postprocess.result_display import describe_fields, display_fields_2d
 
 
 @pytest.fixture

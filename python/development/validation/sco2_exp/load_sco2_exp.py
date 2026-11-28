@@ -34,13 +34,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
+from tm1.model_configs.units import CELSIUS_ZERO_K
 
 _THIS = Path(__file__).resolve()
 _PKG_ROOT = _THIS.parents[3]
-from sjtu_tpmshx.physical_models.tpms_props import (  # noqa: E402
+from tm1.physical_models.tpms_props import (  # noqa: E402
     P_atm, geometry as tpms_geometry)
-from sjtu_tpmshx.run_control.logutil import get_logger  # noqa: E402
+from tm1.run_control.logutil import get_logger  # noqa: E402
 
 _log = get_logger(__name__)
 

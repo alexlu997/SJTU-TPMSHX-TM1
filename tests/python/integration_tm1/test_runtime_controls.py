@@ -2,18 +2,18 @@
 import pytest
 import numpy as np
 
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.api import run_case
+from tm1.run_control.cancellation import CancelledError
+from tm1.run_control.module_ports import RunControl
+from tm1.preprocess.api import prepare_case
+from tm1.solvers.api import run_case
 from tests.python.cases_3d import small_air_config
 
 
 @pytest.mark.slow
 def test_public_three_d_iteration_and_cancellation(monkeypatch, tmp_path):
-    from sjtu_tpmshx.cpp_interface import full_3d_stage
-    from sjtu_tpmshx.solvers import full_3d as result_capture
-    from sjtu_tpmshx.file_io.result_io import load_result, save_result
+    from tm1.cpp_interface import full_3d_stage
+    from tm1.solvers import full_3d as result_capture
+    from tm1.file_io.result_io import load_result, save_result
     capture = result_capture.capture_result
     def checked_capture(case, cfg, prepared, raw, abi):
         assert not {'_capture_native', '_native_evidence', '_cancel_check',
@@ -57,7 +57,7 @@ def test_public_three_d_iteration_and_cancellation(monkeypatch, tmp_path):
 
 @pytest.mark.parametrize('callback', ['iteration', 'outer_iteration', 'progress'])
 def test_three_d_callback_failure_stops_before_result_capture(monkeypatch, callback):
-    from sjtu_tpmshx.solvers import full_3d
+    from tm1.solvers import full_3d
     failure = RuntimeError('callback failure')
     def fail(*args):
         raise failure
@@ -73,7 +73,7 @@ def test_three_d_callback_failure_stops_before_result_capture(monkeypatch, callb
 def test_two_d_residual_failure_preserves_original_exception(monkeypatch, error):
     """The full public solve propagates failures from the real SIMPLE callback."""
     from dataclasses import replace
-    from sjtu_tpmshx.solvers import full_2d
+    from tm1.solvers import full_2d
     from tests.python.execution_tm1.test_pipeline_2d_smoke import _shanghai_like_cfg
 
     def forbidden(*args, **kwargs):

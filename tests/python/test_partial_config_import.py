@@ -13,7 +13,7 @@ from tests.python.gui_io_support import win as win  # shared real Main_Menu fixt
 ])
 def test_partial_import_preserves_unsupplied_physical_inputs(win, tmp_path, monkeypatch, payload):
     from PySide6.QtWidgets import QMessageBox
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.applications.gui.ui.window_config import config_from_window
 
     for method in ('warning', 'information', 'critical'):
         monkeypatch.setattr(QMessageBox, method, lambda *a: None)
@@ -75,7 +75,7 @@ def test_partial_import_keeps_full_continuous_field_and_conditions(win, tmp_path
 def test_partial_import_rejects_conflicting_context_without_mutation(
         win, tmp_path, monkeypatch, kind):
     from PySide6.QtWidgets import QMessageBox
-    from sjtu_tpmshx.data_types.compute_result import ComputeResult
+    from tm1.data_types.compute_result import ComputeResult
     from tests.python.optimization_support import report
 
     errors = []

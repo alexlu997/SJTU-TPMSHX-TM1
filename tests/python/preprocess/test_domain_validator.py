@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from sjtu_tpmshx.physical_models.grid import suggest_grid_3d
-from sjtu_tpmshx.data_types.validator import (
+from tm1.physical_models.grid import suggest_grid_3d
+from tm1.data_types.validator import (
     validate_geometry,
     compute_volumetric_htc,
     wall_for_dir,
@@ -48,7 +48,7 @@ def test_suggest_grid_3d_rejects_budget_below_required_minimum():
 def test_port_wall_suggestion_uses_real_axis_and_opening_minima(direction):
     import math
     import numpy as np
-    from sjtu_tpmshx.physical_models.grid import build_port_wall_grid, port_wall_min_counts
+    from tm1.physical_models.grid import build_port_wall_grid, port_wall_min_counts
     lengths = (.182, .042, .030)
     cross = [i for i in range(3) if i != direction // 2]
     port = {'dir': direction}
@@ -128,8 +128,8 @@ def test_validate_geometry_rejects_nonpositive_inputs():
 
 def test_domain_firewall_blocks_meter_typed_as_mm():
     """Reject a domain above 10 m at the public preparation boundary."""
-    from sjtu_tpmshx.data_types.compute_config import ComputeConfig, GeometryConfig, SolverConfig
-    from sjtu_tpmshx.preprocess.api import prepare_case
+    from tm1.data_types.compute_config import ComputeConfig, GeometryConfig, SolverConfig
+    from tm1.preprocess.api import prepare_case
 
     cc = ComputeConfig(
         geometry=GeometryConfig(L_dom_m=182.0,    # unit slip: meant 0.182

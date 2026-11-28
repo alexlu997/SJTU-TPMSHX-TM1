@@ -4,7 +4,7 @@ import ctypes as ct
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.cpp_interface import _native_preparation_case as abi
+from tm1.cpp_interface import _native_preparation_case as abi
 from tests.python import geometry_reference
 from tests.python.native_preparation_abi import (
     _S, _U, _array, _check_owned_aliases, _library_path, _same, _visible_buffers,

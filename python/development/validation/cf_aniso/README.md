@@ -48,7 +48,7 @@
 
 ```bash
 PYTHON="$(head -n 1 .venv-path)"
-"$PYTHON" -m sjtu_tpmshx.development.validation.cf_aniso.fit_cf_aniso results.csv
+"$PYTHON" -m tm1.development.validation.cf_aniso.fit_cf_aniso results.csv
 ```
 
 脚本做三件事：

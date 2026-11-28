@@ -6,7 +6,7 @@ import pytest
 
 from tests.python import float64_oracle as oracle
 from tests.python import nu_reference as reference
-from sjtu_tpmshx.physical_models import roughness
+from tm1.physical_models import roughness
 
 
 def observe(function, *, reference=False):

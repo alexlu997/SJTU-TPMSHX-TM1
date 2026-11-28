@@ -6,7 +6,7 @@ turning coupled flow. Actual field failures must remain invalid.
 
 import pytest
 
-from sjtu_tpmshx.physical_models.envelope import (
+from tm1.physical_models.envelope import (
     ChokedFlowError, predict_outlet_p_sq,
     mach, assess_solution_validity, gate_solution,
 )

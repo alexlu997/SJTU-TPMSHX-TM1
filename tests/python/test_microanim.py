@@ -11,7 +11,7 @@ from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
 from shiboken6 import isValid  # noqa: E402
 
-from sjtu_tpmshx.applications.gui.ui.microanim import (  # noqa: E402
+from tm1.applications.gui.ui.microanim import (  # noqa: E402
     _AnimationClock, apply_saved_reduced_motion, is_reduced_motion,
     pulse_glow, reveal, set_reduced_motion, start_animation, toast,
 )

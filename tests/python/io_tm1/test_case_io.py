@@ -7,7 +7,7 @@ import h5py
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.file_io.case_io import load_case, save_case
+from tm1.file_io.case_io import load_case, save_case
 from tests.python.io_tm1.io_support import sample_case
 
 
@@ -26,11 +26,11 @@ def test_case_hdf5_yaml_and_new_process(tmp_path):
         restored.design_fields['eps_arr'].setflags(write=True)
     child = subprocess.run([sys.executable, '-c', '''
 import sys
-from sjtu_tpmshx.file_io.case_io import load_case
+from tm1.file_io.case_io import load_case
 case = load_case(sys.argv[1])
 if case.case_id != 'synthetic' or case.design_fields['eps_arr'].shape != (2, 2):
     raise SystemExit('Unexpected case ID or field shape')
-for prefix in ('sjtu_tpmshx.solvers', 'sjtu_tpmshx.preprocess', 'sjtu_tpmshx.physical_models', 'numba', 'PySide6'):
+for prefix in ('tm1.solvers', 'tm1.preprocess', 'tm1.physical_models', 'numba', 'PySide6'):
     if any(n == prefix or n.startswith(prefix + '.') for n in sys.modules):
         raise SystemExit(f'Loading the case imported {prefix}')
 ''', str(path)], capture_output=True, text=True, timeout=30)
@@ -63,7 +63,7 @@ def test_reject_corrupt_version_shape_and_external_manifest(tmp_path):
 
 def test_yaml_failure_preserves_previous_case_and_allows_retry(tmp_path, monkeypatch):
     from dataclasses import replace
-    from sjtu_tpmshx.file_io import case_io
+    from tm1.file_io import case_io
     target = tmp_path / 'case.yaml'
     old = sample_case()
     new = replace(old, case_id='next-run')

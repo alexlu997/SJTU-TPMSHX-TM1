@@ -19,7 +19,7 @@ fixed per topology).
 Reads geom_cases from python/development/runs/_out/asym_cfd/asym_cfd_worklist.xlsx.
 Output: asym-ntop-expressions.html in the same directory.
 TPMSHX_TOOL_OUT_DIR overrides the producer/consumer directory.
-Usage: python -m sjtu_tpmshx.development.runs.cfd_asym.asym_ntop_expressions_html
+Usage: python -m tm1.development.runs.cfd_asym.asym_ntop_expressions_html
 """
 import html as _html
 import os

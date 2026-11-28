@@ -7,17 +7,17 @@ import pytest
 from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
-from sjtu_tpmshx.applications.gui.ui.panel_vis_3d import ThreeDVisPanel
-from sjtu_tpmshx.applications.gui.ui.theme import resolve_cmap, set_cmap
-from sjtu_tpmshx.applications.gui.ui.vis3d_constants import validate_color_range_state
-from sjtu_tpmshx.applications.gui.ui.vis3d_lattice_worker import LatticeBuilder
-from sjtu_tpmshx.applications.gui.ui.volume_overlays import (
+from tm1.applications.gui.ui.panel_vis_3d import ThreeDVisPanel
+from tm1.applications.gui.ui.theme import resolve_cmap, set_cmap
+from tm1.applications.gui.ui.vis3d_constants import validate_color_range_state
+from tm1.applications.gui.ui.vis3d_lattice_worker import LatticeBuilder
+from tm1.applications.gui.ui.volume_overlays import (
     LatticeDomainCard,
     LatticeProgressCard,
     PortChipOverlay,
     StudioColorbarCard,
 )
-from sjtu_tpmshx.applications.gui.ui.volume_toolbar import VolumeToolbar
+from tm1.applications.gui.ui.volume_toolbar import VolumeToolbar
 from tests.python.gui_workbench_support import win as win
 
 
@@ -73,9 +73,9 @@ def panel():
 def test_range_modes_preserve_field_specific_limits_and_reject_bad_values(panel, monkeypatch):
     from types import SimpleNamespace
     from PySide6.QtWidgets import QCheckBox, QPushButton
-    import sjtu_tpmshx.applications.gui.ui.layout_drawer as layout_drawer
-    import sjtu_tpmshx.applications.gui.ui.plot_2d_results as plot_2d_results
-    from sjtu_tpmshx.applications.gui.ui.builders_canvas import _open_colormap_popover
+    import tm1.applications.gui.ui.layout_drawer as layout_drawer
+    import tm1.applications.gui.ui.plot_2d_results as plot_2d_results
+    from tm1.applications.gui.ui.builders_canvas import _open_colormap_popover
 
     monkeypatch.setattr(plot_2d_results, 'redraw_result_fields', Mock())
     monkeypatch.setattr(layout_drawer, 'refresh_last_2d_thumbnail', Mock())
@@ -114,7 +114,7 @@ def test_range_modes_preserve_field_specific_limits_and_reject_bad_values(panel,
         assert pop._range_min_edit is None and pop._range_max_edit is None
 
         # The real 压力共用色阶 switch sets the header state. The panel gives P_B_kPa shared or own limits.
-        from sjtu_tpmshx.applications.gui.ui.colormap_popover import ToggleSwitch
+        from tm1.applications.gui.ui.colormap_popover import ToggleSwitch
         switches = pop.findChildren(ToggleSwitch)
         assert len(switches) == 2
         assert panel._clim_for('P_B_kPa') == pytest.approx((99.8, 192.4))

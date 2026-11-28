@@ -5,8 +5,8 @@ import numpy as np
 import pytest
 
 from tests.python.field_coordinates_reference import _solver_staggered_to_real
-from sjtu_tpmshx.cpp_interface import _native_grid
-from sjtu_tpmshx.preprocess.three_d.preparation import _axis_data
+from tm1.cpp_interface import _native_grid
+from tm1.preprocess.three_d.preparation import _axis_data
 
 
 def _resolve_axis_map(port, Nx, Ny, Nz, L, H, Lz, dx, dy, dz):

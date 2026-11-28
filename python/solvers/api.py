@@ -1,11 +1,11 @@
 """Public prepared-case execution entry point."""
 from collections.abc import Callable
 from dataclasses import replace
-from sjtu_tpmshx.data_types.case_data import CaseData
-from sjtu_tpmshx.data_types.field_result import FieldResult
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.run_control.run_warnings import warning_scope, warning_messages
-from sjtu_tpmshx.run_control.provenance import source_context
+from tm1.data_types.case_data import CaseData
+from tm1.data_types.field_result import FieldResult
+from tm1.run_control.module_ports import RunControl
+from tm1.run_control.run_warnings import warning_scope, warning_messages
+from tm1.run_control.provenance import source_context
 
 
 def run_case(case: CaseData, control: RunControl = RunControl(), *,
@@ -24,8 +24,8 @@ def run_case(case: CaseData, control: RunControl = RunControl(), *,
     settings = (case.parameters.get('run_settings', {}).get('solver', {})
                 if dimension == 2 else case.parameters)
     _validate_solver_controls(settings, dimension, mode)
-    from sjtu_tpmshx.run_control.run_environment import reject_retired_kernel
-    from sjtu_tpmshx.run_control.module_ports import resolve_control
+    from tm1.run_control.run_environment import reject_retired_kernel
+    from tm1.run_control.module_ports import resolve_control
     reject_retired_kernel(case.parameters)
     control = resolve_control(control)
     run: Callable[..., FieldResult]
@@ -54,7 +54,7 @@ def run_case(case: CaseData, control: RunControl = RunControl(), *,
             from .execution_record import full_execution_record
             metadata['execution_record'] = full_execution_record(case, result)
         # Both saved native stages select the applicability evidence before release.
-        from sjtu_tpmshx.run_control.run_warnings import captured_scope_notes
+        from tm1.run_control.run_warnings import captured_scope_notes
         metadata['applicability_evidence'] = dict(metadata.pop('_native_applicability'),
             scope_notes=captured_scope_notes(case, records))
         metadata.pop('_last_closure_ranges', None)
@@ -64,12 +64,12 @@ def run_case(case: CaseData, control: RunControl = RunControl(), *,
 def _validate_solver_controls(settings, dimension, mode):
     relaxation = settings.get('simple_velocity_relaxation')
     if relaxation is not None:
-        from sjtu_tpmshx.data_types.compute_config import validate_simple_velocity_relaxation
+        from tm1.data_types.compute_config import validate_simple_velocity_relaxation
         validate_simple_velocity_relaxation(relaxation)
         if mode != 'full':
             raise ValueError('simple_velocity_relaxation requires full compute with backend=cpp')
     if 'enthalpy_algorithm' in settings or 'enthalpy_temperature_tol_K' in settings:
-        from sjtu_tpmshx.data_types.compute_config import validate_enthalpy_algorithm
+        from tm1.data_types.compute_config import validate_enthalpy_algorithm
         validate_enthalpy_algorithm(settings.get('enthalpy_algorithm', 'legacy_h_fou'),
                                     settings.get('enthalpy_temperature_tol_K', 1e-8))
     require_h = settings.get('require_enthalpy_update_on_temperature', False)

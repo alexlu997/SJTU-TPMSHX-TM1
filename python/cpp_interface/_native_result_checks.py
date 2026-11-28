@@ -4,7 +4,7 @@ import math
 
 import numpy as np
 
-from sjtu_tpmshx.run_control import run_warnings
+from tm1.run_control import run_warnings
 
 from . import _native_result as native
 

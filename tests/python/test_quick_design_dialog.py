@@ -4,8 +4,8 @@ import pytest
 from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QWidget
 
-from sjtu_tpmshx.applications.gui.ui.quick_design_panel import QuickDesignPage
-from sjtu_tpmshx.run_control.module_ports import RunControl
+from tm1.applications.gui.ui.quick_design_panel import QuickDesignPage
+from tm1.run_control.module_ports import RunControl
 from tests.python.gui_worker_support import _wait_for
 
 
@@ -37,7 +37,7 @@ def make_page():
     ('auto', 'counter', 'mean'), ('fixed', 'cross', 'const'),
 ])
 def test_display_labels_do_not_change_backend_values(make_page, mode, arrangement, properties, monkeypatch):
-    monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.quick_design_panel.TRAIN_T_NODES', (.3000004, .6))
+    monkeypatch.setattr('tm1.applications.gui.ui.quick_design_panel.TRAIN_T_NODES', (.3000004, .6))
     page = make_page()
     page.mode_selector.set_value(mode)
     page.arrangement_selector.set_value(arrangement)
@@ -57,8 +57,8 @@ def test_display_labels_do_not_change_backend_values(make_page, mode, arrangemen
 def test_export_preserves_accepted_input_after_file_draft_changes(make_page, tmp_path, monkeypatch, alias):
     from openpyxl import load_workbook
     from PySide6.QtWidgets import QFileDialog, QPushButton
-    from sjtu_tpmshx.applications.design.cases import load_cases
-    from sjtu_tpmshx.applications.design.sizing import Design
+    from tm1.applications.design.cases import load_cases
+    from tm1.applications.design.sizing import Design
     from tests.python.design.test_cases import _make_xlsx
 
     source = tmp_path / 'input.xlsx'
@@ -77,7 +77,7 @@ def test_export_preserves_accepted_input_after_file_draft_changes(make_page, tmp
         calls.append(len(cases))
         return Design(True, topo='Diamond', l=7., t=.5, V=.001)
 
-    monkeypatch.setattr('sjtu_tpmshx.applications.design.sizing.size_fixed_cell', candidate)
+    monkeypatch.setattr('tm1.applications.design.sizing.size_fixed_cell', candidate)
     # Actual buttons, QThread, input loader and XLSX writer; only numerical
     # sizing and the headless file chooser's selected path are substituted.
     page = make_page()

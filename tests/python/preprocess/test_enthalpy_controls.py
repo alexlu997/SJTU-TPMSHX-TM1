@@ -1,8 +1,8 @@
 """Persisted strict full-compute controls must reach preparation without substitution."""
 import pytest
 
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-from sjtu_tpmshx.preprocess.api import prepare_case
+from tm1.data_types.compute_config import ComputeConfig
+from tm1.preprocess.api import prepare_case
 
 
 STRICT = dict(ltne_enthalpy_outer=1000, ltne_enthalpy_nsweep=25,

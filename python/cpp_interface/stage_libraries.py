@@ -6,7 +6,7 @@ from pathlib import Path
 import platform
 import sys
 
-from sjtu_tpmshx.run_control.provenance import PUBLISHED_LIBRARY_DIR
+from tm1.run_control.provenance import PUBLISHED_LIBRARY_DIR
 
 
 class StageLibrary:

@@ -6,10 +6,10 @@ import math
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.cpp_interface import full_2d_stage
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.solvers.api import run_case
+from tm1.cpp_interface import full_2d_stage
+from tm1.preprocess.api import prepare_case
+from tm1.run_control.module_ports import RunControl
+from tm1.solvers.api import run_case
 from tests.python import native_stage_support
 from tests.python.native.shared_library import library_path
 from tests.python.result_stage_fixture import record

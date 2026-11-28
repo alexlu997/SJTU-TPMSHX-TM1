@@ -3,9 +3,9 @@ import ctypes as ct
 
 import numpy as np
 
-from sjtu_tpmshx.cpp_interface import _native_preparation_case as abi
-from sjtu_tpmshx.cpp_interface.stage_libraries import preparation_library
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig, ZoneInputConfig
+from tm1.cpp_interface import _native_preparation_case as abi
+from tm1.cpp_interface.stage_libraries import preparation_library
+from tm1.data_types.compute_config import ComputeConfig, ZoneInputConfig
 from tests.python.solver_tm1.test_prepared_zoned_thermal_2d import _config
 
 
@@ -42,7 +42,7 @@ def _configuration_fluids(topology, pair, mode='cfd_smooth'):
         fluid.type = pair[index]
         fluid.T_in_K, fluid.P_in_Pa, fluid.u_mps = states[fluid.type]
     if mode == 'experimental':
-        from sjtu_tpmshx.model_configs.model_parameters import load_preparation_df_parameters
+        from tm1.model_configs.model_parameters import load_preparation_df_parameters
         data = load_preparation_df_parameters()['hx']
         for side in 'AB':
             fluid = getattr(config, 'fluid_' + side)

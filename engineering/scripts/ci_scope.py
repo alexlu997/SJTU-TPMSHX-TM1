@@ -24,7 +24,7 @@ NATIVE_INPUTS = (
     'engineering/__init__.py', 'engineering/scripts/__init__.py',
     'engineering/scripts/build_coolprop.py', 'engineering/scripts/build_native_dependencies.py',
     'engineering/scripts/generate_native_model_coefficients.py',
-    'sjtu_tpmshx.py', 'python/__init__.py', 'python/model_configs',
+    'tm1.py', 'python/__init__.py', 'python/model_configs',
     'python/physical_models/df_surrogate/_prebuilt', 'python/development/__init__.py',
     'python/development/runs/__init__.py', 'python/development/runs/tools/__init__.py',
     'python/development/runs/tools/check_locked_environment.py',

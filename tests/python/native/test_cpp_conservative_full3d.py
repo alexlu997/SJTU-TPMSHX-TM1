@@ -14,15 +14,15 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.file_io.case_io import load_case, save_case
-from sjtu_tpmshx.file_io.result_io import load_result, save_result
-from sjtu_tpmshx.postprocess.api import evaluate, evaluate_physical_balance
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.api import run_case
-from sjtu_tpmshx.solvers import full_3d
-from sjtu_tpmshx.cpp_interface import full_3d_stage
+from tm1.run_control.cancellation import CancelledError
+from tm1.run_control.module_ports import RunControl
+from tm1.file_io.case_io import load_case, save_case
+from tm1.file_io.result_io import load_result, save_result
+from tm1.postprocess.api import evaluate, evaluate_physical_balance
+from tm1.preprocess.api import prepare_case
+from tm1.solvers.api import run_case
+from tm1.solvers import full_3d
+from tm1.cpp_interface import full_3d_stage
 from tests.python.native.shared_library import library_path
 from tests.python.native.stage_interception import run_stage
 from tests.python.native.test_native_execution import _config
@@ -288,11 +288,11 @@ def test_fresh_cli_case_solve_and_result_replay_without_python_kernels(native_pa
     code = '''
 import sys
 import numpy as np
-from sjtu_tpmshx.cli import main
-from sjtu_tpmshx.file_io.case_io import load_case
-from sjtu_tpmshx.file_io.result_io import load_result
-from sjtu_tpmshx.file_io.metrics_io import load_metrics
-from sjtu_tpmshx.postprocess.api import evaluate, evaluate_physical_balance
+from tm1.cli import main
+from tm1.file_io.case_io import load_case
+from tm1.file_io.result_io import load_result
+from tm1.file_io.metrics_io import load_metrics
+from tm1.postprocess.api import evaluate, evaluate_physical_balance
 case = load_case(sys.argv[1])
 old = load_result(sys.argv[2])
 assert case.parameters['enthalpy_algorithm'] == 'temperature_sou'
@@ -322,8 +322,8 @@ for side in 'AB':
         np.testing.assert_array_equal(after['boundary_power'][side][face], power)
 assert main(['postprocess', sys.argv[3], sys.argv[3] + '.json']) == 0
 assert load_metrics(sys.argv[3] + '.json').metrics == evaluate(old).metrics
-forbidden = ('numba', 'sjtu_tpmshx.solvers.ltne_', 'sjtu_tpmshx.solvers.simple_',
-    'sjtu_tpmshx.solvers._kernels', 'sjtu_tpmshx.solvers.backends.python.three_d.runtime')
+forbidden = ('numba', 'tm1.solvers.ltne_', 'tm1.solvers.simple_',
+    'tm1.solvers._kernels', 'tm1.solvers.backends.python.three_d.runtime')
 assert not [name for name in sys.modules if name.startswith(forbidden)]
 '''
     process = subprocess.run([sys.executable, '-c', code, str(case_path), str(old_path), str(new_path),
@@ -517,7 +517,7 @@ def test_interrupt_after_candidate_native_return_releases_owner(native_path, mon
 
 @pytest.mark.parametrize('air_sco2', [True, False])
 def test_large_grid_packing_keeps_legacy_rb_and_candidate_serial(native_path, air_sco2):
-    from sjtu_tpmshx.cpp_interface.solver_library._thermal_abi import _full_enthalpy_defaults
+    from tm1.cpp_interface.solver_library._thermal_abi import _full_enthalpy_defaults
 
     config = _config(3, air_sco2=True)
     if not air_sco2:

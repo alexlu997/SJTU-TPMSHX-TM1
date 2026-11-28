@@ -4,13 +4,13 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.compute_config import (
+from tm1.data_types.compute_config import (
     ComputeConfig, FluidConfig, GeometryConfig, SolverConfig, PartialBCConfig,
 )
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.preprocess.two_d.preparation import prepare_case
-from sjtu_tpmshx.solvers.api import run_case
-from sjtu_tpmshx.postprocess.api import evaluate
+from tm1.run_control.module_ports import RunControl
+from tm1.preprocess.two_d.preparation import prepare_case
+from tm1.solvers.api import run_case
+from tm1.postprocess.api import evaluate
 from tests.python.integration_tm1.integration_support import (
     AIR_BASELINE_METRICS, AIR_NATIVE_Q, baseline_config,
 )
@@ -18,7 +18,7 @@ from tests.python.integration_tm1.integration_support import (
 
 @pytest.mark.slow
 def test_prepared_only_b20_air_baseline(monkeypatch):
-    from sjtu_tpmshx.preprocess.two_d import preparation as preparation
+    from tm1.preprocess.two_d import preparation as preparation
     case = prepare_case(baseline_config(), case_id='B20-air')
     def forbidden(*args, **kwargs):
         raise AssertionError('execution called preprocessing')
@@ -75,7 +75,7 @@ def _assert_postprocessing(result):
     ('air', 3., 2e5, 'sco2', 12e6, 4661.689806890786),
 ])
 def test_mixed_partial_native_and_postprocessing(fluid_A,u_A,P_A,fluid_B,P_B,expected_Q):
-    from sjtu_tpmshx.data_types.compute_config import ExtrapPolicy
+    from tm1.data_types.compute_config import ExtrapPolicy
     cfg = ComputeConfig(
         fluid_A=FluidConfig(type=fluid_A, u_mps=u_A, T_in_K=500., P_in_Pa=P_A),
         fluid_B=FluidConfig(type=fluid_B, u_mps=.2, T_in_K=300., P_in_Pa=P_B),
@@ -100,10 +100,10 @@ def test_mixed_partial_native_and_postprocessing(fluid_A,u_A,P_A,fluid_B,P_B,exp
 @pytest.mark.slow
 @pytest.mark.parametrize('axis', ['x', 'y', 'grid'])
 def test_zone_statistics_survive_result_handoff(tmp_path, axis):
-    from sjtu_tpmshx.applications.result_adapter import to_compute_result
-    from sjtu_tpmshx.data_types.compute_config import ZoneInputConfig
-    from sjtu_tpmshx.file_io.result_io import load_result, save_result
-    from sjtu_tpmshx.physical_models.zone_config import Zone, ZoneConfig
+    from tm1.applications.result_adapter import to_compute_result
+    from tm1.data_types.compute_config import ZoneInputConfig
+    from tm1.file_io.result_io import load_result, save_result
+    from tm1.physical_models.zone_config import Zone, ZoneConfig
     from tests.python.integration_tm1.test_public_api import assert_slots
 
     cfg = baseline_config()

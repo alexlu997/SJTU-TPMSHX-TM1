@@ -6,10 +6,10 @@ import sys
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.field_result import FieldResult
-from sjtu_tpmshx.data_types.portable_data import mutable_data
-from sjtu_tpmshx.file_io.result_io import load_result, save_result
-from sjtu_tpmshx.postprocess.api import evaluate
+from tm1.data_types.field_result import FieldResult
+from tm1.data_types.portable_data import mutable_data
+from tm1.file_io.result_io import load_result, save_result
+from tm1.postprocess.api import evaluate
 
 FACES = ('x-', 'x+', 'y-', 'y+', 'z-', 'z+')
 
@@ -181,8 +181,8 @@ def test_saved_candidate_replays_in_fresh_process_without_solver_import(tmp_path
     path = save_result(result_fixture(3, algorithm, version), tmp_path / 'candidate.h5')
     process = subprocess.run([sys.executable, '-c', '''
 import sys
-from sjtu_tpmshx.file_io.result_io import load_result
-from sjtu_tpmshx.postprocess.api import evaluate
+from tm1.file_io.result_io import load_result
+from tm1.postprocess.api import evaluate
 result = load_result(sys.argv[1])
 metrics = evaluate(result).metrics
 assert result.metadata['thermal_mode'] == 'conservative_energy'
@@ -192,7 +192,7 @@ assert result.boundary_fluxes['true_h']['energy_algorithm_version'] == int(sys.a
 assert abs(metrics['Q_A'].value - 15.) < 1e-12
 assert abs(metrics['Q_B'].value + 15.) < 1e-12
 assert metrics['T_out_A'].value == 309.5
-for prefix in ('sjtu_tpmshx.solvers', 'sjtu_tpmshx.preprocess', 'numba', 'PySide6', 'CoolProp'):
+for prefix in ('tm1.solvers', 'tm1.preprocess', 'numba', 'PySide6', 'CoolProp'):
     assert not any(name == prefix or name.startswith(prefix + '.') for name in sys.modules), prefix
 ''', str(path), algorithm, str(version)], capture_output=True, text=True, timeout=30)
     assert process.returncode == 0, process.stderr

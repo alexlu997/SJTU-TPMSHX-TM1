@@ -5,7 +5,7 @@ import itertools
 
 import pytest
 
-from sjtu_tpmshx.data_types.compute_config import PartialBCConfig, bc_to_dict
+from tm1.data_types.compute_config import PartialBCConfig, bc_to_dict
 
 
 # ── Reference reimplementations of the deleted legacy functions ──────
@@ -90,7 +90,7 @@ def test_side_b_mixed_returns_raw_partial():
 @pytest.mark.parametrize('partial_port', ['in', 'out'])
 def test_independent_cross2_window_reaches_prepared_physical_area(monkeypatch, direction, side, partial_port):
     import numpy as np
-    from sjtu_tpmshx.preprocess.api import prepare_case
+    from tm1.preprocess.api import prepare_case
     from tests.python.cases_3d import small_air_config
 
     cfg = small_air_config()
@@ -132,7 +132,7 @@ def test_independent_cross2_invalid_pair_is_rejected(side, partial_port, center,
 
 def test_outlet_only_cross2_window_reaches_port_refined_grid():
     import numpy as np
-    from sjtu_tpmshx.preprocess.api import prepare_case
+    from tm1.preprocess.api import prepare_case
     from tests.python.cases_3d import small_air_config
 
     cfg = small_air_config()
@@ -155,8 +155,8 @@ def test_outlet_only_cross2_window_reaches_port_refined_grid():
 @pytest.mark.parametrize('missing', ['ctr', 'w'])
 def test_raw_cross2_half_pair_is_rejected_at_geometry_boundaries(end, missing):
     import numpy as np
-    from sjtu_tpmshx.physical_models.field_coordinates_3d import _build_partial_masks, _port_rectangles
-    from sjtu_tpmshx.physical_models.grid import port_wall_min_counts
+    from tm1.physical_models.field_coordinates_3d import _build_partial_masks, _port_rectangles
+    from tm1.physical_models.grid import port_wall_min_counts
 
     port = dict(dir=0, in_ctr=.015, in_w=.03, out_ctr=.015, out_w=.03)
     port.update({end + '_z_ctr': .015, end + '_z_w': .006})

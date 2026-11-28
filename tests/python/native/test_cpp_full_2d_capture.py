@@ -5,12 +5,12 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig, PartialBCConfig, ZoneInputConfig
-from sjtu_tpmshx.run_control.run_warnings import RangeRecord, warning_scope
-from sjtu_tpmshx.postprocess.api import evaluate, evaluate_physical_balance
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.full_2d import capture_result
+from tm1.run_control.cancellation import CancelledError
+from tm1.data_types.compute_config import ComputeConfig, PartialBCConfig, ZoneInputConfig
+from tm1.run_control.run_warnings import RangeRecord, warning_scope
+from tm1.postprocess.api import evaluate, evaluate_physical_balance
+from tm1.preprocess.api import prepare_case
+from tm1.solvers.full_2d import capture_result
 from tests.python.native.stage_interception import run_stage, stage_control
 from tests.python.native.test_full_2d import ROOT, configuration
 
@@ -184,7 +184,7 @@ def test_capped_partial_fields_last_inputs_and_recomputed_metrics(mode):
     assert actual.metadata['diagnostics']['native_full_2d']['range_observations']
     assert actual.metadata['enthalpy_update_normalization'] == raw['enthalpy_update_normalization']
     if mode == 'true_h':
-        from sjtu_tpmshx.solvers.execution_record import full_execution_record
+        from tm1.solvers.execution_record import full_execution_record
         scale = full_execution_record(case, actual)['numerics']['enthalpy_update_normalization']
         assert scale['definition'] == 'inlet_cp_times_temperature_difference_v1'
         assert scale['unit'] == 'J/kg' and all(value >= 1 for value in scale['sides'].values())
@@ -259,7 +259,7 @@ def test_true_h_air_property_sources_and_selected_sco2_nu_are_recorded(fluids, t
              for side, fluid in zip((config.fluid_A, config.fluid_B), fluids)]
     config = replace(config, fluid_A=sides[0], fluid_B=sides[1], geometry=replace(config.geometry, tpms=topology))
     if experimental:
-        from sjtu_tpmshx.physical_models.nu_correlations import sco2_effective_nu_config
+        from tm1.physical_models.nu_correlations import sco2_effective_nu_config
         config = replace(config, sco2_nu=sco2_effective_nu_config())
     case = prepare_case(config, case_id='range-true-h-' + topology)
     with warning_scope({}) as actual_records:
@@ -316,7 +316,7 @@ def test_partial_optimization_cases_preserve_fine_water_balance(
 
 
 def test_golden_air_prepared_case_retains_accepted_refinement():
-    from sjtu_tpmshx.solvers.api import run_case
+    from tm1.solvers.api import run_case
     case = prepare_case(ComputeConfig.from_json(str(ROOT / 'examples/three_module/air_2d.json')),
                         case_id='capture-golden-air2d')
     actual = run_case(case, stage_control())

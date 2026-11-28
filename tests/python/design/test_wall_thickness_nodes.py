@@ -5,8 +5,8 @@
 """
 import math
 
-from sjtu_tpmshx.physical_models.tpms_calc import geometry, nu_from_Re
-from sjtu_tpmshx.physical_models.df_surrogate.predict import predict_K_cF, predict_dP_compressible
+from tm1.physical_models.tpms_calc import geometry, nu_from_Re
+from tm1.physical_models.df_surrogate.predict import predict_K_cF, predict_dP_compressible
 
 
 def test_closures_accept_t_0p3_and_0p6():
@@ -24,6 +24,6 @@ def test_closures_accept_t_0p3_and_0p6():
 
 
 def test_default_enumeration_nodes_include_t_0p6():
-    from sjtu_tpmshx.applications.design.select import NODES
+    from tm1.applications.design.select import NODES
     assert 0.3 in NODES["t"]
     assert 0.6 in NODES["t"]

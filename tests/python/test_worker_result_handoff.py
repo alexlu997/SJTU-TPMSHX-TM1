@@ -11,11 +11,11 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QApplication, QMessageBox
 from shiboken6 import isValid
 
-from sjtu_tpmshx.applications.gui.controllers.compute_orchestrator import ComputeOrchestrator
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.applications.result_adapter import compute_result
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-from sjtu_tpmshx.data_types.compute_result import ComputeResult
+from tm1.applications.gui.controllers.compute_orchestrator import ComputeOrchestrator
+from tm1.run_control.cancellation import CancelledError
+from tm1.applications.result_adapter import compute_result
+from tm1.data_types.compute_config import ComputeConfig
+from tm1.data_types.compute_result import ComputeResult
 from tests.python.gui_worker_support import _stub_compute_result
 from tests.python.gui_worker_support import _configure, _wait_for, win as win
 
@@ -55,9 +55,9 @@ def test_2d_tout_displays_result_scalars_across_units_and_direction_drafts(win):
 @pytest.mark.parametrize('mode', ['2d', '3d'])
 @pytest.mark.parametrize('df_extrap', [False, True])
 def test_real_source_warnings_do_not_set_df_ui_flag(win, monkeypatch, mode, df_extrap):
-    from sjtu_tpmshx.development.validation.surrogate_domain import check_surrogate_domain_at_point
-    from sjtu_tpmshx.physical_models.nu_correlations import nu_water_topo
-    from sjtu_tpmshx.physical_models.tpms_props import air_cp
+    from tm1.development.validation.surrogate_domain import check_surrogate_domain_at_point
+    from tm1.physical_models.nu_correlations import nu_water_topo
+    from tm1.physical_models.tpms_props import air_cp
     from tests.python.gui_worker_support import _stub_stages
 
     # Exercise the existing geometry reason carrier, not an out-of-domain solve.
@@ -82,8 +82,8 @@ def test_real_source_warnings_do_not_set_df_ui_flag(win, monkeypatch, mode, df_e
 
 def test_autofill_cache_and_draft_warnings_are_isolated_from_worker(win, monkeypatch):
     """Use real Auto-Fill/compute/Nu; stub only numerical phases of the worker."""
-    from sjtu_tpmshx.physical_models.tpms_calc import compute
-    from sjtu_tpmshx.run_control.run_warnings import current_warnings
+    from tm1.physical_models.tpms_calc import compute
+    from tm1.run_control.run_warnings import current_warnings
 
     _configure(win, monkeypatch, '2d')
     # These deliberately tiny velocities probe Nu warnings, outside the
@@ -161,7 +161,7 @@ def test_real_window_config_preserves_explicit_pipeline_mode(win, monkeypatch, d
 
 
 def test_default_window_dimension_and_port_validation(win):
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.applications.gui.ui.window_config import config_from_window
 
     # Startup applies the Shanghai 3D preset; select 2D with those defaults.
     win.combo_dim.setCurrentIndex(0)
@@ -181,7 +181,7 @@ def test_default_window_dimension_and_port_validation(win):
 
 @pytest.mark.parametrize('axis', [0, 2])
 def test_real_window_zone_snapshot_is_independent(win, axis):
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.applications.gui.ui.window_config import config_from_window
 
     win.combo_dim.setCurrentIndex(0)
     win.chk_zones.setChecked(True)
@@ -236,9 +236,9 @@ def test_real_zoned_pipeline_error_never_publishes(win, monkeypatch, dim):
     win.single_run.compute.finished.connect(published.append)
     win.single_run.compute.error.connect(lambda *args: errors.append(args))
     monkeypatch.setattr(win.results, 'publish', writes.append)
-    monkeypatch.setattr('sjtu_tpmshx.applications.execution.recovery.run_case',
+    monkeypatch.setattr('tm1.applications.execution.recovery.run_case',
                         lambda *args, **kwargs: pytest.fail('invalid zones reached solver'))
-    monkeypatch.setattr('sjtu_tpmshx.postprocess.api.evaluate',
+    monkeypatch.setattr('tm1.postprocess.api.evaluate',
                         lambda *args: pytest.fail('invalid zones reached postprocessing'))
     win.single_run.submit()
     _wait_for(win.single_run.is_idle)
@@ -351,7 +351,7 @@ def test_worker_publishes_payload_on_gui_thread_without_reentry(win, monkeypatch
 def test_display_timing_reaches_result_and_export_cache(win, monkeypatch, mode):
     _configure(win, monkeypatch, mode)
     clock = [0.0]
-    monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.field_results.perf_counter',
+    monkeypatch.setattr('tm1.applications.gui.ui.field_results.perf_counter',
                         lambda: clock[0])
     result = ComputeResult(
         Q_W=123.5, diagnostics={'mode': mode}, warnings=['retained warning'],
@@ -508,7 +508,7 @@ def test_cancel_close_on_save_failure_keeps_live_compute(win, monkeypatch):
 @pytest.mark.parametrize('outcome', ['success', 'error', 'cancel'])
 @pytest.mark.parametrize('save_ok', [True, False])
 def test_close_waits_for_terminal_delivery_and_runnable_exit(win, monkeypatch, outcome, save_ok):
-    from sjtu_tpmshx.applications.gui.controllers.compute_orchestrator import _ComputeRunnable
+    from tm1.applications.gui.controllers.compute_orchestrator import _ComputeRunnable
 
     release, terminal_sent = threading.Event(), threading.Event()
     tail_errors, writes = [], []
@@ -562,7 +562,7 @@ def test_close_waits_for_terminal_delivery_and_runnable_exit(win, monkeypatch, o
 
 @pytest.mark.parametrize('mode', ['2d', '3d'])
 def test_workspace_switch_waits_for_worker_publication_and_exit(win, monkeypatch, mode):
-    from sjtu_tpmshx.applications.gui.controllers.compute_orchestrator import _ComputeRunnable
+    from tm1.applications.gui.controllers.compute_orchestrator import _ComputeRunnable
     from tests.python.gui_workbench_support import _result
 
     _configure(win, monkeypatch, mode)
@@ -670,11 +670,11 @@ def test_close_cancels_live_pipeline_without_destroying_its_callbacks(win, monke
 def test_auxiliary_task_close_keeps_thread_until_run_returns(win, monkeypatch, tmp_path,
                                                             kind, outcome):
     """A published result/error does not permit destruction of a running QThread."""
-    from sjtu_tpmshx.applications.gui.ui import optimize_panel
-    from sjtu_tpmshx.applications.gui.ui.optimize_job import OptimizationJob
-    from sjtu_tpmshx.applications.gui.ui.quick_design_job import QuickDesignJob
-    from sjtu_tpmshx.applications.design.sizing import Design
-    from sjtu_tpmshx.applications.gui.ui.background_tasks import has_active_tasks
+    from tm1.applications.gui.ui import optimize_panel
+    from tm1.applications.gui.ui.optimize_job import OptimizationJob
+    from tm1.applications.gui.ui.quick_design_job import QuickDesignJob
+    from tm1.applications.design.sizing import Design
+    from tm1.applications.gui.ui.background_tasks import has_active_tasks
 
     release, terminal_sent = threading.Event(), threading.Event()
     backend_called = threading.Event()
@@ -698,11 +698,11 @@ def test_auxiliary_task_close_keeps_thread_until_run_returns(win, monkeypatch, t
         return dict(status='completed', reason=None, method=kwargs['method'],
                     history=[], pareto_indices=[], n_evaluated=0, n_usable=0)
 
-    monkeypatch.setattr('sjtu_tpmshx.applications.optimization.multi_condition_optimizer.run_multi_condition_optimization',
+    monkeypatch.setattr('tm1.applications.optimization.multi_condition_optimizer.run_multi_condition_optimization',
                         fail_or_result)
     monkeypatch.setattr(optimize_panel, 'optimization_output_dir', lambda: tmp_path)
-    monkeypatch.setattr('sjtu_tpmshx.applications.design.cases.load_cases', lambda p: [SimpleNamespace(case='A', dPlim_h=.05, dPlim_c=.06)])
-    monkeypatch.setattr('sjtu_tpmshx.applications.design.sizing.size_fixed_cell', fail_or_result)
+    monkeypatch.setattr('tm1.applications.design.cases.load_cases', lambda p: [SimpleNamespace(case='A', dPlim_h=.05, dPlim_c=.06)])
+    monkeypatch.setattr('tm1.applications.design.sizing.size_fixed_cell', fail_or_result)
     if kind == 'optimize':
         owner, attr = win.optimization, '_job'
         win.combo_dim.setCurrentIndex(0)
@@ -734,15 +734,15 @@ def test_auxiliary_task_close_keeps_thread_until_run_returns(win, monkeypatch, t
 
 
 def test_quick_design_page_keeps_its_job_across_navigation(win, monkeypatch):
-    from sjtu_tpmshx.applications.design.sizing import Design
+    from tm1.applications.design.sizing import Design
     entered, release = threading.Event(), threading.Event()
     def candidate(*args, control, **kwargs):
         entered.set()
         assert release.wait(10)
         control.check_cancelled()
         return Design(False)
-    monkeypatch.setattr('sjtu_tpmshx.applications.design.cases.load_cases', lambda p: [SimpleNamespace(case='A', dPlim_h=.05, dPlim_c=.06)])
-    monkeypatch.setattr('sjtu_tpmshx.applications.design.sizing.size_fixed_cell', candidate)
+    monkeypatch.setattr('tm1.applications.design.cases.load_cases', lambda p: [SimpleNamespace(case='A', dPlim_h=.05, dPlim_c=.06)])
+    monkeypatch.setattr('tm1.applications.design.sizing.size_fixed_cell', candidate)
     page = win.quick_design
     page.le_qd_file.setText('unused.xlsx')
     page.mode_selector.set_value('fixed')
@@ -766,7 +766,7 @@ def test_quick_design_page_keeps_its_job_across_navigation(win, monkeypatch):
 
 @pytest.mark.parametrize('dimension,expected', [(0, (84, 24, 1)), (1, (92, 14, 10))])
 def test_field_restore_uses_the_current_case_dimension_and_remains_undoable(win, dimension, expected):
-    from sjtu_tpmshx.applications.gui.ui.field_menu import _revert_field_to_default
+    from tm1.applications.gui.ui.field_menu import _revert_field_to_default
     win.combo_dim.setCurrentIndex(dimension)
     win._temp_unit = 'C'
     for attr in ('le_Nx', 'le_Ny', 'le_Nz', 'le_ks', 'le_pipeB_in_z_ctr', 'le_TinA'):
@@ -808,7 +808,7 @@ def test_normalized_field_edit_records_undo_and_final_validation(win, typed, exp
 
 @pytest.mark.parametrize('refined,expected', [(False, (36, 17, 17)), (True, (50, 17, 17))])
 def test_geometry_grid_suggestion_uses_selected_scheme_and_preserves_edits(win, monkeypatch, refined, expected):
-    import sjtu_tpmshx.applications.gui.ui.main_window as main_window
+    import tm1.applications.gui.ui.main_window as main_window
     win.combo_dim.setCurrentIndex(1)
     win.combo_grid.setCurrentIndex(win.combo_grid.findData(refined))
     monkeypatch.setattr(main_window, 'tpms_geometry', lambda *a: dict(
@@ -826,7 +826,7 @@ def test_geometry_grid_suggestion_uses_selected_scheme_and_preserves_edits(win, 
 @pytest.mark.parametrize('side', ['A', 'B'])
 @pytest.mark.parametrize('index,fluid_type', [(0, 'air'), (1, 'water'), (2, 'sco2')])
 def test_auto_fill_uses_same_fluid_type_as_config(win, monkeypatch, side, index, fluid_type):
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.applications.gui.ui.window_config import config_from_window
     win.combo_df_mode.setCurrentIndex(win.combo_df_mode.findData('cfd_smooth'))
     getattr(win, f'combo_fluid{side}').setCurrentIndex(index)
     monkeypatch.setattr(win, 'compute_tpms', lambda: True)
@@ -834,7 +834,7 @@ def test_auto_fill_uses_same_fluid_type_as_config(win, monkeypatch, side, index,
     def compute(*args, **kwargs):
         observed.append(kwargs['fluid_type'])
         return dict(Re=1000., Nu=30., rho=10., dP_per_L=5.)
-    monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.mixins.fluid_input.tpms_compute', compute)
+    monkeypatch.setattr('tm1.applications.gui.ui.mixins.fluid_input.tpms_compute', compute)
     win._auto_fill_fluid(side)
     cfg = config_from_window(win)
     assert observed == [fluid_type]

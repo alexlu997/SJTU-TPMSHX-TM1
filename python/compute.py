@@ -4,12 +4,12 @@ from dataclasses import replace
 from time import perf_counter
 from uuid import uuid4
 
-from sjtu_tpmshx.data_types.case_data import CaseData
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-from sjtu_tpmshx.data_types.field_result import FieldResult
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.data_types.performance_result import PerformanceResult
-from sjtu_tpmshx.run_control.run_warnings import warning_scope, warning_messages
+from tm1.data_types.case_data import CaseData
+from tm1.data_types.compute_config import ComputeConfig
+from tm1.data_types.field_result import FieldResult
+from tm1.run_control.module_ports import RunControl
+from tm1.data_types.performance_result import PerformanceResult
+from tm1.run_control.run_warnings import warning_scope, warning_messages
 
 
 def compute(config: ComputeConfig, *, case_id: str | None = None,
@@ -25,13 +25,13 @@ def compute(config: ComputeConfig, *, case_id: str | None = None,
     """
     native_preparation = prepare is None and control.cancel_check is None
     if prepare is None:
-        from sjtu_tpmshx.preprocess.api import prepare_case
+        from tm1.preprocess.api import prepare_case
         prepare = prepare_case
     if solve is None:
-        from sjtu_tpmshx.solvers.api import run_case
+        from tm1.solvers.api import run_case
         solve = run_case
     if evaluate is None:
-        from sjtu_tpmshx.postprocess.api import evaluate as evaluate_result
+        from tm1.postprocess.api import evaluate as evaluate_result
         evaluate = evaluate_result
     progress = progress_cb if progress_cb is not None else lambda _percent: None
 

@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from sjtu_tpmshx.development.validation.water_exp import with_water_absolute_pressures
+from tm1.development.validation.water_exp import with_water_absolute_pressures
 
 
 @pytest.mark.parametrize('source', [
@@ -41,7 +41,7 @@ def test_convert_once_keep_raw_dp_and_duplicate_rows(source):
     'water-air_D7-t0p6_experiment_water-straight_20260609.xlsx',
 ])
 def test_canonical_loader_preserves_positions_and_adds_absolute(monkeypatch, source):
-    from sjtu_tpmshx.development.validation.harness import _harness as loader
+    from tm1.development.validation.harness import _harness as loader
     raw = pd.DataFrame(np.zeros((2, 35)))
     raw[24], raw[25], raw[26], raw[27] = 20., 25., -2000., -1950.
     footer = pd.DataFrame(np.nan, index=[2, 3], columns=raw.columns)
@@ -58,8 +58,8 @@ def test_canonical_loader_preserves_positions_and_adds_absolute(monkeypatch, sou
 
 @pytest.mark.parametrize('case_id', ['工况2', np.nan])
 def test_canonical_loader_keeps_incomplete_cases_for_validation(monkeypatch, case_id):
-    from sjtu_tpmshx.physical_models.fluid_props import WaterStateError
-    from sjtu_tpmshx.development.validation.harness import _harness as loader
+    from tm1.physical_models.fluid_props import WaterStateError
+    from tm1.development.validation.harness import _harness as loader
     raw = pd.DataFrame(np.zeros((3, 35)))
     raw[0] = ['工况1', case_id, '工况3']
     raw[24], raw[25], raw[26], raw[27] = 20., 25., -2000., -1950.
@@ -71,14 +71,14 @@ def test_canonical_loader_keeps_incomplete_cases_for_validation(monkeypatch, cas
 
 
 def test_generic_absolute_config_is_not_converted():
-    from sjtu_tpmshx.data_types.compute_config import ComputeConfig, FluidConfig
+    from tm1.data_types.compute_config import ComputeConfig, FluidConfig
     cfg = ComputeConfig(fluid_B=FluidConfig(type='water', P_in_Pa=200000.))
     cfg.validate()
     assert cfg.fluid_B.P_in_Pa == 200000.
 
 
 def test_hx_loader_keeps_negative_dp_and_duplicate_records(monkeypatch):
-    from sjtu_tpmshx.development.validation import hx_experiments as loader
+    from tm1.development.validation import hx_experiments as loader
     raw = pd.DataFrame({
         'case_name': ['工况1', '工况2'], '样机水流量kg/s': [.08, .09],
         '水进口温度/℃': [20., 20.], '水出口温度/℃': [25., 25.],
@@ -94,7 +94,7 @@ def test_hx_loader_keeps_negative_dp_and_duplicate_records(monkeypatch):
 
 
 def test_hx_air_reader_keeps_floor_and_duplicate_flags(monkeypatch):
-    from sjtu_tpmshx.development.validation import hx_experiments as loader
+    from tm1.development.validation import hx_experiments as loader
     raw = pd.DataFrame({
         'case_name': ['工况1', '工况2', '工况3', '备注'],
         '样机空气流量kg/s': [.01, .02, .03, np.nan],
@@ -122,8 +122,8 @@ for name in (
     'development.validation.df_refit.gamma_specimen', 'shared.df_surrogate.gamma_df',
     'shared.df_surrogate.surrogate_v3', 'shared.df_surrogate.smooth_df', 'shared.df_surrogate.sco2_df',
 ):
-    sys.modules['sjtu_tpmshx.' + name] = None
-from sjtu_tpmshx.development.validation.df_refit import fit_experimental_effective, cf_cross_fluid
+    sys.modules['tm1.' + name] = None
+from tm1.development.validation.df_refit import fit_experimental_effective, cf_cross_fluid
 '''
     result = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True,
                             cwd=Path(__file__).resolve().parents[3], check=False)
@@ -131,7 +131,7 @@ from sjtu_tpmshx.development.validation.df_refit import fit_experimental_effecti
 
 
 def test_cross_fluid_collect_uses_raw_quality_members(monkeypatch):
-    from sjtu_tpmshx.development.validation.df_refit import cf_cross_fluid as cf
+    from tm1.development.validation.df_refit import cf_cross_fluid as cf
     air = pd.DataFrame({
         'case': ['high-flow', 'floor'], 'excluded': [False, True],
         '样机空气流量kg/s': [1., .001], '空气进口温度/℃': [20., 20.],
@@ -160,8 +160,8 @@ def test_cross_fluid_collect_uses_raw_quality_members(monkeypatch):
 
 
 def test_pricing_config_uses_absolute_pressure_preserving_mass_flow():
-    from sjtu_tpmshx.development.validation.cases.price_f2_convergence_3d import _build_cfg, SPEC
-    from sjtu_tpmshx.physical_models.tpms_props import water_density
+    from tm1.development.validation.cases.price_f2_convergence_3d import _build_cfg, SPEC
+    from tm1.physical_models.tpms_props import water_density
     row = {i: 0. for i in range(34)}
     row.update({5: .05, 7: .1, 24: 20., 28: 150., 30: 3000.})
     df = pd.DataFrame([row])

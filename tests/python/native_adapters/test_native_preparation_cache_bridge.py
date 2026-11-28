@@ -3,13 +3,13 @@
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.cpp_interface._native_values import read_text
-from sjtu_tpmshx.cpp_interface import preparation_host as bridge_module
-from sjtu_tpmshx.data_types.compute_config import Sco2NuConfig
-from sjtu_tpmshx.run_control.run_warnings import RangeRecord, range_context, warning_scope
-from sjtu_tpmshx.cpp_interface import _native_preparation_case as native
-from sjtu_tpmshx.physical_models.preparation_cache import scalar_cache
-from sjtu_tpmshx.preprocess import preparation
+from tm1.cpp_interface._native_values import read_text
+from tm1.cpp_interface import preparation_host as bridge_module
+from tm1.data_types.compute_config import Sco2NuConfig
+from tm1.run_control.run_warnings import RangeRecord, range_context, warning_scope
+from tm1.cpp_interface import _native_preparation_case as native
+from tm1.physical_models.preparation_cache import scalar_cache
+from tm1.preprocess import preparation
 
 
 @pytest.fixture

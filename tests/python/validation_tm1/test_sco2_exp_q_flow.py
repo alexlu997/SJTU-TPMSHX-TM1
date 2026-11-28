@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.development.validation.cases.validate_sco2_exp_q import (
+from tm1.development.validation.cases.validate_sco2_exp_q import (
     GROSS_FACE_M2,
     _flow_velocity,
     _solver_geometry,
@@ -47,7 +47,7 @@ def _q_results(diamond=0.20, gyroid=0.05):
     (-0.20, -0.06, True), (-0.20 - 1e-8, 0.0, False),
 ])
 def test_q_limits_use_actual_q_per_group(diamond, gyroid, passed):
-    from sjtu_tpmshx.development.validation.cases import validate_sco2_exp_q as runner
+    from tm1.development.validation.cases import validate_sco2_exp_q as runner
 
     result = _q_results(diamond, gyroid)
     # Deliberately inconsistent error column must never manufacture a pass.
@@ -62,7 +62,7 @@ def test_q_limits_use_actual_q_per_group(diamond, gyroid, passed):
 @pytest.mark.parametrize("offset,passed", [(-1e-8, True), (0., True), (1e-8, False)])
 @pytest.mark.parametrize("sign", [-1, 1])
 def test_q_dimension_boundaries(dimension, topology, limit, offset, passed, sign):
-    from sjtu_tpmshx.development.validation.cases import validate_sco2_exp_q as runner
+    from tm1.development.validation.cases import validate_sco2_exp_q as runner
 
     result = _q_results(0., 0.)
     result = result[result.dimension == dimension].copy()
@@ -72,7 +72,7 @@ def test_q_dimension_boundaries(dimension, topology, limit, offset, passed, sign
 
 
 def test_3d_limits_do_not_relax_2d_or_combined_acceptance():
-    from sjtu_tpmshx.development.validation.cases import validate_sco2_exp_q as runner
+    from tm1.development.validation.cases import validate_sco2_exp_q as runner
 
     result = _q_results(0.205, 0.055)
     expected = result.attrs["expected_cases"]
@@ -84,7 +84,7 @@ def test_3d_limits_do_not_relax_2d_or_combined_acceptance():
 @pytest.mark.parametrize("dimension", ["2d", "3d"])
 @pytest.mark.parametrize("qualification", ["numerical_ok", "reference_ok"])
 def test_q_limits_require_qualifications_in_each_dimension(dimension, qualification):
-    from sjtu_tpmshx.development.validation.cases import validate_sco2_exp_q as runner
+    from tm1.development.validation.cases import validate_sco2_exp_q as runner
 
     result = _q_results(0., 0.)
     result.loc[result.dimension == dimension, qualification] = False
@@ -100,7 +100,7 @@ def test_q_limits_require_qualifications_in_each_dimension(dimension, qualificat
 ])
 def test_q_acceptance_rejects_incomplete_or_invalid_results(failure):
     import pandas as pd
-    from sjtu_tpmshx.development.validation.cases import validate_sco2_exp_q as runner
+    from tm1.development.validation.cases import validate_sco2_exp_q as runner
 
     result = _q_results(0.0, 0.0)
     expected = result.attrs["expected_cases"]
@@ -137,7 +137,7 @@ def test_q_acceptance_rejects_incomplete_or_invalid_results(failure):
 
 def test_fixed_selection_and_run_manifest(monkeypatch):
     import pandas as pd
-    from sjtu_tpmshx.development.validation.cases import validate_sco2_exp_q as runner
+    from tm1.development.validation.cases import validate_sco2_exp_q as runner
 
     df = pd.DataFrame([
         dict(case=case, side=side, ok_done=True, ok_hb=True, ok_heat_flow=True,
@@ -181,7 +181,7 @@ def test_fixed_selection_and_run_manifest(monkeypatch):
 @pytest.mark.parametrize('endpoint', ['Pin_abs_Pa', 'Pout_abs_Pa'])
 def test_reference_pressure_bounds(endpoint):
     import pandas as pd
-    from sjtu_tpmshx.development.validation.cases import validate_sco2_exp_q as runner
+    from tm1.development.validation.cases import validate_sco2_exp_q as runner
 
     df = pd.DataFrame([dict(ok_done=True, ok_hb=True, ok_heat_flow=True,
                            mdot=.05, Tin_C=100., Tout_C=110.,
@@ -197,7 +197,7 @@ def test_reference_pressure_bounds(endpoint):
     ["--accept-q", "--all-valid", "--case", "1", "--topology", "Diamond"],
 ])
 def test_q_cli_requires_fixed_selection_before_loading(monkeypatch, args):
-    from sjtu_tpmshx.development.validation.cases import validate_sco2_exp_q as runner
+    from tm1.development.validation.cases import validate_sco2_exp_q as runner
 
     monkeypatch.setattr("sys.argv", ["validate_sco2_exp_q", *args])
     monkeypatch.setattr(runner, "load_exp", lambda *args: pytest.fail("loaded data"))
@@ -208,8 +208,8 @@ def test_q_cli_requires_fixed_selection_before_loading(monkeypatch, args):
 
 @pytest.mark.parametrize('destination', ['direct', 'csv_symlink', 'meta_symlink'])
 def test_q_cli_rejects_frozen_outputs_before_running(monkeypatch, tmp_path, capsys, destination):
-    from sjtu_tpmshx.development.validation.cases import validate_sco2_exp_q as runner
-    from sjtu_tpmshx.development.validation.harness import _provenance
+    from tm1.development.validation.cases import validate_sco2_exp_q as runner
+    from tm1.development.validation.harness import _provenance
 
     reference_dir = tmp_path / 'references'
     reference_dir.mkdir()
@@ -236,7 +236,7 @@ def test_q_cli_rejects_frozen_outputs_before_running(monkeypatch, tmp_path, caps
 def test_q_cli_preserves_previous_output_pair_on_write_failure(monkeypatch, tmp_path, failure):
     from pathlib import Path
     import pandas as pd
-    from sjtu_tpmshx.development.validation.cases import validate_sco2_exp_q as runner
+    from tm1.development.validation.cases import validate_sco2_exp_q as runner
 
     output = tmp_path / 'q.csv'
     metadata = output.with_suffix('.csv.meta.json')
@@ -266,7 +266,7 @@ def test_q_cli_verdict_and_legacy_csv(monkeypatch, tmp_path, capsys,
                                      accept, over_limit, exit_code):
     import json
     import pandas as pd
-    from sjtu_tpmshx.development.validation.cases import validate_sco2_exp_q as runner
+    from tm1.development.validation.cases import validate_sco2_exp_q as runner
 
     result = _q_results(0.21 if over_limit else 0.20, 0.05).iloc[:2].copy()
     result.attrs["expected_cases"] = {"Diamond": [1, 2]}
@@ -305,7 +305,7 @@ def test_q_cli_verdict_and_legacy_csv(monkeypatch, tmp_path, capsys,
 def test_q_cli_metadata_on_strict_cp1252_stdout(monkeypatch, tmp_path):
     import io
     import json
-    from sjtu_tpmshx.development.validation.cases import validate_sco2_exp_q as runner
+    from tm1.development.validation.cases import validate_sco2_exp_q as runner
 
     manifest = tmp_path / "prior.meta.json"
     manifest.write_text(json.dumps({"expected_cases": _q_results().attrs["expected_cases"]}))
@@ -324,7 +324,7 @@ def test_q_cli_metadata_on_strict_cp1252_stdout(monkeypatch, tmp_path):
 def test_zero_reference_still_fails_diagnostic_case(monkeypatch, dimension):
     from types import SimpleNamespace
     import pandas as pd
-    from sjtu_tpmshx.development.validation.cases import validate_sco2_exp_q as runner
+    from tm1.development.validation.cases import validate_sco2_exp_q as runner
 
     row = pd.Series(dict(Tin_C=100., Tout_C=100., Pin_MPa=9., Pout_MPa=8.99,
                          Pin_abs_Pa=9101325., Pout_abs_Pa=9091325., mdot=0.05,
@@ -364,7 +364,7 @@ def test_zero_reference_still_fails_diagnostic_case(monkeypatch, dimension):
 @pytest.mark.parametrize("cases", [[], [1, 1], [0], [True], [1.5], ["1"]])
 def test_case_manifest_rejects_invalid_members(tmp_path, cases):
     import json
-    from sjtu_tpmshx.development.validation.cases import validate_sco2_exp_q as runner
+    from tm1.development.validation.cases import validate_sco2_exp_q as runner
 
     path = tmp_path / "previous.meta.json"
     path.write_text(json.dumps({"expected_cases": {"Diamond": cases}}))
@@ -374,7 +374,7 @@ def test_case_manifest_rejects_invalid_members(tmp_path, cases):
 
 def test_q_cli_uses_explicit_manifest(monkeypatch, tmp_path):
     import json
-    from sjtu_tpmshx.development.validation.cases import validate_sco2_exp_q as runner
+    from tm1.development.validation.cases import validate_sco2_exp_q as runner
 
     path = tmp_path / "previous.meta.json"
     path.write_text(json.dumps({"expected_cases": {"Diamond": [1, 2]}}))
@@ -399,7 +399,7 @@ def test_q_cli_uses_explicit_manifest(monkeypatch, tmp_path):
 @pytest.mark.parametrize('target', ['csv', 'metadata', 'alias'])
 def test_q_cli_preserves_source_manifest_on_output_overlap(monkeypatch, tmp_path, capsys, target):
     import json
-    from sjtu_tpmshx.development.validation.cases import validate_sco2_exp_q as runner
+    from tm1.development.validation.cases import validate_sco2_exp_q as runner
 
     output = tmp_path / 'results.csv'
     manifest = output.with_suffix('.csv.meta.json') if target == 'metadata' else output

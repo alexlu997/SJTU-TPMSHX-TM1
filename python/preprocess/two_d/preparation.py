@@ -4,8 +4,8 @@ import warnings
 from copy import deepcopy
 from dataclasses import asdict
 import numpy as np
-from sjtu_tpmshx.cpp_interface import native_preparation
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig
+from tm1.cpp_interface import native_preparation
+from tm1.data_types.compute_config import ComputeConfig
 from .. import preparation as shared
 
 def _nominal_grid_warning(axis, message):
@@ -31,7 +31,7 @@ def _spatial_rows(config):
     else:
         model = asdict(zones.config) if hasattr(zones.config, '__dataclass_fields__') else zones.config
         if isinstance(zones.config, dict):
-            from sjtu_tpmshx.physical_models.zone_config import Zone, ZoneConfig
+            from tm1.physical_models.zone_config import Zone, ZoneConfig
             try:
                 zone_data = deepcopy(model)
                 zone_data['zones'] = [Zone(**row) for row in zone_data['zones']]
@@ -49,7 +49,7 @@ def _spatial_rows(config):
 
 
 def _lut_cache():
-    from sjtu_tpmshx.physical_models import sigmoid_field
+    from tm1.physical_models import sigmoid_field
     pending = {}
 
     def cache(action, name, resolution, axes, tables):
@@ -78,10 +78,10 @@ def _lut_cache():
 
 
 def _case(result, copy_metadata, config, case_id, side_geometry=None, extrap_reasons=()):
-    from sjtu_tpmshx.data_types.case_data import CaseData
-    from sjtu_tpmshx.data_types.model_refs import ModelRef
-    from sjtu_tpmshx.physical_models.zone_units import _zone_data_si
-    from sjtu_tpmshx.run_control.run_environment import capture_environment
+    from tm1.data_types.case_data import CaseData
+    from tm1.data_types.model_refs import ModelRef
+    from tm1.physical_models.zone_units import _zone_data_si
+    from tm1.run_control.run_environment import capture_environment
     value = result.prepared
     continuous, spatial = result.continuous, result.spatial
     grid = {name: getattr(value, name) for name in ('dx', 'dy', 'x_edges', 'y_edges', 'x_breaks', 'y_breaks')}
@@ -210,8 +210,8 @@ def _inlet_speed(operation, targets, fluid):
 
 def _execute(config, operation, *, targets=None, case_id=None, start_observations=None):
     from functools import partial
-    from sjtu_tpmshx.physical_models.fluid_props import validate_fluid_type, WaterStateError
-    from sjtu_tpmshx.run_control.run_environment import _resolve_chi_s
+    from tm1.physical_models.fluid_props import validate_fluid_type, WaterStateError
+    from tm1.run_control.run_environment import _resolve_chi_s
     # Preserve the original physical guard before object-key checks.
     for side in 'AB':
         validate_fluid_type(getattr(config, 'fluid_' + side).type, side)

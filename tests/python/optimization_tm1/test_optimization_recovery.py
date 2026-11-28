@@ -6,10 +6,10 @@ from threading import Event
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.data_types.compute_config import ZoneInputConfig
-from sjtu_tpmshx.run_control.paused_run import PausedRun
-from sjtu_tpmshx.applications.optimization import multi_condition_optimizer as search
+from tm1.run_control.module_ports import RunControl
+from tm1.data_types.compute_config import ZoneInputConfig
+from tm1.run_control.paused_run import PausedRun
+from tm1.applications.optimization import multi_condition_optimizer as search
 from tests.python.optimization_support import _conditions, _fake_batches, _manifest
 
 

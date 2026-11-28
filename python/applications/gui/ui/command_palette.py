@@ -313,7 +313,7 @@ class CommandPalette(QDialog):
         self._list.clicked.connect(lambda _i: self._accept_current())
 
     def _apply_theme_styles(self, t: dict) -> None:
-        from sjtu_tpmshx.applications.gui.ui.theme import _build_styles
+        from tm1.applications.gui.ui.theme import _build_styles
 
         scrollbar = _build_styles()["SCROLLBAR"]
         self._input.setStyleSheet(
@@ -521,7 +521,7 @@ def build_actions(w) -> list[Action]:
     )
 
     def _open_sens() -> None:
-        from sjtu_tpmshx.applications.gui.ui.sensitivity import open_sensitivity
+        from tm1.applications.gui.ui.sensitivity import open_sensitivity
 
         open_sensitivity(w)
 
@@ -622,7 +622,7 @@ def build_actions(w) -> list[Action]:
     )
 
     # 预设
-    from sjtu_tpmshx.applications.gui.ui.fmt import preset_display
+    from tm1.applications.gui.ui.fmt import preset_display
 
     for name in w.case_files.BUILTIN_PRESETS:
         add(

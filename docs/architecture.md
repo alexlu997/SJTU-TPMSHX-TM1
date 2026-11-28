@@ -38,11 +38,11 @@ See [include/tpmshx/](../include/tpmshx/), [tests/cpp/](../tests/cpp/), [C++ int
 
 | Name or path | Role and consumers |
 | --- | --- |
-| Source folder [python/](../python/) | Contains the Python source tree. `[tool.setuptools.package-dir]` in [pyproject.toml](../pyproject.toml) maps `sjtu_tpmshx` to `python`. |
-| Import name `sjtu_tpmshx` | Public package name used by every repository import and CLI module command. |
-| Checkout loader [sjtu_tpmshx.py](../sjtu_tpmshx.py) | Loads `python/__init__.py` as `sjtu_tpmshx` when commands run from the repository root. |
-| Installed wheel layout `sjtu_tpmshx/` | Packs Python modules and declared JSON, CSV, and icon resources from `pyproject.toml`, without native libraries. [check_types.py](../engineering/scripts/check_types.py) builds the same tree through [python_source.py](../engineering/packaging/python_source.py) for `mypy`. |
-| Alias resolver [python/shared.py](../python/shared.py) | Resolves historical `sjtu_tpmshx.shared.*` and `sjtu_tpmshx.solvers.backends.cpp.*` paths to canonical owners without code duplication. [python/solvers/backends/cpp.py](../python/solvers/backends/cpp.py) imports its search path. [packaging_support.py](../tests/python/packaging_support.py), [test_three_module_imports.py](../tests/python/architecture/test_three_module_imports.py), and [test_distribution_contents.py](../tests/python/engineering_tm1/test_distribution_contents.py) test these aliases in checkouts and wheels. Local `.cache/` scripts also use them. |
+| Source folder [python/](../python/) | Contains the Python source tree. `[tool.setuptools.package-dir]` in [pyproject.toml](../pyproject.toml) maps `tm1` to `python`. |
+| Import name `tm1` | Public package name used by every repository import and CLI module command. |
+| Checkout loader [tm1.py](../tm1.py) | Loads `python/__init__.py` as `tm1` when commands run from the repository root. |
+| Installed wheel layout `tm1/` | Packs Python modules and declared JSON, CSV, and icon resources from `pyproject.toml`, without native libraries. [check_types.py](../engineering/scripts/check_types.py) builds the same tree through [python_source.py](../engineering/packaging/python_source.py) for `mypy`. |
+| Alias resolver [python/shared.py](../python/shared.py) | Resolves `tm1.shared.*` and `tm1.solvers.backends.cpp.*` aliases under the current `tm1` root to canonical owners without code duplication. [python/solvers/backends/cpp.py](../python/solvers/backends/cpp.py) imports its search path. [packaging_support.py](../tests/python/packaging_support.py), [test_three_module_imports.py](../tests/python/architecture/test_three_module_imports.py), and [test_distribution_contents.py](../tests/python/engineering_tm1/test_distribution_contents.py) test these aliases in checkouts and wheels. Old local `.cache/` scripts that use the previous root must update their imports or use the recorded source revision. |
 | Live library directory `sjtu_tpmshx/solvers/native/lib/<host>/` | Git-ignored path where [build_native_dependencies.py](../engineering/scripts/build_native_dependencies.py) publishes the four libraries for source runs. `provenance.py` defines `PUBLISHED_LIBRARY_DIR`; `module_ports.py`, `stage_libraries.py`, `_native_geometry.py`, and `launch-macos.command` read it. Frozen desktop builds load `native/`. Run `build_native_dependencies.py verify-published` with the `.venv-path` interpreter for the [published native image check](verification.en.md#published-native-images). It compares published exports against the geometry, preparation, solver, and result manifests and prints each build record (`build.json` and `*-build.json`). |
 
 ## Directory owners
@@ -72,7 +72,7 @@ The [Python layer owners](#python-layer-owners) table gives the responsibilities
 ## Binding import limits
 
 Bindings in `python/cpp_interface/` obey these import limits.
-`python -m sjtu_tpmshx.development.runs.tools.audit_import_graph --fail-on-violations` checks them.
+`python -m tm1.development.runs.tools.audit_import_graph --fail-on-violations` checks them.
 The same audit rejects import cycles between the modules of the `ui` owner and of the `solvers` owner.
 
 - A binding can import `run_control`, `model_configs`, and `data_types` modules, but not the modules of the stage data types.

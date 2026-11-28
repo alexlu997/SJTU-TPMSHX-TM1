@@ -5,7 +5,7 @@ from math import isfinite
 
 import numpy as np
 
-from sjtu_tpmshx.postprocess.result_display import PANEL_FIELD_SPECS
+from tm1.postprocess.result_display import PANEL_FIELD_SPECS
 
 # Display order for 3D panel field selectors (persisted 3D keys).
 FIELD_ORDER = tuple(PANEL_FIELD_SPECS)

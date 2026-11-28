@@ -6,10 +6,10 @@ import json
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig, FeatureFlags
-from sjtu_tpmshx.data_types.portable_data import mutable_data
-from sjtu_tpmshx.file_io.case_io import load_case, save_case
-from sjtu_tpmshx.preprocess.api import prepare_case
+from tm1.data_types.compute_config import ComputeConfig, FeatureFlags
+from tm1.data_types.portable_data import mutable_data
+from tm1.file_io.case_io import load_case, save_case
+from tm1.preprocess.api import prepare_case
 from tests.python.cases_3d import full_face_config
 
 
@@ -42,7 +42,7 @@ def test_enabled_historical_flag_requires_an_explicit_new_grid(tmp_path):
 
 @pytest.mark.parametrize('enabled', [False, True])
 def test_old_script_assignment_fails_before_grid_construction(monkeypatch, enabled):
-    from sjtu_tpmshx.preprocess.three_d import preparation
+    from tm1.preprocess.three_d import preparation
     config = full_face_config(False)
     monkeypatch.setattr(preparation, '_execute',
                         lambda *args: pytest.fail('retired script input reached grid construction'))
@@ -90,7 +90,7 @@ def test_prepared_archive_keeps_its_actual_grid_and_snapshot(tmp_path, dimension
 
 
 def test_retired_constructor_is_rejected_before_native_dispatch(monkeypatch):
-    from sjtu_tpmshx.preprocess.three_d import preparation
+    from tm1.preprocess.three_d import preparation
     payload = full_face_config(False).to_dict()
     payload['flags']['wall_refine_3d'] = True
     monkeypatch.setattr(preparation, '_execute',
@@ -101,8 +101,8 @@ def test_retired_constructor_is_rejected_before_native_dispatch(monkeypatch):
 
 @pytest.mark.parametrize('retired', [False, True])
 def test_saved_condition_keeps_grid_identity_and_other_settings(retired):
-    from sjtu_tpmshx.applications.optimization.multi_condition import _check_saved_condition
-    from sjtu_tpmshx.preprocess.api import prepare_fixed_mass_flow_case, prepare_inlet_mass_capacities
+    from tm1.applications.optimization.multi_condition import _check_saved_condition
+    from tm1.preprocess.api import prepare_fixed_mass_flow_case, prepare_inlet_mass_capacities
     config = full_face_config(False)
     capacities = prepare_inlet_mass_capacities(config)
     flows = tuple(capacities[side] * getattr(config, 'fluid_' + side).u_mps for side in 'AB')
@@ -122,9 +122,9 @@ def test_saved_condition_keeps_grid_identity_and_other_settings(retired):
 
 
 def test_old_2d_baseline_keeps_other_input_and_grid_checks():
-    from sjtu_tpmshx.data_types.field_result import FieldResult
-    from sjtu_tpmshx.applications.optimization.multi_condition import _check_baseline_case
-    from sjtu_tpmshx.preprocess.inlet_flow import total_inlet_mass_capacity
+    from tm1.data_types.field_result import FieldResult
+    from tm1.applications.optimization.multi_condition import _check_baseline_case
+    from tm1.preprocess.inlet_flow import total_inlet_mass_capacity
     config = full_face_config(False)
     config.solver.Nz = 1
     case = prepare_case(config, case_id='baseline-input')
@@ -146,7 +146,7 @@ def test_old_2d_baseline_keeps_other_input_and_grid_checks():
 @pytest.mark.parametrize('dimension', [2, 3])
 @pytest.mark.parametrize('enabled', [False, True])
 def test_archived_design_export_keeps_geometry_without_old_grid_construction(tmp_path, dimension, enabled):
-    from sjtu_tpmshx.applications.optimization.export_ntop_csv import export_study_design
+    from tm1.applications.optimization.export_ntop_csv import export_study_design
     config = full_face_config(False)
     if dimension == 2:
         config.solver.Nz = 1

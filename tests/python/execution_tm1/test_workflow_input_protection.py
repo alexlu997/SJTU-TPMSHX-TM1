@@ -6,14 +6,14 @@ from unittest.mock import Mock
 import pytest
 import yaml
 
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-from sjtu_tpmshx.applications.cli.main import main
-from sjtu_tpmshx.data_types.field_result import FieldResult
-from sjtu_tpmshx.data_types.metric_spec import MetricSpec
-from sjtu_tpmshx.data_types.performance_result import MetricValue, PerformanceResult
-from sjtu_tpmshx.file_io.case_io import load_case, save_case
-from sjtu_tpmshx.file_io.metrics_io import load_metrics, save_metrics
-from sjtu_tpmshx.file_io.result_io import load_result, save_result
+from tm1.data_types.compute_config import ComputeConfig
+from tm1.applications.cli.main import main
+from tm1.data_types.field_result import FieldResult
+from tm1.data_types.metric_spec import MetricSpec
+from tm1.data_types.performance_result import MetricValue, PerformanceResult
+from tm1.file_io.case_io import load_case, save_case
+from tm1.file_io.metrics_io import load_metrics, save_metrics
+from tm1.file_io.result_io import load_result, save_result
 from tests.python.io_tm1.io_support import sample_case
 
 
@@ -28,10 +28,10 @@ def native_stages(monkeypatch):
          ('T_out_A', 'T_out', 'K'), ('T_out_B', 'T_out', 'K'))})
     calls = []
     for module, name, value in (
-        ('sjtu_tpmshx.preprocess.api', 'prepare_case', case),
-        ('sjtu_tpmshx.solvers.api', 'run_case', result),
-        ('sjtu_tpmshx.postprocess.api', 'evaluate', performance),
-        ('sjtu_tpmshx.compute', 'compute', (case, result, performance)),
+        ('tm1.preprocess.api', 'prepare_case', case),
+        ('tm1.solvers.api', 'run_case', result),
+        ('tm1.postprocess.api', 'evaluate', performance),
+        ('tm1.compute', 'compute', (case, result, performance)),
     ):
         call = Mock(return_value=value)
         monkeypatch.setattr(import_module(module), name, call)

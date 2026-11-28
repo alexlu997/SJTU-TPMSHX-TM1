@@ -7,8 +7,8 @@ from pathlib import Path
 import sys
 from typing import Callable
 
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.run_control.provenance import PUBLISHED_LIBRARY_DIR, SOURCE_ROOT
+from tm1.run_control.cancellation import CancelledError
+from tm1.run_control.provenance import PUBLISHED_LIBRARY_DIR, SOURCE_ROOT
 
 @dataclass(frozen=True)
 class RunControl:

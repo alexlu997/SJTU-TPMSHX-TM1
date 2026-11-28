@@ -7,10 +7,10 @@ import sys
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig, SolverConfig
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.applications.optimization import multi_condition_optimizer as search
+from tm1.run_control.cancellation import CancelledError
+from tm1.data_types.compute_config import ComputeConfig, SolverConfig
+from tm1.run_control.module_ports import RunControl
+from tm1.applications.optimization import multi_condition_optimizer as search
 from tests.python.optimization_support import _conditions, _fake_batches, _manifest
 from tests.python.optimization_tm1.test_multi_condition_batch import native_control as native_control
 
@@ -42,9 +42,9 @@ def test_search_and_archive_preserve_low_and_mixed_control_counts(tmp_path, monk
 @pytest.mark.parametrize('cut', [None, 'baseline', 'initial'])
 def test_prescribed_flow_replaces_stale_speed_before_validation_and_archive(tmp_path, monkeypatch, dimension, cut):
     from threading import Event
-    from sjtu_tpmshx.run_control.paused_run import PausedRun
-    from sjtu_tpmshx.preprocess.api import prepare_case
-    from sjtu_tpmshx.preprocess.inlet_flow import total_inlet_mass_capacity
+    from tm1.run_control.paused_run import PausedRun
+    from tm1.preprocess.api import prepare_case
+    from tm1.preprocess.inlet_flow import total_inlet_mass_capacity
 
     cfg = replace(_conditions(dimension)[0][1], df_mode='experimental',
                   solver=SolverConfig(Nx=6, Ny=5, Nz=3 if dimension == 3 else 1))
@@ -83,7 +83,7 @@ def test_prescribed_flow_replaces_stale_speed_before_validation_and_archive(tmp_
 
 
 def test_invalid_resolved_speed_keeps_failed_baseline_evidence(tmp_path, monkeypatch, native_control):
-    from sjtu_tpmshx.solvers import api
+    from tm1.solvers import api
     monkeypatch.setattr(api, 'run_case', lambda *a, **k: pytest.fail('invalid flow reached solve'))
     cfg = replace(_conditions()[0][1], df_mode='experimental',
                   solver=SolverConfig(Nx=6, Ny=5))
@@ -255,7 +255,7 @@ def test_sobol_single_design_and_existing_directory_contract(tmp_path, monkeypat
 def test_import_does_not_load_optional_bo_or_qt():
     subprocess.run([sys.executable, '-c', '''
 import sys
-import sjtu_tpmshx.applications.optimization.multi_condition_optimizer
+import tm1.applications.optimization.multi_condition_optimizer
 assert not any(name.split('.')[0] in ('torch', 'botorch', 'gpytorch', 'PySide6') for name in sys.modules)
 '''], check=True)
 
@@ -363,9 +363,9 @@ def test_pareto_max_duplicate_rows_at_least_one_kept():
 def test_search_reuses_baseline_case_configs_and_releases_fields(tmp_path, monkeypatch, native_control):
     import weakref
     from unittest.mock import patch
-    from sjtu_tpmshx.data_types.portable_data import mutable_data
-    from sjtu_tpmshx.file_io.case_io import load_case
-    from sjtu_tpmshx.cpp_interface import preparation_host as preparation
+    from tm1.data_types.portable_data import mutable_data
+    from tm1.file_io.case_io import load_case
+    from tm1.cpp_interface import preparation_host as preparation
     from tests.python.optimization_tm1.test_multi_condition_batch import _conditions, _native, _patch_solve
 
     references = []

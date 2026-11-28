@@ -7,11 +7,11 @@ import types
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.applications.gui.ui import optimize_panel as panel
-from sjtu_tpmshx.applications.gui.ui.optimize_job import OptimizationJob
-from sjtu_tpmshx.applications.gui.ui.theme import resolve_cmap
-from sjtu_tpmshx.applications.optimization import optimization_job as job_input
-from sjtu_tpmshx.run_control.module_ports import RunControl
+from tm1.applications.gui.ui import optimize_panel as panel
+from tm1.applications.gui.ui.optimize_job import OptimizationJob
+from tm1.applications.gui.ui.theme import resolve_cmap
+from tm1.applications.optimization import optimization_job as job_input
+from tm1.run_control.module_ports import RunControl
 from tests.python.gui_io_support import win as win
 from tests.python.optimization_support import condition, report
 
@@ -36,7 +36,7 @@ def window(win):
 @pytest.mark.parametrize('save_failure', [False, True])
 def test_worker_pause_requires_saved_terminal_status(window, tmp_path, monkeypatch, save_failure):
     page = window.optimization
-    from sjtu_tpmshx.applications.optimization import multi_condition_optimizer as search
+    from tm1.applications.optimization import multi_condition_optimizer as search
     from tests.python.optimization_support import _fake_batches
     from tests.python.optimization_support import _checkpoint_fault
     _fake_batches(monkeypatch)
@@ -67,14 +67,14 @@ def test_worker_pause_requires_saved_terminal_status(window, tmp_path, monkeypat
 def test_resume_button_uses_saved_input_and_restores_idle_controls(window, tmp_path, monkeypatch, stale_speed):
     page = window.optimization
     from PySide6.QtWidgets import QFileDialog
-    from sjtu_tpmshx.applications.optimization import multi_condition_optimizer as search
+    from tm1.applications.optimization import multi_condition_optimizer as search
     from tests.python.gui_worker_support import _wait_for
     from tests.python.optimization_support import _conditions, _fake_batches
     calls = _fake_batches(monkeypatch)
     source = tmp_path / 'source'
     conditions = _conditions()[:1]
     if stale_speed:
-        from sjtu_tpmshx.preprocess.api import prepare_inlet_mass_capacities
+        from tm1.preprocess.api import prepare_inlet_mass_capacities
         name, config, _, _ = conditions[0]
         config.df_mode = 'experimental'
         capacity = prepare_inlet_mass_capacities(config)
@@ -100,9 +100,9 @@ def test_resume_button_uses_saved_input_and_restores_idle_controls(window, tmp_p
 
 def archive_candidate(window, study, output_dir):
     page = window.optimization
-    from sjtu_tpmshx.data_types.compute_config import ComputeConfig, ZoneInputConfig
-    from sjtu_tpmshx.file_io.case_io import save_case
-    from sjtu_tpmshx.applications.optimization.multi_condition import prepare_fixed_mass_flow_case
+    from tm1.data_types.compute_config import ComputeConfig, ZoneInputConfig
+    from tm1.file_io.case_io import save_case
+    from tm1.applications.optimization.multi_condition import prepare_fixed_mass_flow_case
     candidate = study['history'][0]
     row = study['conditions'][0]
     cfg = replace(ComputeConfig.from_dict(row['config']), zones=ZoneInputConfig(
@@ -218,7 +218,7 @@ def test_optimization_bounds_show_complete_decimal_values(window, width):
 @pytest.mark.parametrize('dimension', [0, 1])
 def test_control_counts_and_selected_export_keep_frozen_design(window, tmp_path, dimension):
     page = window.optimization
-    from sjtu_tpmshx.applications.optimization.export_ntop_csv import export_study_design
+    from tm1.applications.optimization.export_ntop_csv import export_study_design
     window.combo_dim.setCurrentIndex(dimension)
     for axis, count in zip('xyz', (1, 2, 5)):
         page.controls[axis].setValue(count)
@@ -263,7 +263,7 @@ def test_control_counts_and_selected_export_keep_frozen_design(window, tmp_path,
 @pytest.mark.parametrize('dimension', [0, 1])
 def test_complete_case_and_field_dimension_reach_optimizer(window, dimension):
     page = window.optimization
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.applications.gui.ui.window_config import config_from_window
     window.combo_dim.setCurrentIndex(dimension)
     depth = .042 if dimension else .063
     window.le_Lz.setText(str(depth))
@@ -348,7 +348,7 @@ def test_import_changes_only_operating_conditions(window, tmp_path, monkeypatch)
 @pytest.mark.parametrize('dimension', [0, 1])
 def test_current_condition_flow_uses_prepared_fractional_pore_area(window, dimension, monkeypatch):
     page = window.optimization
-    from sjtu_tpmshx.preprocess.api import prepare_case
+    from tm1.preprocess.api import prepare_case
     window.combo_dim.setCurrentIndex(dimension)
     cfg = page.capture_case()
     rows = job_input.condition_inputs(cfg, None)
@@ -380,7 +380,7 @@ def test_current_condition_flow_uses_prepared_fractional_pore_area(window, dimen
 
 def test_worker_passes_native_contract_and_reports_cancellation(window, tmp_path, monkeypatch):
     page = window.optimization
-    from sjtu_tpmshx.applications.optimization import multi_condition_optimizer as native
+    from tm1.applications.optimization import multi_condition_optimizer as native
     cfg = page.capture_case()
     rows = [condition()]
     conditions = job_input.condition_inputs(cfg, rows)
@@ -465,7 +465,7 @@ def test_live_status_keeps_active_later_conditions_visible(window):
 @pytest.mark.parametrize('failure', ['cancelled', 'error'])
 def test_presearch_stop_preserves_previous_report_and_archive(window, tmp_path, monkeypatch, failure):
     page = window.optimization
-    from sjtu_tpmshx.run_control.cancellation import CancelledError
+    from tm1.run_control.cancellation import CancelledError
     from tests.python.gui_worker_support import _wait_for
     previous = report(window)
     archive_candidate(window, previous, tmp_path / 'previous')
@@ -488,7 +488,7 @@ def test_presearch_stop_preserves_previous_report_and_archive(window, tmp_path, 
 @pytest.mark.parametrize('save_failure', [False, True])
 def test_proposal_error_restores_pareto_only_after_saved_terminal(window, tmp_path, monkeypatch, save_failure):
     page = window.optimization
-    from sjtu_tpmshx.applications.optimization import multi_condition_optimizer as search
+    from tm1.applications.optimization import multi_condition_optimizer as search
     from tests.python.gui_worker_support import _wait_for
     from tests.python.optimization_support import _fake_batches
     from tests.python.optimization_support import _checkpoint_fault
@@ -525,8 +525,8 @@ def test_single_condition_prepares_in_worker_and_can_cancel_before_checkpoint(
     import threading
     from PySide6.QtCore import QThread, QTimer
     from PySide6.QtWidgets import QApplication
-    from sjtu_tpmshx.preprocess import api
-    from sjtu_tpmshx.applications.optimization import multi_condition_optimizer as native
+    from tm1.preprocess import api
+    from tm1.applications.optimization import multi_condition_optimizer as native
     from tests.python.gui_worker_support import _wait_for
     entered, release = threading.Event(), threading.Event()
     prepare = api.prepare_case
@@ -588,7 +588,7 @@ def test_single_condition_prepares_in_worker_and_can_cancel_before_checkpoint(
 def test_thread_terminal_state_retained_until_actual_exit(window, tmp_path, monkeypatch, status, exit_first):
     page = window.optimization
     import threading
-    from sjtu_tpmshx.applications.optimization import multi_condition_optimizer as native
+    from tm1.applications.optimization import multi_condition_optimizer as native
     from tests.python.gui_worker_support import _wait_for
     page.conditions = [condition()]
     release = threading.Event()
@@ -669,7 +669,7 @@ def test_pareto_render_failure_keeps_numerical_terminal_and_disables_half_plot(
     page = window.optimization
     import sys
     from pathlib import Path
-    from sjtu_tpmshx.applications.optimization import multi_condition_optimizer as native
+    from tm1.applications.optimization import multi_condition_optimizer as native
     from tests.python.gui_worker_support import _wait_for
     study = report(window, status=status)
     page.report = deepcopy(study)
@@ -732,8 +732,8 @@ def test_cancel_checkpoint_read_failure_reaches_error_terminal(window, tmp_path,
     page = window.optimization
     import sys
     from pathlib import Path
-    from sjtu_tpmshx.run_control.cancellation import CancelledError
-    from sjtu_tpmshx.applications.optimization import multi_condition_optimizer as native
+    from tm1.run_control.cancellation import CancelledError
+    from tm1.applications.optimization import multi_condition_optimizer as native
     from tests.python.gui_worker_support import _wait_for
     previous = report(window)
     cancelled = report(window, status='cancelled')
@@ -779,15 +779,15 @@ def test_cancel_checkpoint_read_failure_reaches_error_terminal(window, tmp_path,
 @pytest.mark.parametrize('dimension', [0, 1])
 def test_pareto_keeps_relative_objectives_and_full_field_through_save_replay(window, dimension, tmp_path, monkeypatch):
     page = window.optimization
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
-    from sjtu_tpmshx.preprocess.api import prepare_case
-    from sjtu_tpmshx.data_types.compute_result import ComputeResult
+    from tm1.applications.gui.ui.window_config import config_from_window
+    from tm1.preprocess.api import prepare_case
+    from tm1.data_types.compute_result import ComputeResult
     window.combo_dim.setCurrentIndex(dimension)
     study = report(window)
     archived_case, _ = archive_candidate(window, study, tmp_path)
     page.report = deepcopy(study)
     page.show_pareto(study)
-    from sjtu_tpmshx.applications.gui.ui.symbols import MPL
+    from tm1.applications.gui.ui.symbols import MPL
     ax = page.pareto_canvas.figure.axes[0]
     assert ax.get_xlabel() == MPL['pr_ratio']
     assert ax.get_ylabel() == MPL['hg_pct']
@@ -821,7 +821,7 @@ def test_pareto_keeps_relative_objectives_and_full_field_through_save_replay(win
     mode = '3d' if dimension else '2d'
     window.cache.set_result(mode, case_result)
     with monkeypatch.context() as click:
-        click.setattr('sjtu_tpmshx.preprocess.api.prepare_case',
+        click.setattr('tm1.preprocess.api.prepare_case',
                       lambda *args, **kwargs: pytest.fail('Pareto click recomputed preparation'))
         pick_front(page)
         assert window.case_files.capture_current_preset('before-pick') == original
@@ -878,7 +878,7 @@ def test_stale_result_cannot_be_loaded_into_other_geometry(window):
 def test_field_preview_reports_native_failures_and_clears_old_volume(window, monkeypatch, dimension, error_type):
     page = window.optimization
     from unittest.mock import Mock
-    from sjtu_tpmshx.cpp_interface import _native_continuous
+    from tm1.cpp_interface import _native_continuous
 
     window.combo_dim.setCurrentIndex(dimension)
     page.report = study = report(window)
@@ -995,7 +995,7 @@ def test_volume_tab_is_lazy_reuses_panel_and_keeps_failed_updates_unavailable(wi
     page = window.optimization
     from PySide6.QtWidgets import QWidget
     from unittest.mock import Mock
-    from sjtu_tpmshx.applications.gui.ui import panel_vis_3d
+    from tm1.applications.gui.ui import panel_vis_3d
 
     created = []
 
@@ -1066,7 +1066,7 @@ def test_volume_tab_is_lazy_reuses_panel_and_keeps_failed_updates_unavailable(wi
 
 def test_missing_or_mismatched_archive_keeps_current_design(window, tmp_path, monkeypatch):
     page = window.optimization
-    from sjtu_tpmshx.file_io.case_io import save_case
+    from tm1.file_io.case_io import save_case
     study = report(window)
     case, batch = archive_candidate(window, study, tmp_path)
     page.report = study
@@ -1074,7 +1074,7 @@ def test_missing_or_mismatched_archive_keeps_current_design(window, tmp_path, mo
     original = asdict(page.capture_case())
     page.show_pareto(study)
     pick_front(page)
-    monkeypatch.setattr('sjtu_tpmshx.preprocess.api.prepare_case',
+    monkeypatch.setattr('tm1.preprocess.api.prepare_case',
                         lambda *args, **kwargs: pytest.fail('Missing archive caused new preparation'))
     for damage in ('missing', 'condition', 'flow', 'case_id', 'config', 'vector', 'speed'):
         changed = deepcopy(batch)
@@ -1084,7 +1084,7 @@ def test_missing_or_mismatched_archive_keeps_current_design(window, tmp_path, mo
         if damage == 'flow': changed['conditions'][0]['mass_flow_A_kg_s'] *= 2
         if damage == 'case_id': changed['conditions'][0]['case_id'] = 'other'
         if damage in ('config', 'vector', 'speed'):
-            from sjtu_tpmshx.data_types.portable_data import mutable_data
+            from tm1.data_types.portable_data import mutable_data
             snapshot = mutable_data(case.config_snapshot)
             if damage == 'config': snapshot['df_mode'] = 'cfd_smooth'
             elif damage == 'vector': snapshot['zones']['config']['x_decision'][0] += .1
@@ -1160,8 +1160,8 @@ def test_worker_checkpoint_error_keeps_cause_and_rejects_stale_results(
         window, tmp_path, monkeypatch, failure):
     page = window.optimization
     from pathlib import Path
-    from sjtu_tpmshx.run_control.cancellation import CancelledError
-    from sjtu_tpmshx.applications.optimization import multi_condition_optimizer as native
+    from tm1.run_control.cancellation import CancelledError
+    from tm1.applications.optimization import multi_condition_optimizer as native
     from tests.python.gui_worker_support import _wait_for
     previous = report(window)
     page.report = deepcopy(previous)
@@ -1225,8 +1225,8 @@ def test_mass_requirements_import_and_current_condition_reset(window, tmp_path, 
 def test_mass_result_display_and_exports_keep_feasibility(window, tmp_path, feasible, attained, allow_extrapolation, outlet_limit):
     page = window.optimization
     import csv
-    from sjtu_tpmshx.applications.optimization.pareto_io import export_pareto_data
-    from sjtu_tpmshx.applications.optimization.export_ntop_csv import export_study_design
+    from tm1.applications.optimization.pareto_io import export_pareto_data
+    from tm1.applications.optimization.export_ntop_csv import export_study_design
     from tests.python.test_mass_design import requirements
     study = report(window)
     study.update(method='qlognei', mass_requirements=dict(requirements(('one',)),

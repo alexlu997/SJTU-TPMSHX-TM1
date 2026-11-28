@@ -8,9 +8,9 @@ import warnings
 
 import numpy as np
 
-from sjtu_tpmshx.cpp_interface import _native_df, _native_geometry
+from tm1.cpp_interface import _native_df, _native_geometry
 
-from sjtu_tpmshx.model_configs.model_parameters import (
+from tm1.model_configs.model_parameters import (
     CO2_RESOURCE as DATA_PATH, load_co2_coefficients, load_model_parameters)
 
 _APPLICATION = load_model_parameters()['co2_application']
@@ -35,7 +35,7 @@ def _topology(tpms):
 
 
 def _observe(tpms, quantity, values, bounds):
-    from sjtu_tpmshx.cpp_interface._native_result_checks import record_range
+    from tm1.cpp_interface._native_result_checks import record_range
     if record_range(('nu' if quantity == 'Re' else 'nu_pr', 'co2', tpms), values, bounds,
                     label=f'[CO2 Nu extrap] {tpms}', quantity=quantity, unit='-'):
         return
@@ -53,7 +53,7 @@ def nusselt(tpms, Re, Pr, L_mm, Dh_mm):
     """Fixed 1.28 times exp(b0+b1*x+b2*y+b3*z+b4*x*x)."""
     re, pr, cell, dh = np.broadcast_arrays(
         *(np.asarray(v, dtype=float) for v in (Re, Pr, L_mm, Dh_mm)))
-    from sjtu_tpmshx.cpp_interface import _native_properties
+    from tm1.cpp_interface import _native_properties
     prepared, _ = _native_properties.nu_inputs(4, re, pr=pr, cell=cell, diameter=dh)
     _observe(tpms, 'Re', re, RE_RANGE)
     _observe(tpms, 'Pr', pr, coefficients()['bounds']['Pr'])
@@ -83,7 +83,7 @@ def uses_co2(config):
 
 def apply_drag(K, cF):
     """Apply the fixed factor once to the common CFD base, on a CO2 side."""
-    from sjtu_tpmshx.physical_models.df_surrogate.experimental_correction import (
+    from tm1.physical_models.df_surrogate.experimental_correction import (
         apply_prepared_correction)
     scale_K, scale_F = _native_df.co2_factors()
     return apply_prepared_correction(K, cF, dict(
@@ -94,7 +94,7 @@ def apply_drag(K, cF):
 def model_metadata(config):
     if not uses_co2(config):
         return {}
-    from sjtu_tpmshx.physical_models.df_surrogate.predict import SCO2_DF_METHOD
+    from tm1.physical_models.df_surrogate.predict import SCO2_DF_METHOD
     scale_K, scale_F = _native_df.co2_factors()
     return {'co2': dict(
         version=VERSION, application_version=APPLICATION_VERSION,

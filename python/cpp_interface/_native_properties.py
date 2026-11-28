@@ -250,7 +250,7 @@ def sco2_scalar_pressure(pressure):
     try:
         sco2_validate(np.empty(0, dtype=np.float64), pressure)
     except StateError:
-        from sjtu_tpmshx.model_configs.model_parameters import load_model_parameters
+        from tm1.model_configs.model_parameters import load_model_parameters
         lo, hi = load_model_parameters()['sco2']['pressure_range_Pa']
         raise ValueError(f'sCO2 pressure must be within {lo/1e6:g}..{hi/1e6:g} MPa') from None
 

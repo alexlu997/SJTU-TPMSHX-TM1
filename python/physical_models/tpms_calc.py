@@ -39,11 +39,11 @@ from . import preparation_cache
 import sys
 import warnings
 import numpy as np  # noqa: F401 - preserve existing module surface
-from sjtu_tpmshx.run_control.run_warnings import (
+from tm1.run_control.run_warnings import (
     cache_warning_records, current_warnings, merge_warnings,
 )
 from .tpms_geometry import compute_geometry as _tpms_geom
-from sjtu_tpmshx.cpp_interface import inlet_properties
+from tm1.cpp_interface import inlet_properties
 
 # Geometry and property primitives live in tpms_props. Current consumers may
 # also import the explicitly re-exported names from models.tpms_calc.
@@ -54,9 +54,9 @@ from .tpms_props import (  # noqa: F401 — re-exports
     water_conductivity, water_cp, water_density, water_viscosity,
     _warn_range_once,
 )
-from sjtu_tpmshx.physical_models.df_surrogate.predict import predict_K_cF, SCO2_DF_METHOD  # noqa: F401 - public re-exports
+from tm1.physical_models.df_surrogate.predict import predict_K_cF, SCO2_DF_METHOD  # noqa: F401 - public re-exports
 
-from sjtu_tpmshx.run_control.logutil import get_logger
+from tm1.run_control.logutil import get_logger
 
 _log = get_logger(__name__)
 
@@ -117,7 +117,7 @@ def adaptive_grid(L_domain: float, H_domain: float,
     -------
     Nx, Ny : int
     """
-    from sjtu_tpmshx.cpp_interface._native_grid import adaptive
+    from tm1.cpp_interface._native_grid import adaptive
     return adaptive(L_domain, H_domain, D_h, alpha)
 
 
@@ -265,11 +265,11 @@ def compute(tpms_type: str,
     result = dict(result)
     fluid = fluid_type.strip().lower()
     if df_mode == EXPERIMENTAL and fluid != 'co2':
-        from sjtu_tpmshx.cpp_interface._native_df import pressure_gradient
+        from tm1.cpp_interface._native_df import pressure_gradient
         from .df_surrogate.experimental_correction import apply_correction
         K, cF, _ = apply_correction(tpms_type, fluid, L_cell_mm, t_mm, result['K_df'], result['cF_df'], u)
         result.update(K_df=K, cF_df=cF, dP_per_L=pressure_gradient(result['rho'], result['mu'], u, K, cF))
-    from sjtu_tpmshx.cpp_interface import _native_geometry
+    from tm1.cpp_interface import _native_geometry
     from .tpms_props import _resolve_chi_s
     eps = result['epsilon']
     material = _native_geometry.material_fields(tpms_type, eps, k_s, chi_s=_resolve_chi_s())

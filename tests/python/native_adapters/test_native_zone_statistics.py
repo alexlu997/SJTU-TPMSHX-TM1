@@ -6,9 +6,9 @@ import pytest
 
 from tests.python import zone_statistics_reference as reference
 from tests.python.native_adapters.test_native_result_balance import assert_observation, assert_values, observe
-from sjtu_tpmshx.cpp_interface import _native_result as core
-from sjtu_tpmshx.cpp_interface import _native_result_balance as native
-from sjtu_tpmshx.physical_models.zone_config import compute_zone_statistics
+from tm1.cpp_interface import _native_result as core
+from tm1.cpp_interface import _native_result_balance as native
+from tm1.physical_models.zone_config import compute_zone_statistics
 
 
 def _inputs(dtype=np.float64, shape=(17, 11), weights=None):
@@ -124,7 +124,7 @@ def test_speed_intermediates_return_float64():
 
 @pytest.mark.parametrize('label_dtype', [np.int32, np.int64, np.uint8])
 def test_saved_zone_summary_matches_independent_temperature_statistics(label_dtype):
-    from sjtu_tpmshx.cpp_interface._native_result_stage import _zone_temperatures
+    from tm1.cpp_interface._native_result_stage import _zone_temperatures
 
     data = _inputs(shape=(17, 11))
     data['Tb'] = data['Tb'].T.copy().T + 23.0
@@ -144,7 +144,7 @@ def test_saved_zone_summary_matches_independent_temperature_statistics(label_dty
 
 
 def test_saved_zone_summary_rejects_out_of_range_or_non_integer_labels():
-    from sjtu_tpmshx.cpp_interface._native_result_stage import _zone_temperatures
+    from tm1.cpp_interface._native_result_stage import _zone_temperatures
 
     data = _inputs(shape=(4, 4))
     widths = (np.ones(4), np.ones(4))

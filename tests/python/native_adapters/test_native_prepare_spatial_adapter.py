@@ -5,9 +5,9 @@ from dataclasses import asdict
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.file_io.case_io import load_case, save_case
-from sjtu_tpmshx.physical_models import sigmoid_field, tpms_calc, tpms_geometry
-from sjtu_tpmshx.preprocess import api
+from tm1.file_io.case_io import load_case, save_case
+from tm1.physical_models import sigmoid_field, tpms_calc, tpms_geometry
+from tm1.preprocess import api
 from tests.python import native_preparation_abi
 from tests.python.native_adapters.test_native_prepare_adapter import _capture, _same
 
@@ -84,8 +84,8 @@ def test_conflicting_spatial_material_keeps_public_rejection(monkeypatch, tmp_pa
 
 @pytest.mark.parametrize('mode', ['x', 'y', 'grid', 'sigmoid'])
 def test_spatial_host_does_not_reenter_python_preparation(monkeypatch, tmp_path, mode):
-    from sjtu_tpmshx.cpp_interface import _native_df, _native_geometry
-    from sjtu_tpmshx.physical_models.zone_config import ZoneConfig
+    from tm1.cpp_interface import _native_df, _native_geometry
+    from tm1.physical_models.zone_config import ZoneConfig
     config = configuration(monkeypatch, tmp_path, mode)
 
     def forbidden(*args, **kwargs):
@@ -169,7 +169,7 @@ def test_spatial_saved_case_round_trip(monkeypatch, tmp_path, mode):
 
 @pytest.mark.parametrize('operation,targets', [('full', None), ('capacity', None), ('full', (.001, .001))])
 def test_geometry_cache_queries_receive_initialized_storage(monkeypatch, tmp_path, operation, targets):
-    from sjtu_tpmshx.cpp_interface.preparation_host import PreparationCacheBridge
+    from tm1.cpp_interface.preparation_host import PreparationCacheBridge
     original = PreparationCacheBridge.geometry_at
     lookups = []
 
@@ -187,7 +187,7 @@ def test_geometry_cache_queries_receive_initialized_storage(monkeypatch, tmp_pat
 
 @pytest.mark.parametrize('value', [0., -1., float('nan'), float('inf')])
 def test_raw_spatial_model_rejects_invalid_conductivity(monkeypatch, tmp_path, value):
-    from sjtu_tpmshx.cpp_interface import native_preparation
+    from tm1.cpp_interface import native_preparation
     config = configuration(monkeypatch, tmp_path, 'x')
     original = native_preparation.pack_input
 

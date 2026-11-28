@@ -35,12 +35,12 @@ Convention
 from __future__ import annotations
 
 import warnings
-from sjtu_tpmshx.model_configs.model_parameters import load_model_parameters
-from sjtu_tpmshx.run_control.run_warnings import record_warning
+from tm1.model_configs.model_parameters import load_model_parameters
+from tm1.run_control.run_warnings import record_warning
 import numpy as np
-from sjtu_tpmshx.cpp_interface import _native_properties
-from sjtu_tpmshx.cpp_interface._native_result_checks import record_range
-from sjtu_tpmshx.cpp_interface._native_values import TOPOLOGY_CODES, geometry_topology
+from tm1.cpp_interface import _native_properties
+from tm1.cpp_interface._native_result_checks import record_range
+from tm1.cpp_interface._native_values import TOPOLOGY_CODES, geometry_topology
 
 # ── Constants ────────────────────────────────────────────────────────────
 
@@ -101,7 +101,7 @@ def record_air_nu_scalar_ranges(tpms_type, raw_Re):
     values = np.asarray(raw_Re, dtype=np.float64).ravel()
     if not values.size:
         return
-    from sjtu_tpmshx.cpp_interface import _native_result_checks
+    from tm1.cpp_interface import _native_result_checks
 
     lo, hi = NU_RE_FIT_RANGE
     for index in _native_result_checks.scalar_samples(values, lo, hi):
@@ -362,9 +362,9 @@ def sco2_effective_nu_config():
     """Load the current, explicitly selected C_eff calibration from one resource."""
     import json
     from importlib.resources import files
-    from sjtu_tpmshx.data_types.compute_config import Sco2NuConfig
+    from tm1.data_types.compute_config import Sco2NuConfig
 
-    resource = files('sjtu_tpmshx.model_configs').joinpath('sco2_effective_nu.json')
+    resource = files('tm1.model_configs').joinpath('sco2_effective_nu.json')
     return Sco2NuConfig(**json.loads(resource.read_text(encoding='utf-8'))).validate()
 
 
@@ -377,7 +377,7 @@ def nu_sco2_selected(tpms_type, Re, Pr, L_mm, D_h_mm, *, settings):
 def sco2_nu_metadata(settings):
     """Actual selected model, without attributing inactive parameters to CFD."""
     if settings is None:
-        from sjtu_tpmshx.data_types.compute_config import Sco2NuConfig
+        from tm1.data_types.compute_config import Sco2NuConfig
         settings = Sco2NuConfig()
     settings.validate()
     info = {'mode': settings.mode, 'model_version': 'sco2-cfd-common-multiplier-v1'}

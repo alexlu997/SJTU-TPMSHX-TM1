@@ -6,7 +6,7 @@ canonical vector paths.
 
 Per audit finding H1 (2026-05-28 4-perspective audit, plan Item 1).
 """
-from sjtu_tpmshx.physical_models.nu_correlations import NU_ROUGHNESS_FACTOR
+from tm1.physical_models.nu_correlations import NU_ROUGHNESS_FACTOR
 
 import numpy as np
 import pytest
@@ -32,7 +32,7 @@ def _ref_gyroid_smooth(Re, L_mm, D_h_mm, Pr=0.72):
 ])
 def test_nu_from_Re_matches_legacy_formula(tpms, Re, L_mm, D_h_mm, ref_func):
     """Scalar nu_from_Re must match frozen reference formula bit-exact."""
-    from sjtu_tpmshx.physical_models.nu_correlations import nu_from_Re, NU_ROUGHNESS_FACTOR
+    from tm1.physical_models.nu_correlations import nu_from_Re, NU_ROUGHNESS_FACTOR
     expected = NU_ROUGHNESS_FACTOR * ref_func(Re, L_mm, D_h_mm)
     actual = nu_from_Re(tpms, Re, eps_f=0.4, L_mm=L_mm, D_h_mm=D_h_mm)
     np.testing.assert_allclose(actual, expected, rtol=1e-15)
@@ -40,7 +40,7 @@ def test_nu_from_Re_matches_legacy_formula(tpms, Re, L_mm, D_h_mm, ref_func):
 
 def test_nu_vec_matches_scalar_path():
     """Vector path must produce identical values to scalar (modulo Re floor)."""
-    from sjtu_tpmshx.physical_models.nu_correlations import nu_from_Re, nu_vec
+    from tm1.physical_models.nu_correlations import nu_from_Re, nu_vec
     Re_arr = np.array([500.0, 2000.0, 8000.0])
     L_mm, D_h_mm = 7.0, 1.5
     for tpms in ('Diamond', 'Gyroid'):
@@ -54,7 +54,7 @@ def test_nu_vec_matches_scalar_path():
 
 def test_nu_vec_applies_re_floor_at_10():
     """The vector closure retains its Re=10 lower bound."""
-    from sjtu_tpmshx.physical_models.nu_correlations import nu_vec
+    from tm1.physical_models.nu_correlations import nu_vec
     Re_below = np.array([5.0, 1.0, 0.0])
     Re_at_10 = np.array([10.0, 10.0, 10.0])
     out_floored = nu_vec('Diamond', Re_below, 7.0, 1.5)
@@ -64,7 +64,7 @@ def test_nu_vec_applies_re_floor_at_10():
 
 def test_nu_water_pr_substitution():
     """Water Nu = air Nu × (Pr_water / Pr_air)^(1/3) (Reynolds analogy)."""
-    from sjtu_tpmshx.physical_models.nu_correlations import nu_from_Re, Pr_AIR
+    from tm1.physical_models.nu_correlations import nu_from_Re, Pr_AIR
     from tests.python.water_nu_reference import nu_water_from_Re
     Pr_w = 6.0
     air = nu_from_Re('Gyroid', 1000.0, eps_f=0.4, L_mm=7.0, D_h_mm=1.5)
@@ -76,10 +76,10 @@ def test_nu_water_pr_substitution():
 
 def test_calculator_matches_canonical_nu():
     """Calculator and canonical Nu correlation return the same physical value."""
-    from sjtu_tpmshx.physical_models import tpms_calc
+    from tm1.physical_models import tpms_calc
     assert abs(NU_ROUGHNESS_FACTOR - 1.28) < 1e-15
     Nu = tpms_calc.nu_from_Re('Diamond', 1000.0, 0.4, 7.0, 1.5)
-    from sjtu_tpmshx.physical_models.nu_correlations import nu_from_Re
+    from tm1.physical_models.nu_correlations import nu_from_Re
     assert abs(Nu - nu_from_Re('Diamond', 1000.0, 0.4, 7.0, 1.5)) < 1e-15
 
 
@@ -92,7 +92,7 @@ def test_nu_roughness_factor_locked_at_1p28():
     Locking the constant here prevents accidental drift back to 1.0
     (which would silently push every Shanghai bias by ~+10% relative).
     """
-    from sjtu_tpmshx.physical_models import tpms_calc
+    from tm1.physical_models import tpms_calc
     assert abs(NU_ROUGHNESS_FACTOR - 1.28) < 1e-9, (
         f"NU_ROUGHNESS_FACTOR={NU_ROUGHNESS_FACTOR} != 1.28. "
         "If you intentionally re-tuned it, update this test with the new "
@@ -113,7 +113,7 @@ def test_nu_roughness_factor_locked_at_1p28():
         f"vs expected {expected:.4f} (smooth-wall Nu={Nu_smooth:.4f}).")
 
     # The canonical vector path must use the same roughness constant.
-    from sjtu_tpmshx.physical_models.nu_correlations import nu_vec
+    from tm1.physical_models.nu_correlations import nu_vec
     Re_arr = np.array([[Re_test]])
     L_arr = np.array([[L_mm]])
     Nu_vec = nu_vec('Gyroid', Re_arr, L_arr, D_h_mm)
@@ -122,7 +122,7 @@ def test_nu_roughness_factor_locked_at_1p28():
         f"Got {float(Nu_vec[0,0]):.4f} vs expected {expected:.4f}.")
 
 def test_nu_vec_broadcasts_geometry_arrays():
-    from sjtu_tpmshx.physical_models.nu_correlations import nu_vec
+    from tm1.physical_models.nu_correlations import nu_vec
     Re_arr = np.array([[1000.0], [2000.0]])
     L_arr = np.array([7.0, 8.0])
     D_h_arr = np.array([1.5, 2.0])
@@ -135,8 +135,8 @@ def test_nu_vec_broadcasts_geometry_arrays():
 
 @pytest.mark.parametrize('fluid', ['air', 'water', 'sco2'])
 def test_source_statistics_precede_floor_without_changing_nu(fluid):
-    from sjtu_tpmshx.run_control.run_warnings import warning_scope
-    from sjtu_tpmshx.physical_models import nu_correlations as nu
+    from tm1.run_control.run_warnings import warning_scope
+    from tm1.physical_models import nu_correlations as nu
 
     raw = np.array([0., .1, 5000.])
     if fluid == 'air':

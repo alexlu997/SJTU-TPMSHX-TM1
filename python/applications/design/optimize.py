@@ -7,14 +7,14 @@ import numpy as np
 from scipy.optimize import minimize
 
 from .sizing import size_fixed_cell, Design, RHO_S
-from sjtu_tpmshx.model_configs.model_parameters import load_quick_design_parameters
+from tm1.model_configs.model_parameters import load_quick_design_parameters
 
 _QUICK_PARAMETERS = load_quick_design_parameters()
 K_STEEL = _QUICK_PARAMETERS['k_s']
-from sjtu_tpmshx.run_control.module_ports import RunControl
+from tm1.run_control.module_ports import RunControl
 
 # The optimizer uses the limits of the CFD training grid in millimeters.
-from sjtu_tpmshx.model_configs.df_domain import TRAIN_L as L_BOUNDS, TRAIN_T as T_BOUNDS
+from tm1.model_configs.df_domain import TRAIN_L as L_BOUNDS, TRAIN_T as T_BOUNDS
 
 def warm_start_joint(cases, baseline: Design, arrangement: str = "cross",
                      maxiter: int = 20, rho_s: float = RHO_S,

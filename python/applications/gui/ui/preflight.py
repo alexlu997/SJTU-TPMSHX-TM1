@@ -24,8 +24,8 @@ from typing import List, Optional
 
 import numpy as np
 
-from sjtu_tpmshx.data_types.validator import cross_axes_for_dir
-from sjtu_tpmshx.physical_models.grid import (
+from tm1.data_types.validator import cross_axes_for_dir
+from tm1.physical_models.grid import (
     build_grid_2d, build_port_wall_grid,
 )
 

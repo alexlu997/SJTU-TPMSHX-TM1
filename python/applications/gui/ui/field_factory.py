@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from sjtu_tpmshx.data_types.validator import EXACT_CONTEXT
+from tm1.data_types.validator import EXACT_CONTEXT
 
 __all__ = [
     "FieldFactory",
@@ -38,7 +38,7 @@ def default_factory() -> "FieldFactory":
     """Return the installed factory or build one backed by a fresh ThemeManager."""
     global _FACTORY
     if _FACTORY is None:
-        from sjtu_tpmshx.applications.gui.ui.theme_manager import ThemeManager
+        from tm1.applications.gui.ui.theme_manager import ThemeManager
 
         _FACTORY = FieldFactory(ThemeManager())
     return _FACTORY
@@ -215,7 +215,7 @@ class UnitLineEdit(QLineEdit):
         self._apply_suffix(self._display_unit)
 
     def _apply_suffix(self, text: str) -> None:
-        from sjtu_tpmshx.applications.gui.ui.theme import get_theme
+        from tm1.applications.gui.ui.theme import get_theme
 
         self._unit = (text or "").strip()
         if self._unit:
@@ -258,7 +258,7 @@ class UnitLineEdit(QLineEdit):
         raw = self.text().strip()
         if not raw:
             return raw
-        from sjtu_tpmshx.applications.gui.ui.fmt import display_number
+        from tm1.applications.gui.ui.fmt import display_number
 
         return display_number(raw, scale=self._display_scale)
 

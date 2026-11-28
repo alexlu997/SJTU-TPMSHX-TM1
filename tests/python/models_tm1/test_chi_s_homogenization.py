@@ -11,10 +11,10 @@ Covers:
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.development.runs.tools import homogenize_chi_s as hom
+from tm1.development.runs.tools import homogenize_chi_s as hom
 
-from sjtu_tpmshx.physical_models.tpms_props import chi_s_eff, geometry
-from sjtu_tpmshx.physical_models.tpms_calc import compute as tpms_compute
+from tm1.physical_models.tpms_props import chi_s_eff, geometry
+from tm1.physical_models.tpms_calc import compute as tpms_compute
 
 
 

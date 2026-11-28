@@ -5,7 +5,7 @@ import sys
 import pandas as pd
 import pytest
 
-from sjtu_tpmshx.development.validation.harness import _provenance as provenance
+from tm1.development.validation.harness import _provenance as provenance
 
 
 DRIVERS = [
@@ -16,7 +16,7 @@ DRIVERS = [
 
 @pytest.mark.parametrize('name,args,filenames', DRIVERS)
 def test_default_driver_runs_write_separately(monkeypatch, tmp_path, name, args, filenames):
-    module = importlib.import_module(f'sjtu_tpmshx.development.validation.cases.{name}')
+    module = importlib.import_module(f'tm1.development.validation.cases.{name}')
     monkeypatch.setattr(provenance, 'REPO_ROOT', tmp_path / 'package')
     references = {p: p.read_bytes() for p in provenance.REFERENCE_DIR.glob('*.csv')}
     monkeypatch.setattr(module, 'run_c1', lambda cid, **kw:
@@ -40,7 +40,7 @@ def test_default_driver_runs_write_separately(monkeypatch, tmp_path, name, args,
 @pytest.mark.parametrize('name,option,reference', [('phase_c_gci', '--out-dir', '')])
 def test_explicit_reference_destination_rejected_before_solve(
         monkeypatch, capsys, name, option, reference):
-    module = importlib.import_module(f'sjtu_tpmshx.development.validation.cases.{name}')
+    module = importlib.import_module(f'tm1.development.validation.cases.{name}')
 
     def forbidden(*args, **kwargs):
         pytest.fail('Solver called before rejecting reference output')
@@ -71,7 +71,7 @@ def test_shared_writer_rejects_reference_symlink(tmp_path):
 
 
 def test_gci_rejects_retired_case_before_starting_any_case(monkeypatch, capsys):
-    from sjtu_tpmshx.development.validation.cases import phase_c_gci
+    from tm1.development.validation.cases import phase_c_gci
 
     def forbidden(*args, **kwargs):
         pytest.fail('Started a case before rejecting the retired case list')

@@ -1,5 +1,5 @@
 """Report inlet and geometry observations from the preparation model."""
-from sjtu_tpmshx.run_control.run_warnings import _range_context, current_warnings, merge_warnings
+from tm1.run_control.run_warnings import _range_context, current_warnings, merge_warnings
 
 
 def range_notices(key, record, cached, scalar, *, records=None):
@@ -11,7 +11,7 @@ def range_notices(key, record, cached, scalar, *, records=None):
     merge_warnings(records, [{key[:-1]: record}])
     if cached or current_warnings() is not None or scalar is None:
         return ()
-    from sjtu_tpmshx.physical_models import tpms_props, nu_correlations, co2_correlations
+    from tm1.physical_models import tpms_props, nu_correlations, co2_correlations
     source = key[:-2]
     if source[0] == 'property':
         notice = tpms_props._range_notice(source[1], scalar, scalar, *record.bounds)

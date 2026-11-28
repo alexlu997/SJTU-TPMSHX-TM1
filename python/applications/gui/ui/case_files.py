@@ -5,16 +5,16 @@ import json
 
 from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox, QTableWidgetItem
 
-from sjtu_tpmshx.applications.gui.controllers.session_manager import SessionManager
-from sjtu_tpmshx.applications.gui.ui.field_factory import _format_decimal_exact
-from sjtu_tpmshx.applications.gui.ui.window_config import DOMAIN_SHAPE_NOTICE, LINE_EDITS, validate_domain_shape
-from sjtu_tpmshx.applications.gui.ui.ui_constants import TOAST_MS_MED
-from sjtu_tpmshx.data_types.validator import convert_temp_decimal, temp_text_to_kelvin
+from tm1.applications.gui.controllers.session_manager import SessionManager
+from tm1.applications.gui.ui.field_factory import _format_decimal_exact
+from tm1.applications.gui.ui.window_config import DOMAIN_SHAPE_NOTICE, LINE_EDITS, validate_domain_shape
+from tm1.applications.gui.ui.ui_constants import TOAST_MS_MED
+from tm1.data_types.validator import convert_temp_decimal, temp_text_to_kelvin
 
 
 def shanghai_field_defaults(*, is_3d: bool) -> dict[str, str]:
     """Recorded April 1 case-8 inputs, with temperatures in K."""
-    from sjtu_tpmshx.physical_models.grid import SHANGHAI_GRID_2D, SHANGHAI_GRID_3D
+    from tm1.physical_models.grid import SHANGHAI_GRID_2D, SHANGHAI_GRID_3D
     values = {
         # Source: water-air_G7-t0p6_shanghai_experiment_20260401.xlsx,
         # Sheet1 row 10. Flow targets use F10*K10/I10 and H10*L10/J10.
@@ -72,7 +72,7 @@ class CaseFiles:
 
     def set_shanghai_grid(self, *, is_3d):
         window = self.window
-        from sjtu_tpmshx.physical_models.grid import SHANGHAI_GRID_2D, SHANGHAI_GRID_3D
+        from tm1.physical_models.grid import SHANGHAI_GRID_2D, SHANGHAI_GRID_3D
         counts = SHANGHAI_GRID_3D if is_3d else SHANGHAI_GRID_2D
         for axis, count in zip('xyz', counts):
             getattr(window, 'le_N' + axis).setText(str(count))
@@ -88,7 +88,7 @@ class CaseFiles:
         """Explicitly replace draft parameters with the current total amplitudes."""
         window = self.window
         from dataclasses import asdict
-        from sjtu_tpmshx.physical_models.nu_correlations import sco2_effective_nu_config
+        from tm1.physical_models.nu_correlations import sco2_effective_nu_config
 
         self.set_sco2_nu_parameters(asdict(sco2_effective_nu_config()))
         window.combo_sco2_nu_mode.setCurrentIndex(
@@ -97,7 +97,7 @@ class CaseFiles:
     def set_sco2_nu_parameters(self, payload):
         window = self.window
         from dataclasses import asdict
-        from sjtu_tpmshx.data_types.compute_config import Sco2NuConfig
+        from tm1.data_types.compute_config import Sco2NuConfig
         settings = Sco2NuConfig(**payload).validate()
         window._sco2_nu_parameters = asdict(settings) if payload else {}
         label = getattr(window, 'lbl_sco2_nu_parameters', None)
@@ -105,7 +105,7 @@ class CaseFiles:
             label.setText(f"Ceff: G={settings.alpha_G}, D={settings.alpha_D}\n{settings.parameter_version}"
                           if settings.parameter_version else "未导入标定参数")
             label.setToolTip(f"{settings.source}\n{settings.applicability}")
-        from sjtu_tpmshx.applications.gui.ui.builders_sidebar import refresh_stale_indicator
+        from tm1.applications.gui.ui.builders_sidebar import refresh_stale_indicator
         refresh_stale_indicator(window)
 
     def resync_undo_baseline(self):
@@ -262,7 +262,7 @@ class CaseFiles:
             for r, row in enumerate(rows):
                 for c, value in enumerate(row):
                     table.setItem(r, c, QTableWidgetItem(value))
-            from sjtu_tpmshx.applications.gui.ui.zone_table import zone_resize
+            from tm1.applications.gui.ui.zone_table import zone_resize
             zone_resize(window)
             window._pareto_x_decision = zones['pareto_x_decision']
             window._pareto_y_trans_inlet = zones['pareto_y_trans_inlet']
@@ -276,7 +276,7 @@ class CaseFiles:
         self.active_preset_name = (source_name if source_name is not None
                                     else preset.get('name')) or None
         # Fluid signals are blocked above to preserve the preset's inputs.
-        from sjtu_tpmshx.applications.gui.ui.builders_fluids import refresh_fluid_model_visibility
+        from tm1.applications.gui.ui.builders_fluids import refresh_fluid_model_visibility
         refresh_fluid_model_visibility(window)
         if notice and show_notice:
             QMessageBox.information(window, "工况设置已更新", notice)
@@ -311,7 +311,7 @@ class CaseFiles:
         if not isinstance(preset, dict):
             raise ValueError('Preset must be a JSON object.')
         if 'ui_state' in preset:
-            from sjtu_tpmshx.applications.gui.ui.vis3d_constants import validate_color_range_state
+            from tm1.applications.gui.ui.vis3d_constants import validate_color_range_state
             if not isinstance(preset['ui_state'], dict):
                 raise ValueError('Invalid saved UI state')
             views = preset['ui_state'].get('volume_color_ranges', {})
@@ -323,7 +323,7 @@ class CaseFiles:
                                       'optimization_mass_requirements', 'optimization_bounds'} != {'name', 'temp_unit', 'line_edits',
                                        'combos', 'checks', 'zone_inputs'}:
             raise ValueError('Incomplete or unsupported preset fields.')
-        from sjtu_tpmshx.data_types.compute_config import Sco2NuConfig
+        from tm1.data_types.compute_config import Sco2NuConfig
         from dataclasses import replace
         parameters = Sco2NuConfig(**preset.get('sco2_nu_parameters', {})).validate()
         temp_unit = preset.get('temp_unit', 'K')
@@ -335,13 +335,13 @@ class CaseFiles:
         conditions = preset.get('optimization_conditions')
         requirements = preset.get('optimization_mass_requirements')
         if conditions is not None or requirements is not None:
-            from sjtu_tpmshx.applications.optimization.optimization_job import validate_condition_table
+            from tm1.applications.optimization.optimization_job import validate_condition_table
             table = {'conditions': conditions}
             if requirements is not None:
                 table['mass_requirements'] = requirements
             validate_condition_table(table)
         if 'optimization_bounds' in preset:
-            from sjtu_tpmshx.data_types.compute_config import ZoneInputConfig
+            from tm1.data_types.compute_config import ZoneInputConfig
             bounds = preset['optimization_bounds']
             if (not isinstance(bounds, dict) or set(bounds) != {'L', 't'}
                     or any(not isinstance(pair, list) or len(pair) != 2 for pair in bounds.values())):
@@ -430,7 +430,7 @@ class CaseFiles:
                     raise ValueError(f'Invalid checkbox: {name}')
         continuous = preset.get('continuous_field')
         if continuous is not None:
-            from sjtu_tpmshx.data_types.compute_config import ZoneInputConfig
+            from tm1.data_types.compute_config import ZoneInputConfig
             ZoneInputConfig(enabled=True, axis='continuous', config=continuous).validate()
             if ('n_ctrl_z' in continuous) != (combos.get('combo_dim') == 1):
                 raise ValueError('Continuous field dimension must match the saved case')
@@ -590,7 +590,7 @@ class CaseFiles:
         cur = self.active_workspace
         if cur == new:
             return
-        from sjtu_tpmshx.applications.gui.ui.background_tasks import has_active_tasks
+        from tm1.applications.gui.ui.background_tasks import has_active_tasks
         if has_active_tasks(window):
             QMessageBox.information(
                 window, "任务仍在运行", "请等待当前任务结束后再切换工作区。")
@@ -659,7 +659,7 @@ class CaseFiles:
         # Keep capture pure: partial-import validation also reads that snapshot.
         window._refresh_field_validation()
         payload = self.capture_current_preset('Last session')
-        from sjtu_tpmshx.applications.gui.ui.window_config import inlet_input_active
+        from tm1.applications.gui.ui.window_config import inlet_input_active
         if any(getattr(window, name).property('inpError') == 'true'
                for name in self.SESSION_LINE_EDITS if inlet_input_active(window, name)):
             return False
@@ -807,7 +807,7 @@ class CaseFiles:
         try:
             from pathlib import Path
             from dataclasses import asdict, replace
-            from sjtu_tpmshx.data_types.compute_config import Sco2NuConfig
+            from tm1.data_types.compute_config import Sco2NuConfig
             settings = Sco2NuConfig(**json.loads(Path(path).read_text(encoding='utf-8')))
             replace(settings, mode='experimental').validate()
             self.set_sco2_nu_parameters(asdict(settings))

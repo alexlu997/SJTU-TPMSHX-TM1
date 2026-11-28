@@ -11,9 +11,9 @@ from tests.python.native.test_result_metrics import (
     assert_observation, observe, quick_result,
 )
 from tests.python.result_stage_fixture import thaw
-from sjtu_tpmshx.postprocess import api as native
-from sjtu_tpmshx.data_types.metric_spec import MetricSpec
-from sjtu_tpmshx.file_io.result_io import load_result
+from tm1.postprocess import api as native
+from tm1.data_types.metric_spec import MetricSpec
+from tm1.file_io.result_io import load_result
 
 
 def observed_evaluation(function, result, spec):

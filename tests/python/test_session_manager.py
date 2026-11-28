@@ -14,7 +14,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 from PySide6.QtCore import QCoreApplication
 
-from sjtu_tpmshx.applications.gui.controllers.session_manager import SessionManager, SCHEMA_VERSION
+from tm1.applications.gui.controllers.session_manager import SessionManager, SCHEMA_VERSION
 
 
 def _app():
@@ -52,7 +52,7 @@ def test_session_path_invalid_workspace_raises(sm):
 
 def test_default_base_dir_is_user_data_dir(tmp_path, monkeypatch):
     """Default construction uses the same stable directory as GUI history."""
-    monkeypatch.setattr('sjtu_tpmshx.applications.gui.controllers.session_manager.user_data_dir',
+    monkeypatch.setattr('tm1.applications.gui.controllers.session_manager.user_data_dir',
                         lambda: tmp_path)
     sm = SessionManager()
     assert sm.base_dir == tmp_path
@@ -213,7 +213,7 @@ def test_invalid_utf8_falls_back_and_preserves_bytes_after_save(
 def test_interleaved_json_saves_never_damage_completed_save(
         sm, monkeypatch, save_method, path_method, first, second, first_fails):
     """Pause A after opening its file; complete B, then finish or fail A."""
-    from sjtu_tpmshx.applications.gui.controllers import session_manager
+    from tm1.applications.gui.controllers import session_manager
 
     save = getattr(sm, save_method)
     path = getattr(sm, path_method)()
@@ -250,7 +250,7 @@ def test_interleaved_json_saves_never_damage_completed_save(
 
 
 def test_interleaved_workspace_saves_last_complete_replacement_wins(sm, monkeypatch):
-    from sjtu_tpmshx.applications.gui.controllers import session_manager
+    from tm1.applications.gui.controllers import session_manager
 
     original_fsync = session_manager.os.fsync
     nested = False
@@ -276,7 +276,7 @@ def test_interleaved_workspace_saves_last_complete_replacement_wins(sm, monkeypa
 ])
 def test_failed_replacement_keeps_target_and_removes_only_own_temporary(
         sm, monkeypatch, save_method, path_method, first, second):
-    from sjtu_tpmshx.applications.gui.controllers import session_manager
+    from tm1.applications.gui.controllers import session_manager
 
     save = getattr(sm, save_method)
     path = getattr(sm, path_method)()

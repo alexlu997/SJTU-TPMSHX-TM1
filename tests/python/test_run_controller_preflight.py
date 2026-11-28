@@ -9,16 +9,16 @@ import pytest
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 from PySide6.QtWidgets import QMainWindow, QMessageBox
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig, SolverConfig
+from tm1.data_types.compute_config import ComputeConfig, SolverConfig
 from tests.python.gui_worker_support import win as win
 from tests.python.window_stubs import _StubWindow
-from sjtu_tpmshx.applications.gui.ui.single_run import SingleRun
-from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+from tm1.applications.gui.ui.single_run import SingleRun
+from tm1.applications.gui.ui.window_config import config_from_window
 
 
 @pytest.fixture
 def run():
-    from sjtu_tpmshx.applications.gui.ui.shell_dialogs import ShellDialogs
+    from tm1.applications.gui.ui.shell_dialogs import ShellDialogs
 
     window = QMainWindow()
     window.dialogs = ShellDialogs(window)
@@ -156,7 +156,7 @@ def test_run_captures_once_for_preflight_advice_and_worker(win, monkeypatch, dim
     monkeypatch.setattr(win.single_run, '_preflight_3d', grid_3d)
     monkeypatch.setattr(win.single_run, '_maybe_highvel_notice', advice)
     monkeypatch.setattr(win.single_run.compute, 'start', start)
-    with patch('sjtu_tpmshx.applications.gui.ui.window_config.config_from_window', wraps=config_from_window) as capture:
+    with patch('tm1.applications.gui.ui.window_config.config_from_window', wraps=config_from_window) as capture:
         win.single_run.submit()
     capture.assert_called_once_with(win, strict=True, force_3d=bool(dimension))
     assert len(observed) == 3 + dimension
@@ -166,7 +166,7 @@ def test_run_captures_once_for_preflight_advice_and_worker(win, monkeypatch, dim
 @pytest.mark.parametrize('dimension', [0, 1])
 @pytest.mark.parametrize('zone_axis', [None, 'x', 'y', 'grid', 'continuous'])
 def test_grid_preflight_uses_captured_geometry_ports_and_temperatures(run, win, monkeypatch, dimension, zone_axis):
-    from sjtu_tpmshx.applications.gui.ui.preflight import Preflight
+    from tm1.applications.gui.ui.preflight import Preflight
 
     win.combo_dim.setCurrentIndex(dimension)
     win.le_Nz.setText('4')
@@ -181,7 +181,7 @@ def test_grid_preflight_uses_captured_geometry_ports_and_temperatures(run, win, 
         captured.append(kwargs)
         return Preflight()
 
-    monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.preflight.compute_preflight', preflight)
+    monkeypatch.setattr('tm1.applications.gui.ui.preflight.compute_preflight', preflight)
     assert run.preflight_grid(cfg)
     inputs = captured[0]
     assert (inputs['L'], inputs['H'], inputs['Lz']) == (
@@ -202,8 +202,8 @@ def test_grid_preflight_uses_captured_geometry_ports_and_temperatures(run, win, 
 @pytest.mark.parametrize('is_3d,direction',
                          [(False, d) for d in range(4)] + [(True, d) for d in range(6)])
 def test_zero_width_ports_use_prepared_full_face_geometry(run, win, monkeypatch, graded, is_3d, direction):
-    from sjtu_tpmshx.preprocess.api import prepare_case
-    from sjtu_tpmshx.applications.gui.ui.preflight import Preflight, compute_preflight
+    from tm1.preprocess.api import prepare_case
+    from tm1.applications.gui.ui.preflight import Preflight, compute_preflight
 
     win.combo_dim.setCurrentIndex(int(is_3d))
     win.combo_grid.setCurrentIndex(win.combo_grid.findData(graded))
@@ -227,7 +227,7 @@ def test_zero_width_ports_use_prepared_full_face_geometry(run, win, monkeypatch,
         captured.update(kwargs, report=compute_preflight(**kwargs))
         return Preflight()
 
-    monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.preflight.compute_preflight', preflight)
+    monkeypatch.setattr('tm1.applications.gui.ui.preflight.compute_preflight', preflight)
     assert run.preflight_grid(cfg)
     report = captured['report']
     assert not report.errors, report.errors
@@ -286,7 +286,7 @@ def test_captured_invalid_geometry_still_blocks_grid_checks(run, monkeypatch):
     cfg = ComputeConfig()
     cfg.geometry.L_dom_m = -1.
     with patch.object(QMessageBox, 'critical') as error, \
-         patch('sjtu_tpmshx.applications.gui.ui.preflight.compute_preflight') as grid:
+         patch('tm1.applications.gui.ui.preflight.compute_preflight') as grid:
         assert not run.preflight_grid(cfg)
     error.assert_called_once()
     grid.assert_not_called()

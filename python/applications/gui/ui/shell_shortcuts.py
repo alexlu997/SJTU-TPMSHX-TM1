@@ -57,7 +57,7 @@ class ShellShortcuts:
 
     def cycle_density(self, step: int) -> None:
         """Cycle compact / cozy / comfortable density with wraparound."""
-        from sjtu_tpmshx.applications.gui.ui.theme import get_density
+        from tm1.applications.gui.ui.theme import get_density
 
         order = ("compact", "cozy", "comfortable")
         cur = get_density()

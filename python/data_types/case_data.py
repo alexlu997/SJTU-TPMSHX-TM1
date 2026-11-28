@@ -4,8 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-from sjtu_tpmshx.data_types.model_refs import ModelRef, freeze_mapping
+from tm1.data_types.compute_config import ComputeConfig
+from tm1.data_types.model_refs import ModelRef, freeze_mapping
 
 SCHEMA_VERSION = "three_module_v1"
 

@@ -46,13 +46,13 @@ except Exception:
 warnings.filterwarnings('ignore')
 
 from dataclasses import replace
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.data_types.compute_config import (
+from tm1.preprocess.api import prepare_case
+from tm1.data_types.compute_config import (
     ComputeConfig, ExtrapPolicy, FluidConfig, GeometryConfig, PartialBCConfig, SolverConfig,
 )
-from sjtu_tpmshx.solvers.api import run_case
-from sjtu_tpmshx.postprocess.conservation import compute_phase2a
-from sjtu_tpmshx.development.validation.harness._provenance import output_directory, output_path
+from tm1.solvers.api import run_case
+from tm1.postprocess.conservation import compute_phase2a
+from tm1.development.validation.harness._provenance import output_directory, output_path
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -904,7 +904,7 @@ def main():
                 row[f'Q_g{g}'] = Q_enth
                 row[f'eps_B_strict_g{g}'] = eps_strict * 100
                 print(f'    grid={g}: Q={Q_enth:.1f}W ε_B_strict={eps_strict*100:.2f}% [{dt:.0f}s]')
-            from sjtu_tpmshx.development.validation.cases.phase_c_gci import _richardson_triplet
+            from tm1.development.validation.cases.phase_c_gci import _richardson_triplet
             Qs = [row[f'Q_g{g}'] for g in grids]
             order, extrapolate = _richardson_triplet(grids, Qs)
             rel_med_fine = abs(Qs[-2] - Qs[-1]) / max(abs(Qs[-1]), 1e-30)

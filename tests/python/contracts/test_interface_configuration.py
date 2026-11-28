@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig
+from tm1.data_types.compute_config import ComputeConfig
 
 
 @pytest.mark.parametrize('payload', [

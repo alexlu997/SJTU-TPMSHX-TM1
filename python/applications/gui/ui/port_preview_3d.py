@@ -49,7 +49,7 @@ def draw_layout_rect_3d(window, ax, L, H, Lz):
 
     def _draw_fluid(cfg, label_tag):
         """Draw fluid A or B inlet/outlet ports colored by fluid with Chinese span callouts."""
-        from sjtu_tpmshx.data_types.validator import cross_axes_for_dir
+        from tm1.data_types.validator import cross_axes_for_dir
         d = cfg['dir']
         normal = d // 2
         cross_names = cross_axes_for_dir(d)

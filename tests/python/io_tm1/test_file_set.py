@@ -2,12 +2,12 @@ from pathlib import Path
 
 import pytest
 
-from sjtu_tpmshx.file_io.file_set import staged_files
+from tm1.file_io.file_set import staged_files
 
 
 @pytest.mark.parametrize('existing', [False, True])
 def test_final_publish_failure_restores_whole_set(tmp_path, monkeypatch, existing):
-    from sjtu_tpmshx.file_io import file_set
+    from tm1.file_io import file_set
     targets = [tmp_path / name for name in ('case.h5', 'case.yaml', 'metrics.json')]
     if existing:
         for target in targets:
@@ -47,7 +47,7 @@ def test_successful_2d_replacement_removes_stale_3d_companion(tmp_path):
 
 
 def test_failed_rollback_retains_recovery_files(tmp_path, monkeypatch):
-    from sjtu_tpmshx.file_io import file_set
+    from tm1.file_io import file_set
     a, b = tmp_path / 'a', tmp_path / 'b'
     a.write_text('previous A')
     b.write_text('previous B')
@@ -83,14 +83,14 @@ def test_workflow_last_write_failure_keeps_previous_run_identities(tmp_path, mon
     from dataclasses import replace
     from importlib import import_module
     from tests.python.io_tm1.io_support import sample_case
-    from sjtu_tpmshx.data_types.field_result import FieldResult
-    from sjtu_tpmshx.data_types.metric_spec import MetricSpec
-    from sjtu_tpmshx.run_control.module_ports import RunControl
-    from sjtu_tpmshx.data_types.performance_result import MetricValue, PerformanceResult
-    from sjtu_tpmshx.file_io import metrics_io, config_io as yaml_config
-    from sjtu_tpmshx.file_io.case_io import load_case
-    from sjtu_tpmshx.file_io.result_io import load_result
-    from sjtu_tpmshx.applications.cli.stages import main
+    from tm1.data_types.field_result import FieldResult
+    from tm1.data_types.metric_spec import MetricSpec
+    from tm1.run_control.module_ports import RunControl
+    from tm1.data_types.performance_result import MetricValue, PerformanceResult
+    from tm1.file_io import metrics_io, config_io as yaml_config
+    from tm1.file_io.case_io import load_case
+    from tm1.file_io.result_io import load_result
+    from tm1.applications.cli.stages import main
     original = metrics_io.save_metrics
     library = (tmp_path / 'synthetic-library').resolve()
 
@@ -104,7 +104,7 @@ def test_workflow_last_write_failure_keeps_previous_run_identities(tmp_path, mon
              (('Q', 'W/m'), ('dP_A', 'Pa'), ('dP_B', 'Pa'), ('T_out_A', 'K'), ('T_out_B', 'K'))})
         return case, result, performance
 
-    monkeypatch.setattr(import_module('sjtu_tpmshx.compute'), 'compute', compute)
+    monkeypatch.setattr(import_module('tm1.compute'), 'compute', compute)
     monkeypatch.setattr(yaml_config, 'load_config', lambda path: None)
     output = tmp_path / 'run'
     args = ['run', 'unused.yaml', str(output), '--native-library', str(library), '--case-id']

@@ -90,7 +90,7 @@ def set_reduced_motion(enabled: bool, *, persist: bool = False) -> bool:
     global _reduced_motion_preference
     value = bool(enabled)
     if persist:
-        from sjtu_tpmshx.applications.gui.controllers.user_storage import (
+        from tm1.applications.gui.controllers.user_storage import (
             save_appearance_setting,
         )
         if not save_appearance_setting('reduced_motion', 'true' if value else 'false'):

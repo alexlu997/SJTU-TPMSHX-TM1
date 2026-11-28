@@ -6,7 +6,7 @@ from pathlib import Path
 import subprocess
 import threading
 
-from sjtu_tpmshx._version import __version__
+from tm1._version import __version__
 
 SOURCE_ROOT = Path(__file__).resolve().parents[2]
 PUBLISHED_LIBRARY_DIR = SOURCE_ROOT / "sjtu_tpmshx/solvers/native/lib"

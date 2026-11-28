@@ -3,7 +3,7 @@ import ctypes as ct
 
 import numpy as np
 
-from sjtu_tpmshx.cpp_interface import _native_result as core
+from tm1.cpp_interface import _native_result as core
 
 _D = ct.c_double
 _AP = ct.POINTER(core._Array)

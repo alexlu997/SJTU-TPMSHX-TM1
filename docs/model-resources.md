@@ -4,14 +4,14 @@
 
 ## 离线数据与正式准备流程
 
-`sjtu_tpmshx.preprocess.offline` 提供实验、水 CFD、sCO2 芯体和 sCO2 分段清洗入口。
+`tm1.preprocess.offline` 提供实验、水 CFD、sCO2 芯体和 sCO2 分段清洗入口。
 各入口接受 `source=`，由调用方选择资源；显式输入缺失时不搜索替代来源。
 
 实验清洗保留 col47 摩擦压降、L8 Re>=1600 和上海来源／几何排除检查。
 CFD 清洗保留原始 Dh、名义 Re、压力／密度检查、入口段排除和水流量可疑标记。
 
 ```python
-from sjtu_tpmshx.preprocess.offline import load_experiments, load_water
+from tm1.preprocess.offline import load_experiments, load_water
 
 frame = load_experiments(source=training_workbook)
 water = load_water('Diamond', source=water_workbook)
@@ -120,8 +120,8 @@ GUI 的“使用现行有效系数”按钮显式载入这一版本；“导入�
 
 ```python
 from dataclasses import asdict
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-from sjtu_tpmshx.physical_models.nu_correlations import sco2_effective_nu_config
+from tm1.data_types.compute_config import ComputeConfig
+from tm1.physical_models.nu_correlations import sco2_effective_nu_config
 
 config_dict["sco2_nu"] = asdict(sco2_effective_nu_config())
 config = ComputeConfig.from_dict(config_dict)
@@ -232,7 +232,7 @@ Pout² = Pin² − 2 R T̄ L (μ G/K0 + sF cF0 G²)
 
 固定 K0，仅拟合 sF；沿用 Δp ≥ 2000 Pa 与重复行排除规则。第 1 个低流量
 工况在标定范围外，保留计算、外推提示和单列误差，不混入第 2–16 项的拟合结论。
-`python -m sjtu_tpmshx.development.validation.df_refit.fit_experimental_effective` 从原表重算，
+`python -m tm1.development.validation.df_refit.fit_experimental_effective` 从原表重算，
 输出源文件、工作表、行号和复核系数；不覆盖生产参数。
 
 适用几何为均匀、对称 Gyroid 7/0.6 mm、182×42×42 mm 换热器，无分区、δ=0；

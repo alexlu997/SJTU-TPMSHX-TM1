@@ -5,9 +5,9 @@ from pathlib import Path
 
 import numpy as np
 
-from sjtu_tpmshx.model_configs.model_parameters import fixed_geometry_error
+from tm1.model_configs.model_parameters import fixed_geometry_error
 
-from sjtu_tpmshx.cpp_interface import _native_df
+from tm1.cpp_interface import _native_df
 
 METHOD = "cfd_full_core_3cell_fixed_v2"
 TABLE_PATH = Path(__file__).parent / "_prebuilt" / f"{METHOD}.csv"

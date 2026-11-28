@@ -4,8 +4,8 @@ import pytest
 
 from tests.python import grid_ports_reference as ports_reference
 from tests.python import grid_source_reference as reference
-from sjtu_tpmshx.cpp_interface import _native_grid as native
-from sjtu_tpmshx.physical_models import grid
+from tm1.cpp_interface import _native_grid as native
+from tm1.physical_models import grid
 
 
 # Each pair covers a different integer width and floating kind. The native
@@ -110,8 +110,8 @@ def test_integer_endpoint_first_max_promotes_to_float64(integer_kind):
 
 
 def test_public_prepare_promotes_integer_center_and_half_width_without_mutating_config():
-    from sjtu_tpmshx.preprocess.api import prepare_case
-    from sjtu_tpmshx.data_types.compute_config import (
+    from tm1.preprocess.api import prepare_case
+    from tm1.data_types.compute_config import (
         ComputeConfig, ExtrapPolicy, GeometryConfig, PartialBCConfig, SolverConfig,
     )
 

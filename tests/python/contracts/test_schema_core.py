@@ -5,14 +5,14 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.case_data import CaseData
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-from sjtu_tpmshx.data_types.field_result import FieldResult
-from sjtu_tpmshx.data_types.metric_spec import MetricSpec
-from sjtu_tpmshx.data_types.model_refs import ModelRef
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.data_types.performance_result import MetricValue, PerformanceResult
+from tm1.data_types.case_data import CaseData
+from tm1.data_types.compute_config import ComputeConfig
+from tm1.data_types.field_result import FieldResult
+from tm1.data_types.metric_spec import MetricSpec
+from tm1.data_types.model_refs import ModelRef
+from tm1.run_control.module_ports import RunControl
+from tm1.run_control.cancellation import CancelledError
+from tm1.data_types.performance_result import MetricValue, PerformanceResult
 
 
 def test_case_snapshot_and_result_fields_are_detached_and_read_only():
@@ -144,17 +144,17 @@ def test_schema_identity_required_fields_and_core_units_are_checked():
 
 def test_contract_imports_do_not_pull_ui_solver_or_optimizer_layers():
     for name in (
-        "sjtu_tpmshx.data_types.case_data",
-        "sjtu_tpmshx.data_types.field_result",
-        "sjtu_tpmshx.data_types.metric_spec",
-        "sjtu_tpmshx.data_types.performance_result",
-        "sjtu_tpmshx.run_control.module_ports",
+        "tm1.data_types.case_data",
+        "tm1.data_types.field_result",
+        "tm1.data_types.metric_spec",
+        "tm1.data_types.performance_result",
+        "tm1.run_control.module_ports",
     ):
         source = inspect.getsource(importlib.import_module(name))
         assert "PySide6" not in source
-        assert "sjtu_tpmshx.applications.gui.ui" not in source
-        assert "sjtu_tpmshx.solvers" not in source
-        assert "sjtu_tpmshx.applications.optimization" not in source
+        assert "tm1.applications.gui.ui" not in source
+        assert "tm1.solvers" not in source
+        assert "tm1.applications.optimization" not in source
 
 
 def test_runtime_values_cannot_hide_inside_arrays_models_or_results():

@@ -1,7 +1,7 @@
 """Evaluate stored evidence through the independent native result stage."""
-from sjtu_tpmshx.data_types.field_result import FieldResult
-from sjtu_tpmshx.data_types.metric_spec import MetricSpec
-from sjtu_tpmshx.data_types.performance_result import PerformanceResult
+from tm1.data_types.field_result import FieldResult
+from tm1.data_types.metric_spec import MetricSpec
+from tm1.data_types.performance_result import PerformanceResult
 from .evaluation import (
     evaluate_applicability as evaluate_applicability,
     evaluate_physical_balance as evaluate_physical_balance,

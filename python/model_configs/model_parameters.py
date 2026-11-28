@@ -5,7 +5,7 @@ import math
 from threading import Lock
 
 
-CO2_RESOURCE = files('sjtu_tpmshx.model_configs') / 'co2_segment2_v1.json'
+CO2_RESOURCE = files('tm1.model_configs') / 'co2_segment2_v1.json'
 _packaged_data = {}
 _resource_lock = Lock()
 
@@ -73,7 +73,7 @@ def _copy_json(value):
 
 
 def _read_model_parameters():
-    data = json.loads((files('sjtu_tpmshx.model_configs') / 'model_parameters_v1.json').read_text(encoding='utf-8'))
+    data = json.loads((files('tm1.model_configs') / 'model_parameters_v1.json').read_text(encoding='utf-8'))
     if not isinstance(data, dict) or data.get('schema_version') != 'tm1_model_parameters_v1':
         raise ValueError('unsupported model parameter resource schema')
     for name in ('discrete_zones', 'levelset_offset'):
@@ -205,7 +205,7 @@ def load_preparation_df_parameters():
 
 
 def _read_preparation_df_parameters():
-    data = json.loads((files('sjtu_tpmshx.model_configs') / 'preparation_df_v1.json').read_text(encoding='utf-8'))
+    data = json.loads((files('tm1.model_configs') / 'preparation_df_v1.json').read_text(encoding='utf-8'))
     if (not isinstance(data, dict) or data.get('schema_version') != 'tm1_preparation_df_v1'
             or data.get('method') != 'cfd_full_core_3cell_fixed_v2'):
         raise ValueError('unsupported preparation D-F resource schema or method')

@@ -4,17 +4,17 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-from sjtu_tpmshx.data_types.model_refs import ModelRef
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.preprocess.two_d.preparation import prepare_case
-from sjtu_tpmshx.solvers.api import run_case
+from tm1.data_types.compute_config import ComputeConfig
+from tm1.data_types.model_refs import ModelRef
+from tm1.run_control.module_ports import RunControl
+from tm1.run_control.cancellation import CancelledError
+from tm1.preprocess.two_d.preparation import prepare_case
+from tm1.solvers.api import run_case
 from tests.python.native.stage_interception import stage_control
 
 
 def test_effective_grid_and_design_are_consumed_without_preparation(monkeypatch):
-    from sjtu_tpmshx.preprocess.two_d import preparation as preparation
+    from tm1.preprocess.two_d import preparation as preparation
     case = prepare_case(ComputeConfig(), case_id='prepared')
     def forbidden(*args, **kwargs):
         raise AssertionError('solver called preprocessing')

@@ -4,10 +4,10 @@ import importlib
 
 import pytest
 
-from sjtu_tpmshx.applications.design import sizing, select
-from sjtu_tpmshx.applications.design.cases import DesignCase
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.run_control.module_ports import RunControl
+from tm1.applications.design import sizing, select
+from tm1.applications.design.cases import DesignCase
+from tm1.run_control.cancellation import CancelledError
+from tm1.run_control.module_ports import RunControl
 
 
 def test_sizing_stops_between_forward_solves(monkeypatch):
@@ -26,7 +26,7 @@ def test_sizing_stops_between_forward_solves(monkeypatch):
 @pytest.mark.parametrize('stage', ['search', 'final'])
 def test_sizing_cancels_inside_forward(monkeypatch, stage):
     execution = importlib.import_module(
-        'sjtu_tpmshx.solvers.quick_design')
+        'tm1.solvers.quick_design')
     calls = []
     cancellation = CancelledError('cancelled inside the active thermal solve')
     control = RunControl(cancel_check=lambda: bool(calls))
@@ -63,7 +63,7 @@ def test_enumeration_retains_completed_candidates_before_cancel(monkeypatch, tmp
 
 def test_partial_export_marks_scope_without_changing_feasibility(tmp_path):
     from openpyxl import load_workbook
-    from sjtu_tpmshx.applications.design.report import write_xlsx
+    from tm1.applications.design.report import write_xlsx
     design = sizing.Design(True, topo='Gyroid', l=5., t=.4, V=.01)
     path = tmp_path / 'partial.xlsx'
     assert write_xlsx(path, [design], partial=True) == (1, 1, 0)

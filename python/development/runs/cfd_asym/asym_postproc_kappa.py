@@ -26,7 +26,7 @@ Output:
     Research callers can evaluate kappa_KcF(..., enabled=True) in that process.
     Production preparation does not consume the table; no calibration is installed.
 
-Usage:  python -m sjtu_tpmshx.development.runs.cfd_asym.asym_postproc_kappa results.csv [--register]
+Usage:  python -m tm1.development.runs.cfd_asym.asym_postproc_kappa results.csv [--register]
 """
 from __future__ import annotations
 
@@ -121,7 +121,7 @@ def register(kap: pd.DataFrame):
     Supplied r≈1 values are retained; the outer κ helper separately
     enforces symmetric identity. No monotonicity constraint is fitted here.
     """
-    from sjtu_tpmshx.development.runs.cfd_asym import kappa_asym
+    from tm1.development.runs.cfd_asym import kappa_asym
     for tpms, g in kap.groupby("tpms"):
         g = g.sort_values("r")
         r = g["r"].values

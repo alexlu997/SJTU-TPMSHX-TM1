@@ -8,9 +8,9 @@ from pathlib import Path
 
 import numpy as np
 
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig, ZoneInputConfig
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.run_control.paused_run import PausedRun
+from tm1.data_types.compute_config import ComputeConfig, ZoneInputConfig
+from tm1.run_control.cancellation import CancelledError
+from tm1.run_control.paused_run import PausedRun
 
 
 def positive_number(value, label):
@@ -44,7 +44,7 @@ def validate_condition_table(payload):
                 raise ValueError(f'{name}: {key} must be a positive number')
             positive_number(row[key], f'{name}: {key}')
     if 'mass_requirements' in payload:
-        from sjtu_tpmshx.applications.optimization.mass_design import validate_mass_requirements
+        from tm1.applications.optimization.mass_design import validate_mass_requirements
         validate_mass_requirements(payload['mass_requirements'], ids)
     return deepcopy(rows)
 
@@ -56,10 +56,10 @@ def condition_inputs(cfg, rows):
             f'fluid_{side}': replace(getattr(cfg, f'fluid_{side}'),
                 T_in_K=row[f'T_in_{side}_K'], P_in_Pa=row[f'P_in_{side}_Pa'], mass_flow_kg_s=None)
             for side in 'AB'}), row['mass_flow_A_kg_s'], row['mass_flow_B_kg_s']) for row in rows]
-    from sjtu_tpmshx.preprocess.api import prepare_case
-    from sjtu_tpmshx.preprocess.inlet_flow import total_inlet_mass_capacity
+    from tm1.preprocess.api import prepare_case
+    from tm1.preprocess.inlet_flow import total_inlet_mass_capacity
     case = prepare_case(cfg, case_id='gui-current-condition')
-    from sjtu_tpmshx.data_types.portable_data import mutable_data
+    from tm1.data_types.portable_data import mutable_data
     cfg = ComputeConfig.from_dict(mutable_data(case.config_snapshot))
     flows = [total_inlet_mass_capacity(case.design_fields, case.parameters, case.grid, side)
              * getattr(cfg, f'fluid_{side}').u_mps for side in 'AB']
@@ -144,9 +144,9 @@ class OptimizationInput:
 
 def archived_design(report, index, output_dir, current):
     """Read the selected input and verify its geometry, field, and mass flows."""
-    from sjtu_tpmshx.data_types.portable_data import mutable_data
-    from sjtu_tpmshx.file_io.case_io import load_case
-    from sjtu_tpmshx.preprocess.inlet_flow import total_inlet_mass_capacity
+    from tm1.data_types.portable_data import mutable_data
+    from tm1.file_io.case_io import load_case
+    from tm1.preprocess.inlet_flow import total_inlet_mass_capacity
 
     row = report['conditions'][0]
     source = ComputeConfig.from_dict(row['config'])

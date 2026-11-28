@@ -152,7 +152,7 @@ Use the table below to find each GUI and controller file that can change.
 - **Dialog and panel wiring**: [tests/python/test_quick_design_panel_wiring.py](../tests/python/test_quick_design_panel_wiring.py), [tests/python/test_quick_design_dialog.py](../tests/python/test_quick_design_dialog.py), [tests/python/test_optimize_panel_wiring.py](../tests/python/test_optimize_panel_wiring.py), and [tests/python/test_main_smoke.py](../tests/python/test_main_smoke.py).
 - **Result cache, overlays, and workbench state**: [tests/python/test_result_cache.py](../tests/python/test_result_cache.py), [tests/python/test_result_snapshot_lifecycle.py](../tests/python/test_result_snapshot_lifecycle.py), [tests/python/test_workbench_field_selection.py](../tests/python/test_workbench_field_selection.py), and [tests/python/test_workbench_navigation.py](../tests/python/test_workbench_navigation.py).
 - **Layout and import-layer rules**: [tests/python/test_ui_layout_hygiene.py](../tests/python/test_ui_layout_hygiene.py), [tests/python/architecture/test_three_module_imports.py](../tests/python/architecture/test_three_module_imports.py), and [tests/python/models_tm1/test_model_boundary.py](../tests/python/models_tm1/test_model_boundary.py).
-  Also run `python -m sjtu_tpmshx.development.runs.tools.audit_import_graph --fail-on-violations`.
+  Also run `python -m tm1.development.runs.tools.audit_import_graph --fail-on-violations`.
 - Follow [test scope](collaboration.md#test-scope): test state changes, contracts, and cleanup, not offscreen pixel coordinates or fixed margins.
 
 ### 5. Validation and data

@@ -3,12 +3,12 @@ import os
 import subprocess
 
 import pytest
-from sjtu_tpmshx.file_io.case_io import load_case, save_case
-from sjtu_tpmshx.file_io.result_io import load_result, save_result
-from sjtu_tpmshx.preprocess import _metadata
-from sjtu_tpmshx.preprocess import api as preparation
-from sjtu_tpmshx.solvers import api as execution
-from sjtu_tpmshx.run_control.provenance import repository_revision, source_context
+from tm1.file_io.case_io import load_case, save_case
+from tm1.file_io.result_io import load_result, save_result
+from tm1.preprocess import _metadata
+from tm1.preprocess import api as preparation
+from tm1.solvers import api as execution
+from tm1.run_control.provenance import repository_revision, source_context
 from tests.python.integration_tm1.integration_support import baseline_config
 
 

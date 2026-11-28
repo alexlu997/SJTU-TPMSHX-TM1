@@ -1,7 +1,7 @@
 import openpyxl
 import csv
 import pytest
-from sjtu_tpmshx.applications.design.cases import load_cases, DesignCase
+from tm1.applications.design.cases import load_cases, DesignCase
 
 def _make_xlsx(path):
     wb = openpyxl.Workbook(); ws = wb.active
@@ -83,7 +83,7 @@ def test_load_cases_ignores_extra_and_blank_columns(tmp_path, suffix):
 
 
 def test_duplicate_duty_does_not_reach_sizing(tmp_path, monkeypatch):
-    from sjtu_tpmshx.applications.design import cli, sizing
+    from tm1.applications.design import cli, sizing
 
     row = _input_row()
     source = tmp_path / 'duplicate.csv'

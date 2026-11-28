@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QMessageBox
 
-from sjtu_tpmshx.applications.gui.ui.theme import get_theme
-from sjtu_tpmshx.applications.gui.ui.ui_constants import TOAST_MS_SHORT
+from tm1.applications.gui.ui.theme import get_theme
+from tm1.applications.gui.ui.ui_constants import TOAST_MS_SHORT
 
 
 class Workbench:
@@ -131,7 +131,7 @@ class Workbench:
         if hasattr(window, "btn_run_info"):
             window.btn_run_info.setVisible(page_key in ("run", "result"))
         window.appearance.sync_drawer_visibility()
-        from sjtu_tpmshx.applications.gui.ui.builders_sidebar import (
+        from tm1.applications.gui.ui.builders_sidebar import (
             refresh_header_status,
             update_result_sidebar_visibility,
         )
@@ -244,12 +244,12 @@ class Workbench:
         if tab == "3d" and not self.volume_ready:
             self.request_3d_view(lambda: self.split_with_current(tab))
             return
-        from sjtu_tpmshx.applications.gui.ui.plot_2d_results import ensure_result_plot
+        from tm1.applications.gui.ui.plot_2d_results import ensure_result_plot
 
         for key in (cur, tab):
             if key in ("temp", "pres", "vel") and not ensure_result_plot(window, key):
                 return
-        from sjtu_tpmshx.applications.gui.ui.builders_canvas import _layout_split_cards
+        from tm1.applications.gui.ui.builders_canvas import _layout_split_cards
 
         _layout_split_cards(window, [cur, tab])
         self.active_tab = cur
@@ -306,7 +306,7 @@ class Workbench:
             self.requested_3d_action = None
             if window._close_pending or window.cache.get_result("3d") is not result:
                 return
-            from sjtu_tpmshx.applications.gui.ui.plot_3d_results import finalize_plots_3d
+            from tm1.applications.gui.ui.plot_3d_results import finalize_plots_3d
 
             load_err = None
             try:
@@ -371,7 +371,7 @@ class Workbench:
 
         if self.split_tabs:
             self.split_tabs = None
-            from sjtu_tpmshx.applications.gui.ui.builders_canvas import _relayout_canvas_cards
+            from tm1.applications.gui.ui.builders_canvas import _relayout_canvas_cards
 
             _relayout_canvas_cards(window, 1)
         if not self.canvas_tab_availability().get(tab, False):
@@ -391,7 +391,7 @@ class Workbench:
         )
         self._sync_shell_header(page_key)
 
-        from sjtu_tpmshx.applications.gui.ui.builders_canvas import refresh_field_controls
+        from tm1.applications.gui.ui.builders_canvas import refresh_field_controls
 
         if hasattr(window, "_field_phase_seg"):
             refresh_field_controls(window)
@@ -406,7 +406,7 @@ class Workbench:
                 return
 
         if tab in ("temp", "pres", "vel"):
-            from sjtu_tpmshx.applications.gui.ui.plot_2d_results import ensure_result_plot
+            from tm1.applications.gui.ui.plot_2d_results import ensure_result_plot
 
             if not ensure_result_plot(window, tab):
                 window._canvas_cards[tab].hide()
@@ -460,7 +460,7 @@ class Workbench:
                 except Exception:
                     pass
             try:
-                from sjtu_tpmshx.applications.gui.ui.builders_sidebar import (
+                from tm1.applications.gui.ui.builders_sidebar import (
                     update_result_sidebar_visibility,
                 )
 
@@ -505,7 +505,7 @@ class Workbench:
         L, H = hd["L"], hd["H"]
         Nx, Ny = hd["Nx"], hd["Ny"]
         import numpy as np
-        from sjtu_tpmshx.applications.gui.ui.matplotlib_canvas import cell_index_mm
+        from tm1.applications.gui.ui.matplotlib_canvas import cell_index_mm
 
         i = cell_index_mm(x_mm, hd.get("dx_arr", np.full(Nx, L / Nx)))
         j = cell_index_mm(y_mm, hd.get("dy_arr", np.full(Ny, H / Ny)))
@@ -561,7 +561,7 @@ class Workbench:
         H_mm = float(hd.get("H", 0.0)) * 1000.0
         if not (0.0 <= x_mm <= L_mm and 0.0 <= y_mm <= H_mm):
             return
-        from sjtu_tpmshx.applications.gui.ui.builders_sidebar import add_sample_point
+        from tm1.applications.gui.ui.builders_sidebar import add_sample_point
 
         add_sample_point(self.window, x_mm, y_mm)
 
@@ -654,7 +654,7 @@ class Workbench:
         if canvas is None:
             return
         if key in ("temp", "pres", "vel"):
-            from sjtu_tpmshx.applications.gui.ui.plot_2d_results import ensure_result_plot
+            from tm1.applications.gui.ui.plot_2d_results import ensure_result_plot
 
             if not ensure_result_plot(window, key):
                 return

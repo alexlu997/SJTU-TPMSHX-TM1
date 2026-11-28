@@ -9,7 +9,7 @@ from shiboken6 import isValid
 
 from tests.python.gui_workbench_support import _result
 from tests.python.gui_worker_support import _configure, _stub_compute_result, _wait_for, win as win
-from sjtu_tpmshx.applications.gui.ui import background_tasks
+from tm1.applications.gui.ui import background_tasks
 
 
 @pytest.fixture
@@ -53,7 +53,7 @@ def test_imports_share_one_worker_and_deliver_on_gui_thread(win, imports):
     _wait_for(lambda: not background_tasks.has_active_tasks(win))
     assert calls == [QApplication.instance().thread()] * 2
     assert [name for name, _ in imports.calls] == [
-        'sjtu_tpmshx.applications.gui.ui.panel_vis_3d']
+        'tm1.applications.gui.ui.panel_vis_3d']
     _wait_for(win.spin_cpu_cores.isEnabled)
     win.workbench.prepare_3d(lambda: calls.append('already ready'))
     assert calls[-1] == 'already ready' and len(imports.calls) == 1
@@ -84,7 +84,7 @@ def test_pending_result_publishes_once_and_remains_exportable(
         window.canvas_3d.active_field = lambda: None
         window.canvas_3d.select_field = lambda _k: False
         return True
-    monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.plot_3d_results.finalize_plots_3d', render)
+    monkeypatch.setattr('tm1.applications.gui.ui.plot_3d_results.finalize_plots_3d', render)
     _configure(win, monkeypatch, '3d')
     _stub_compute_result(monkeypatch, lambda *a, **kw: result)
     win.case_files.active_preset_name = 'prepared-original'
@@ -160,7 +160,7 @@ def test_split_request_waits_for_volume_without_losing_primary_field(win, import
         window.canvas_3d.select_field = lambda _k: False
         return True
 
-    monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.plot_3d_results.finalize_plots_3d', render)
+    monkeypatch.setattr('tm1.applications.gui.ui.plot_3d_results.finalize_plots_3d', render)
     win.workbench.split_with_current('3d')
     _wait_for(imports.entered.is_set)
     assert win.workbench.active_tab == 'temp'
@@ -174,7 +174,7 @@ def test_split_request_waits_for_volume_without_losing_primary_field(win, import
 @pytest.mark.parametrize('change', ['new_data', 'other_tab', 'no_data'])
 def test_optimization_reads_current_fields_after_shared_imports(
         win, imports, monkeypatch, change):
-    from sjtu_tpmshx.applications.gui.ui import panel_vis_3d
+    from tm1.applications.gui.ui import panel_vis_3d
 
     created = []
 
@@ -225,7 +225,7 @@ def test_optimization_reads_current_fields_after_shared_imports(
 def test_deferred_volume_does_not_show_an_obsolete_request(win, imports, monkeypatch, change):
     win.results.publish(_result('3d'))
     calls = []
-    monkeypatch.setattr('sjtu_tpmshx.applications.gui.ui.plot_3d_results.finalize_plots_3d',
+    monkeypatch.setattr('tm1.applications.gui.ui.plot_3d_results.finalize_plots_3d',
                         lambda window: calls.append(window.cache.get_result('3d')))
     win.workbench.switch_tab('3d')
     _wait_for(imports.entered.is_set)

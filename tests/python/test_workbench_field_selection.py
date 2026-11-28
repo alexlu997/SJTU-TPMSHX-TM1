@@ -1,17 +1,17 @@
 """Display selections preserve the solved fields and physical probe position."""
 from types import SimpleNamespace
-from sjtu_tpmshx.applications.gui.controllers.result_cache import ResultCache
-from sjtu_tpmshx.data_types.compute_result import ComputeResult
+from tm1.applications.gui.controllers.result_cache import ResultCache
+from tm1.data_types.compute_result import ComputeResult
 
 import numpy as np
 import pytest
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 
-from sjtu_tpmshx.applications.gui.ui.coord_inspector import _resolve_fields
-from sjtu_tpmshx.applications.gui.ui.plot_2d_results import plot_temperature_3panel
-from sjtu_tpmshx.applications.gui.ui.plot_3d_results import _render_2d_slices_from_3d
-from sjtu_tpmshx.applications.gui.ui.theme import get_theme, resolve_cmap
+from tm1.applications.gui.ui.coord_inspector import _resolve_fields
+from tm1.applications.gui.ui.plot_2d_results import plot_temperature_3panel
+from tm1.applications.gui.ui.plot_3d_results import _render_2d_slices_from_3d
+from tm1.applications.gui.ui.theme import get_theme, resolve_cmap
 
 
 def _canvas():
@@ -23,9 +23,9 @@ def _canvas():
     (3, 'temp', 0), (3, 'pres', 0), (3, 'vel', 0),
 ])
 def test_narrow_field_colorbars_keep_distinct_absolute_labels(dimension, field, phase):
-    from sjtu_tpmshx.applications.gui.ui.matplotlib_canvas import MatplotlibCanvas
-    from sjtu_tpmshx.applications.gui.ui.plot_2d_results import finalize_plots
-    from sjtu_tpmshx.applications.gui.ui.plot_3d_results import (
+    from tm1.applications.gui.ui.matplotlib_canvas import MatplotlibCanvas
+    from tm1.applications.gui.ui.plot_2d_results import finalize_plots
+    from tm1.applications.gui.ui.plot_3d_results import (
         _plot_3d_temperature, _plot_3d_pressure, _plot_3d_velocity_slice,
     )
 
@@ -72,8 +72,8 @@ def test_narrow_field_colorbars_keep_distinct_absolute_labels(dimension, field, 
 
 def test_frozen_b_temperature_remains_selectable_in_real_phase_controls():
     from PySide6.QtWidgets import QApplication, QFrame, QPushButton
-    from sjtu_tpmshx.applications.gui.ui.builders_canvas import refresh_field_controls
-    from sjtu_tpmshx.applications.gui.ui.workbench import Workbench
+    from tm1.applications.gui.ui.builders_canvas import refresh_field_controls
+    from tm1.applications.gui.ui.workbench import Workbench
 
     app = QApplication.instance() or QApplication([])
     host = QFrame()
@@ -117,7 +117,7 @@ def test_frozen_b_temperature_remains_selectable_in_real_phase_controls():
 @pytest.mark.parametrize('width,height', [(953, 427), (613, 294)])
 def test_qt_canvas_renderer_covers_the_complete_pixel_rectangle(width, height):
     from PySide6.QtWidgets import QApplication
-    from sjtu_tpmshx.applications.gui.ui.matplotlib_canvas import MatplotlibCanvas
+    from tm1.applications.gui.ui.matplotlib_canvas import MatplotlibCanvas
 
     app = QApplication.instance() or QApplication([])
     canvas = MatplotlibCanvas(1, 1)

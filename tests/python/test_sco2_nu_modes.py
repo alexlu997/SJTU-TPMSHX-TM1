@@ -2,8 +2,8 @@
 from dataclasses import asdict, replace
 import numpy as np
 import pytest
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig, Sco2NuConfig
-from sjtu_tpmshx.physical_models import fluid_props, nu_correlations as nu, tpms_calc
+from tm1.data_types.compute_config import ComputeConfig, Sco2NuConfig
+from tm1.physical_models import fluid_props, nu_correlations as nu, tpms_calc
 
 SYNTHETIC = Sco2NuConfig('experimental', .8, 1.2, 'synthetic-test-v1',
                         'unit test, not measured', 'synthetic; no experimental validation')
@@ -62,7 +62,7 @@ def test_shared_scalar_array_nu_and_unchanged_other_fluids(topology, alpha):
 
 
 def test_selected_nu_rejects_unmapped_topology_with_fit(monkeypatch):
-    from sjtu_tpmshx.cpp_interface._native_values import TOPOLOGY_CODES
+    from tm1.cpp_interface._native_values import TOPOLOGY_CODES
 
     monkeypatch.setitem(TOPOLOGY_CODES, 'Primitive', 2)
     monkeypatch.setitem(nu.SCO2_NU_COEFFS, 'Primitive', nu.SCO2_NU_COEFFS['Gyroid'])
@@ -105,7 +105,7 @@ def test_compute_cache_separates_parameters_and_versions():
 
 
 def test_metadata_and_source_notice_are_independent_of_df():
-    from sjtu_tpmshx.data_types.compute_config import FluidConfig
+    from tm1.data_types.compute_config import FluidConfig
     cfg = ComputeConfig(fluid_A=FluidConfig(type='sco2'), sco2_nu=SYNTHETIC)
     for df in ('cfd_smooth', 'experimental'):
         cfg.df_mode = df
@@ -117,8 +117,8 @@ def test_metadata_and_source_notice_are_independent_of_df():
 
 
 def test_real_pipeline_heat_builders_share_selected_parameters():
-    from sjtu_tpmshx.data_types.compute_config import FluidConfig, GeometryConfig
-    from sjtu_tpmshx.preprocess.api import prepare_case
+    from tm1.data_types.compute_config import FluidConfig, GeometryConfig
+    from tm1.preprocess.api import prepare_case
     cfg = ComputeConfig(fluid_A=FluidConfig(type='sco2', u_mps=1., T_in_K=400., P_in_Pa=10e6),
                         fluid_B=FluidConfig(type='sco2', u_mps=1., T_in_K=350., P_in_Pa=10e6),
                         geometry=GeometryConfig(tpms='Diamond', Lz_m=.042))
@@ -135,10 +135,10 @@ def test_real_pipeline_heat_builders_share_selected_parameters():
 
 def test_cli_preserves_selected_model_and_reports_it(tmp_path, monkeypatch, capsys):
     import json
-    from sjtu_tpmshx.applications.cli.main import main
-    from sjtu_tpmshx.data_types.compute_result import ComputeResult
-    from sjtu_tpmshx.run_control.module_ports import RunControl, resolve_control
-    import sjtu_tpmshx.applications.result_adapter as adapter
+    from tm1.applications.cli.main import main
+    from tm1.data_types.compute_result import ComputeResult
+    from tm1.run_control.module_ports import RunControl, resolve_control
+    import tm1.applications.result_adapter as adapter
     path=tmp_path/'synthetic-config.json'
     ComputeConfig(sco2_nu=SYNTHETIC).to_json(path)
     expected=nu.sco2_nu_metadata(SYNTHETIC)

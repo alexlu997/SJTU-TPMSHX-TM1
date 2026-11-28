@@ -70,7 +70,7 @@ jobs:
         run: '"$CI_PYTHON" -m pip install --no-compile -r engineering/requirements/base.txt'
       - name: Check exact dependency lock
         shell: bash
-        run: '"$CI_PYTHON" -m sjtu_tpmshx.development.runs.tools.check_locked_environment engineering/requirements/base.txt'
+        run: '"$CI_PYTHON" -m tm1.development.runs.tools.check_locked_environment engineering/requirements/base.txt'
       - name: Check dependency compatibility
         shell: bash
         run: '"$CI_PYTHON" -m pip check'
@@ -256,7 +256,7 @@ jobs:
         run: '"$CI_PYTHON" -m pip install --no-compile -r engineering/requirements/base.txt'
       - name: Check exact dependency lock
         shell: bash
-        run: '"$CI_PYTHON" -m sjtu_tpmshx.development.runs.tools.check_locked_environment engineering/requirements/base.txt'
+        run: '"$CI_PYTHON" -m tm1.development.runs.tools.check_locked_environment engineering/requirements/base.txt'
       - name: Check dependency compatibility
         shell: bash
         run: '"$CI_PYTHON" -m pip check'
@@ -398,7 +398,7 @@ jobs:
           python -m venv "$RUNNER_TEMP/sjtu-bo-ci-venv"
           bo_python="$RUNNER_TEMP/sjtu-bo-ci-venv/bin/python"
           "$bo_python" -m pip install -r engineering/requirements/bo-macos.txt
-          "$bo_python" -m sjtu_tpmshx.development.runs.tools.check_locked_environment engineering/requirements/bo-macos.txt
+          "$bo_python" -m tm1.development.runs.tools.check_locked_environment engineering/requirements/bo-macos.txt
           "$bo_python" -m pip check
           "$bo_python" -c 'import torch, botorch, gpytorch; print(f"torch={torch.__version__} botorch={botorch.__version__} gpytorch={gpytorch.__version__}")'
           library=sjtu_tpmshx/solvers/native/lib/macos-arm64
@@ -437,7 +437,7 @@ jobs:
         run: '"$CI_PYTHON" -m pip install --no-compile -r requirements.txt'
       - name: Check exact dependency lock
         shell: bash
-        run: '"$CI_PYTHON" -m sjtu_tpmshx.development.runs.tools.check_locked_environment engineering/requirements/base.txt --allow-extra sjtu-tpmshx'
+        run: '"$CI_PYTHON" -m tm1.development.runs.tools.check_locked_environment engineering/requirements/base.txt --allow-extra tm1'
       - name: Check dependency compatibility
         shell: bash
         run: '"$CI_PYTHON" -m pip check'
@@ -597,7 +597,7 @@ jobs:
         run: '"$CI_PYTHON" -m pip install -r "${{ env.BO_LOCK }}"'
       - name: Check exact BO dependency lock
         shell: bash
-        run: '"$CI_PYTHON" -m sjtu_tpmshx.development.runs.tools.check_locked_environment "${{ env.BO_LOCK }}"'
+        run: '"$CI_PYTHON" -m tm1.development.runs.tools.check_locked_environment "${{ env.BO_LOCK }}"'
       - name: Check dependency compatibility
         shell: bash
         run: '"$CI_PYTHON" -m pip check'

@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 from scipy.interpolate import RegularGridInterpolator
 from tests.python.grid_reference import split_cells
-from sjtu_tpmshx.physical_models.grid import _aligned_grid, _port_fractions_1d
+from tm1.physical_models.grid import _aligned_grid, _port_fractions_1d
 
 
 

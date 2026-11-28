@@ -1,12 +1,12 @@
 """Small complete 2D workflow checks preserve the physical result contract."""
 from __future__ import annotations
-from sjtu_tpmshx.applications.result_adapter import compute_result
+from tm1.applications.result_adapter import compute_result
 
 import time
 
 import pytest
 
-from sjtu_tpmshx.data_types.compute_config import (
+from tm1.data_types.compute_config import (
     ComputeConfig,
     ExtrapPolicy,
     FluidConfig,
@@ -14,7 +14,7 @@ from sjtu_tpmshx.data_types.compute_config import (
     SolverConfig,
     PartialBCConfig,
 )
-from sjtu_tpmshx.data_types.compute_result import ComputeResult
+from tm1.data_types.compute_result import ComputeResult
 
 
 def _shanghai_like_cfg() -> ComputeConfig:

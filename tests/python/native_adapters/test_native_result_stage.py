@@ -8,10 +8,10 @@ import sys
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.cpp_interface import _native_result as core
-from sjtu_tpmshx.data_types.metric_spec import MetricSpec
-from sjtu_tpmshx.data_types.portable_data import mutable_data
-from sjtu_tpmshx.file_io.result_io import load_result, save_result
+from tm1.cpp_interface import _native_result as core
+from tm1.data_types.metric_spec import MetricSpec
+from tm1.data_types.portable_data import mutable_data
+from tm1.file_io.result_io import load_result, save_result
 from tests.python.result_stage_fixture import native_report, python_report, thaw
 from tests.python.postprocess_tm1.test_conservative_energy_results import result_fixture
 from tests.python.postprocess_tm1.test_temperature_face_results import temperature_fixture
@@ -40,9 +40,9 @@ def real_result(request):
         return load_result(Path(frozen) / f'air-{dimension}d/results.h5')
     if sys.platform == 'linux':
         pytest.skip('Linux supports stored-result evaluation without a full solver')
-    from sjtu_tpmshx.preprocess.api import prepare_case
-    from sjtu_tpmshx.solvers.api import run_case
-    from sjtu_tpmshx.data_types.compute_config import FluidConfig
+    from tm1.preprocess.api import prepare_case
+    from tm1.solvers.api import run_case
+    from tm1.data_types.compute_config import FluidConfig
     from tests.python.native.test_native_execution import _config
     from tests.python.native.test_cpp_full_3d import control
     from tests.python.native.shared_library import library_path
@@ -209,11 +209,11 @@ def test_stored_result_stage_imports_no_solver_eos_or_qt(stage_library, tmp_path
     path = save_result(result_fixture(3), tmp_path / 'independent-result.h5')
     code = '''
 import ctypes as ct, sys
-from sjtu_tpmshx.file_io.result_io import load_result
+from tm1.file_io.result_io import load_result
 from tests.python.result_stage_fixture import native_report
 value = native_report(load_result(sys.argv[1]), ct.CDLL(sys.argv[2]))
 assert value['metrics']['Q_A']['value'] == float(sys.argv[3])
-for prefix in ('sjtu_tpmshx.solvers', 'sjtu_tpmshx.preprocess', 'CoolProp', 'numba', 'PySide6'):
+for prefix in ('tm1.solvers', 'tm1.preprocess', 'CoolProp', 'numba', 'PySide6'):
     assert not any(key == prefix or key.startswith(prefix + '.') for key in sys.modules), prefix
 '''
     expected = python_report(load_result(path))['metrics']['Q_A']['value']

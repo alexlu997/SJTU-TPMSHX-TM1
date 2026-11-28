@@ -44,11 +44,11 @@ and inlet half-cells. Numerical advection dissipation is not added to physical
 production. The boundary/physical-production agreement limit stays at 5%.
 Its near-zero scale floor is `1 W / lowest inlet temperature`, in W/K.
 Insufficient grid resolution still fails. Use
-`python -m sjtu_tpmshx.development.validation.cases.audit_3d_conservation --grid 40`
+`python -m tm1.development.validation.cases.audit_3d_conservation --grid 40`
 for the current T1–T4/T6 checks. Explicit coarse-grid results keep their failed
 verdicts. Allowed outlet-temperature crossover is an observation, not a failed gate.
 
-The independent Shanghai lumped dual-Nu comparison uses crossflow as primary and counterflow for sensitivity. Run `python -m sjtu_tpmshx.development.validation.cases.validate_shanghai_lumped_dual_nu`. By default, CSV and provenance metadata go to a new `.cache/validation/shanghai-lumped-dual-nu-*` directory. `--out-dir` can select a directory. It no longer overwrites `data/shanghai_lumped_dual_nu.csv`.
+The independent Shanghai lumped dual-Nu comparison uses crossflow as primary and counterflow for sensitivity. Run `python -m tm1.development.validation.cases.validate_shanghai_lumped_dual_nu`. By default, CSV and provenance metadata go to a new `.cache/validation/shanghai-lumped-dual-nu-*` directory. `--out-dir` can select a directory. It no longer overwrites `data/shanghai_lumped_dual_nu.csv`.
 
 `benchmark_sou_3d` is retired with the Python-only research entries. Historical pressure-drop records keep their original definitions.
 
@@ -60,22 +60,22 @@ This repository has no Fluent batch execution entry.
 | Tool | Input → output | Command and scope |
 | --- | --- | --- |
 | [examples/](../examples/) | Public JSON/YAML configuration → Case/Result/metrics | [2D and 3D CLI examples](first-run.en.md#examples). First-run entry within current support. |
-| [development/runs/smokes/](../python/development/runs/smokes/) | Built-in examples → console and declared diagnostics | `python -m sjtu_tpmshx.development.runs.smokes.<module>`. Headless GUI requires `QT_QPA_PLATFORM=offscreen`. |
+| [development/runs/smokes/](../python/development/runs/smokes/) | Built-in examples → console and declared diagnostics | `python -m tm1.development.runs.smokes.<module>`. Headless GUI requires `QT_QPA_PLATFORM=offscreen`. |
 | [CFD worklist](../python/development/runs/tools/asym_build_cfd_worklist_xlsx.py) → [nTop expressions](../python/development/runs/cfd_asym/asym_ntop_expressions_html.py) | Built-in geometry/fluid and optional private `water_DG_cfd_results_legacy.xlsx` → XLSX → HTML | Run the two commands below in order with one output directory. Missing local water data leaves a skip explanation in `r1_water_ref`, without invented anchors. |
-| [Asymmetric CFD tools](../python/development/runs/cfd_asym/), [diagnostics/](../python/development/runs/diagnostics/) | Declared geometry and field/CFD files → research results | `python -m sjtu_tpmshx.development.runs.<subdirectory>.<module>`. Prepare CFD runs and private input files externally. Workbook generation, diagnostics, and CSV post-processing remain. |
+| [Asymmetric CFD tools](../python/development/runs/cfd_asym/), [diagnostics/](../python/development/runs/diagnostics/) | Declared geometry and field/CFD files → research results | `python -m tm1.development.runs.<subdirectory>.<module>`. Prepare CFD runs and private input files externally. Workbook generation, diagnostics, and CSV post-processing remain. |
 | [engineering/scripts/](../engineering/scripts/) | Configured environment and test selection → logs | Two PowerShell test entries. Repository path comes from script location. Interpreter comes from `.venv-path`. `-LockFile` selects the lock. No automatic dependency installation. |
-| [D76 Nu/ε-NTU historical Q](../python/development/validation/cases/validate_sco2_d76.py) | Six fixed D-7-6 cases/private Excel → smooth-CFD Nu and lumped Q | `python -m sjtu_tpmshx.development.validation.cases.validate_sco2_d76`. Keeps the 15% maximum absolute relative Q error gate. Exit 0 passes. 1 fails. It does not validate current effective Nu coefficients. |
-| [Existing water Nu table](../python/development/validation/cases/validate_water_nu_excel.py) | 1879 legacy water CFD rows → row/topology/geometry/Re-band errors | `python -m sjtu_tpmshx.development.validation.cases.validate_water_nu_excel --out .cache/water-nu-validation`. Fixed current correlations. Exit 0 passes. 2 fails accuracy. Data errors raise. |
-| [Current experimental corrections](../python/development/validation/df_refit/fit_experimental_effective.py), [cross-dataset cF](../python/development/validation/df_refit/cf_cross_fluid.py) | Experimental workbooks and fixed CFD baseline → review CSV files in `.cache/reports/df_refit/` | `python -m sjtu_tpmshx.development.validation.df_refit.<module>`. Shared `python/development/validation/hx_experiments.py` reader. No previous γ/RBF fit or six retired coefficient tables. Production coefficients stay unchanged. |
-| [sCO2 CFD base Nu fit](../python/development/validation/sco2_cfd/fit_nu_sco2.py) | Original CFD tables → research base fits and geometry/pressure leave-one-out results | `python -m sjtu_tpmshx.development.validation.sco2_cfd.fit_nu_sco2`. Original cleaning and validation stay. No automatic effective-coefficient replacement. Previous experimental anchoring is [historical](history/legacy-models.md#sco2-nu-旧锚定路线2026-09-20). |
-| [Main compute measurement](../python/development/runs/tools/benchmark_main_compute.py) | Local fixed `jobs` list with `id/config` and optional `reference/depth_m` → separate Case/Result/metrics, logs, and stage measurements | `python -m sjtu_tpmshx.development.runs.tools.benchmark_main_compute MANIFEST NEW_OUTPUT --warmup --repeat 5`. 0 passes the common design verdict, file checks and declared-flow checks. 2 means unqualified results. 1 means execution errors. It does not show experimental accuracy. |
-| [F2 tolerance costing](../python/development/validation/cases/price_f2_convergence_3d.py) | Historical costing cases → separate `.cache/validation/f2_pricing-*/` CSV | `python -m sjtu_tpmshx.development.validation.cases.price_f2_convergence_3d --mom-tol 1e-3,1e-4,1e-5 --cases 1,8,16`. Scans F2. `--out` supports an output protected against frozen-path writes. Its full-side ports cannot replace local-port main-compute evidence. |
+| [D76 Nu/ε-NTU historical Q](../python/development/validation/cases/validate_sco2_d76.py) | Six fixed D-7-6 cases/private Excel → smooth-CFD Nu and lumped Q | `python -m tm1.development.validation.cases.validate_sco2_d76`. Keeps the 15% maximum absolute relative Q error gate. Exit 0 passes. 1 fails. It does not validate current effective Nu coefficients. |
+| [Existing water Nu table](../python/development/validation/cases/validate_water_nu_excel.py) | 1879 legacy water CFD rows → row/topology/geometry/Re-band errors | `python -m tm1.development.validation.cases.validate_water_nu_excel --out .cache/water-nu-validation`. Fixed current correlations. Exit 0 passes. 2 fails accuracy. Data errors raise. |
+| [Current experimental corrections](../python/development/validation/df_refit/fit_experimental_effective.py), [cross-dataset cF](../python/development/validation/df_refit/cf_cross_fluid.py) | Experimental workbooks and fixed CFD baseline → review CSV files in `.cache/reports/df_refit/` | `python -m tm1.development.validation.df_refit.<module>`. Shared `python/development/validation/hx_experiments.py` reader. No previous γ/RBF fit or six retired coefficient tables. Production coefficients stay unchanged. |
+| [sCO2 CFD base Nu fit](../python/development/validation/sco2_cfd/fit_nu_sco2.py) | Original CFD tables → research base fits and geometry/pressure leave-one-out results | `python -m tm1.development.validation.sco2_cfd.fit_nu_sco2`. Original cleaning and validation stay. No automatic effective-coefficient replacement. Previous experimental anchoring is [historical](history/legacy-models.md#sco2-nu-旧锚定路线2026-09-20). |
+| [Main compute measurement](../python/development/runs/tools/benchmark_main_compute.py) | Local fixed `jobs` list with `id/config` and optional `reference/depth_m` → separate Case/Result/metrics, logs, and stage measurements | `python -m tm1.development.runs.tools.benchmark_main_compute MANIFEST NEW_OUTPUT --warmup --repeat 5`. 0 passes the common design verdict, file checks and declared-flow checks. 2 means unqualified results. 1 means execution errors. It does not show experimental accuracy. |
+| [F2 tolerance costing](../python/development/validation/cases/price_f2_convergence_3d.py) | Historical costing cases → separate `.cache/validation/f2_pricing-*/` CSV | `python -m tm1.development.validation.cases.price_f2_convergence_3d --mom-tol 1e-3,1e-4,1e-5 --cases 1,8,16`. Scans F2. `--out` supports an output protected against frozen-path writes. Its full-side ports cannot replace local-port main-compute evidence. |
 
 Run the GUI checks without solving separately:
 
 ```bash
-python -m sjtu_tpmshx.development.runs.smokes.smoke_ui_offscreen
-python -m sjtu_tpmshx.development.runs.smokes.smoke_ui_screenshots --output .cache/ui-smoke-screenshots
+python -m tm1.development.runs.smokes.smoke_ui_offscreen
+python -m tm1.development.runs.smokes.smoke_ui_screenshots --output .cache/ui-smoke-screenshots
 ```
 
 Both require Qt offscreen. They use temporary session and appearance directories under `.cache/`, then remove temporary state without overwriting user preferences. Screenshot output also defaults to `.cache/ui-smoke-screenshots`. Missing required widgets/options, unsuccessful navigation, Qt callback exceptions, or failure to close the window return 1. Screenshot save failure also returns 1.
@@ -172,13 +172,13 @@ Geometry export does not reevaluate the previous model. The public nTop API/CLI 
 The CFD-worklist-to-nTop default directory is ignored `python/development/runs/_out/asym_cfd/`. If `TPMSHX_TOOL_OUT_DIR` is set, use the same value for both commands:
 
 ```bash
-python -m sjtu_tpmshx.development.runs.tools.asym_build_cfd_worklist_xlsx
-python -m sjtu_tpmshx.development.runs.cfd_asym.asym_ntop_expressions_html
+python -m tm1.development.runs.tools.asym_build_cfd_worklist_xlsx
+python -m tm1.development.runs.cfd_asym.asym_ntop_expressions_html
 ```
 
 Former `water-cfd-raw.xlsx` is now `data/raw_data/cfd/water/water_DG_cfd_results_legacy.xlsx`. It is only this research tool's declared previous recipe anchor. The [data catalog](data-catalog.en.md) maps all names. Formal offline processing still requires missing `Water-CFD/水数值模拟数据.xlsx`. These files cannot substitute for each other.
 
-Run the research importer with `python -m sjtu_tpmshx.development.runs.cfd_asym.ingest_cfd_kappa results.csv`. New design workbooks show this command. The published `sjtu_tpmshx.shared.df_surrogate.ingest_cfd_kappa` command also uses this importer. Older workbooks show the retired command module `sjtu_tpmshx.physical_models.df_surrogate.ingest_cfd_kappa`. Use the new command with their existing CSV files.
+Run the research importer with `python -m tm1.development.runs.cfd_asym.ingest_cfd_kappa results.csv`. New design workbooks show this command. The alias `tm1.shared.df_surrogate.ingest_cfd_kappa` also runs this importer. Older workbooks show the retired command module `sjtu_tpmshx.physical_models.df_surrogate.ingest_cfd_kappa`. Use the new command with their existing CSV files.
 
 Two asymmetric CFD kappa research paths use different denominators. `ingest_cfd_kappa` uses the current symmetric predictor. `asym_postproc_kappa` uses paired r=1 CFD. Their kappa values cannot be mixed directly. The importer uses piecewise linear interpolation over sorted nodes. It does not guarantee monotonic data or enforce an r=1 anchor.
 
@@ -211,11 +211,11 @@ Use the checked `.venv-path` interpreter and worktree-local caches:
 
 ```python
 from pathlib import Path
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.api import run_case
-from sjtu_tpmshx.file_io.case_io import save_case, load_case
-from sjtu_tpmshx.file_io.result_io import save_result
-from sjtu_tpmshx.development.validation.cases.audit_3d_conservation import make_T2
+from tm1.preprocess.api import prepare_case
+from tm1.solvers.api import run_case
+from tm1.file_io.case_io import save_case, load_case
+from tm1.file_io.result_io import save_result
+from tm1.development.validation.cases.audit_3d_conservation import make_T2
 
 output = Path('.cache/research-t2')
 output.mkdir(parents=True, exist_ok=True)

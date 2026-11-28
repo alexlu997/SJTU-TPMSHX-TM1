@@ -6,11 +6,11 @@ import sys
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.case_data import CaseData
-from sjtu_tpmshx.data_types.field_result import FieldResult
-from sjtu_tpmshx.data_types.model_refs import ModelRef
-from sjtu_tpmshx.file_io.result_io import load_result, save_result
-from sjtu_tpmshx.solvers.execution_record import full_execution_record
+from tm1.data_types.case_data import CaseData
+from tm1.data_types.field_result import FieldResult
+from tm1.data_types.model_refs import ModelRef
+from tm1.file_io.result_io import load_result, save_result
+from tm1.solvers.execution_record import full_execution_record
 
 
 def evidence(mode, *, settings=None, temperature=None, table=None,
@@ -106,7 +106,7 @@ def test_record_is_immutable_and_survives_file_handoff(tmp_path):
     loaded = load_result(path)
     assert loaded.metadata['execution_record'] == result.metadata['execution_record']
     subprocess.run([sys.executable, '-c',
-        "import sys; from sjtu_tpmshx.file_io.result_io import load_result; "
+        "import sys; from tm1.file_io.result_io import load_result; "
         "r=load_result(sys.argv[1]).metadata['execution_record']; "
         "assert r['input_resolution']['source']=='CaseData.parameters'; "
         "assert r['property_sampling']['records'][0]['temperature']=='inlet'; "

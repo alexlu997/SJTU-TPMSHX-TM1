@@ -5,13 +5,13 @@
 本模块提供 design 工具的便捷接口，不重复定义物性数据。
 """
 from __future__ import annotations
-from sjtu_tpmshx.run_control.run_warnings import range_context
+from tm1.run_control.run_warnings import range_context
 
-from sjtu_tpmshx.physical_models import fluid_props as _registry
-from sjtu_tpmshx.physical_models.fluid_props import Props as Props
-from sjtu_tpmshx.cpp_interface import _native_properties
-from sjtu_tpmshx.physical_models.tpms_calc import nu_from_Re, nu_re_window as nu_re_window
-from sjtu_tpmshx.physical_models.nu_correlations import (
+from tm1.physical_models import fluid_props as _registry
+from tm1.physical_models.fluid_props import Props as Props
+from tm1.cpp_interface import _native_properties
+from tm1.physical_models.tpms_calc import nu_from_Re, nu_re_window as nu_re_window
+from tm1.physical_models.nu_correlations import (
     DESIGN_NU_REFERENCE_STATES as DESIGN_NU_REFERENCE_STATES,
     NU_RE_FIT_RANGE as NU_RE_FIT_RANGE,
     WATER_NU_RE_RANGE as WATER_NU_RE_RANGE,
@@ -20,7 +20,7 @@ from sjtu_tpmshx.physical_models.nu_correlations import (
     nu_sco2_topo,
     _warn_extrap, _warn_water_nu, _warn_sco2_nu, record_quick_sco2_pr_notice,
 )
-from sjtu_tpmshx.physical_models.tpms_props import record_temperature_ranges
+from tm1.physical_models.tpms_props import record_temperature_ranges
 
 def record_native_design_ranges(fluid, topo, temperature, reynolds):
     """Map returned native pass evidence through existing warning owners, without EOS calls."""

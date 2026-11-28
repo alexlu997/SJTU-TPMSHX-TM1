@@ -11,7 +11,7 @@ from typing import Any
 
 import numpy as np
 
-from sjtu_tpmshx.cpp_interface._native_result_checks import record_range
+from tm1.cpp_interface._native_result_checks import record_range
 
 from . import CFD_CAMPAIGN, CFD_SCOPE
 
@@ -20,8 +20,8 @@ EXPERIMENTAL = "experimental"
 DF_MODES = (CFD_SMOOTH, EXPERIMENTAL)
 
 # Numerical data and campaign provenance have one resource owner.
-from sjtu_tpmshx.model_configs.model_parameters import load_preparation_df_parameters
-from sjtu_tpmshx.cpp_interface import _native_df
+from tm1.model_configs.model_parameters import load_preparation_df_parameters
+from tm1.cpp_interface import _native_df
 
 _PARAMETERS = load_preparation_df_parameters()
 _HX = _PARAMETERS['hx']

@@ -7,9 +7,9 @@ import pytest
 from tests.python import grid_centres_reference as centres
 from tests.python import grid_ports_reference as coordinates
 from tests.python import grid_source_reference as reference
-from sjtu_tpmshx.cpp_interface import _native_grid as native
-from sjtu_tpmshx.physical_models import grid
-from sjtu_tpmshx.preprocess.three_d.preparation import _axis_data
+from tm1.cpp_interface import _native_grid as native
+from tm1.physical_models import grid
+from tm1.preprocess.three_d.preparation import _axis_data
 
 KINDS = (float, np.float16, np.float32, np.float64)
 INTEGER_KINDS = (np.int8, np.uint8, np.int16, np.uint16,
@@ -46,7 +46,7 @@ def test_scalar_transport_rejects_non_real_values(value):
 @pytest.mark.parametrize('length_kind,diameter_kind,alpha_kind', [
     (float, float, float), (np.float16, np.float32, np.float16)])
 def test_adaptive_grid_keeps_gui_counts_and_scalar_rounding(length_kind, diameter_kind, alpha_kind):
-    from sjtu_tpmshx.physical_models.tpms_calc import adaptive_grid
+    from tm1.physical_models.tpms_calc import adaptive_grid
     for length, height, diameter, alpha in ((.182, .042, .003, .4),
                                            (41., 21., 1., 2.),
                                            (.01, .002, .003, .4)):
@@ -60,7 +60,7 @@ def test_adaptive_grid_keeps_gui_counts_and_scalar_rounding(length_kind, diamete
 @pytest.mark.parametrize('length,diameter', ((1e300, 1.), (1e308, 1e-20),
                                            (float('nan'), 1.), (1., 0.)))
 def test_adaptive_grid_preserves_integer_conversion_errors(length, diameter):
-    from sjtu_tpmshx.physical_models.tpms_calc import adaptive_grid
+    from tm1.physical_models.tpms_calc import adaptive_grid
     try:
         expected = (max(20, round(length / (.4 * diameter))), max(10, round(1. / (.4 * diameter))))
     except (ValueError, OverflowError, ZeroDivisionError) as error:
@@ -168,8 +168,8 @@ def test_integer_configuration_scalars_keep_float_grid_arithmetic(kind):
 
 @pytest.mark.parametrize('nz', [1, 3])
 def test_public_prepare_accepts_numpy_integer_domain_lengths(nz):
-    from sjtu_tpmshx.data_types.compute_config import ComputeConfig, GeometryConfig, SolverConfig, ExtrapPolicy
-    from sjtu_tpmshx.preprocess.api import prepare_case
+    from tm1.data_types.compute_config import ComputeConfig, GeometryConfig, SolverConfig, ExtrapPolicy
+    from tm1.preprocess.api import prepare_case
     cfg = ComputeConfig(geometry=GeometryConfig(L_dom_m=np.int64(1), H_dom_m=np.int32(1), Lz_m=.03),
                         solver=SolverConfig(Nx=8, Ny=6, Nz=nz), extrap=ExtrapPolicy(allow=True))
     case = prepare_case(cfg, case_id='integer-domain')

@@ -18,8 +18,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from sjtu_tpmshx.applications.gui.ui.symbols import SYM, val_unit
-from sjtu_tpmshx.applications.gui.ui.theme import get_theme
+from tm1.applications.gui.ui.symbols import SYM, val_unit
+from tm1.applications.gui.ui.theme import get_theme
 
 _FIELD_WIDTH_DESKTOP = 168
 _FIELD_WIDTH_COMPACT = 150

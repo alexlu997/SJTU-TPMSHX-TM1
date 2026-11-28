@@ -13,8 +13,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from sjtu_tpmshx.development.validation.harness import _provenance as provenance
-from sjtu_tpmshx.development.validation.harness._provenance import (
+from tm1.development.validation.harness import _provenance as provenance
+from tm1.development.validation.harness._provenance import (
     write_csv_with_provenance,
     read_csv_with_provenance,
 )

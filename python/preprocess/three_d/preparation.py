@@ -5,12 +5,12 @@ from functools import partial
 import os
 from typing import get_args
 
-from sjtu_tpmshx.cpp_interface import native_preparation
-from sjtu_tpmshx.data_types.case_data import CaseData
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig, TPMSType
-from sjtu_tpmshx.data_types.model_refs import ModelRef
-from sjtu_tpmshx.physical_models.fluid_props import WaterStateError, validate_fluid_type
-from sjtu_tpmshx.run_control.run_environment import capture_environment
+from tm1.cpp_interface import native_preparation
+from tm1.data_types.case_data import CaseData
+from tm1.data_types.compute_config import ComputeConfig, TPMSType
+from tm1.data_types.model_refs import ModelRef
+from tm1.physical_models.fluid_props import WaterStateError, validate_fluid_type
+from tm1.run_control.run_environment import capture_environment
 from .. import preparation as shared
 
 
@@ -146,7 +146,7 @@ def _case(detached, config, case_id, context):
 
 
 def _execute(config, action, *, targets=None, case_id=None, start_observations=None):
-    from sjtu_tpmshx.run_control.run_environment import _resolve_chi_s
+    from tm1.run_control.run_environment import _resolve_chi_s
     cell_cap, cap_error = _max_cells_3d()
     source, input_errors = native_preparation.pack_volume_input(
         config, targets, partial(_inlet_speed, action, targets), cell_cap)
@@ -168,7 +168,7 @@ def _execute(config, action, *, targets=None, case_id=None, start_observations=N
             elif chi_error is not None:
                 raise chi_error
             if config.geometry.tpms not in _TOPOLOGIES:
-                from sjtu_tpmshx.physical_models import tpms_props, co2_correlations
+                from tm1.physical_models import tpms_props, co2_correlations
                 geometry_check = (co2_correlations.geometry if 'co2' in
                     (config.fluid_A.type, config.fluid_B.type) else tpms_props.geometry)
                 geometry_check(config.geometry.tpms, config.geometry.L_cell_mm,
@@ -190,7 +190,7 @@ def _execute(config, action, *, targets=None, case_id=None, start_observations=N
                 shape = config.solver.Nx, config.solver.Ny, config.solver.Nz
                 raise ValueError(f'3D grid {shape[0]}x{shape[1]}x{shape[2]} exceeds the {cell_cap}-cell cap')
         elif stage == 15:
-            from sjtu_tpmshx.physical_models.roughness import resolve_mode_from_env
+            from tm1.physical_models.roughness import resolve_mode_from_env
             mode, eps_um = resolve_mode_from_env(default='norris_1a')
             context['roughness'] = {'mode': mode, 'eps_m': eps_um * 1e-6}
         elif stage == 16:

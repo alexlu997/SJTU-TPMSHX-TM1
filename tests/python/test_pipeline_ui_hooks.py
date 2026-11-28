@@ -1,11 +1,11 @@
 """The GUI forwards live controls through the common compute workflow."""
 import pytest
 
-from sjtu_tpmshx.applications.gui.controllers.compute_orchestrator import CancelToken
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.applications.gui.ui.single_run import _run_compute
+from tm1.applications.gui.controllers.compute_orchestrator import CancelToken
+from tm1.run_control.cancellation import CancelledError
+from tm1.data_types.compute_config import ComputeConfig
+from tm1.run_control.module_ports import RunControl
+from tm1.applications.gui.ui.single_run import _run_compute
 
 
 def test_cancel_token_cancelled_property():
@@ -21,7 +21,7 @@ def test_cancelled_run_skips_preparation(tmp_path, monkeypatch, source):
     if source == 'gui':
         token.cancel()
     host = RunControl(cancel_check=lambda: source == 'host')
-    monkeypatch.setattr('sjtu_tpmshx.preprocess.api.prepare_case',
+    monkeypatch.setattr('tm1.preprocess.api.prepare_case',
                         lambda *a, **k: pytest.fail('prepared cancelled run'))
     with pytest.raises(CancelledError):
         _run_compute(ComputeConfig(), token, lambda p: None, ui_hooks={}, control=host,
@@ -47,8 +47,8 @@ def test_gui_and_host_controls_reach_solver(tmp_path, monkeypatch, nz, host_hook
     config = ComputeConfig()
     config.solver.Nz, config.geometry.Lz_m = nz, .03
 
-    from sjtu_tpmshx.compute import compute
-    monkeypatch.setattr('sjtu_tpmshx.applications.execution.recovery.compute_run',
+    from tm1.compute import compute
+    monkeypatch.setattr('tm1.applications.execution.recovery.compute_run',
                         lambda cfg, directory, *, control, progress_cb, **kwargs:
                         compute(cfg, control=control, progress_cb=progress_cb))
 
@@ -77,9 +77,9 @@ def test_gui_and_host_controls_reach_solver(tmp_path, monkeypatch, nz, host_hook
             control.check_cancelled()
         return object()
 
-    monkeypatch.setattr('sjtu_tpmshx.preprocess.api.prepare_case', prepare)
-    monkeypatch.setattr('sjtu_tpmshx.solvers.api.run_case', solve)
-    monkeypatch.setattr('sjtu_tpmshx.postprocess.api.evaluate',
+    monkeypatch.setattr('tm1.preprocess.api.prepare_case', prepare)
+    monkeypatch.setattr('tm1.solvers.api.run_case', solve)
+    monkeypatch.setattr('tm1.postprocess.api.evaluate',
                         lambda *a: pytest.fail('evaluated cancelled result'))
     with pytest.raises(CancelledError):
         _run_compute(config, token, gui_progress.append, control=host,

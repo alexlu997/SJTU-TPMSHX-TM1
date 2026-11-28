@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.physical_models import sco2_props
+from tm1.physical_models import sco2_props
 
 @pytest.mark.parametrize('pressure', [7.9e6, 8e6, 16e6])
 def test_temperature_field_round_trips_enthalpy_field(pressure):
@@ -28,7 +28,7 @@ def test_temperature_field_matches_scalar(pressure):
 @pytest.mark.parametrize('pressure', [np.nextafter(7.9e6, -np.inf),
                                     np.nextafter(16e6, np.inf)])
 def test_property_and_inverse_reject_pressure_before_eos(monkeypatch, pressure):
-    from sjtu_tpmshx.cpp_interface import _native_properties
+    from tm1.cpp_interface import _native_properties
 
     def unexpected_eos(*args):
         pytest.fail('out-of-range pressure reached EOS')

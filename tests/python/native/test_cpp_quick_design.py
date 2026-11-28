@@ -15,14 +15,14 @@ import warnings
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.file_io.case_io import load_case, save_case
-from sjtu_tpmshx.file_io.metrics_io import load_metrics
-from sjtu_tpmshx.file_io.result_io import load_result, save_result
-from sjtu_tpmshx.physical_models.fluid_props import WaterStateError, QuickDesignWaterFieldError
-from sjtu_tpmshx.postprocess.api import evaluate
-from sjtu_tpmshx.solvers.api import run_case
+from tm1.run_control.cancellation import CancelledError
+from tm1.run_control.module_ports import RunControl
+from tm1.file_io.case_io import load_case, save_case
+from tm1.file_io.metrics_io import load_metrics
+from tm1.file_io.result_io import load_result, save_result
+from tm1.physical_models.fluid_props import WaterStateError, QuickDesignWaterFieldError
+from tm1.postprocess.api import evaluate
+from tm1.solvers.api import run_case
 from tests.python.native import test_quick_design_driver as qd
 from tests.python.native.test_quick_design_driver import prepared
 
@@ -178,7 +178,7 @@ def test_saved_text_fields_are_rejected(native_control, tmp_path, name):
 
 
 def test_pressure_evidence_copies_native_output(native_control, monkeypatch):
-    from sjtu_tpmshx.cpp_interface import quick_design
+    from tm1.cpp_interface import quick_design
     case = prepared('counter', 'const')
     load = quick_design.ct.CDLL
     library = load(native_control.native_library)
@@ -214,8 +214,8 @@ def test_pressure_evidence_copies_native_output(native_control, monkeypatch):
 
 
 def test_stage_preserves_saved_grid_types_and_owned_output(native_control, monkeypatch):
-    from sjtu_tpmshx.preprocess import api
-    from sjtu_tpmshx.cpp_interface import quick_design
+    from tm1.preprocess import api
+    from tm1.cpp_interface import quick_design
     case = prepared('counter', 'const')
     fixed = {key: np.array(value, dtype=np.float32) for key, value in case.design_fields.items()}
     grid = {**case.grid, 'dx': np.array(case.grid['dx'])}
@@ -303,8 +303,8 @@ def test_stage_preserves_saved_grid_types_and_owned_output(native_control, monke
 
 
 def test_unscoped_air_notice_uses_solver_call_site_once(native_control, monkeypatch):
-    from sjtu_tpmshx.physical_models import nu_correlations
-    from sjtu_tpmshx.solvers import quick_design
+    from tm1.physical_models import nu_correlations
+    from tm1.solvers import quick_design
 
     case = prepared('counter', 'const', 'water_air')
     op = {**case.parameters['operating_point'], 'T_in_h': 380., 'P_in_h': 3e6, 'mdot_c': .001}
@@ -329,7 +329,7 @@ def test_unscoped_air_notice_uses_solver_call_site_once(native_control, monkeypa
 
 @pytest.mark.parametrize('termination', ['cancel', 'callback', 'native_error'])
 def test_stage_releases_output_on_errors(native_control, monkeypatch, termination):
-    from sjtu_tpmshx.cpp_interface import quick_design
+    from tm1.cpp_interface import quick_design
     case = prepared('counter', 'const')
     load = quick_design.ct.CDLL
     library = load(native_control.native_library)
@@ -365,7 +365,7 @@ def test_stage_releases_output_on_errors(native_control, monkeypatch, terminatio
 
 
 def test_stage_symbol_is_required(native_control, monkeypatch):
-    from sjtu_tpmshx.cpp_interface import quick_design
+    from tm1.cpp_interface import quick_design
     case = prepared('counter', 'const')
     library = quick_design.ct.CDLL(native_control.native_library)
 
@@ -381,7 +381,7 @@ def test_stage_symbol_is_required(native_control, monkeypatch):
 
 
 def test_saved_case_then_release_symbol_then_warm_start(native_control, tmp_path, monkeypatch):
-    from sjtu_tpmshx.cpp_interface import quick_design
+    from tm1.cpp_interface import quick_design
 
     case = prepared('counter', 'const')
     path = tmp_path / 'invalid-seed.h5'
@@ -406,9 +406,9 @@ def test_saved_case_then_release_symbol_then_warm_start(native_control, tmp_path
 
 
 def test_failed_range_query_keeps_completed_side(native_control, monkeypatch):
-    from sjtu_tpmshx.cpp_interface import quick_design as wire
-    from sjtu_tpmshx.run_control.run_warnings import warning_scope
-    from sjtu_tpmshx.solvers import quick_design
+    from tm1.cpp_interface import quick_design as wire
+    from tm1.run_control.run_warnings import warning_scope
+    from tm1.solvers import quick_design
 
     case = prepared('counter', 'mean', 'water_air')
     library = wire.ct.CDLL(native_control.native_library)
@@ -431,8 +431,8 @@ def test_failed_range_query_keeps_completed_side(native_control, monkeypatch):
 
 
 def test_warnings_use_native_pass_evidence_without_python_numerics(native_control, quick_design_native, monkeypatch):
-    from sjtu_tpmshx.physical_models import design_fluids, fluid_props
-    from sjtu_tpmshx.cpp_interface import quick_design
+    from tm1.physical_models import design_fluids, fluid_props
+    from tm1.cpp_interface import quick_design
     case = prepared('counter', 'mean', 'water_air')
     p = case.parameters
     case = replace(case, parameters={**p, 'operating_point': {
@@ -524,7 +524,7 @@ def test_two_runs_cancel_only_one(native_control, quick_design_native):
 
 @pytest.mark.parametrize('invalid', ['missing', 'relative', 'wrong_abi', 'unknown_mode', 'unknown_3d_mode', 'dimension'])
 def test_library_and_capability_errors_are_explicit(native_control, tmp_path, monkeypatch, invalid):
-    from sjtu_tpmshx.cpp_interface import quick_design
+    from tm1.cpp_interface import quick_design
     case = prepared()
     control = native_control
     if invalid == 'missing':
@@ -564,18 +564,18 @@ def capture(event, args):
 sys.addaudithook(capture)
 missing = str(Path(sys.argv[1]).parent / 'absent-library')
 with patch.dict(os.environ, {f'TPMSHX_{stage}_LIBRARY': missing for stage in ('RESULT', 'PREPARATION', 'GEOMETRY')}):
-    from sjtu_tpmshx.file_io.case_io import load_case
-    from sjtu_tpmshx.run_control.module_ports import RunControl
-    from sjtu_tpmshx.solvers.api import run_case
+    from tm1.file_io.case_io import load_case
+    from tm1.run_control.module_ports import RunControl
+    from tm1.solvers.api import run_case
     result = run_case(load_case(sys.argv[1]), RunControl(backend='cpp', native_library=sys.argv[3]))
 if images != [Path(sys.argv[3]).resolve()]:
     raise AssertionError(images)
-from sjtu_tpmshx.file_io.result_io import save_result
-from sjtu_tpmshx.postprocess.api import evaluate
+from tm1.file_io.result_io import save_result
+from tm1.postprocess.api import evaluate
 assert result.run_status['converged'] and evaluate(result).metrics['Q'].status == 'available'
 save_result(result, sys.argv[2])
-forbidden = ('numba', 'sjtu_tpmshx.solvers.ltne_', 'sjtu_tpmshx.solvers.simple_',
-             'sjtu_tpmshx.solvers._kernels', 'sjtu_tpmshx.solvers.backends.python.quick_design')
+forbidden = ('numba', 'tm1.solvers.ltne_', 'tm1.solvers.simple_',
+             'tm1.solvers._kernels', 'tm1.solvers.backends.python.quick_design')
 assert not [name for name in sys.modules if name.startswith(forbidden)]
 '''
     process = subprocess.run([sys.executable, '-c', code, str(case_path), str(result_path),
@@ -588,8 +588,8 @@ assert not [name for name in sys.modules if name.startswith(forbidden)]
 def test_parallel_selection_keeps_native_backend_and_infeasible_candidates(
         native_control, monkeypatch, tmp_path):
     from threading import Lock
-    from sjtu_tpmshx.applications.design import select
-    from sjtu_tpmshx.applications.design.cases import DesignCase
+    from tm1.applications.design import select
+    from tm1.applications.design.cases import DesignCase
 
     # The 4 mm cell exceeds this inlet-pressure limit even at the largest
     # build width; the 8 mm cell completes the real sizing search and solve.
@@ -613,8 +613,8 @@ def test_parallel_selection_keeps_native_backend_and_infeasible_candidates(
     def traced_sizing(log_directory):
         def size(*args, **kwargs):
             from unittest.mock import patch
-            from sjtu_tpmshx.applications.design.sizing import size_fixed_cell
-            from sjtu_tpmshx.solvers import api
+            from tm1.applications.design.sizing import size_fixed_cell
+            from tm1.solvers import api
 
             child = kwargs['control']
             assert child.backend == 'cpp'
@@ -677,7 +677,7 @@ def test_saved_qd_cpp_cli_solve_postprocess_and_replay(native_control, tmp_path,
     outputs = []
     for attempt in range(2):
         output = tmp_path / f'result-{attempt}.h5'
-        command = [sys.executable, '-m', 'sjtu_tpmshx.applications.cli.stages', 'solve',
+        command = [sys.executable, '-m', 'tm1.applications.cli.stages', 'solve',
                    str(source), str(output), '--backend', 'cpp',
                    '--native-library', native_control.native_library,
                    '--native-table-directory', str(tables)]
@@ -695,7 +695,7 @@ def test_saved_qd_cpp_cli_solve_postprocess_and_replay(native_control, tmp_path,
     assert source.read_bytes() == original
     metrics_path = tmp_path / 'metrics.json'
     process = subprocess.run([
-        sys.executable, '-m', 'sjtu_tpmshx.applications.cli.stages', 'postprocess',
+        sys.executable, '-m', 'tm1.applications.cli.stages', 'postprocess',
         str(outputs[1]), str(metrics_path)], cwd=ROOT, capture_output=True, text=True, timeout=60)
     assert process.returncode == 0, process.stdout + process.stderr
     performance = load_metrics(metrics_path)
@@ -709,7 +709,7 @@ def test_cpp_cli_missing_library_preserves_existing_result(native_control, tmp_p
     output.write_bytes(b'previous result')
     missing = tmp_path / 'missing-library'
     process = subprocess.run([
-        sys.executable, '-m', 'sjtu_tpmshx.applications.cli.stages', 'solve', str(source), str(output),
+        sys.executable, '-m', 'tm1.applications.cli.stages', 'solve', str(source), str(output),
         '--backend', 'cpp', '--native-library', str(missing)],
         cwd=ROOT, capture_output=True, text=True, timeout=60)
     assert process.returncode != 0 and 'missing-library' in process.stderr
@@ -719,8 +719,8 @@ def test_cpp_cli_missing_library_preserves_existing_result(native_control, tmp_p
 @pytest.mark.parametrize('mode', ['fixed', 'auto'])
 def test_design_cli_performs_real_native_sizing(native_control, tmp_path, monkeypatch, mode):
     import openpyxl
-    from sjtu_tpmshx.applications.design import cli
-    from sjtu_tpmshx.solvers import api
+    from tm1.applications.design import cli
+    from tm1.solvers import api
 
     source, output = tmp_path / 'spec.csv', tmp_path / 'design.xlsx'
     source.write_text(
@@ -778,10 +778,10 @@ from unittest.mock import patch
 
 from PySide6.QtCore import QObject, Slot
 from PySide6.QtWidgets import QApplication
-from sjtu_tpmshx.applications.gui.controllers import main_thread_gc
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.solvers import api
-from sjtu_tpmshx.applications.gui.ui.quick_design_job import QuickDesignJob
+from tm1.applications.gui.controllers import main_thread_gc
+from tm1.run_control.module_ports import RunControl
+from tm1.solvers import api
+from tm1.applications.gui.ui.quick_design_job import QuickDesignJob
 
 app = QApplication(['native-qd-worker', '-platform', 'offscreen'])
 main_thread_gc.install(app)
@@ -893,8 +893,8 @@ else:
     assert native_results[-1].metadata['native']['capability'] == 'quick_design_v1'
     assert all(math.isfinite(row['Q_W']) and row['Q_W'] >= 30 for row in best.percase)
 
-forbidden = ('numba', 'sjtu_tpmshx.solvers.ltne_', 'sjtu_tpmshx.solvers.simple_',
-             'sjtu_tpmshx.solvers._kernels', 'sjtu_tpmshx.solvers.backends.python.quick_design')
+forbidden = ('numba', 'tm1.solvers.ltne_', 'tm1.solvers.simple_',
+             'tm1.solvers._kernels', 'tm1.solvers.backends.python.quick_design')
 assert not [name for name in sys.modules if name.startswith(forbidden)]
 print('QD_QT_RESULT=' + json.dumps(dict(termination=termination, native_calls=len(calls),
     completed_native_calls=len(native_results), progress_count=len(progress),

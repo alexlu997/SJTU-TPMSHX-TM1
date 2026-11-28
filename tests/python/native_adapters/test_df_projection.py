@@ -4,8 +4,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.physical_models.grid import build_master_refined_grid
-from sjtu_tpmshx.cpp_interface._native_df import project_rows
+from tm1.physical_models.grid import build_master_refined_grid
+from tm1.cpp_interface._native_df import project_rows
 
 
 # ─── build_master_refined_grid ────────────────────────────────────

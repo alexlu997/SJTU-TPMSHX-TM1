@@ -4,10 +4,10 @@ from dataclasses import replace
 
 import numpy as np
 
-from sjtu_tpmshx.data_types.metric_spec import MetricSpec, full_metric_version
-from sjtu_tpmshx.data_types.portable_data import mutable_data
-from sjtu_tpmshx.file_io.result_io import load_result
-from sjtu_tpmshx.postprocess.api import evaluate
+from tm1.data_types.metric_spec import MetricSpec, full_metric_version
+from tm1.data_types.portable_data import mutable_data
+from tm1.file_io.result_io import load_result
+from tm1.postprocess.api import evaluate
 
 
 LIMIT_KEYS = ('Q_min_W', 'dP_A_max_Pa', 'dP_B_max_Pa')
@@ -35,8 +35,8 @@ def constraint_keys(requirements):
 
 def mass_lower_bound(config, field_spec, density, control_count):
     """Use the selected geometry model to bound mass for every clipped field."""
-    from sjtu_tpmshx.physical_models import co2_correlations, tpms_geometry
-    from sjtu_tpmshx.cpp_interface import _native_result_checks
+    from tm1.physical_models import co2_correlations, tpms_geometry
+    from tm1.cpp_interface import _native_result_checks
 
     geometry = config.geometry
     depth = geometry.Lz_m

@@ -11,11 +11,11 @@ import warnings
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.cpp_interface import native_preparation, preparation_host
-from sjtu_tpmshx.preprocess import api, preparation as shared
-from sjtu_tpmshx.preprocess.two_d import preparation
-from sjtu_tpmshx.physical_models import nu_correlations, sigmoid_field, tpms_calc, tpms_geometry, tpms_props
-from sjtu_tpmshx.run_control.run_warnings import (
+from tm1.cpp_interface import native_preparation, preparation_host
+from tm1.preprocess import api, preparation as shared
+from tm1.preprocess.two_d import preparation
+from tm1.physical_models import nu_correlations, sigmoid_field, tpms_calc, tpms_geometry, tpms_props
+from tm1.run_control.run_warnings import (
     current_warnings, range_observations, warning_scope,
 )
 from tests.python import native_preparation_abi, property_reference as prop_ref
@@ -55,13 +55,13 @@ def _same(actual, expected, path='case'):
 
 
 def _capture(monkeypatch, module, operation, config, targets=None, *, clear_cache=True):
-    from sjtu_tpmshx.run_control.logutil import get_logger
+    from tm1.run_control.logutil import get_logger
     if clear_cache:
         tpms_calc.compute.cache_clear()
         tpms_geometry.compute_geometry.cache_clear()
     events = []
     with monkeypatch.context() as patch:
-        logger = get_logger('sjtu_tpmshx.preprocess.two_d.preparation')
+        logger = get_logger('tm1.preprocess.two_d.preparation')
         patch.setattr(logger, 'info', lambda message: events.append(('log', message)))
         with warnings.catch_warnings():
             warnings.simplefilter('always')
@@ -84,13 +84,13 @@ def _capture(monkeypatch, module, operation, config, targets=None, *, clear_cach
 def _failure(monkeypatch, module, config, targets=None):
     tpms_calc.compute.cache_clear()
     tpms_geometry.compute_geometry.cache_clear()
-    from sjtu_tpmshx.run_control.logutil import get_logger
+    from tm1.run_control.logutil import get_logger
     events = []
     with monkeypatch.context() as patch, warnings.catch_warnings():
         warnings.simplefilter('always')
         patch.setattr(warnings, 'showwarning', lambda message, category, *args, **kwargs:
                       events.append((category.__name__, str(message))))
-        patch.setattr(get_logger('sjtu_tpmshx.preprocess.two_d.preparation'), 'info',
+        patch.setattr(get_logger('tm1.preprocess.two_d.preparation'), 'info',
                       lambda message: events.append(('log', message)))
         with pytest.raises(Exception) as caught:
             if targets is None:
@@ -221,7 +221,7 @@ def test_direct_2d_preparation_keeps_dimension_guard():
     (preparation.prepare_mass_flow_case, {'targets': {'A': .01, 'B': .02}}),
 ], ids=['public', 'direct', 'public-fixed-flow', 'direct-fixed-flow'])
 def test_nominal_grid_warns_once_per_axis(prepare, flow):
-    from sjtu_tpmshx.data_types.compute_config import ComputeConfig
+    from tm1.data_types.compute_config import ComputeConfig
 
     config = ComputeConfig()
     config.geometry.L_dom_m = config.geometry.H_dom_m = float(np.finfo(float).smallest_subnormal)
@@ -238,7 +238,7 @@ def test_nominal_grid_warns_once_per_axis(prepare, flow):
 
 
 def test_nonzero_delta_uses_native_thermal_geometry(monkeypatch):
-    from sjtu_tpmshx.cpp_interface import _native_geometry
+    from tm1.cpp_interface import _native_geometry
     config = native_preparation_abi._configuration_mass_flow()
     config.geometry.delta_levelset = .1
     monkeypatch.setattr(_native_geometry, 'prepare_sides',
@@ -249,7 +249,7 @@ def test_nonzero_delta_uses_native_thermal_geometry(monkeypatch):
 
 
 def test_callback_exception_restores_scope_and_releases_owner(monkeypatch):
-    from sjtu_tpmshx.cpp_interface import preparation_host as binding
+    from tm1.cpp_interface import preparation_host as binding
     config = native_preparation_abi._configuration_mass_flow()
     actual = binding._Bindings
     released = []
@@ -318,7 +318,7 @@ def test_warm_cache_converts_each_field_before_reading_the_next(cache_name, miss
 def test_property_cache_wrapper_keeps_warning_source(monkeypatch, entry, frozen):
     tpms_calc.compute.cache_clear()
     if frozen:
-        from sjtu_tpmshx.physical_models import preparation_cache
+        from tm1.physical_models import preparation_cache
         monkeypatch.setattr(tpms_calc._compute_cached, '__code__',
             tpms_calc._compute_cached.__code__.replace(co_filename='python/physical_models/preparation_cache.py'))
         monkeypatch.setattr(preparation_cache, '__file__', '/Applications/TM1.app/Contents/Frameworks/python/physical_models/preparation_cache.py')

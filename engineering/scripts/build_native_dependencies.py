@@ -296,7 +296,7 @@ def check_model_h_history_input(solver_build: Path, *, qualification: bool) -> N
 
 def check_environment(cache: Path, python: Path, lock: Path) -> None:
     log = cache / "logs" / "environment.log"
-    run([python, "-m", "sjtu_tpmshx.development.runs.tools.check_locked_environment", lock], log)
+    run([python, "-m", "tm1.development.runs.tools.check_locked_environment", lock], log)
     run([python, "-m", "pip", "check"], log)
 
 

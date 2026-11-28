@@ -27,8 +27,8 @@ from uuid import uuid4
 
 from PySide6.QtCore import QObject
 
-from sjtu_tpmshx.applications.gui.controllers.user_storage import user_data_dir
-from sjtu_tpmshx.run_control.logutil import get_logger
+from tm1.applications.gui.controllers.user_storage import user_data_dir
+from tm1.run_control.logutil import get_logger
 
 
 _log = get_logger(__name__)

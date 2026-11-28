@@ -4,10 +4,10 @@ from uuid import uuid4
 
 import numpy as np
 
-from sjtu_tpmshx.data_types.field_result import FieldResult
-from sjtu_tpmshx.data_types.metric_spec import MetricSpec, full_metric_version
-from sjtu_tpmshx.data_types.performance_result import MetricValue, PerformanceResult
-from sjtu_tpmshx.data_types.persistence_validation import validate_result_declarations
+from tm1.data_types.field_result import FieldResult
+from tm1.data_types.metric_spec import MetricSpec, full_metric_version
+from tm1.data_types.performance_result import MetricValue, PerformanceResult
+from tm1.data_types.persistence_validation import validate_result_declarations
 from . import metrics as metric_functions
 from .applicability import evaluate_applicability  # noqa: F401
 from tests.python.result_balance_reference import evaluate_physical_balance  # noqa: F401

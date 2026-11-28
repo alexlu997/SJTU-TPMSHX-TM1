@@ -3,7 +3,7 @@ from dataclasses import replace
 
 
 def air_air_config():
-    from sjtu_tpmshx.data_types.compute_config import (
+    from tm1.data_types.compute_config import (
         ComputeConfig, FluidConfig, GeometryConfig, PartialBCConfig, SolverConfig,
     )
     return ComputeConfig(
@@ -30,7 +30,7 @@ def full_face_config(port_wall_refine=True):
 
 def small_air_config():
     """Small air/air 3D workflow input for end-to-end smoke tests."""
-    from sjtu_tpmshx.data_types.compute_config import (
+    from tm1.data_types.compute_config import (
         ComputeConfig, ExtrapPolicy, FeatureFlags, FluidConfig, GeometryConfig,
         PartialBCConfig, SolverConfig,
     )

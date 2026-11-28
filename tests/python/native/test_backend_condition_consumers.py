@@ -5,14 +5,14 @@ import json
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.compute_config import FluidConfig
-from sjtu_tpmshx.file_io.metrics_io import load_metrics
-from sjtu_tpmshx.file_io.result_io import load_result
-from sjtu_tpmshx.applications.optimization.multi_condition import evaluate_condition_batch
-from sjtu_tpmshx.applications.optimization.multi_condition_optimizer import run_multi_condition_optimization
-from sjtu_tpmshx.postprocess.api import evaluate
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.preprocess.inlet_flow import total_inlet_mass_capacity
+from tm1.data_types.compute_config import FluidConfig
+from tm1.file_io.metrics_io import load_metrics
+from tm1.file_io.result_io import load_result
+from tm1.applications.optimization.multi_condition import evaluate_condition_batch
+from tm1.applications.optimization.multi_condition_optimizer import run_multi_condition_optimization
+from tm1.postprocess.api import evaluate
+from tm1.preprocess.api import prepare_case
+from tm1.preprocess.inlet_flow import total_inlet_mass_capacity
 from tests.python.native import test_cpp_full_3d as native_3d
 from tests.python.native.test_native_execution import _config
 from tests.python.gui_io_support import win as win
@@ -22,11 +22,11 @@ native_path = native_3d.native_path
 
 def test_gui_co2_mass_input_save_reopen_geometry_and_export(win, native_path, tmp_path, monkeypatch):
     from PySide6.QtWidgets import QFileDialog, QMessageBox
-    from sjtu_tpmshx.preprocess.api import prepare_inlet_mass_capacities
+    from tm1.preprocess.api import prepare_inlet_mass_capacities
     from tests.python.preprocess.test_co2_model import co2_config
     from tests.python.integration_tm1.test_public_gui import apply_config
     from tests.python.gui_worker_support import _wait_for
-    from sjtu_tpmshx.applications.gui.ui.window_config import config_from_window
+    from tm1.applications.gui.ui.window_config import config_from_window
 
     errors = []
     monkeypatch.setattr(QMessageBox, 'critical', lambda *args: errors.append(args[1:]))
@@ -158,9 +158,9 @@ def test_native_mass_search_preserves_total_units_constraints_and_exports(
         native_path, tmp_path, dimension, allow_extrapolation):
     import csv
     from openpyxl import load_workbook
-    from sjtu_tpmshx.applications.optimization.multi_condition_optimizer import resume_multi_condition_optimization
-    from sjtu_tpmshx.applications.optimization.export_ntop_csv import export_study_design
-    from sjtu_tpmshx.applications.optimization.pareto_io import export_pareto_data
+    from tm1.applications.optimization.multi_condition_optimizer import resume_multi_condition_optimization
+    from tm1.applications.optimization.export_ntop_csv import export_study_design
+    from tm1.applications.optimization.pareto_io import export_pareto_data
 
     conditions = _conditions(dimension)
     if allow_extrapolation:
@@ -268,8 +268,8 @@ def test_converged_outside_range_batch_retains_diagnostics(native_path, tmp_path
 
 def _wait_at_native_checkpoint(index, case_file, directory, library, threads, checkpoint_file=None):
     from time import monotonic, sleep
-    from sjtu_tpmshx.applications.optimization import multi_condition as batch
-    from sjtu_tpmshx.applications.execution import recovery
+    from tm1.applications.optimization import multi_condition as batch
+    from tm1.applications.execution import recovery
 
     solve, save = recovery.run_case, recovery.save_solver_checkpoint
     def solve_with_inner_checkpoints(*args, **kwargs):
@@ -300,10 +300,10 @@ def _wait_at_native_checkpoint(index, case_file, directory, library, threads, ch
 @pytest.mark.parametrize('dimension', [2, 3])
 def test_native_condition_workers_resume_actual_states_after_relocation(
         native_path, tmp_path, monkeypatch, dimension):
-    from sjtu_tpmshx.run_control.cancellation import CancelledError
-    from sjtu_tpmshx.applications.optimization import multi_condition as batch
+    from tm1.run_control.cancellation import CancelledError
+    from tm1.applications.optimization import multi_condition as batch
     from tests.python.native.test_run_recovery import same_result
-    from sjtu_tpmshx.file_io.solver_checkpoint_io import load_solver_checkpoint
+    from tm1.file_io.solver_checkpoint_io import load_solver_checkpoint
 
     conditions = _conditions(dimension)
     parallel = replace(native_3d.control(native_path), cpu_threads=4)
@@ -357,11 +357,11 @@ def test_gui_resumes_sou_and_exports_the_saved_result(win, native_path, tmp_path
     import csv
     import threading
     from PySide6.QtWidgets import QFileDialog, QMessageBox
-    from sjtu_tpmshx.run_control.paused_run import PausedRun
+    from tm1.run_control.paused_run import PausedRun
     from tests.python.gui_worker_support import _wait_for
     from tests.python.native.test_run_recovery import same_result
-    from sjtu_tpmshx.compute import compute
-    from sjtu_tpmshx.applications.execution.recovery import compute_run
+    from tm1.compute import compute
+    from tm1.applications.execution.recovery import compute_run
 
     monkeypatch.setenv('TPMSHX_DISABLE_3D_PANEL', '1')
     errors = []

@@ -5,8 +5,8 @@ import warnings as _warnings
 
 import pytest
 
-from sjtu_tpmshx.data_types.compute_config import ComputeConfig, OptimizerConfig, SolverConfig
-from sjtu_tpmshx.applications.gui.ui.window_config import (
+from tm1.data_types.compute_config import ComputeConfig, OptimizerConfig, SolverConfig
+from tm1.applications.gui.ui.window_config import (
     CONFIG_FIELDS, LINE_EDITS, _validate_required_widgets, config_from_window, parse_field_value,
 )
 from tests.python.gui_io_support import win as win

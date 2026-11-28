@@ -1,8 +1,8 @@
 """Translate host CLI execution options into the portable module contract."""
 from pathlib import Path
 
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.run_control.module_ports import resolve_control
+from tm1.run_control.module_ports import RunControl
+from tm1.run_control.module_ports import resolve_control
 
 
 def add_run_control_arguments(parser):

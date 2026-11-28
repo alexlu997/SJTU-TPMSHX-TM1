@@ -7,12 +7,12 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.data_types.compute_config import (
+from tm1.data_types.compute_config import (
     ComputeConfig, FluidConfig, GeometryConfig, SolverConfig, PartialBCConfig,
     ZoneInputConfig, ExtrapPolicy,
 )
-from sjtu_tpmshx.physical_models.zone_config import Zone, ZoneConfig
-from sjtu_tpmshx.preprocess.api import prepare_case
+from tm1.physical_models.zone_config import Zone, ZoneConfig
+from tm1.preprocess.api import prepare_case
 from tests.python.native.stage_interception import saved_2d_inputs
 from tests.python import sigmoid_reference
 from tests.python.native.shared_library import library_path
@@ -41,7 +41,7 @@ def _config(mode='y'):
 
 @pytest.mark.parametrize('mode', ['x', 'y', 'grid'])
 def test_new_zoned_preparation_uses_current_chi_s(monkeypatch, mode):
-    from sjtu_tpmshx.physical_models.tpms_calc import compute
+    from tm1.physical_models.tpms_calc import compute
     compute.cache_clear()
     try:
         monkeypatch.setenv('TPMSHX_CHI_S', '.5')
@@ -62,7 +62,7 @@ def test_new_zoned_preparation_uses_current_chi_s(monkeypatch, mode):
 
 @pytest.mark.parametrize('mode', ['x', 'y', 'grid'])
 def test_discrete_geometry_uses_final_physical_cell_centres(mode):
-    from sjtu_tpmshx.physical_models.tpms_props import geometry
+    from tm1.physical_models.tpms_props import geometry
     case = prepare_case(_config(mode), case_id='zoned-' + mode)
     axis = 'x' if mode == 'x' else 'y'
     widths = case.grid['d' + axis]
@@ -90,9 +90,9 @@ def test_discrete_geometry_uses_final_physical_cell_centres(mode):
 
 @pytest.mark.parametrize('directions', [(0, 3), (1, 2), (2, 1), (3, 0)])
 def test_continuous_geometry_is_resampled_on_nonuniform_cells(monkeypatch, tmp_path, directions):
-    from sjtu_tpmshx.physical_models import sigmoid_field
-    from sjtu_tpmshx.physical_models.tpms_props import geometry
-    from sjtu_tpmshx.physical_models.df_surrogate.predict import predict_K_cF_vec
+    from tm1.physical_models import sigmoid_field
+    from tm1.physical_models.tpms_props import geometry
+    from tm1.physical_models.df_surrogate.predict import predict_K_cF_vec
     # A small real LUT is sufficient to test coordinate transport, not LUT accuracy.
     lut = sigmoid_field.GeometryLUT('Gyroid', n_L=2, n_t=2, N=16, cache_dir=tmp_path)
     monkeypatch.setitem(sigmoid_field._lut_cache, ('Gyroid',), lut)
@@ -143,9 +143,9 @@ def test_continuous_geometry_is_resampled_on_nonuniform_cells(monkeypatch, tmp_p
 
 
 def test_zoned_si_handoff_feeds_local_thermal_kernel(monkeypatch, tmp_path):
-    from sjtu_tpmshx.file_io.case_io import save_case, load_case
-    from sjtu_tpmshx.physical_models import tpms_props, fluid_props
-    from sjtu_tpmshx.physical_models.nu_correlations import NU_LAM_FLOOR
+    from tm1.file_io.case_io import save_case, load_case
+    from tm1.physical_models import tpms_props, fluid_props
+    from tm1.physical_models.nu_correlations import NU_LAM_FLOOR
     from tests.python.native.prepared_snapshot import native_prepared_state
     case = prepare_case(_config(), case_id='zoned-handoff')
     save_case(case, tmp_path / 'case.yaml')
@@ -181,7 +181,7 @@ def test_incomplete_prepared_zones_require_repreparation(missing):
         design = dict(case.design_fields)
         design.pop(missing)
         case = replace(case, design_fields=design)
-    from sjtu_tpmshx.solvers.api import run_case
+    from tm1.solvers.api import run_case
     from tests.python.native.stage_interception import stage_control
     progress = []
     with pytest.raises(ValueError, match='prepare the original configuration again'):
@@ -191,10 +191,10 @@ def test_incomplete_prepared_zones_require_repreparation(missing):
 
 @pytest.mark.parametrize('mode', ['x', 'y', 'grid'])
 def test_discrete_zone_capture_uses_only_the_solver(monkeypatch, tmp_path, mode):
-    from sjtu_tpmshx.solvers.full_2d import zone_result
-    from sjtu_tpmshx.data_types.portable_data import mutable_data
-    from sjtu_tpmshx.run_control.module_ports import RunControl
-    from sjtu_tpmshx.solvers.api import run_case
+    from tm1.solvers.full_2d import zone_result
+    from tm1.data_types.portable_data import mutable_data
+    from tm1.run_control.module_ports import RunControl
+    from tm1.solvers.api import run_case
 
     case = prepare_case(_config(mode), case_id='solver-zone-capture')
     with monkeypatch.context() as isolated:
@@ -209,17 +209,17 @@ def test_discrete_zone_capture_uses_only_the_solver(monkeypatch, tmp_path, mode)
 
 
 def test_sigmoid_saved_execution_keeps_row_drag(monkeypatch, tmp_path):
-    from sjtu_tpmshx.applications.result_adapter import to_compute_result
-    from sjtu_tpmshx.postprocess.api import evaluate
-    from sjtu_tpmshx.preprocess import api as preparation_api
-    from sjtu_tpmshx.run_control.module_ports import RunControl
-    from sjtu_tpmshx.data_types.portable_data import mutable_data
-    from sjtu_tpmshx.file_io.case_io import save_case, load_case
-    from sjtu_tpmshx.file_io.result_io import save_result, load_result
-    from sjtu_tpmshx.file_io.metrics_io import save_metrics
-    from sjtu_tpmshx.physical_models import sigmoid_field, tpms_props
-    from sjtu_tpmshx.cpp_interface import preparation_host
-    from sjtu_tpmshx.solvers.api import run_case
+    from tm1.applications.result_adapter import to_compute_result
+    from tm1.postprocess.api import evaluate
+    from tm1.preprocess import api as preparation_api
+    from tm1.run_control.module_ports import RunControl
+    from tm1.data_types.portable_data import mutable_data
+    from tm1.file_io.case_io import save_case, load_case
+    from tm1.file_io.result_io import save_result, load_result
+    from tm1.file_io.metrics_io import save_metrics
+    from tm1.physical_models import sigmoid_field, tpms_props
+    from tm1.cpp_interface import preparation_host
+    from tm1.solvers.api import run_case
 
     # This small real LUT checks saved execution, not LUT accuracy.
     lut = sigmoid_field.GeometryLUT('Gyroid', n_L=2, n_t=2, N=16, cache_dir=tmp_path / 'lut')
@@ -288,7 +288,7 @@ def test_sigmoid_saved_execution_keeps_row_drag(monkeypatch, tmp_path):
     save_result(results[0], tmp_path / 'original-result.h5')
     save_result(results[1], tmp_path / 'loaded-result.h5')
 
-    completed = subprocess.run([sys.executable, '-m', 'sjtu_tpmshx.applications.cli.stages',
+    completed = subprocess.run([sys.executable, '-m', 'tm1.applications.cli.stages',
         'solve', str(tmp_path / 'case.yaml'), str(tmp_path / 'cli-result.h5'),
         '--native-library', library, '--cpu-threads', '1'], capture_output=True, text=True, check=False)
     (tmp_path / 'cli.log').write_text(completed.stdout + completed.stderr)

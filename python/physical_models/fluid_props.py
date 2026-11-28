@@ -20,8 +20,8 @@ from typing import Callable
 
 import numpy as np
 
-from sjtu_tpmshx.physical_models import co2_correlations, co2_props, nu_correlations, sco2_props, tpms_props
-from sjtu_tpmshx.cpp_interface import _native_properties
+from tm1.physical_models import co2_correlations, co2_props, nu_correlations, sco2_props, tpms_props
+from tm1.cpp_interface import _native_properties
 
 
 class WaterStateError(ValueError):

@@ -1,9 +1,9 @@
 """Invalid scalar inputs and residuals must fail before they become designs."""
 import pytest
 
-from sjtu_tpmshx.applications.design import sizing
-from sjtu_tpmshx.applications.design.cases import DesignCase
-from sjtu_tpmshx.applications.design.forward import ForwardResult
+from tm1.applications.design import sizing
+from tm1.applications.design.cases import DesignCase
+from tm1.applications.design.forward import ForwardResult
 
 
 def _case():
@@ -20,7 +20,7 @@ def test_invalid_material_density_stops_before_geometry(monkeypatch, density):
 
 @pytest.mark.parametrize('density', ['nan', '-7900'])
 def test_cli_invalid_density_preserves_existing_report(tmp_path, monkeypatch, density):
-    from sjtu_tpmshx.applications.design import cli
+    from tm1.applications.design import cli
     source, output = tmp_path / 'cases.csv', tmp_path / 'report.xlsx'
     source.write_text('case,hot_fluid,T_in_h_K,P_in_h_kPa,mdot_h,cold_fluid,'
                       'T_in_c_K,P_in_c_kPa,mdot_c,Q_kW,dPlim_h,dPlim_c\n'

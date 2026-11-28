@@ -24,9 +24,9 @@ from collections import deque
 from typing import Callable, Optional
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Qt, Signal, Slot
-from sjtu_tpmshx.run_control.cancellation import CancelledError as _CancelledError
-from sjtu_tpmshx.run_control.paused_run import PausedRun
-from sjtu_tpmshx.run_control.logutil import capture_output
+from tm1.run_control.cancellation import CancelledError as _CancelledError
+from tm1.run_control.paused_run import PausedRun
+from tm1.run_control.logutil import capture_output
 
 
 # ---------------------------------------------------------------- public types

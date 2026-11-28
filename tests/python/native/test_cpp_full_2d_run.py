@@ -7,17 +7,17 @@ import threading
 import numpy as np
 import pytest
 
-from sjtu_tpmshx.run_control.cancellation import CancelledError
-from sjtu_tpmshx.data_types.solver_checkpoint import SolverCheckpoint
-from sjtu_tpmshx.file_io.case_io import save_case
-from sjtu_tpmshx.file_io.result_io import load_result
-from sjtu_tpmshx.file_io.solver_checkpoint_io import (
+from tm1.run_control.cancellation import CancelledError
+from tm1.data_types.solver_checkpoint import SolverCheckpoint
+from tm1.file_io.case_io import save_case
+from tm1.file_io.result_io import load_result
+from tm1.file_io.solver_checkpoint_io import (
     save_solver_checkpoint, load_solver_checkpoint, load_checkpoint_case)
-from sjtu_tpmshx.postprocess.api import evaluate
-from sjtu_tpmshx.physical_models.envelope import R_AIR_DEFAULT
-from sjtu_tpmshx.preprocess.api import prepare_case
-from sjtu_tpmshx.solvers.full_2d import run_case
-from sjtu_tpmshx.solvers.api import run_case as run_public_case
+from tm1.postprocess.api import evaluate
+from tm1.physical_models.envelope import R_AIR_DEFAULT
+from tm1.preprocess.api import prepare_case
+from tm1.solvers.full_2d import run_case
+from tm1.solvers.api import run_case as run_public_case
 from tests.python.native import test_cpp_full_2d as public
 from tests.python.native import test_cpp_full_3d as spatial
 from tests.python.native.test_cpp_full_3d import _exact_resume_values
@@ -132,13 +132,13 @@ def test_full_2d_checkpoint_rejects_damaged_fields(damage):
 CHILD = r"""
 import os
 import sys
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.data_types.solver_checkpoint import SolverCheckpoint
-from sjtu_tpmshx.file_io.case_io import load_case
-from sjtu_tpmshx.file_io.result_io import save_result
-from sjtu_tpmshx.file_io.solver_checkpoint_io import (
+from tm1.run_control.module_ports import RunControl
+from tm1.data_types.solver_checkpoint import SolverCheckpoint
+from tm1.file_io.case_io import load_case
+from tm1.file_io.result_io import save_result
+from tm1.file_io.solver_checkpoint_io import (
     load_solver_checkpoint, save_solver_checkpoint, load_checkpoint_case)
-from sjtu_tpmshx.solvers.api import run_case
+from tm1.solvers.api import run_case
 mode, case_path, saved_path, result_path, library, tables = sys.argv[1:]
 control = RunControl(backend='cpp', native_library=library, native_table_directory=tables)
 if mode == 'interrupt':
@@ -152,7 +152,7 @@ if mode == 'interrupt':
     raise RuntimeError('checkpoint boundary was not reached')
 saved = load_solver_checkpoint(saved_path)
 result = run_case(load_checkpoint_case(saved), control, resume_state=saved.native_state)
-assert not any(name.startswith('sjtu_tpmshx.cpp_interface.solver_library.full_2d') for name in sys.modules)
+assert not any(name.startswith('tm1.cpp_interface.solver_library.full_2d') for name in sys.modules)
 save_result(result, result_path)
 """
 
@@ -194,7 +194,7 @@ def test_full_2d_checkpoint_continues_after_process_exit(native_path, tmp_path, 
 
 
 def test_checkpoint_rejects_other_dimension_in_the_same_library(native_path):
-    from sjtu_tpmshx.solvers.full_3d import run_case as run_spatial
+    from tm1.solvers.full_3d import run_case as run_spatial
     prepared = case('model_h')
     planar_state, spatial_state = {}, {}
     def pause_planar(state):
@@ -401,12 +401,12 @@ def test_inner_cancel_keeps_last_complete_boundary(phase):
 INNER_CHILD = r"""
 import os
 import sys
-from sjtu_tpmshx.run_control.module_ports import RunControl
-from sjtu_tpmshx.data_types.solver_checkpoint import SolverCheckpoint
-from sjtu_tpmshx.file_io.case_io import load_case
-from sjtu_tpmshx.file_io.result_io import save_result
-from sjtu_tpmshx.file_io.solver_checkpoint_io import load_solver_checkpoint, save_solver_checkpoint, load_checkpoint_case
-from sjtu_tpmshx.solvers.full_2d import run_case
+from tm1.run_control.module_ports import RunControl
+from tm1.data_types.solver_checkpoint import SolverCheckpoint
+from tm1.file_io.case_io import load_case
+from tm1.file_io.result_io import save_result
+from tm1.file_io.solver_checkpoint_io import load_solver_checkpoint, save_solver_checkpoint, load_checkpoint_case
+from tm1.solvers.full_2d import run_case
 from tests.python.native.test_cpp_full_2d_run import inner_position
 mode, target, case_path, saved_path, result_path, library, tables = sys.argv[1:]
 control = RunControl(backend='cpp', native_library=library, native_table_directory=tables)

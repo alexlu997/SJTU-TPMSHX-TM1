@@ -12,20 +12,20 @@ import argparse
 import numpy as np
 import pandas as pd
 
-from sjtu_tpmshx.applications.result_adapter import compute_result
-from sjtu_tpmshx.model_configs.units import CELSIUS_ZERO_K
-from sjtu_tpmshx.physical_models.tpms_calc import air_cp
-from sjtu_tpmshx.development.validation.harness._harness import load_cases_df
-from sjtu_tpmshx.development.validation.harness._case_sets import SHANGHAI_XLSX, SHANGHAI_N_CASES
-from sjtu_tpmshx.development.validation.harness._provenance import (
+from tm1.applications.result_adapter import compute_result
+from tm1.model_configs.units import CELSIUS_ZERO_K
+from tm1.physical_models.tpms_calc import air_cp
+from tm1.development.validation.harness._harness import load_cases_df
+from tm1.development.validation.harness._case_sets import SHANGHAI_XLSX, SHANGHAI_N_CASES
+from tm1.development.validation.harness._provenance import (
     output_directory, output_path, write_csv_with_provenance,
 )
 
 
 def _pipeline_config(ci, df):
-    from sjtu_tpmshx.data_types.compute_config import SolverConfig
-    from sjtu_tpmshx.physical_models.grid import SHANGHAI_GRID_2D
-    from sjtu_tpmshx.development.validation.harness._case_sets import shanghai_pipeline_config
+    from tm1.data_types.compute_config import SolverConfig
+    from tm1.physical_models.grid import SHANGHAI_GRID_2D
+    from tm1.development.validation.harness._case_sets import shanghai_pipeline_config
     nx, ny, nz = SHANGHAI_GRID_2D
     return shanghai_pipeline_config(ci, df, SolverConfig(Nx=nx, Ny=ny, Nz=nz),
                                     port_wall_refine=True)

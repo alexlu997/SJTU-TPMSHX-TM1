@@ -13,7 +13,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 def get_app():
     """The shared offscreen QApplication (created on first call)."""
     from PySide6.QtWidgets import QApplication
-    from sjtu_tpmshx.applications.gui.controllers import main_thread_gc
+    from tm1.applications.gui.controllers import main_thread_gc
     app = QApplication.instance() or QApplication(sys.argv)
     main_thread_gc.install(app)
     return app

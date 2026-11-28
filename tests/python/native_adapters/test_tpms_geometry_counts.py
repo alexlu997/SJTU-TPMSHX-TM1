@@ -3,8 +3,8 @@ import numpy as np
 import pytest
 import ctypes as ct
 
-from sjtu_tpmshx.physical_models import tpms_geometry as geometry
-from sjtu_tpmshx.cpp_interface import _native_geometry as native
+from tm1.physical_models import tpms_geometry as geometry
+from tm1.cpp_interface import _native_geometry as native
 from tests.python import geometry_reference as reference
 
 
