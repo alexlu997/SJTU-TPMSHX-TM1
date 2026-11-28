@@ -88,7 +88,7 @@ def _configuration_continuous(topology='Gyroid', pair=('air', 'water'), mode='cf
 
 def _visible_buffers(value, path='result'):
     """Enumerate public views without using the native owner's private layout."""
-    counts = {'ranges': 'range_count', 'warnings': 'warning_count',
+    counts = {'data': 'size', 'ranges': 'range_count', 'warnings': 'warning_count',
               'events': 'event_count', 'source': 'source_count', 'shape': 'rank',
               'notices': 'notice_count', 'calibration': 'calibration_count',
               'regions': 'region_count', 'zone_id': 'cell_count', 'cells': 'cell_count'}
