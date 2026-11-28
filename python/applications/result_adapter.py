@@ -27,13 +27,13 @@ def compute_result(config: ComputeConfig, *, control: RunControl = RunControl(),
     return display
 
 
-def to_compute_result(result, performance):
-    """No solve, preparation or metric reduction; use this run's archived data."""
-    if performance.source_result_id != result.result_id:
+def _assemble_compute_result(record, performance, fields):
+    """Build one ComputeResult from a validated FieldResult or ResultHeader and performance record."""
+    if performance.source_result_id != record.result_id:
         raise ValueError('performance belongs to another result')
-    if result.run_status.get('execution') != 'completed':
+    if record.run_status.get('execution') != 'completed':
         raise ValueError('application display requires a completed result')
-    dimension = result.grid['dimension']
+    dimension = record.grid['dimension']
     unit = 'W/m' if dimension == 2 else 'W'
     consumed = _SUMMARY_METRICS + tuple(name for name in _RESIDUAL_METRICS
                                        if name in performance.metrics)
@@ -43,13 +43,10 @@ def to_compute_result(result, performance):
             raise ValueError(f'{name} heat-duty unit disagrees with the result dimension')
         if spec.definition_version != full_metric_version(name):
             raise ValueError(f're-evaluate native results before displaying the current {name} definition')
-    f = result.fields
-    parameters = result.metadata['parameters']
-    diagnostics = mutable_data(result.metadata['diagnostics'])
-    application = mutable_data(result.metadata['application'])
-    fields = {name: mutable_data(f[name]) for name in ('Ta', 'Tb', 'Ts')}
-    fields.update({'P_f' + side: mutable_data(f.get('P_report_' + side)) for side in 'AB'})
-    fields.update({name: mutable_data(f.get(name)) for name in ('ucA', 'vcA', 'ucB', 'vcB')})
+    parameters = record.metadata['parameters']
+    diagnostics = mutable_data(record.metadata['diagnostics'])
+    application = mutable_data(record.metadata['application'])
+    assembled_fields = dict(fields)
     if dimension == 2:
         geometry = parameters['static_properties']['geometry']
         zone = _legacy_zone_units(mutable_data(parameters['zone_config']))
@@ -57,15 +54,13 @@ def to_compute_result(result, performance):
             from tm1.physical_models.zone_config import Zone, ZoneConfig
             zone['zones'] = [Zone(**item) for item in zone['zones']]
             zone = ZoneConfig(**zone)
-        for side in 'AB':
-            u, v = fields['uc' + side], fields['vc' + side]
-            fields['vmag_' + side] = None if u is None or v is None else np.hypot(u, v)
-        fields.update(dx_arr=result.grid['dx'], dy_arr=result.grid['dy'],
-                      N_x=len(result.grid['dx']), N_y=len(result.grid['dy']),
-                      L=parameters['L'], H=parameters['H'],
-                      dir_A=parameters['dir_A'], dir_B=parameters['dir_B'], zone_config=zone,
-                      za=(_legacy_zone_units(mutable_data(result.metadata['design_fields']))
-                          if result.metadata['design_mode'] != 'uniform' else None))
+        assembled_fields.update(
+            dx_arr=record.grid['dx'], dy_arr=record.grid['dy'],
+            N_x=len(record.grid['dx']), N_y=len(record.grid['dy']),
+            L=parameters['L'], H=parameters['H'],
+            dir_A=parameters['dir_A'], dir_B=parameters['dir_B'], zone_config=zone,
+            za=assembled_fields.get('za'),
+        )
         residuals = {name: diagnostics[name] for name in
                      ('mass_imbalance_rel_A', 'mass_imbalance_rel_B', 'Q_A', 'Q_B', 'energy_imbalance_rel')}
         residuals.update(r_dP_A=float('nan'), r_dP_B=float('nan'),
@@ -74,15 +69,13 @@ def to_compute_result(result, performance):
         zones = application['zones']
     elif dimension == 3:
         geometry = parameters['prepared']['geometry']
-        fields.update({name: mutable_data(f.get(name)) for name in ('wcA', 'wcB', 'vmag_A', 'vmag_B')})
-        fields.update({axis: result.grid[axis] for axis in ('dx', 'dy', 'dz')})
-        fields.update({f'ports_{side}': mutable_data(parameters[f'fluid_{side}_cfg'])
-                       for side in ('A', 'B')})
-        fields.update(Lx=parameters['L'], Ly=parameters['H'], Lz=parameters['Lz'],
-                      L_mm=result.metadata['design_fields']['L_field_m'] * 1e3,
-                      t_mm=result.metadata['design_fields']['t_field_m'] * 1e3,
-                      dir_A=diagnostics['dir_A'], dir_B=diagnostics['dir_B'],
-                      h_vA_field=mutable_data(f['h_vA']), h_vB_field=mutable_data(f['h_vB']))
+        assembled_fields.update({axis: record.grid[axis] for axis in ('dx', 'dy', 'dz')})
+        assembled_fields.update({f'ports_{side}': mutable_data(parameters[f'fluid_{side}_cfg'])
+                                 for side in ('A', 'B')})
+        assembled_fields.update(
+            Lx=parameters['L'], Ly=parameters['H'], Lz=parameters['Lz'],
+            dir_A=diagnostics['dir_A'], dir_B=diagnostics['dir_B'],
+        )
         residuals = {name: diagnostics.get(name) for name in (
             'Q_enthalpy_A', 'Q_enthalpy_B', 'Q_solid_B', 'Q_sA', 'Q_sB', 'Q_interior',
             'energy_imbalance_rel', 'mass_imbalance_rel_A', 'mass_imbalance_rel_B')}
@@ -92,10 +85,10 @@ def to_compute_result(result, performance):
     props = application['props']
     props.update(eps_A=geometry['epsilon'], D_h_m=geometry['D_h'], A_0_m2=geometry['A_0'])
     diagnostics['mode'] = f'{dimension}d'
-    metadata = mutable_data(result.metadata['model_metadata'])
+    metadata = mutable_data(record.metadata['model_metadata'])
     for key in ('timings_s', 'execution_record', 'recovery', 'runtime_resources', 'applicability_evidence'):
-        if key in result.metadata:
-            metadata[key] = mutable_data(result.metadata[key])
+        if key in record.metadata:
+            metadata[key] = mutable_data(record.metadata[key])
     if 'inlet_inputs' in parameters:
         metadata['inlet_inputs'] = mutable_data(parameters['inlet_inputs'])
     delta_levelset = (
@@ -104,15 +97,15 @@ def to_compute_result(result, performance):
     )
     metadata['tpms'] = str(parameters['tpms_type'])
     metadata['delta_levelset'] = float(delta_levelset)
-    metadata.update(darcy_forchheimer=mutable_data(result.metadata['df_metadata']),
-                    quantity_basis=result.metadata['quantity_basis'], units={'Q': unit},
-                    source_result_id=result.result_id, case_id=result.case_id,
-                    backend_id=result.backend_id, backend_version=result.backend_version,
+    metadata.update(darcy_forchheimer=mutable_data(record.metadata['df_metadata']),
+                    quantity_basis=record.metadata['quantity_basis'], units={'Q': unit},
+                    source_result_id=record.result_id, case_id=record.case_id,
+                    backend_id=record.backend_id, backend_version=record.backend_version,
                     model_refs=[dict(name=ref.name, version=ref.version,
                                      parameters=mutable_data(ref.parameters), applicability=ref.applicability)
-                                for ref in result.model_refs])
+                                for ref in record.model_refs])
     warnings = list(dict.fromkeys((*diagnostics.get('warnings_list', ()),
-                                  *diagnostics.get('envelope_warnings', ()), *result.metadata['notices'])))
+                                  *diagnostics.get('envelope_warnings', ()), *record.metadata['notices'])))
     if (dimension == 2 and diagnostics.get('Q_richardson_warn')
             and (diagnostics.get('richardson_info') or {}).get('extrapolated')):
         notice = '主网格与 Richardson 细网格换热量差异超过 10%，请做网格精度检查。'
@@ -139,7 +132,46 @@ def to_compute_result(result, performance):
     return ComputeResult(
         Q_W=values['Q'], dP_A_Pa=values['dP_A'], dP_B_Pa=values['dP_B'],
         T_out_A_K=values['T_out_A'], T_out_B_K=values['T_out_B'],
-        converged=bool(result.run_status['converged']), fields=fields,
+        converged=bool(record.run_status['converged']), fields=assembled_fields,
         coeffs=application['coeffs'], props=props, residuals=residuals, zones=zones,
         warnings=warnings, extrap_reasons=list(parameters['extrap_reasons']),
         diagnostics=diagnostics, metadata=metadata)
+
+
+def extract_display_fields(result):
+    """Extract the mutable application display field arrays from one validated FieldResult."""
+    dimension = result.grid['dimension']
+    f = result.fields
+    fields = {name: mutable_data(f[name]) for name in ('Ta', 'Tb', 'Ts')}
+    fields.update({'P_f' + side: mutable_data(f.get('P_report_' + side)) for side in 'AB'})
+    fields.update({name: mutable_data(f.get(name)) for name in ('ucA', 'vcA', 'ucB', 'vcB')})
+    if dimension == 2:
+        for side in 'AB':
+            u, v = fields['uc' + side], fields['vc' + side]
+            fields['vmag_' + side] = None if u is None or v is None else np.hypot(u, v)
+        fields['za'] = (
+            _legacy_zone_units(mutable_data(result.metadata['design_fields']))
+            if result.metadata['design_mode'] != 'uniform'
+            else None
+        )
+    elif dimension == 3:
+        fields.update({name: mutable_data(f.get(name)) for name in ('wcA', 'wcB', 'vmag_A', 'vmag_B')})
+        fields.update(
+            L_mm=result.metadata['design_fields']['L_field_m'] * 1e3,
+            t_mm=result.metadata['design_fields']['t_field_m'] * 1e3,
+            h_vA_field=mutable_data(f['h_vA']),
+            h_vB_field=mutable_data(f['h_vB']),
+        )
+    else:
+        raise ValueError(f'unsupported result dimension: {dimension}')
+    return fields
+
+
+def to_compute_result(result, performance):
+    """No solve, preparation or metric reduction; use this run's archived data."""
+    return _assemble_compute_result(result, performance, extract_display_fields(result))
+
+
+def to_compute_result_header(header, performance):
+    """Map a validated ResultHeader and PerformanceResult without loading field arrays."""
+    return _assemble_compute_result(header, performance, {})

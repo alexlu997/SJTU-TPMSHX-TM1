@@ -13,7 +13,7 @@ Provides ``ThreeDVisPanel(QWidget)`` hosting a ``pyvistaqt.QtInteractor`` with:
 from __future__ import annotations
 
 from math import isfinite
-from typing import Any, Mapping, Optional
+from typing import Any, Callable, Mapping, Optional, Sequence
 
 import numpy as np
 import pyvista as pv
@@ -230,6 +230,7 @@ class ThreeDVisPanel(QWidget):
         self._grid_vol: Optional[pv.RectilinearGrid] = None
         self._vol_min_cell_mm: float = 0.0
         self._arrays: dict[str, np.ndarray] = {}
+        self._field_loader: Optional[Callable[[str], np.ndarray]] = None
         self._available_fields: tuple[str, ...] = ()
         self._widths_m: Optional[tuple[np.ndarray, np.ndarray, np.ndarray]] = None
         self._dx_mm: Optional[np.ndarray] = None
@@ -343,10 +344,20 @@ class ThreeDVisPanel(QWidget):
         """Select an available field key and update the 3D scene and colorbar."""
         if self._grid is None:
             return False
-        if field_key not in self._arrays or field_key not in PANEL_FIELD_SPECS:
+        if field_key not in self._available_fields or field_key not in PANEL_FIELD_SPECS:
             return False
         if field_key == self._field and self._volume_actor is not None:
             return True
+        if self._field_loader is not None:
+            try:
+                self._ensure_field_for_display(field_key)
+            except (OSError, ValueError, KeyError) as exc:
+                self.status.setText(f"场读取失败：{exc}")
+                self.status.show()
+                self._layout_overlays()
+                return False
+        elif field_key not in self._arrays:
+            return False
         self._field = field_key
         try:
             self._rebuild_scene(render=True)
@@ -411,10 +422,164 @@ class ThreeDVisPanel(QWidget):
         if shared_pressure is not None and bool(shared_pressure) != self._shared_pressure_scale:
             self._shared_pressure_scale = bool(shared_pressure)
             changed = True
-        if changed and self._arrays:
-            self._global_clim = self._build_global_clim()
+        if changed and (self._arrays or self._field_loader is not None):
+            if self._field_loader is not None and self._field is not None:
+                self._ensure_field_for_display(self._field)
+            if self._arrays:
+                self._global_clim = self._build_global_clim()
             if self._grid is not None:
                 self._rebuild_scene_for_ui()
+
+    def _shared_group_for(self, field_key: str) -> tuple[str, ...]:
+        if self._sync_temp_scale and field_key in ("Ta", "Tb", "Ts"):
+            return tuple(k for k in ("Ta", "Tb", "Ts") if k in self._available_fields)
+        if self._shared_pressure_scale and field_key in ("P_kPa", "P_B_kPa"):
+            return tuple(k for k in ("P_kPa", "P_B_kPa") if k in self._available_fields)
+        return (field_key,)
+
+    def _ensure_field(self, field_key: str) -> np.ndarray:
+        if field_key in self._arrays:
+            return self._arrays[field_key]
+        if self._field_loader is None or field_key not in self._available_fields:
+            raise KeyError(field_key)
+        arr = np.ascontiguousarray(self._field_loader(field_key), dtype=np.float64)
+        if self._widths_m is None:
+            raise RuntimeError("set_field_source: grid is not initialized")
+        expected = tuple(axis.size for axis in self._widths_m)
+        if arr.shape != expected:
+            raise ValueError(f"set_field_source: {field_key} shape {arr.shape} != grid {expected}")
+        self._arrays[field_key] = arr
+        return arr
+
+    def _ensure_field_for_display(self, field_key: str) -> None:
+        for key in self._shared_group_for(field_key):
+            self._ensure_field(key)
+        self._global_clim = self._build_global_clim()
+
+    def _configure_grid_and_show(
+        self,
+        *,
+        dx,
+        dy,
+        dz,
+        flow_dir,
+        flow_dir_B,
+        ports_A,
+        ports_B,
+        available_fields: tuple[str, ...],
+        initial_field: Optional[str] = None,
+    ) -> None:
+        self._reset_lattice(_NO_LATTICE_SOURCE)
+        self._flow_dir = None if flow_dir is None else str(flow_dir or "+x")
+        self._flow_dir_B = str(flow_dir_B) if flow_dir_B else None
+        self._ports = {"A": ports_A, "B": ports_B}
+        self._watermark_text = None
+        self._watermark_label.hide()
+
+        dx_m = np.asarray(dx, dtype=np.float64)
+        dy_m = np.asarray(dy, dtype=np.float64)
+        dz_m = np.asarray(dz, dtype=np.float64)
+        self._widths_m = (dx_m, dy_m, dz_m)
+        self._dx_mm = dx_m * 1000.0
+        self._dy_mm = dy_m * 1000.0
+        self._dz_mm = dz_m * 1000.0
+        self._cx_mm = np.cumsum(self._dx_mm) - self._dx_mm / 2.0
+        self._cy_mm = np.cumsum(self._dy_mm) - self._dy_mm / 2.0
+        self._cz_mm = np.cumsum(self._dz_mm) - self._dz_mm / 2.0
+        x_edges = np.concatenate([[0.0], np.cumsum(self._dx_mm)])
+        y_edges = np.concatenate([[0.0], np.cumsum(self._dy_mm)])
+        z_edges = np.concatenate([[0.0], np.cumsum(self._dz_mm)])
+        self._L_mm = (float(x_edges[-1]), float(y_edges[-1]), float(z_edges[-1]))
+        self._edges_mm = (x_edges, y_edges, z_edges)
+
+        self._grid = pv.RectilinearGrid(
+            *[
+                np.r_[0.0, centres, length]
+                for centres, length in zip((self._cx_mm, self._cy_mm, self._cz_mm), self._L_mm)
+            ]
+        )
+
+        # Allocate display scalars and surfaces lazily per field.
+        self._volume_grids.clear()
+        self._surface_meshes.clear()
+        self._grid_vol = None
+
+        self._available_fields = available_fields
+        if initial_field in available_fields:
+            self._field = initial_field
+        elif self._field not in available_fields:
+            self._field = available_fields[0]
+
+        if self._field_loader is not None:
+            self._ensure_field_for_display(self._field)
+        else:
+            self._global_clim = self._build_global_clim()
+
+        self._slice_xyz_mm = (
+            self._snap_slice_coord("x", self._L_mm[0] * 0.5),
+            self._snap_slice_coord("y", self._L_mm[1] * 0.5),
+            self._snap_slice_coord("z", self._L_mm[2] * 0.5),
+        )
+        self.toolbar.set_slice_decimals(
+            (
+                _axis_decimals(self._cx_mm),
+                _axis_decimals(self._cy_mm),
+                _axis_decimals(self._cz_mm),
+            )
+        )
+        self.toolbar.set_slice_bounds(
+            (0.0, self._L_mm[0]),
+            (0.0, self._L_mm[1]),
+            (0.0, self._L_mm[2]),
+        )
+        self.toolbar.set_slice_position(*self._slice_xyz_mm)
+        self.toolbar.set_display_mode(self._display_mode)
+        self.toolbar.set_camera_preset("iso")
+        self.toolbar.show()
+        self.colorbar.show()
+        self.port_overlay.show()
+
+        self._render_initial_scene()
+        self._rebuild_scene(render=False)
+        self.fit_view()
+        self._layout_overlays()
+        self._update_port_chips()
+        self.field_changed.emit(self._field)
+
+    def set_field_source(
+        self,
+        *,
+        available_fields: Sequence[str],
+        field_loader: Callable[[str], np.ndarray],
+        dx,
+        dy,
+        dz,
+        flow_dir="+x",
+        flow_dir_B=None,
+        ports_A=None,
+        ports_B=None,
+        initial_field: Optional[str] = None,
+    ) -> None:
+        """Attach a lazy 3D field loader and load only the active displayed field."""
+        if dx is None or dy is None or dz is None:
+            raise ValueError("set_field_source: dx/dy/dz are required")
+        ordered = tuple(key for key in FIELD_ORDER if key in available_fields)
+        if not ordered:
+            raise ValueError("set_field_source: at least one available field is required")
+        self._arrays = {}
+        self._global_clim = {}
+        self._field_loader = field_loader
+        self._configure_grid_and_show(
+            dx=dx,
+            dy=dy,
+            dz=dz,
+            flow_dir=flow_dir,
+            flow_dir_B=flow_dir_B,
+            ports_A=ports_A,
+            ports_B=ports_B,
+            available_fields=ordered,
+            initial_field=initial_field,
+        )
 
     def set_fields(
         self,
@@ -444,13 +609,7 @@ class ThreeDVisPanel(QWidget):
         """
         if dx is None or dy is None or dz is None:
             raise ValueError("set_fields: dx/dy/dz are required")
-        self._reset_lattice(_NO_LATTICE_SOURCE)
-
-        self._flow_dir = None if flow_dir is None else str(flow_dir or "+x")
-        self._flow_dir_B = str(flow_dir_B) if flow_dir_B else None
-        self._ports = {"A": ports_A, "B": ports_B}
-        self._watermark_text = None
-        self._watermark_label.hide()
+        self._field_loader = None
 
         candidate = {
             "Ta": Ta,
@@ -484,73 +643,30 @@ class ThreeDVisPanel(QWidget):
             raise ValueError(
                 f"set_fields: field shape {field_shape} != grid ({dx_m.size}, {dy_m.size}, {dz_m.size})"
             )
-        self._widths_m = (dx_m, dy_m, dz_m)
-        self._dx_mm = dx_m * 1000.0
-        self._dy_mm = dy_m * 1000.0
-        self._dz_mm = dz_m * 1000.0
-        self._cx_mm = np.cumsum(self._dx_mm) - self._dx_mm / 2.0
-        self._cy_mm = np.cumsum(self._dy_mm) - self._dy_mm / 2.0
-        self._cz_mm = np.cumsum(self._dz_mm) - self._dz_mm / 2.0
-        x_edges = np.concatenate([[0.0], np.cumsum(self._dx_mm)])
-        y_edges = np.concatenate([[0.0], np.cumsum(self._dy_mm)])
-        z_edges = np.concatenate([[0.0], np.cumsum(self._dz_mm)])
-        self._L_mm = (float(x_edges[-1]), float(y_edges[-1]), float(z_edges[-1]))
-        self._edges_mm = (x_edges, y_edges, z_edges)
-
-        self._grid = pv.RectilinearGrid(
-            *[
-                np.r_[0.0, centres, length]
-                for centres, length in zip((self._cx_mm, self._cy_mm, self._cz_mm), self._L_mm)
-            ]
+        ordered = tuple(key for key in FIELD_ORDER if key in self._arrays)
+        self._configure_grid_and_show(
+            dx=dx_m,
+            dy=dy_m,
+            dz=dz_m,
+            flow_dir=flow_dir,
+            flow_dir_B=flow_dir_B,
+            ports_A=ports_A,
+            ports_B=ports_B,
+            available_fields=ordered,
         )
 
-        # Allocate display scalars and surfaces lazily per field.
-        self._volume_grids.clear()
-        self._surface_meshes.clear()
-        self._grid_vol = None
-
-        self._global_clim = self._build_global_clim()
-        self._available_fields = tuple(key for key in FIELD_ORDER if key in self._arrays)
-        if self._field not in self._arrays:
-            self._field = self._available_fields[0]
-
-        self._slice_xyz_mm = (
-            self._snap_slice_coord("x", self._L_mm[0] * 0.5),
-            self._snap_slice_coord("y", self._L_mm[1] * 0.5),
-            self._snap_slice_coord("z", self._L_mm[2] * 0.5),
-        )
-        self.toolbar.set_slice_decimals(
-            (
-                _axis_decimals(self._cx_mm),
-                _axis_decimals(self._cy_mm),
-                _axis_decimals(self._cz_mm),
-            )
-        )
-        self.toolbar.set_slice_bounds(
-            (0.0, self._L_mm[0]),
-            (0.0, self._L_mm[1]),
-            (0.0, self._L_mm[2]),
-        )
-        self.toolbar.set_slice_position(*self._slice_xyz_mm)
-        self.toolbar.set_display_mode(self._display_mode)
-        self.toolbar.set_camera_preset("iso")
-        self.toolbar.show()
-        self.colorbar.show()
-        self.port_overlay.show()
-
-        self._render_initial_scene()
-        self._rebuild_scene(render=False)
-        self.fit_view()
-        self._layout_overlays()
-        self._update_port_chips()
-        self.field_changed.emit(self._field)
-
-    def set_lattice_geometry(self, topology: str, delta_levelset: float, result_id: str) -> None:
+    def set_lattice_geometry(
+        self,
+        topology: str,
+        delta_levelset: float,
+        result_id: str,
+    ) -> None:
         """Enable ``晶格`` for the loaded fields with the recorded topology and level-set offset.
 
         Graded L keeps ``晶格`` disabled with its reason, because its phase rule is not defined.
         """
-        _cell, reason = lattice_cell_size(self._arrays["L_mm"])
+        cell_field = self._ensure_field("L_mm")
+        _cell, reason = lattice_cell_size(cell_field)
         if reason:
             self._reset_lattice(_GRADED_L_REASON)
             return
@@ -1367,7 +1483,7 @@ class ThreeDVisPanel(QWidget):
 
         if self._flow_dir is not None:
             _add_pair(self._flow_dir, "A", t["inlet_a"])
-        if self._flow_dir_B and any(f in self._arrays for f in ("Tb", "vmag_B", "P_B_kPa")):
+        if self._flow_dir_B and any(f in self._available_fields for f in ("Tb", "vmag_B", "P_B_kPa")):
             _add_pair(self._flow_dir_B, "B", t["inlet_b"])
 
     def _project_world_to_viewport(self, point_xyz: np.ndarray) -> Optional[tuple[float, float]]:
@@ -1627,9 +1743,9 @@ class ThreeDVisPanel(QWidget):
             dx=dx,
             dy=dy,
             dz=dz,
-            field=self._arrays[self._field],
-            L_mm=self._arrays["L_mm"],
-            t_mm=self._arrays["t_mm"],
+            field=self._ensure_field(self._field),
+            L_mm=self._ensure_field("L_mm"),
+            t_mm=self._ensure_field("t_mm"),
             delta=delta,
             detail=detail,
         )

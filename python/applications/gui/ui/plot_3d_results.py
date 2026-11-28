@@ -19,9 +19,29 @@ from tm1.run_control.logutil import get_logger
 
 _log = get_logger(__name__)
 
+_PANEL_TO_CANONICAL_3D = {
+    'Ta': 'Ta',
+    'Tb': 'Tb',
+    'Ts': 'Ts',
+    'vmag': 'vmag_A',
+    'vmag_B': 'vmag_B',
+    'P_kPa': 'P_fA',
+    'P_B_kPa': 'P_fB',
+    'L_mm': 'L_mm',
+    't_mm': 't_mm',
+}
+_FLUID_B_PANEL_KEYS = frozenset({'Tb', 'vmag_B', 'P_B_kPa'})
 
 
+def _has_field_3d(window, f, key) -> bool:
+    return f.get(key) is not None or window.cache.has_field(key, '3d')
 
+
+def _field_3d(window, f, key):
+    value = f.get(key)
+    if value is not None:
+        return value
+    return window.cache.read_field(key, '3d')
 
 
 def finalize_plots_3d(window) -> bool:
@@ -63,9 +83,6 @@ def finalize_plots_3d(window) -> bool:
     if panel is not None:
         try:
             p_scale = RESULT_FIELD_SPECS['P_fA'].display_scale
-            P_B_kPa = None
-            if f.get('P_fB') is not None:
-                P_B_kPa = np.ascontiguousarray(f['P_fB'] * p_scale)
             # Map fluid-A dir index (0=+x,1=-x,2=+y,3=-y,4=+z,5=-z) to
             # '±axis' string so the panel can orient inlet/outlet glyphs.
             _dirs = ['+x', '-x', '+y', '-y', '+z', '-z']
@@ -78,30 +95,76 @@ def finalize_plots_3d(window) -> bool:
             # misleading the user into thinking they have a B field.
             # Filter it out at the panel boundary so the combo skips Tb.
             _has_B = _dir_b is not None
-            _Tb_for_panel = f.get('Tb') if _has_B else None
-            _vmag_B_for_panel = f.get('vmag_B') if _has_B else None
-            _P_B_for_panel = P_B_kPa if _has_B else None
             panel.set_scale_sharing(
                 sync_temp=window.chk_sync_colorbar_T.isChecked(),
                 shared_pressure=window.chk_shared_pressure_scale.isChecked(),
             )
-            panel.set_fields(
-                Ta=f['Ta'],
-                Tb=_Tb_for_panel,
-                Ts=f.get('Ts'),
-                vmag=f['vmag_A'],
-                vmag_B=_vmag_B_for_panel,
-                P_kPa=np.ascontiguousarray(f['P_fA'] * p_scale),
-                P_B_kPa=_P_B_for_panel,
-                L_mm=f['L_mm'],
-                t_mm=f.get('t_mm'),
-                dx=f['dx'], dy=f['dy'], dz=f['dz'],
-                flow_dir=_dir_str,
-                flow_dir_B=_dir_str_B if _has_B else None,
-                ports_A=f.get('ports_A'), ports_B=f.get('ports_B'),
-            )
-            panel.set_lattice_geometry(res.metadata['tpms'], res.metadata['delta_levelset'],
-                                       res.metadata['source_result_id'])
+            result_file = window.cache.result_file('3d')
+            if result_file is not None:
+                from tm1.applications.gui.controllers.result_field_loader import read_saved_display_field
+
+                bound_file = result_file
+                bound_result_id = window.cache.source_result_id('3d')
+                available_canonical = window.cache.available_fields('3d')
+                available_panel = tuple(
+                    panel_key
+                    for panel_key, canonical_key in _PANEL_TO_CANONICAL_3D.items()
+                    if canonical_key in available_canonical
+                    and (_has_B or panel_key not in _FLUID_B_PANEL_KEYS)
+                )
+
+                def _load_panel_field(
+                    panel_key: str,
+                    *,
+                    _file=bound_file,
+                    _expected_id=bound_result_id,
+                ) -> np.ndarray:
+                    return np.ascontiguousarray(
+                        read_saved_display_field(
+                            _file,
+                            panel_key,
+                            mode='3d',
+                            expected_result_id=_expected_id,
+                        )
+                    )
+
+                panel.set_field_source(
+                    available_fields=available_panel,
+                    field_loader=_load_panel_field,
+                    dx=f['dx'], dy=f['dy'], dz=f['dz'],
+                    flow_dir=_dir_str,
+                    flow_dir_B=_dir_str_B if _has_B else None,
+                    ports_A=f.get('ports_A'), ports_B=f.get('ports_B'),
+                )
+                panel.set_lattice_geometry(
+                    res.metadata['tpms'],
+                    res.metadata['delta_levelset'],
+                    res.metadata['source_result_id'],
+                )
+            else:
+                P_B_kPa = None
+                if f.get('P_fB') is not None:
+                    P_B_kPa = np.ascontiguousarray(f['P_fB'] * p_scale)
+                _Tb_for_panel = f.get('Tb') if _has_B else None
+                _vmag_B_for_panel = f.get('vmag_B') if _has_B else None
+                _P_B_for_panel = P_B_kPa if _has_B else None
+                panel.set_fields(
+                    Ta=f['Ta'],
+                    Tb=_Tb_for_panel,
+                    Ts=f.get('Ts'),
+                    vmag=f['vmag_A'],
+                    vmag_B=_vmag_B_for_panel,
+                    P_kPa=np.ascontiguousarray(f['P_fA'] * p_scale),
+                    P_B_kPa=_P_B_for_panel,
+                    L_mm=f['L_mm'],
+                    t_mm=f.get('t_mm'),
+                    dx=f['dx'], dy=f['dy'], dz=f['dz'],
+                    flow_dir=_dir_str,
+                    flow_dir_B=_dir_str_B if _has_B else None,
+                    ports_A=f.get('ports_A'), ports_B=f.get('ports_B'),
+                )
+                panel.set_lattice_geometry(res.metadata['tpms'], res.metadata['delta_levelset'],
+                                           res.metadata['source_result_id'])
             # Surrogate-extrapolation watermark from the run's recorded model.
             _txt = extrapolation_watermark(
                 res.metadata, res.extrap_reasons, multiline=True)
@@ -130,17 +193,15 @@ def _render_2d_slices_from_3d(window, res, field=None):
     """
     # B3 C5: res is the ComputeResult — arrays live in res.fields.
     f = res.fields
-    Ta = f['Ta']; Tb = f['Tb']; Ts = f['Ts']
-    P_Pa = f['P_fA']; vmag_A = f['vmag_A']
     dx = f['dx']; dy = f['dy']
-    Nx, Ny, Nz = Ta.shape
+    dz = np.asarray(f['dz'])
+    Nx, Ny, Nz = len(dx), len(dy), len(dz)
     # A new result starts at its middle cell. Subsequent slice changes use
     # the actual nonuniform z centres, never an evenly-spaced display proxy.
     if getattr(window, '_slice_result_id', None) != id(res):
         window._slice_result_id = id(res)
         window._slice_index = Nz // 2
     k_mid = int(np.clip(getattr(window, '_slice_index', Nz // 2), 0, Nz - 1))
-    dz = np.asarray(f['dz'])
     z_mm = float((np.cumsum(dz) - dz / 2)[k_mid] * 1000)
     z_info = f'z = {z_mm:.2f} mm ({k_mid + 1}/{Nz})'
     slice_slider = getattr(window, '_slice_slider', None)
@@ -157,85 +218,102 @@ def _render_2d_slices_from_3d(window, res, field=None):
     xc = (np.cumsum(dx) - dx / 2) * 1000.0
     yc = (np.cumsum(dy) - dy / 2) * 1000.0
 
-    # Fluid B optional (cross-flow). Detect by presence of P_fB
-    P_Pa_B = f.get('P_fB')
-    vmag_B = f.get('vmag_B')
+    # Fluid B optional (cross-flow). Detect by presence of P_fB without reading it.
+    has_B = _has_field_3d(window, f, 'P_fB')
     dP_B = res.dP_B_Pa
-    has_B = P_Pa_B is not None
     p_spec_a, p_spec_b = RESULT_FIELD_SPECS['P_fA'], RESULT_FIELD_SPECS['P_fB']
     v_spec_a, v_spec_b = RESULT_FIELD_SPECS['vmag_A'], RESULT_FIELD_SPECS['vmag_B']
     t_specs = [RESULT_FIELD_SPECS[key] for key in ('Ta', 'Tb', 'Ts')]
 
-    p_slice_a = None
-    p_slice_b = None
-    if field in (None, 'pres'):
-        p_slice_a = P_Pa[:, :, k_mid] * p_spec_a.display_scale
-        p_slice_b = P_Pa_B[:, :, k_mid] * p_spec_b.display_scale if has_B else None
-
-    plot_jobs = [
-        ('canvas_temp', _plot_3d_temperature,
-            (Ta[:, :, k_mid], Tb[:, :, k_mid], Ts[:, :, k_mid], xc, yc, z_info)),
-        ('canvas_pres', _plot_3d_pressure,
-            (p_slice_a, p_slice_b, xc, yc, res.dP_A_Pa, dP_B, z_info)),
-        ('canvas_vel', _plot_3d_velocity_slice,
-            (vmag_A[:, :, k_mid],
-             vmag_B[:, :, k_mid] if has_B else None,
-             xc, yc, z_info)),
-    ]
-    for attr, fn, args in plot_jobs:
-        key = attr.removeprefix('canvas_')
+    for key in ('temp', 'pres', 'vel'):
         if field is not None and field != key:
             continue
+        attr = f'canvas_{key}'
         canvas = getattr(window, attr, None)
         if canvas is None:
             continue
         try:
             kwargs = {'phase': phase}
-            if attr == 'canvas_temp':
+            if key == 'temp':
                 kwargs['unit'] = unit
-                sync = getattr(window, 'chk_sync_colorbar_T', None)
-                kwargs['sync'] = sync is None or sync.isChecked()
-                full_t = [Ta, Tb, Ts]
-                limits = field_color_limits(full_t, kwargs['sync'])
-                if unit == '°C':
-                    limits = [(kelvin_to_display(lo, 'C'), kelvin_to_display(hi, 'C')) for lo, hi in limits]
-                kwargs['color_limits'] = limits
-            else:
-                if key == 'pres':
-                    control = getattr(window, 'chk_shared_pressure_scale', None)
-                    shared = control is None or control.isChecked()
-                    raw_fields = [P_Pa] + ([P_Pa_B] if has_B else [])
-                    scale = p_spec_a.display_scale
-                    kwargs['color_limits'] = [
-                        (lo * scale, hi * scale)
-                        for lo, hi in field_color_limits(raw_fields, shared)
-                    ]
-                    kwargs['shared'] = shared
+                sync_ctrl = getattr(window, 'chk_sync_colorbar_T', None)
+                sync = sync_ctrl is None or sync_ctrl.isChecked()
+                kwargs['sync'] = sync
+                temp_keys = ('Ta', 'Tb', 'Ts')
+                if sync or phase is None:
+                    needed = (0, 1, 2)
+                elif phase == 2:
+                    needed = (2,)
                 else:
-                    full_fields = [vmag_A] + ([vmag_B] if has_B else [])
-                    kwargs['color_limits'] = field_color_limits(full_fields)
-            fn(canvas, *args, **kwargs)
-            if attr == 'canvas_temp':
-                fields = [Ta[:, :, k_mid], Tb[:, :, k_mid], Ts[:, :, k_mid]]
+                    needed = (0, 1)
+                loaded_t = {i: _field_3d(window, f, temp_keys[i]) for i in needed}
+                if sync:
+                    lim_list = field_color_limits([loaded_t[i] for i in needed], True)
+                    lim_map = dict(zip(needed, lim_list))
+                elif needed == (0, 1, 2):
+                    fl = field_color_limits([loaded_t[0], loaded_t[1]], True)
+                    sl = field_color_limits([loaded_t[2]])
+                    lim_map = {0: fl[0], 1: fl[1], 2: sl[0]}
+                elif needed == (2,):
+                    lim_map = {2: field_color_limits([loaded_t[2]])[0]}
+                else:
+                    fl = field_color_limits([loaded_t[0], loaded_t[1]], True)
+                    lim_map = {0: fl[0], 1: fl[1]}
                 if unit == '°C':
-                    fields = [kelvin_to_display(a, 'C') for a in fields]
-                names, field_unit, field_fmt = [spec.symbol for spec in t_specs], unit, '.2f'
-            elif attr == 'canvas_pres':
-                fields = [p_slice_a]
-                names, field_unit, field_fmt = [p_spec_a.symbol], p_spec_a.display_unit, '.5f'
-                if has_B:
-                    fields.append(p_slice_b)
-                    names.append(p_spec_b.symbol)
+                    lim_map = {
+                        i: (kelvin_to_display(lo, 'C'), kelvin_to_display(hi, 'C'))
+                        for i, (lo, hi) in lim_map.items()
+                    }
+                kwargs['color_limits'] = [lim_map.get(i) for i in range(3)]
+                slices = [loaded_t[i][:, :, k_mid] if i in loaded_t else None for i in range(3)]
+                _plot_3d_temperature(canvas, slices[0], slices[1], slices[2], xc, yc, z_info, **kwargs)
+                indices = list(range(3)) if phase is None else [phase]
+                hover_fields = [
+                    kelvin_to_display(slices[i], 'C') if unit == '°C' else slices[i]
+                    for i in indices
+                ]
+                hover_names = [t_specs[i].symbol for i in indices]
+                field_unit, field_fmt = unit, '.2f'
+            elif key == 'pres':
+                control = getattr(window, 'chk_shared_pressure_scale', None)
+                shared = control is None or control.isChecked()
+                scale = p_spec_a.display_scale
+                count = 2 if has_B else 1
+                indices = list(range(count)) if phase is None else [min(phase, count - 1)]
+                needed = (0, 1) if (has_B and (shared or len(indices) == 2)) else tuple(indices)
+                p_keys = ('P_fA', 'P_fB')
+                loaded_p = {i: _field_3d(window, f, p_keys[i]) for i in needed}
+                raw_lim = field_color_limits([loaded_p[i] for i in needed], shared)
+                lim_map = {i: (lo * scale, hi * scale) for i, (lo, hi) in zip(needed, raw_lim)}
+                kwargs['color_limits'] = [lim_map.get(i) for i in range(count)]
+                kwargs['shared'] = shared
+                p_slice_a = loaded_p[0][:, :, k_mid] * p_spec_a.display_scale if 0 in loaded_p else None
+                p_slice_b = loaded_p[1][:, :, k_mid] * p_spec_b.display_scale if 1 in loaded_p else None
+                _plot_3d_pressure(canvas, p_slice_a, p_slice_b, xc, yc, res.dP_A_Pa, dP_B, z_info, **kwargs)
+                all_p = (p_slice_a, p_slice_b)
+                all_p_names = (p_spec_a.symbol, p_spec_b.symbol)
+                hover_fields = [all_p[i] for i in indices]
+                hover_names = [all_p_names[i] for i in indices]
+                field_unit, field_fmt = p_spec_a.display_unit, '.5f'
             else:
-                fields = [vmag_A[:, :, k_mid]]
-                names, field_unit, field_fmt = [v_spec_a.symbol], v_spec_a.display_unit, '.2f'
-                if has_B:
-                    fields.append(vmag_B[:, :, k_mid])
-                    names.append(v_spec_b.symbol)
-            indices = range(len(fields)) if phase is None else [min(phase, len(fields) - 1)]
+                count = 2 if has_B else 1
+                indices = list(range(count)) if phase is None else [min(phase, count - 1)]
+                v_keys = ('vmag_A', 'vmag_B')
+                loaded_v = {i: _field_3d(window, f, v_keys[i]) for i in indices}
+                lim_map = dict(zip(indices, field_color_limits([loaded_v[i] for i in indices])))
+                kwargs['color_limits'] = [lim_map.get(i) for i in range(count)]
+                v_slice_a = loaded_v[0][:, :, k_mid] if 0 in loaded_v else None
+                v_slice_b = loaded_v[1][:, :, k_mid] if 1 in loaded_v else None
+                _plot_3d_velocity_slice(canvas, v_slice_a, v_slice_b, xc, yc, z_info, **kwargs)
+                all_v = (v_slice_a, v_slice_b)
+                all_v_names = (v_spec_a.symbol, v_spec_b.symbol)
+                hover_fields = [all_v[i] for i in indices]
+                hover_names = [all_v_names[i] for i in indices]
+                field_unit, field_fmt = v_spec_a.display_unit, '.2f'
+
             canvas._hover_data = {
-                'fields': [fields[i] for i in indices],
-                'names': [names[i] for i in indices], 'unit': field_unit,
+                'fields': hover_fields,
+                'names': hover_names, 'unit': field_unit,
                 'fmt': field_fmt,
                 'Nx': Nx, 'Ny': Ny, 'L': float(np.sum(dx)), 'H': float(np.sum(dy)),
                 'dx_arr': dx, 'dy_arr': dy, 'slice_index': k_mid,
@@ -293,19 +371,24 @@ def _plot_3d_temperature(canvas, Ta_slice, Tb_slice, Ts_slice, xc, yc, z_info,
                          phase=None, unit='K', sync=True, color_limits=None):
     """Show the selected temperature slices with a shared range by default."""
     _T = _get_theme()
+    raw_slices = [Ta_slice, Tb_slice, Ts_slice]
     if unit == '°C':
-        Ta_slice, Tb_slice, Ts_slice = (kelvin_to_display(a, 'C') for a in (Ta_slice, Tb_slice, Ts_slice))
+        slices = [kelvin_to_display(a, 'C') if a is not None else None for a in raw_slices]
+    else:
+        slices = raw_slices
     indices = list(range(3)) if phase is None else [phase]
     axes = np.atleast_1d(_begin_canvas_plot(canvas, len(indices), 1))
     Y, X = np.meshgrid(yc, xc)
-    fields = [Ta_slice, Tb_slice, Ts_slice]
-    limits = color_limits or (field_color_limits(fields, shared=True) if sync else
-                             field_color_limits(fields[:2], shared=True) + field_color_limits(fields[2:]))
+    if color_limits is not None:
+        limits = color_limits
+    else:
+        limits = (field_color_limits(slices, shared=True) if sync else
+                  field_color_limits(slices[:2], shared=True) + field_color_limits(slices[2:]))
     specs = [RESULT_FIELD_SPECS[key] for key in ('Ta', 'Tb', 'Ts')]
     datasets = [
-        (Ta_slice, specs[0], f'{specs[0].symbol_tex} [{unit}]', '流体 A'),
-        (Tb_slice, specs[1], f'{specs[1].symbol_tex} [{unit}]', '流体 B'),
-        (Ts_slice, specs[2], f'{specs[2].symbol_tex} [{unit}]', '固体'),
+        (slices[0], specs[0], f'{specs[0].symbol_tex} [{unit}]', '流体 A'),
+        (slices[1], specs[1], f'{specs[1].symbol_tex} [{unit}]', '流体 B'),
+        (slices[2], specs[2], f'{specs[2].symbol_tex} [{unit}]', '固体'),
     ]
     for ax, index in zip(axes, indices):
         field, spec, left_title, right_title = datasets[index]
@@ -335,12 +418,13 @@ def _plot_3d_pressure(canvas, P_slice_A_kPa, P_slice_B_kPa, xc, yc, dP_A, dP_B, 
                       phase=None, color_limits=None, shared=True):
     """Show absolute pressure slices supplied in kPa with shared A/B limits by default."""
     theme = _get_theme()
+    has_b = P_slice_B_kPa is not None or (color_limits is not None and len(color_limits) > 1)
     specs = [RESULT_FIELD_SPECS['P_fA']]
     fields = [P_slice_A_kPa]
-    if P_slice_B_kPa is not None:
+    if has_b:
         specs.append(RESULT_FIELD_SPECS['P_fB'])
         fields.append(P_slice_B_kPa)
-    limits = color_limits or field_color_limits(fields, shared)
+    limits = color_limits if color_limits is not None else field_color_limits(fields, shared)
     indices = range(len(fields)) if phase is None else [min(phase, len(fields) - 1)]
     axes = np.atleast_1d(_begin_canvas_plot(canvas, 1, len(indices)))
     Y, X = np.meshgrid(yc, xc)
@@ -367,12 +451,13 @@ def _plot_3d_velocity_slice(canvas, vmag_slice_A, vmag_slice_B, xc, yc, z_info,
                             phase=None, color_limits=None):
     """Show each fluid's full speed range with filled contours."""
     theme = _get_theme()
+    has_b = vmag_slice_B is not None or (color_limits is not None and len(color_limits) > 1)
     specs = [RESULT_FIELD_SPECS['vmag_A']]
     fields = [vmag_slice_A]
-    if vmag_slice_B is not None:
+    if has_b:
         specs.append(RESULT_FIELD_SPECS['vmag_B'])
         fields.append(vmag_slice_B)
-    limits = color_limits or field_color_limits(fields)
+    limits = color_limits if color_limits is not None else field_color_limits(fields)
     indices = range(len(fields)) if phase is None else [min(phase, len(fields) - 1)]
     axes = np.atleast_1d(_begin_canvas_plot(canvas, 1, len(indices)))
     Y, X = np.meshgrid(yc, xc)

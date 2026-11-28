@@ -14,6 +14,14 @@ def _phase_indices(window, count):
     return list(range(count)) if phase is None else [min(phase, count - 1)]
 
 
+def _field_2d(window, r, key):
+    """Read one 2D field from memory or from the backing result file on demand."""
+    value = r.get(key)
+    if value is not None:
+        return value
+    return window.cache.read_field(key, '2d')
+
+
 def _style_workbench_axes(ax, cb, theme, title, subtitle, *, show_xlabel=True):
     from .matplotlib_canvas import style_field_axes
     style_field_axes(ax, cb, theme, title, subtitle, show_xlabel=show_xlabel)
@@ -102,7 +110,6 @@ def plot_temperature_3panel(window, r, _t, zones=None):
     """
     u = window._temp_unit
     unit = '°C' if u == 'C' else 'K'
-    Ta, Tb, Ts = (kelvin_to_display(r[key], u) for key in ('Ta', 'Tb', 'Ts'))
     N_x, N_y, L, H = r['N_x'], r['N_y'], r['L'], r['H']
 
     window.canvas_temp.fig.clear()
@@ -115,29 +122,43 @@ def plot_temperature_3panel(window, r, _t, zones=None):
     _dy = r.get('dy_arr', np.full(N_y, H / N_y))
     x = (np.cumsum(_dx) - _dx / 2) * 1000
     y = (np.cumsum(_dy) - _dy / 2) * 1000
-    Y, X = np.meshgrid(y, x)
 
     _sync = True
     try:
         _sync = bool(window.chk_sync_colorbar_T.isChecked())
     except Exception:
         pass
-    temperatures = [r[key] for key in ('Ta', 'Tb', 'Ts')]
-    limits = (field_color_limits(temperatures, shared=True) if _sync else
-              field_color_limits(temperatures[:2], shared=True) + field_color_limits(temperatures[2:]))
-    limits = [(kelvin_to_display(lo, u), kelvin_to_display(hi, u)) for lo, hi in limits]
+    temp_keys = ('Ta', 'Tb', 'Ts')
+    if _sync or len(selected) > 1:
+        needed_indices = (0, 1, 2)
+    elif selected == [2]:
+        needed_indices = (2,)
+    else:
+        needed_indices = (0, 1)
+    raw_temps = {i: _field_2d(window, r, temp_keys[i]) for i in needed_indices}
+    if _sync:
+        raw_limits = dict(zip(needed_indices, field_color_limits([raw_temps[i] for i in needed_indices], shared=True)))
+    elif len(needed_indices) == 3:
+        fluid_lim = field_color_limits([raw_temps[0], raw_temps[1]], shared=True)
+        solid_lim = field_color_limits([raw_temps[2]])
+        raw_limits = {0: fluid_lim[0], 1: fluid_lim[1], 2: solid_lim[0]}
+    elif needed_indices == (2,):
+        raw_limits = {2: field_color_limits([raw_temps[2]])[0]}
+    else:
+        fluid_lim = field_color_limits([raw_temps[0], raw_temps[1]], shared=True)
+        raw_limits = {0: fluid_lim[0], 1: fluid_lim[1]}
+    limits = {i: (kelvin_to_display(lo, u), kelvin_to_display(hi, u)) for i, (lo, hi) in raw_limits.items()}
+    display_temps = {i: kelvin_to_display(raw_temps[i], u) for i in selected}
 
-    specs = [RESULT_FIELD_SPECS[key] for key in ('Ta', 'Tb', 'Ts')]
-    plot_items = [
-        (Ta, specs[0], "流体 A"),
-        (Tb, specs[1], "流体 B"),
-        (Ts, specs[2], "固体"),
-    ]
+    specs = [RESULT_FIELD_SPECS[key] for key in temp_keys]
+    subtitles = ("流体 A", "流体 B", "固体")
     shared_bar = bool(_sync and len(selected) > 1)
     last_cf = None
     last_lo, last_hi = limits[selected[0]]
     for pos_i, (ax, index) in enumerate(zip(axes, selected)):
-        field, spec, subtitle = plot_items[index]
+        field = display_temps[index]
+        spec = specs[index]
+        subtitle = subtitles[index]
         ax.set_facecolor(_t['ax_bg'])
         lo, hi = limits[index]
         from tm1.applications.gui.ui.matplotlib_canvas import pad_field_to_edges
@@ -172,7 +193,7 @@ def plot_temperature_3panel(window, r, _t, zones=None):
                                                 top=0.89, bottom=0.14, hspace=0.34)
     window.canvas_temp.draw()
     window.canvas_temp._hover_data = {
-        'fields': [[Ta, Tb, Ts][i] for i in selected],
+        'fields': [display_temps[i] for i in selected],
         'names': [specs[i].symbol for i in selected],
         'unit': unit,
         'fmt': '.2f',
@@ -191,7 +212,6 @@ def finalize_plots(window, field="temp"):
     result = window.cache.get_result('2d')
     r = result.fields
     zones = result.zones
-    P_fA, P_fB = r['P_fA'], r['P_fB']
     N_x, N_y, L, H = r['N_x'], r['N_y'], r['L'], r['H']
     dir_A, dir_B = r['dir_A'], r['dir_B']
 
@@ -218,10 +238,12 @@ def finalize_plots(window, field="temp"):
     selected = _phase_indices(window, 2)
     if field == "pres":
         spec_a, spec_b = RESULT_FIELD_SPECS['P_fA'], RESULT_FIELD_SPECS['P_fB']
-        p_disp = (P_fA * spec_a.display_scale, P_fB * spec_b.display_scale)
         p_specs = (spec_a, spec_b)
         control = getattr(window, 'chk_shared_pressure_scale', None)
         shared = control is None or control.isChecked()
+        p_keys = ('P_fA', 'P_fB')
+        needed = (0, 1) if (len(selected) == 2 or shared) else (selected[0],)
+        p_disp = {i: _field_2d(window, r, p_keys[i]) * p_specs[i].display_scale for i in needed}
         if len(selected) == 2:
             window.canvas_pres.plot_pressure(p_disp[0], p_disp[1], N_x, N_y, L, H, mode_label,
                                              dx_arr=r.get('dx_arr'), dy_arr=r.get('dy_arr'), shared=shared)
@@ -236,7 +258,8 @@ def finalize_plots(window, field="temp"):
             spec = p_specs[index]
             values = p_disp[index]
             Xp, Yp, Fp = pad_field_to_edges(x, y, values, L * 1000, H * 1000)
-            lo, hi = field_color_limits(p_disp, shared)[index]
+            limit_list = field_color_limits([p_disp[i] for i in needed], shared)
+            lo, hi = limit_list[needed.index(index)]
             cf = ax.contourf(Xp, Yp, Fp, levels=np.linspace(lo, hi, 129),
                              cmap=resolve_cmap(spec.key), vmin=lo, vmax=hi)
             ax.set_xlim(0, L * 1000); ax.set_ylim(0, H * 1000)
@@ -267,18 +290,18 @@ def finalize_plots(window, field="temp"):
         window.canvas_vel.axes = [list(axes_v)]
         spec_a, spec_b = RESULT_FIELD_SPECS['vmag_A'], RESULT_FIELD_SPECS['vmag_B']
         v_specs = (spec_a, spec_b)
-        UmagA, UmagB = r['vmag_A'], r['vmag_B']
-        limits = field_color_limits([UmagA, UmagB])
-        velocity_items = [
-            (UmagA, spec_a, "流体 A"),
-            (UmagB, spec_b, "流体 B"),
-        ]
+        v_keys = ('vmag_A', 'vmag_B')
+        v_subtitles = ("流体 A", "流体 B")
+        v_arrays = {i: _field_2d(window, r, v_keys[i]) for i in selected}
+        v_limits = dict(zip(selected, field_color_limits([v_arrays[i] for i in selected])))
         for pos_i, (ax, index) in enumerate(zip(axes_v, selected)):
-            values, spec, subtitle = velocity_items[index]
+            values = v_arrays[index]
+            spec = v_specs[index]
+            subtitle = v_subtitles[index]
             ax.set_facecolor(_t['ax_bg'])
             from tm1.applications.gui.ui.matplotlib_canvas import pad_field_to_edges
             _Xp, _Yp, _Fp = pad_field_to_edges(x, y, values, L * 1000.0, H * 1000.0)
-            lo, hi = limits[index]
+            lo, hi = v_limits[index]
             cf = ax.contourf(_Xp, _Yp, _Fp, levels=np.linspace(lo, hi, 129),
                              cmap=resolve_cmap(spec.key), vmin=lo, vmax=hi)
             ax.set_xlim(0, L * 1000.0); ax.set_ylim(0, H * 1000.0)
@@ -294,7 +317,7 @@ def finalize_plots(window, field="temp"):
                                                    top=0.89, bottom=0.14, hspace=0.32)
         window.canvas_vel.draw()
         window.canvas_vel._hover_data = {
-            'fields': [[UmagA, UmagB][i] for i in selected],
+            'fields': [v_arrays[i] for i in selected],
             'names': [v_specs[i].symbol for i in selected],
             'unit': spec_a.display_unit,
             'fmt': '.2f',

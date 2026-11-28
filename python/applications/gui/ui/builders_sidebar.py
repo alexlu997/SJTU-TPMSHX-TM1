@@ -174,10 +174,11 @@ def refresh_sample_points(window) -> None:
         container.addWidget(hint)
         return
 
-    from .coord_inspector import _resolve_fields
+    from .coord_inspector import _display_fields, _resolve_fields
 
+    display_fields = _display_fields(window)
     for idx, (x_mm, y_mm) in enumerate(points, start=1):
-        rows = _resolve_fields(window, x_mm, y_mm)
+        rows = _resolve_fields(window, x_mm, y_mm, fields=display_fields)
         by_key = {k: (v, u) for k, v, u in rows}
 
         card_wrap = QWidget()
