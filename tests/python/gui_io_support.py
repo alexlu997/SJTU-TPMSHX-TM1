@@ -9,9 +9,9 @@ def win(tmp_path_factory):
         ['pytest', '-platform', 'offscreen'])
     # Redirect SessionManager's default base_dir before Main_Menu is built:
     # closeEvent auto-saves the session, and without this the teardown
-    # w.close() writes the REAL sjtu_tpmshx/.last_session.json (bug found
-    # 2026-07-13). Module-scoped fixture, so patch manually (monkeypatch
-    # fixture is function-scoped) and undo after close.
+    # w.close() writes the real session file in the user data directory
+    # (regression found 2026-07-13). Module-scoped fixture, so patch
+    # manually (monkeypatch fixture is function-scoped) and undo after close.
     from _pytest.monkeypatch import MonkeyPatch
     import tm1.applications.gui.controllers.session_manager as sm_mod
     mp = MonkeyPatch()

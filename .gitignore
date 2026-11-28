@@ -38,9 +38,6 @@ data/
 # 目录级忽略：这里的产出默认都带实验数据，逐个列举迟早会漏。
 reports/sco2_exp/
 
-# Legacy manual snapshots (replaced by git history from now on)
-sjtu_tpmshx_*_backup/
-
 # Binary assets
 Pic/
 Picture.zip

@@ -155,6 +155,11 @@ def get_logger(name: str) -> logging.Logger:
     ``name`` is usually ``__name__``. Strip a leading ``tm1.`` prefix so that
     both package-qualified and relative subsystem names resolve to
     ``tm1.<subsystem>...``.
+
+    Historical failure record (2026-07-21, P1.8b F2): modules started executing
+    under package-qualified names; without stripping the package prefix, every
+    logger would have become ``tpmshx.sjtu_tpmshx.*`` and name-anchored
+    consumers broke.
     """
     _configure_root()
     return logging.getLogger(f"{_ROOT_NAME}.{name.removeprefix('tm1.')}")

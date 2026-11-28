@@ -105,7 +105,7 @@ $tm1Python = Get-Content .venv-path -TotalCount 1
 | [applications/](applications/) | [GUI](applications/gui/)、[CLI](applications/cli/)、[快速设计](applications/design/)、[BO 优化](applications/optimization/)和[历史运行恢复](applications/execution/recovery.py)。 |
 | [development/](development/) | 数值与实验验证、诊断和开发工具。自动测试位于 [tests/python/](../tests/python/)。 |
 
-`python/shared.py` 作为零重复的导入别名解析器保留，确保本地 `.cache/` 论文与研究脚本中使用的历史路径（`tm1.shared.*` 与 `tm1.solvers.backends.cpp.*`）继续解析到规范模块所有者。
+`python/shared.py` 在当前 `tm1` 包根下以零重复方式将 `tm1.shared.*` 与 `tm1.solvers.backends.cpp.*` 别名路径解析至规范所有者；仍使用旧包根的本地脚本需更新导入或使用记录的原源码版本。
 GUI 启动实现在 [python/applications/gui/main.py](applications/gui/main.py)，CLI 启动实现在 [python/applications/cli/main.py](applications/cli/main.py)。
 包顶 [python/main.py](main.py)、[python/cli.py](cli.py) 和 [python/desktop.py](desktop.py) 保留短启动包装入口。
 使用 `python -m tm1.main` 或 `python -m tm1.cli`；计算代码直接调用上述四个入口。

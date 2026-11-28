@@ -212,7 +212,6 @@ The same executable's `--cli run ...` and `--cli solve ...` accept these three h
 - Appearance preferences: `SJTU-TPMSHX-TM1` under the system user configuration directory.
 - Sessions, presets, workspaces, and history: `SJTU-TPMSHX-TM1` under the system user data directory.
 - GUI optimization results: `SJTU-TPMSHX-TM1/opt_runs` under Documents. Run status shows the actual path.
-- Known user files in previous source directories are copied only when the destination file is absent. Originals stay.
 - Packaged model/UI resources are read-only. Explicit CSV/NPZ/image exports follow the save-dialog path.
 
 Ordinary computation, optimization, and Quick Design must finish their workers before closing the owning window or restarting. Cancellation is cooperative. It does not forcibly stop a thread before the numerical step ends. Optimization distinguishes normal completion, user cancellation, and execution failure. Valid candidates and run records already obtained stay.

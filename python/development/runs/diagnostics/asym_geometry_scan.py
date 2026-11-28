@@ -1,7 +1,7 @@
 """
 Phase 0 驱动：扫偏移 δ，量 ε_A/ε_B/A0/D_h/t/连通性，出 CSV + 闸门判定。
 
-纯几何，无 CFD。用法：python -m tm1.development.runs.diagnostics.asym_geometry_scan
+Geometry only, no CFD. Usage: python -m tm1.development.runs.diagnostics.asym_geometry_scan
 适用范围见 openspec/specs/asymmetric-porosity-2d/spec.zh-CN.md。
 """
 import csv

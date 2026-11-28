@@ -215,7 +215,6 @@ $env:TPMSHX_NATIVE_RESULT_LIBRARY = 'C:\absolute\path\tpmshx_result_shared.dll'
 - 外观偏好：系统用户配置目录下 `SJTU-TPMSHX-TM1`。
 - 会话、用户预设、工作区与历史：系统用户数据目录下 `SJTU-TPMSHX-TM1`。
 - GUI 优化结果：用户 Documents 下 `SJTU-TPMSHX-TM1/opt_runs`，运行状态显示实际路径。
-- 旧源码目录中的已知用户文件只在新位置缺少对应文件时复制，旧文件保留。
 - 程序包内模型与界面资源只读；用户显式导出的 CSV/NPZ/图像遵从保存对话框路径。
 
 普通计算、优化和快速设计均需先结束工作线程，再关闭所属窗口或重启软件。

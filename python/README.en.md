@@ -107,8 +107,8 @@ See [C++ builds](../docs/cpp-migration.md#native-geometry-core) for separate com
 | [applications](applications/) | [GUI](applications/gui/), [CLI](applications/cli/), [Quick Design](applications/design/), [Bayesian optimization](applications/optimization/), and [run recovery](applications/execution/recovery.py). |
 | [development](development/) | Validation, diagnostics, and developer tools. Automated tests live in [tests/python](../tests/python/). |
 
-`python/shared.py` stays as a zero-duplication import-alias resolver for local `.cache/` paper and research scripts.
-It resolves historical `tm1.shared.*` and `tm1.solvers.backends.cpp.*` paths to their canonical owners.
+`python/shared.py` resolves `tm1.shared.*` and `tm1.solvers.backends.cpp.*` aliases under the current `tm1` root to their canonical owners without code duplication.
+Old local scripts that use the previous package root must update their imports or use the recorded source revision.
 GUI startup lives in [python/applications/gui/main.py](applications/gui/main.py), and CLI startup lives in [python/applications/cli/main.py](applications/cli/main.py).
 Package-level [python/main.py](main.py), [python/cli.py](cli.py), and [python/desktop.py](desktop.py) keep short entry wrappers.
 Use `python -m tm1.main` or `python -m tm1.cli`; computation code calls the four entries above directly.
