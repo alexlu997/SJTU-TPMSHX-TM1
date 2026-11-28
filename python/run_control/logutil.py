@@ -156,10 +156,10 @@ def get_logger(name: str) -> logging.Logger:
     both package-qualified and relative subsystem names resolve to
     ``tm1.<subsystem>...``.
 
-    Historical failure record (2026-07-21, P1.8b F2): modules started executing
-    under package-qualified names; without stripping the package prefix, every
-    logger would have become ``tpmshx.sjtu_tpmshx.*`` and name-anchored
-    consumers broke.
+    Historical failure record (2026-07-21):
+    the taxonomy must not encode packaging history (P1.8b F2: modules now
+    execute under package-qualified names; without this, every logger would
+    have become ``tpmshx.sjtu_tpmshx.*`` and name-anchored consumers broke).
     """
     _configure_root()
     return logging.getLogger(f"{_ROOT_NAME}.{name.removeprefix('tm1.')}")
